@@ -66,9 +66,9 @@ export default function InputBar({
   const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
 
   return (
-    <div className="px-4 md:px-0 pb-4 pt-2">
+    <div className="px-4 md:px-0 pb-4 pt-2 animate-slide-up">
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-end gap-2 bg-input border border-input-border rounded-2xl px-4 py-3 transition-colors focus-within:border-accent/50">
+        <div className="flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/50 focus-within:shadow-md">
           <button
             className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
             title="Attach file"
@@ -103,7 +103,7 @@ export default function InputBar({
             </button>
 
             {modelOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50">
+              <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in">
                 {MODELS.map((model) => (
                   <button
                     key={model.id}
@@ -134,7 +134,7 @@ export default function InputBar({
             onClick={handleSubmit}
             disabled={!value.trim() || disabled}
             className="shrink-0 p-2 rounded-lg bg-accent hover:bg-accent-hover
-              text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg"
           >
             <Send size={16} />
           </button>

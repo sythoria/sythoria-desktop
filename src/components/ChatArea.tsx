@@ -22,7 +22,7 @@ function MessageBubble({ message }: { message: Message }) {
   if (isUser) {
     return (
       <div className="flex justify-end animate-fade-in">
-        <div className="max-w-[75%] bg-user-bubble rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed">
+        <div className="max-w-[75%] glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm">
           {message.content}
         </div>
       </div>
@@ -53,7 +53,7 @@ export default function ChatArea({ messages }: ChatAreaProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center select-none">
+      <div className="flex-1 flex flex-col items-center justify-center select-none animate-slide-up">
         <div className="flex flex-col items-center gap-3">
           <h1 className="text-4xl font-bold tracking-tight text-text-primary">
             Sythoria

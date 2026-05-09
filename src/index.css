@@ -1,24 +1,58 @@
 @import "tailwindcss";
 
 @theme {
-  --color-sidebar: #FFFFFF;
-  --color-chat: #F9F9F8;
-  --color-input: #FFFFFF;
-  --color-input-border: #E5E5E1;
-  --color-accent: #6366F1;
-  --color-accent-hover: #4F46E5;
-  --color-accent-soft: #6366F11A;
-  --color-text-primary: #18181B;
-  --color-text-secondary: #52525B;
-  --color-text-muted: #A1A1AA;
-  --color-user-bubble: #E5E5E1;
-  --color-hover: #F3F3F2;
-  --color-border: #E5E5E1;
-  --color-surface: #FFFFFF;
-  --font-sans: "JetBrains Mono", ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar: var(--theme-sidebar);
+  --color-chat: var(--theme-chat);
+  --color-input: var(--theme-input);
+  --color-input-border: var(--theme-input-border);
+  --color-accent: var(--theme-accent);
+  --color-accent-hover: var(--theme-accent-hover);
+  --color-accent-soft: var(--theme-accent-soft);
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-muted: var(--theme-text-muted);
+  --color-user-bubble: var(--theme-user-bubble);
+  --color-hover: var(--theme-hover);
+  --color-border: var(--theme-border);
+  --color-surface: var(--theme-surface);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
+  :root {
+    --theme-sidebar: #FFFFFF;
+    --theme-chat: #F9F9F8;
+    --theme-input: #FFFFFF;
+    --theme-input-border: #E5E5E1;
+    --theme-accent: #6366F1;
+    --theme-accent-hover: #4F46E5;
+    --theme-accent-soft: rgba(99, 102, 241, 0.1);
+    --theme-text-primary: #18181B;
+    --theme-text-secondary: #52525B;
+    --theme-text-muted: #A1A1AA;
+    --theme-user-bubble: #E5E5E1;
+    --theme-hover: #F3F3F2;
+    --theme-border: #E5E5E1;
+    --theme-surface: #FFFFFF;
+  }
+
+  .dark {
+    --theme-sidebar: #050505;
+    --theme-chat: #0A0A0A;
+    --theme-input: #0F0F11;
+    --theme-input-border: #222222;
+    --theme-accent: #8B5CF6; /* BridgeMind purple */
+    --theme-accent-hover: #7C3AED;
+    --theme-accent-soft: rgba(139, 92, 246, 0.15);
+    --theme-text-primary: #FAFAFA;
+    --theme-text-secondary: #A3A3A3;
+    --theme-text-muted: #52525B;
+    --theme-user-bubble: #1F1F22;
+    --theme-hover: #1A1A1D;
+    --theme-border: #222222;
+    --theme-surface: #0F0F11;
+  }
+
   * {
     margin: 0;
     padding: 0;
@@ -37,6 +71,13 @@
     color: var(--color-text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.4s ease, color 0.4s ease;
+  }
+  
+  .dark body {
+    background: radial-gradient(circle at top right, rgba(139, 92, 246, 0.08), transparent 40%),
+                radial-gradient(circle at bottom left, rgba(139, 92, 246, 0.05), transparent 40%),
+                var(--color-chat);
   }
 
   ::-webkit-scrollbar {
@@ -48,12 +89,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #D4D4D8;
+    background: var(--color-border);
     border-radius: 3px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #A1A1AA;
+    background: var(--color-text-muted);
   }
 }
 
@@ -75,16 +116,37 @@
 }
 
 .animate-fade-in {
-  animation: fade-in 0.3s ease-out forwards;
+  animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pulse-soft {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
 }
 
 .animate-pulse-soft {
-  animation: pulse-soft 2s ease-in-out infinite;
+  animation: pulse-soft 2.5s ease-in-out infinite;
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}
+
+.dark .glass-panel {
+  background: rgba(15, 15, 17, 0.6);
 }
 
 .markdown-body {
@@ -113,25 +175,32 @@
 .markdown-body h3 { font-size: 1rem; }
 
 .markdown-body code {
-  background: #F4F4F4;
+  background: var(--color-surface);
   padding: 0.15rem 0.4rem;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   font-size: 0.875rem;
   font-family: "JetBrains Mono", "Fira Code", monospace;
-  color: #4F46E5;
+  color: var(--color-accent);
 }
 
 .markdown-body pre {
-  background: #F4F4F4;
-  border: 1px solid #E5E5E1;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 1rem;
   margin: 0.75rem 0;
   overflow-x: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.dark .markdown-body pre {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .markdown-body pre code {
   background: none;
+  border: none;
   padding: 0;
   border-radius: 0;
   color: var(--color-text-primary);
@@ -153,22 +222,26 @@
   margin: 0.75rem 0;
   color: var(--color-text-secondary);
   font-style: italic;
+  background: var(--color-accent-soft);
+  border-radius: 0 8px 8px 0;
+  padding: 0.75rem 1rem;
 }
 
 .markdown-body a {
-  color: #4F46E5;
+  color: var(--color-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+  transition: color 0.2s;
 }
 
 .markdown-body a:hover {
-  color: #6366F1;
+  color: var(--color-accent-hover);
 }
 
 .markdown-body hr {
   border: none;
-  border-top: 1px solid #E5E5E1;
-  margin: 1rem 0;
+  border-top: 1px solid var(--color-border);
+  margin: 1.5rem 0;
 }
 
 .markdown-body table {
@@ -179,12 +252,12 @@
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid #E5E5E1;
+  border: 1px solid var(--color-border);
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
 .markdown-body th {
-  background: #F4F4F4;
+  background: var(--color-surface);
   font-weight: 600;
 }

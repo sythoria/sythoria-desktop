@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Settings as SettingsIcon, Moon, Sun, Sliders } from "lucide-react";
 import { MODELS } from "../types";
 
@@ -8,14 +8,26 @@ interface SettingsProps {
 }
 
 export default function Settings({ selectedModel, onModelChange }: SettingsProps) {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    return document.documentElement.classList.contains("dark");
+  });
   const [temperature, setTemperature] = useState(0.7);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
 
   const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden animate-slide-up">
       <header className="shrink-0 flex items-center gap-3 px-4 py-3 md:px-6 border-b border-border/50">
         <SettingsIcon size={18} className="text-text-muted" />
         <h2 className="text-sm font-medium text-text-secondary">
@@ -39,7 +51,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                 Appearance
               </h3>
             </div>
-            <div className="bg-surface border border-border rounded-xl p-4 space-y-4">
+            <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Dark Mode</p>
@@ -75,7 +87,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                 AI Configuration
               </h3>
             </div>
-            <div className="bg-surface border border-border rounded-xl p-4 space-y-4">
+            <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
               {/* Model Selector */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary block">
@@ -105,7 +117,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                         className="fixed inset-0 z-10"
                         onClick={() => setModelDropdownOpen(false)}
                       />
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden">
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in">
                         {MODELS.map((model) => (
                           <button
                             key={model.id}
@@ -189,7 +201,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
           </div>
 
           {/* About Section */}
-          <div className="bg-surface border border-border rounded-xl p-4">
+          <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-text-primary">Sythoria</p>
