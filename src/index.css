@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 @theme {
-  --color-sidebar: #0f0f0f;
-  --color-chat: #141414;
-  --color-input: #1e1e1e;
-  --color-input-border: #2a2a2a;
-  --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
-  --color-accent-soft: #7c3aed1a;
-  --color-text-primary: #e4e4e7;
-  --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
-  --color-user-bubble: #1e1e1e;
-  --color-hover: #1a1a1a;
-  --color-border: #222222;
-  --color-surface: #1a1a1a;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar: #FFFFFF;
+  --color-chat: #F9F9F8;
+  --color-input: #FFFFFF;
+  --color-input-border: #E5E5E1;
+  --color-accent: #6366F1;
+  --color-accent-hover: #4F46E5;
+  --color-accent-soft: #6366F11A;
+  --color-text-primary: #18181B;
+  --color-text-secondary: #52525B;
+  --color-text-muted: #A1A1AA;
+  --color-user-bubble: #E5E5E1;
+  --color-hover: #F3F3F2;
+  --color-border: #E5E5E1;
+  --color-surface: #FFFFFF;
+  --font-sans: "JetBrains Mono", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -48,12 +48,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #333;
+    background: #D4D4D8;
     border-radius: 3px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #444;
+    background: #A1A1AA;
   }
 }
 
@@ -113,17 +113,17 @@
 .markdown-body h3 { font-size: 1rem; }
 
 .markdown-body code {
-  background: #1a1a1a;
+  background: #F4F4F4;
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-size: 0.875rem;
   font-family: "JetBrains Mono", "Fira Code", monospace;
-  color: #c4b5fd;
+  color: #4F46E5;
 }
 
 .markdown-body pre {
-  background: #1a1a1a;
-  border: 1px solid #222;
+  background: #F4F4F4;
+  border: 1px solid #E5E5E1;
   border-radius: 8px;
   padding: 1rem;
   margin: 0.75rem 0;
@@ -156,18 +156,18 @@
 }
 
 .markdown-body a {
-  color: #a78bfa;
+  color: #4F46E5;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .markdown-body a:hover {
-  color: #c4b5fd;
+  color: #6366F1;
 }
 
 .markdown-body hr {
   border: none;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid #E5E5E1;
   margin: 1rem 0;
 }
 
@@ -179,12 +179,12 @@
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid #2a2a2a;
+  border: 1px solid #E5E5E1;
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
 .markdown-body th {
-  background: #1a1a1a;
+  background: #F4F4F4;
   font-weight: 600;
 }

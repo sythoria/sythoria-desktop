@@ -3,6 +3,7 @@ import { Menu } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
+import Settings from "./components/Settings";
 import type { Conversation, Message } from "./types";
 import { MODELS } from "./types";
 import "./index.css";
@@ -100,11 +101,6 @@ function App() {
     setActiveId(id);
     setSidebarOpen(false);
   }, [selectedModel]);
-
-  const handleSelect = useCallback((id: string) => {
-    setActiveId(id);
-    setSidebarOpen(false);
-  }, []);
 
   const simulateStreaming = useCallback(
     (convId: string, fullText: string) => {
@@ -211,42 +207,60 @@ function App() {
     [activeId, selectedModel, simulateStreaming]
   );
 
-  const handleSettingsClick = useCallback(() => {}, []);
+  const [view, setView] = useState<"chat" | "settings">("chat");
+
+  const handleSettingsClick = useCallback(() => {
+    setView("settings");
+    setSidebarOpen(false);
+  }, []);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveId(id);
+    setView("chat");
+    setSidebarOpen(false);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-chat">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
-        onSelect={handleSelect}
+        onSelect={handleSelectConversation}
         onNewChat={handleNewChat}
         onSettingsClick={handleSettingsClick}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-chat">
-        <header className="shrink-0 flex items-center gap-3 px-4 py-3 md:px-6 border-b border-border/50">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
-          >
-            <Menu size={18} />
-          </button>
-          <h2 className="text-sm font-medium text-text-secondary truncate">
-            {activeConversation?.title ?? "Sythoria"}
-          </h2>
-        </header>
-
-        <ChatArea messages={messages} />
-
-        <InputBar
-          onSend={handleSend}
+      {view === "settings" ? (
+        <Settings
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
-          disabled={streamingRef.current}
         />
-      </main>
+      ) : (
+        <main className="flex-1 flex flex-col min-w-0 bg-chat">
+          <header className="shrink-0 flex items-center gap-3 px-4 py-3 md:px-6 border-b border-border/50">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+            >
+              <Menu size={18} />
+            </button>
+            <h2 className="text-sm font-medium text-text-secondary truncate">
+              {activeConversation?.title ?? "Sythoria"}
+            </h2>
+          </header>
+
+          <ChatArea messages={messages} />
+
+          <InputBar
+            onSend={handleSend}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            disabled={streamingRef.current}
+          />
+        </main>
+      )}
     </div>
   );
 }
