@@ -1,89 +1,26 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { Menu } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import type { Conversation, Message } from "./types";
-import { MODELS } from "./types";
+import { MODELS, getProviderConfig } from "./types";
 import "./index.css";
 
 function generateId() {
   return Math.random().toString(36).substring(2, 11);
 }
 
-const DEMO_RESPONSE = `Here's a quick overview of what I can help you with:
-
-## Capabilities
-
-- **Code generation** — Write, review, and debug code in any language
-- **Analysis** — Break down complex problems step by step
-- **Creative writing** — Drafts, summaries, and rewrites
-- **Research** — Synthesize information and explain concepts
-
-### Example code
-
-\`\`\`python
-def fibonacci(n: int) -> list[int]:
-    fib = [0, 1]
-    for i in range(2, n):
-        fib.append(fib[-1] + fib[-2])
-    return fib[:n]
-\`\`\`
-
-> "The best way to predict the future is to invent it." — Alan Kay
-
-Feel free to ask me anything. I'm here to help.`;
-
 function App() {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: "demo-1",
-      title: "Getting started with Sythoria",
-      timestamp: new Date(),
-      messages: [],
-      model: "claude-4-sonnet",
-    },
-    {
-      id: "demo-2",
-      title: "Code review for auth module",
-      timestamp: new Date(Date.now() - 3600000),
-      messages: [],
-      model: "gpt-4o",
-    },
-    {
-      id: "demo-3",
-      title: "Explain transformer architecture",
-      timestamp: new Date(Date.now() - 86400000),
-      messages: [],
-      model: "gemini-2.5-pro",
-    },
-    {
-      id: "demo-4",
-      title: "Draft project proposal",
-      timestamp: new Date(Date.now() - 86400000 * 3),
-      messages: [],
-      model: "claude-4-sonnet",
-    },
-    {
-      id: "demo-5",
-      title: "Debug React useEffect hook",
-      timestamp: new Date(Date.now() - 86400000 * 5),
-      messages: [],
-      model: "gpt-4o",
-    },
-    {
-      id: "demo-6",
-      title: "Plan database migration strategy",
-      timestamp: new Date(Date.now() - 86400000 * 10),
-      messages: [],
-      model: "llama3.1",
-    },
-  ]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  const [temperature, setTemperature] = useState(0.7);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const streamingRef = useRef(false);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const activeConversation = conversations.find((c) => c.id === activeId) ?? null;
   const messages = activeConversation?.messages ?? [];
@@ -102,63 +39,17 @@ function App() {
     setSidebarOpen(false);
   }, [selectedModel]);
 
-  const simulateStreaming = useCallback(
-    (convId: string, fullText: string) => {
-      streamingRef.current = true;
-      const words = fullText.split(" ");
-      let idx = 0;
-
-      const interval = setInterval(() => {
-        idx++;
-        if (idx > words.length) {
-          clearInterval(interval);
-          streamingRef.current = false;
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== convId) return c;
-              const updated = [...c.messages];
-              const last = updated[updated.length - 1];
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  isStreaming: false,
-                };
-              }
-              return { ...c, messages: updated };
-            })
-          );
-          return;
-        }
-
-        const partial = words.slice(0, idx).join(" ");
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== convId) return c;
-            const updated = [...c.messages];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
-                ...last,
-                content: partial,
-              };
-            }
-            return { ...c, messages: updated };
-          })
-        );
-      }, 30);
-    },
-    []
-  );
-
   const handleSend = useCallback(
-    (text: string) => {
+    async (text: string) => {
+      if (isStreaming) return;
+
       let convId = activeId;
 
       if (!convId) {
         const id = generateId();
         const conv: Conversation = {
           id,
-          title: text.length > 40 ? text.slice(0, 40) + "…" : text,
+          title: text.length > 40 ? text.slice(0, 40) + "\u2026" : text,
           timestamp: new Date(),
           messages: [],
           model: selectedModel,
@@ -184,6 +75,8 @@ function App() {
       };
 
       const finalId = convId;
+      const model = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
+      const providerConfig = getProviderConfig(model.provider);
 
       setConversations((prev) =>
         prev.map((c) => {
@@ -194,7 +87,7 @@ function App() {
             title:
               c.messages.length === 0
                 ? text.length > 40
-                  ? text.slice(0, 40) + "…"
+                  ? text.slice(0, 40) + "\u2026"
                   : text
                 : c.title,
             messages: [...c.messages, userMsg, assistantMsg],
@@ -202,9 +95,97 @@ function App() {
         })
       );
 
-      setTimeout(() => simulateStreaming(finalId, DEMO_RESPONSE), 500);
+      setIsStreaming(true);
+
+      try {
+        const apiUrl = providerConfig?.apiBase || model.apiBase;
+        const apiKey = providerConfig?.apiKey || "";
+
+        const chatMessages = [
+          ...conversations
+            .find((c) => c.id === finalId)
+            ?.messages.map((m) => ({ role: m.role, content: m.content })) ?? [],
+          { role: "user", content: text },
+        ];
+
+        const unlistenChunk = await listen<string>("chat-stream-chunk", (event) => {
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== finalId) return c;
+              const updated = [...c.messages];
+              const last = updated[updated.length - 1];
+              if (last && last.role === "assistant") {
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: last.content + event.payload,
+                };
+              }
+              return { ...c, messages: updated };
+            })
+          );
+        });
+
+        const unlistenDone = await listen("chat-stream-done", () => {
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id !== finalId) return c;
+              const updated = [...c.messages];
+              const last = updated[updated.length - 1];
+              if (last && last.role === "assistant") {
+                updated[updated.length - 1] = {
+                  ...last,
+                  isStreaming: false,
+                };
+              }
+              return { ...c, messages: updated };
+            })
+          );
+          setIsStreaming(false);
+        });
+
+        await invoke("chat_stream", {
+          apiUrl,
+          apiKey,
+          model: providerConfig?.customModel || model.id,
+          messages: chatMessages,
+          temperature,
+        });
+
+        unlistenChunk();
+        unlistenDone();
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== finalId) return c;
+            const updated = [...c.messages];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant" && last.isStreaming) {
+              updated[updated.length - 1] = { ...last, isStreaming: false };
+            }
+            return { ...c, messages: updated };
+          })
+        );
+      } catch (err) {
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== finalId) return c;
+            const updated = [...c.messages];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant") {
+              updated[updated.length - 1] = {
+                ...last,
+                content: `**Error:** ${err}`,
+                isStreaming: false,
+              };
+            }
+            return { ...c, messages: updated };
+          })
+        );
+      } finally {
+        setIsStreaming(false);
+      }
     },
-    [activeId, selectedModel, simulateStreaming]
+    [activeId, selectedModel, temperature, isStreaming, conversations]
   );
 
   const [view, setView] = useState<"chat" | "settings">("chat");
@@ -236,6 +217,8 @@ function App() {
         <Settings
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
+          temperature={temperature}
+          onTemperatureChange={setTemperature}
         />
       ) : (
         <main className="flex-1 flex flex-col min-w-0 bg-chat">
@@ -257,7 +240,7 @@ function App() {
             onSend={handleSend}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
-            disabled={streamingRef.current}
+            disabled={isStreaming}
           />
         </main>
       )}
