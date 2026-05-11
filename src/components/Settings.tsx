@@ -1,18 +1,46 @@
 import { useState, useEffect } from "react";
-import { Settings as SettingsIcon, Moon, Sun, Sliders } from "lucide-react";
-import { MODELS } from "../types";
+import {
+  Settings as SettingsIcon,
+  Moon,
+  Sun,
+  Sliders,
+  Eye,
+  EyeOff,
+  Check,
+} from "lucide-react";
+import { MODELS, loadProviderConfigs, saveProviderConfigs, type ProviderConfig } from "../types";
 
 interface SettingsProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
+  temperature: number;
+  onTemperatureChange: (t: number) => void;
 }
 
-export default function Settings({ selectedModel, onModelChange }: SettingsProps) {
+const DEFAULT_CONFIGS: ProviderConfig[] = [
+  { provider: "OpenAI", apiKey: "", apiBase: "https://api.openai.com/v1/chat/completions" },
+  { provider: "Anthropic", apiKey: "", apiBase: "https://api.anthropic.com/v1/messages" },
+  { provider: "Google", apiKey: "", apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
+  { provider: "NVIDIA", apiKey: "", apiBase: "https://integrate.api.nvidia.com/v1/chat/completions", customModel: "meta/llama-3.3-70b-instruct" },
+  { provider: "Ollama", apiKey: "", apiBase: "http://localhost:11434/v1/chat/completions" },
+];
+
+export default function Settings({
+  selectedModel,
+  onModelChange,
+  temperature,
+  onTemperatureChange,
+}: SettingsProps) {
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains("dark");
   });
-  const [temperature, setTemperature] = useState(0.7);
+  const [configs, setConfigs] = useState<ProviderConfig[]>(() => {
+    const saved = loadProviderConfigs();
+    if (saved.length > 0) return saved;
+    return DEFAULT_CONFIGS;
+  });
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (darkMode) {
@@ -24,20 +52,31 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
     }
   }, [darkMode]);
 
+  useEffect(() => {
+    saveProviderConfigs(configs);
+  }, [configs]);
+
+  const updateConfig = (provider: string, field: keyof ProviderConfig, value: string) => {
+    setConfigs((prev) =>
+      prev.map((c) => (c.provider === provider ? { ...c, [field]: value } : c))
+    );
+  };
+
   const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
+
+  const toggleKeyVisibility = (provider: string) => {
+    setShowKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden animate-slide-up">
       <header className="shrink-0 flex items-center gap-3 px-4 py-3 md:px-6 border-b border-border/50">
         <SettingsIcon size={18} className="text-text-muted" />
-        <h2 className="text-sm font-medium text-text-secondary">
-          Settings
-        </h2>
+        <h2 className="text-sm font-medium text-text-secondary">Settings</h2>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
-          {/* Dark Mode Section */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-md bg-accent-soft">
@@ -47,24 +86,18 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                   <Sun size={16} className="text-accent" />
                 )}
               </div>
-              <h3 className="text-sm font-semibold text-text-primary">
-                Appearance
-              </h3>
+              <h3 className="text-sm font-semibold text-text-primary">Appearance</h3>
             </div>
             <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-text-primary">Dark Mode</p>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    Toggle between light and dark themes
-                  </p>
+                  <p className="text-xs text-text-muted mt-0.5">Toggle between light and dark themes</p>
                 </div>
                 <button
                   onClick={() => setDarkMode(!darkMode)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${
-                    darkMode
-                      ? "bg-accent"
-                      : "bg-input-border"
+                    darkMode ? "bg-accent" : "bg-input-border"
                   }`}
                 >
                   <span
@@ -77,25 +110,17 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
             </div>
           </div>
 
-          {/* AI Model Section */}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-md bg-accent-soft">
                 <Sliders size={16} className="text-accent" />
               </div>
-              <h3 className="text-sm font-semibold text-text-primary">
-                AI Configuration
-              </h3>
+              <h3 className="text-sm font-semibold text-text-primary">AI Configuration</h3>
             </div>
             <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-              {/* Model Selector */}
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary block">
-                  AI Model
-                </label>
-                <p className="text-xs text-text-muted mb-2">
-                  Choose the model for new conversations
-                </p>
+                <label className="text-sm font-medium text-text-primary block">AI Model</label>
+                <p className="text-xs text-text-muted mb-2">Choose the model for new conversations</p>
                 <div className="relative">
                   <button
                     onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
@@ -113,10 +138,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                   </button>
                   {modelDropdownOpen && (
                     <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setModelDropdownOpen(false)}
-                      />
+                      <div className="fixed inset-0 z-10" onClick={() => setModelDropdownOpen(false)} />
                       <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in">
                         {MODELS.map((model) => (
                           <button
@@ -133,20 +155,9 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                           >
                             <div className="flex flex-col items-start">
                               <span className="font-medium">{model.name}</span>
-                              <span className="text-[10px] text-text-muted">
-                                {model.provider}
-                              </span>
+                              <span className="text-[10px] text-text-muted">{model.provider}</span>
                             </div>
-                            {selectedModel === model.id && (
-                              <svg
-                                className="w-4 h-4 text-accent shrink-0"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
+                            {selectedModel === model.id && <Check size={14} className="text-accent shrink-0" />}
                           </button>
                         ))}
                       </div>
@@ -155,12 +166,9 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                 </div>
               </div>
 
-              {/* Temperature Slider */}
               <div className="space-y-3 pt-2 border-t border-border/50">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-text-primary">
-                    Temperature
-                  </label>
+                  <label className="text-sm font-medium text-text-primary">Temperature</label>
                   <span className="text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono">
                     {temperature.toFixed(1)}
                   </span>
@@ -181,7 +189,7 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
                       max="2"
                       step="0.1"
                       value={temperature}
-                      onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                      onChange={(e) => onTemperatureChange(parseFloat(e.target.value))}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     />
                     <div
@@ -200,19 +208,70 @@ export default function Settings({ selectedModel, onModelChange }: SettingsProps
             </div>
           </div>
 
-          {/* About Section */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-md bg-accent-soft">
+                <SettingsIcon size={16} className="text-accent" />
+              </div>
+              <h3 className="text-sm font-semibold text-text-primary">API Keys</h3>
+            </div>
+            <div className="bg-surface border border-border rounded-xl p-4 space-y-5 shadow-sm">
+              {configs.map((cfg) => (
+                <div key={cfg.provider} className="space-y-2">
+                  <label className="text-sm font-medium text-text-primary block">
+                    {cfg.provider}
+                  </label>
+                  {cfg.provider !== "Ollama" ? (
+                    <div className="relative">
+                      <input
+                        type={showKeys[cfg.provider] ? "text" : "password"}
+                        value={cfg.apiKey}
+                        onChange={(e) => updateConfig(cfg.provider, "apiKey", e.target.value)}
+                        placeholder={`Enter ${cfg.provider} API key`}
+                        className="w-full px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                      />
+                      <button
+                        onClick={() => toggleKeyVisibility(cfg.provider)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                      >
+                        {showKeys[cfg.provider] ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-text-muted">No API key required for local Ollama</p>
+                  )}
+                <input
+                  type="text"
+                  value={cfg.apiBase}
+                  onChange={(e) => updateConfig(cfg.provider, "apiBase", e.target.value)}
+                  placeholder="API base URL"
+                  className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+                />
+                {cfg.provider === "NVIDIA" && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-text-muted">Model ID (e.g. meta/llama-3.3-70b-instruct)</p>
+                    <input
+                      type="text"
+                      value={cfg.customModel ?? ""}
+                      onChange={(e) => updateConfig(cfg.provider, "customModel", e.target.value)}
+                      placeholder="meta/llama-3.3-70b-instruct"
+                      className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+                    />
+                  </div>
+                )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-text-primary">Sythoria</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Version 1.0.0
-                </p>
+                <p className="text-xs text-text-muted mt-0.5">Version 1.0.0</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted">
-                  {currentModel.name}
-                </span>
+                <span className="text-xs text-text-muted">{currentModel.name}</span>
               </div>
             </div>
           </div>
