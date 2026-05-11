@@ -4,7 +4,9 @@ import {
   MessageSquare,
   X,
 } from "lucide-react";
-import type { Conversation } from "../types";
+import { useMemo } from "react";
+import type { Conversation, ConnectionStatus } from "../types";
+import { STATUS_COLORS } from "../types";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -12,8 +14,11 @@ interface SidebarProps {
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onSettingsClick: () => void;
+  onDeleteChat: (id: string) => void;
+  onRenameChat: (id: string, newTitle: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  connectionStatus: ConnectionStatus;
 }
 
 function groupConversations(conversations: Conversation[]) {
@@ -46,10 +51,13 @@ export default function Sidebar({
   onSelect,
   onNewChat,
   onSettingsClick,
+  onDeleteChat,
+  onRenameChat,
   isOpen,
   onClose,
+  connectionStatus,
 }: SidebarProps) {
-  const groups = groupConversations(conversations);
+  const groups = useMemo(() => groupConversations(conversations), [conversations]);
 
   return (
     <>
@@ -99,24 +107,49 @@ export default function Sidebar({
               <p className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
                 {group.label}
               </p>
-              {group.items.map((conv) => (
-                <button
-                  key={conv.id}
-                  onClick={() => onSelect(conv.id)}
-                  className={`
-                    w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
-                    text-sm text-left transition-colors duration-100
-                    ${
-                      activeId === conv.id
-                        ? "bg-accent-soft text-accent"
-                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                    }
-                  `}
-                >
-                  <MessageSquare size={14} className="shrink-0" />
-                  <span className="truncate">{conv.title}</span>
-                </button>
-              ))}
+               {group.items.map((conv) => (
+                 <div key={conv.id} className="relative">
+                   <button
+                     onClick={() => onSelect(conv.id)}
+                     className={`
+                       w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
+                       text-sm text-left transition-colors duration-100
+                       ${
+                         activeId === conv.id
+                           ? "bg-accent-soft text-accent"
+                           : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                       }
+                     `}
+                   >
+                     <MessageSquare size={14} className="shrink-0" />
+                     <span className="truncate">{conv.title}</span>
+                   </button>
+                   <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1">
+                     <button
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         onRenameChat(conv.id, prompt("Enter new chat name:", conv.title) || conv.title);
+                       }}
+                       className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors text-[10px]"
+                       title="Rename chat"
+                     >
+                       <Settings size={12} />
+                     </button>
+                     <button
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         if (confirm("Are you sure you want to delete this chat?")) {
+                           onDeleteChat(conv.id);
+                         }
+                       }}
+                       className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors text-[10px]"
+                       title="Delete chat"
+                     >
+                       <X size={12} />
+                     </button>
+                   </div>
+                 </div>
+               ))}
             </div>
           ))}
 
@@ -127,7 +160,11 @@ export default function Sidebar({
           )}
         </nav>
 
-        <div className="px-3 py-3 border-t border-border">
+        <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
+          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-text-muted">
+            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
+            <span className="capitalize">{connectionStatus}</span>
+          </div>
           <button
             onClick={onSettingsClick}
             className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg

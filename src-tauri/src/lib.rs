@@ -1,3 +1,5 @@
+mod ws_handler;
+
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -179,11 +181,72 @@ async fn chat_stream(
     Ok(full_content)
 }
 
+#[tauri::command]
+async fn ws_chat(
+    url: String,
+    api_key: Option<String>,
+    model: String,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let config = ws_handler::WsConfig {
+        url,
+        api_key,
+        model,
+    };
+    ws_handler::ws_chat_stream(config, app).await
+}
+
+#[tauri::command]
+async fn ws_authenticate(
+    username: String,
+    api_key: String,
+    server_url: String,
+) -> Result<String, String> {
+    let client = Client::new();
+    let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "username": username,
+        "api_key": api_key,
+    });
+
+    let resp = client
+        .post(&auth_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Auth request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".into());
+        return Err(format!("Auth error {}: {}", status, text));
+    }
+
+    let token: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    Ok(token["token"]
+        .as_str()
+        .unwrap_or("authenticated")
+        .to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![chat_completion, chat_stream])
+        .invoke_handler(tauri::generate_handler![
+            chat_completion,
+            chat_stream,
+            ws_authenticate,
+            ws_chat
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

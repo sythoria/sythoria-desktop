@@ -52,6 +52,12 @@ export const MODELS: Model[] = [
     provider: "NVIDIA",
     apiBase: "https://integrate.api.nvidia.com/v1/chat/completions",
   },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    provider: "OpenRouter",
+    apiBase: "https://openrouter.ai/api/v1/chat/completions",
+  },
 ];
 
 export type ProviderConfig = {
@@ -59,6 +65,22 @@ export type ProviderConfig = {
   apiKey: string;
   apiBase: string;
   customModel?: string;
+};
+
+export type AuthState = {
+  isAuthenticated: boolean;
+  username: string;
+  serverUrl: string;
+  token: string;
+};
+
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export const STATUS_COLORS: Record<ConnectionStatus, string> = {
+  disconnected: "bg-gray-400",
+  connecting: "bg-yellow-400 animate-pulse",
+  connected: "bg-green-500",
+  error: "bg-red-500",
 };
 
 const STORAGE_KEY = "sythoria-provider-configs";

@@ -15,6 +15,8 @@ interface SettingsProps {
   onModelChange: (model: string) => void;
   temperature: number;
   onTemperatureChange: (t: number) => void;
+  providerConfigs: Record<string, string>;
+  setProviderConfigs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }
 
 const DEFAULT_CONFIGS: ProviderConfig[] = [
@@ -23,6 +25,7 @@ const DEFAULT_CONFIGS: ProviderConfig[] = [
   { provider: "Google", apiKey: "", apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
   { provider: "NVIDIA", apiKey: "", apiBase: "https://integrate.api.nvidia.com/v1/chat/completions", customModel: "meta/llama-3.3-70b-instruct" },
   { provider: "Ollama", apiKey: "", apiBase: "http://localhost:11434/v1/chat/completions" },
+  { provider: "OpenRouter", apiKey: "", apiBase: "https://openrouter.ai/api/v1/chat/completions" },
 ];
 
 export default function Settings({
@@ -30,6 +33,8 @@ export default function Settings({
   onModelChange,
   temperature,
   onTemperatureChange,
+  providerConfigs,
+  setProviderConfigs,
 }: SettingsProps) {
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains("dark");
@@ -52,9 +57,28 @@ export default function Settings({
     }
   }, [darkMode]);
 
+  // Sync provider configs from App component
   useEffect(() => {
+    // Convert providerConfigs record to ProviderConfig[] format
+    const updatedConfigs = configs.map(config => ({
+      ...config,
+      apiKey: providerConfigs[config.provider] || config.apiKey
+    }));
+    setConfigs(updatedConfigs);
+  }, [providerConfigs, configs]);
+
+  // Save provider configs to App component when they change
+  useEffect(() => {
+    // Convert ProviderConfig[] to providerConfigs record
+    const configsRecord: Record<string, string> = {};
+    configs.forEach(config => {
+      configsRecord[config.provider] = config.apiKey;
+    });
+    setProviderConfigs(configsRecord);
+    
+    // Also save to localStorage for persistence
     saveProviderConfigs(configs);
-  }, [configs]);
+  }, [configs, setProviderConfigs]);
 
   const updateConfig = (provider: string, field: keyof ProviderConfig, value: string) => {
     setConfigs((prev) =>

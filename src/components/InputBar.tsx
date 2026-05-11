@@ -5,13 +5,15 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
-import { MODELS } from "../types";
+import { MODELS, STATUS_COLORS } from "../types";
+import type { ConnectionStatus } from "../types";
 
 interface InputBarProps {
   onSend: (message: string) => void;
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
+  connectionStatus: ConnectionStatus;
 }
 
 export default function InputBar({
@@ -19,6 +21,7 @@ export default function InputBar({
   selectedModel,
   onModelChange,
   disabled,
+  connectionStatus,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -95,6 +98,7 @@ export default function InputBar({
                 text-xs text-text-muted hover:text-text-secondary hover:bg-hover
                 transition-colors whitespace-nowrap"
             >
+              <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
               {currentModel.name}
               <ChevronDown
                 size={12}
@@ -116,7 +120,10 @@ export default function InputBar({
                       transition-colors"
                   >
                     <div className="flex flex-col items-start">
-                      <span>{model.name}</span>
+                      <span className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
+                        {model.name}
+                      </span>
                       <span className="text-[10px] text-text-muted">
                         {model.provider}
                       </span>
