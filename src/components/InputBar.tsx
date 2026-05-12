@@ -5,10 +5,11 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
-import { MODELS, STATUS_COLORS } from "../types";
+import { STATUS_COLORS, ModelConfig } from "../types";
 import type { ConnectionStatus } from "../types";
 
 interface InputBarProps {
+  models: ModelConfig[];
   onSend: (message: string) => void;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -17,6 +18,7 @@ interface InputBarProps {
 }
 
 export default function InputBar({
+  models,
   onSend,
   selectedModel,
   onModelChange,
@@ -66,7 +68,7 @@ export default function InputBar({
     }
   };
 
-  const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
+  const currentModel = models.find((m) => m.id === selectedModel) ?? models[0];
 
   return (
     <div className="px-4 md:px-0 pb-4 pt-2">
@@ -99,7 +101,7 @@ export default function InputBar({
                 transition-colors whitespace-nowrap"
             >
               <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
-              {currentModel.name}
+              {currentModel?.name || "No Model"}
               <ChevronDown
                 size={12}
                 className={`transition-transform ${modelOpen ? "rotate-180" : ""}`}
@@ -107,8 +109,8 @@ export default function InputBar({
             </button>
 
             {modelOpen && (
-              <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in">
-                {MODELS.map((model) => (
+              <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in max-h-64 overflow-y-auto">
+                {models.map((model) => (
                   <button
                     key={model.id}
                     onClick={() => {
@@ -124,12 +126,12 @@ export default function InputBar({
                         <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
                         {model.name}
                       </span>
-                      <span className="text-[10px] text-text-muted">
-                        {model.provider}
+                      <span className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap" style={{ maxWidth: '140px' }} title={model.apiBase}>
+                        {model.apiBase.replace(/^https?:\/\//, '').split('/')[0]}
                       </span>
                     </div>
                     {selectedModel === model.id && (
-                      <Check size={14} className="text-accent" />
+                      <Check size={14} className="text-accent shrink-0" />
                     )}
                   </button>
                 ))}

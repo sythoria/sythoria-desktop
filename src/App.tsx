@@ -8,8 +8,8 @@ import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
 import { Modal } from "./components/ui/Modal";
-import type { Conversation, Message, ConnectionStatus } from "./types";
-import { MODELS, getProviderConfig } from "./types";
+import type { Conversation, Message, ConnectionStatus, ModelConfig } from "./types";
+import { loadModelConfigs, saveModelConfigs } from "./types";
 import "./index.css";
 
 function generateId() {
@@ -24,12 +24,12 @@ type View = "chat" | "settings";
 function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
+  const [models, setModels] = useState<ModelConfig[]>(loadModelConfigs);
+  const [selectedModel, setSelectedModel] = useState(models[0]?.id || "");
   const [temperature, setTemperature] = useState(0.7);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
-  const [providerConfigs, setProviderConfigs] = useState<Record<string, string>>({});
   const [hasStarted, setHasStarted] = useState(false);
   const [view, setView] = useState<View>("chat");
   const [showRenameModal, setShowRenameModal] = useState(false);
@@ -43,15 +43,6 @@ function App() {
   const messages = activeConversation?.messages ?? [];
 
   useEffect(() => {
-    const savedConfigs = localStorage.getItem("provider-api-keys");
-    if (savedConfigs) {
-      try {
-        setProviderConfigs(JSON.parse(savedConfigs));
-      } catch (e) {
-        console.error("Failed to parse provider configs", e);
-      }
-    }
-
     const savedConversations = localStorage.getItem("sythoria-conversations");
     if (savedConversations) {
       try {
@@ -73,8 +64,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("provider-api-keys", JSON.stringify(providerConfigs));
-  }, [providerConfigs]);
+    saveModelConfigs(models);
+    if (!models.find(m => m.id === selectedModel) && models.length > 0) {
+      setSelectedModel(models[0].id);
+    }
+  }, [models, selectedModel]);
 
   useEffect(() => {
     if (!hasStarted) return;
@@ -168,8 +162,12 @@ function App() {
       };
 
       const finalId = convId;
-      const model = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
-      const providerConfig = getProviderConfig(model.provider);
+      const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+
+      if (!modelConfig) {
+         console.error("No model configuration selected");
+         return;
+      }
 
       setConversations((prev) =>
         prev.map((c) => {
@@ -191,8 +189,8 @@ function App() {
       setIsStreaming(true);
 
       try {
-        const apiUrl = providerConfig?.apiBase || model.apiBase;
-        const apiKey = providerConfigs[model.provider] || "";
+        const apiUrl = modelConfig.apiBase;
+        const apiKey = modelConfig.apiKey;
 
         const unlistenChunk = await listen<string>("chat-stream-chunk", (event) => {
           setConversations((prev) =>
@@ -233,7 +231,7 @@ function App() {
           await invoke("chat_stream", {
             apiUrl,
             apiKey,
-            model: providerConfig?.customModel || model.id,
+            model: modelConfig.modelId,
             messages: [
               ...(conversations.find((c) => c.id === finalId)?.messages.map((m) => ({
                 role: m.role,
@@ -279,7 +277,7 @@ function App() {
         setIsStreaming(false);
       }
     },
-    [activeId, selectedModel, temperature, isStreaming, conversations, providerConfigs]
+    [activeId, selectedModel, temperature, isStreaming, conversations, models]
   );
 
   useEffect(() => {
@@ -343,12 +341,12 @@ function App() {
 
       {view === "settings" ? (
         <Settings
+          models={models}
+          setModels={setModels}
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           temperature={temperature}
           onTemperatureChange={setTemperature}
-          providerConfigs={providerConfigs}
-          setProviderConfigs={setProviderConfigs}
           onBack={handleBackToChat}
           onCreateChat={() => {
             const newId = handleNewChat();
@@ -378,6 +376,7 @@ function App() {
           <ChatArea messages={messages} connectionStatus={connectionStatus} />
 
           <InputBar
+            models={models}
             onSend={handleSend}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}

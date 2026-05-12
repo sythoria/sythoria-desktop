@@ -11,61 +11,52 @@ export interface Conversation {
   title: string;
   timestamp: Date;
   messages: Message[];
-  model: string;
+  model: string; // The ID of the ModelConfig
 }
 
-export type Model = {
+export interface ModelConfig {
   id: string;
   name: string;
-  provider: string;
   apiBase: string;
-};
+  apiKey: string;
+  modelId: string;
+  provider?: string;
+}
 
-export const MODELS: Model[] = [
+export const DEFAULT_MODELS: ModelConfig[] = [
   {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    provider: "OpenAI",
+    id: "default-gpt-4o",
+    name: "GPT-4o (OpenAI)",
     apiBase: "https://api.openai.com/v1/chat/completions",
+    apiKey: "",
+    modelId: "gpt-4o",
+    provider: "OpenAI",
   },
   {
-    id: "claude-4-sonnet",
-    name: "Claude 4 Sonnet",
-    provider: "Anthropic",
+    id: "default-claude-3-5-sonnet",
+    name: "Claude 3.5 Sonnet",
     apiBase: "https://api.anthropic.com/v1/messages",
+    apiKey: "",
+    modelId: "claude-3-5-sonnet-20240620",
+    provider: "Anthropic",
   },
   {
-    id: "gemini-2.5-pro",
+    id: "default-gemini-2.5-pro",
     name: "Gemini 2.5 Pro",
-    provider: "Google",
     apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    apiKey: "",
+    modelId: "gemini-2.5-pro",
+    provider: "Google Gemini",
   },
   {
-    id: "llama3.1",
-    name: "Llama 3.1",
-    provider: "Ollama",
+    id: "default-llama3.1",
+    name: "Llama 3.1 (Ollama)",
     apiBase: "http://localhost:11434/v1/chat/completions",
-  },
-  {
-    id: "nvidia-nim",
-    name: "NVIDIA NIM",
-    provider: "NVIDIA",
-    apiBase: "https://integrate.api.nvidia.com/v1/chat/completions",
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    provider: "OpenRouter",
-    apiBase: "https://openrouter.ai/api/v1/chat/completions",
+    apiKey: "",
+    modelId: "llama3.1",
+    provider: "Ollama (Local)",
   },
 ];
-
-export type ProviderConfig = {
-  provider: string;
-  apiKey: string;
-  apiBase: string;
-  customModel?: string;
-};
 
 export type AuthState = {
   isAuthenticated: boolean;
@@ -83,42 +74,26 @@ export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   error: "bg-red-500",
 };
 
-const STORAGE_KEY = "provider-api-keys";
+const STORAGE_KEY = "sythoria-model-configs";
 
-export function loadProviderConfigs(): ProviderConfig[] {
+export function loadModelConfigs(): ModelConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (typeof parsed === "object" && !Array.isArray(parsed)) {
-        return DEFAULT_PROVIDER_CONFIGS.map((cfg) => ({
-          ...cfg,
-          apiKey: parsed[cfg.provider] || "",
-        }));
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
       }
-      if (Array.isArray(parsed)) return parsed;
     }
   } catch {}
-  return DEFAULT_PROVIDER_CONFIGS;
+  return DEFAULT_MODELS;
 }
 
-export function saveProviderConfigs(configs: ProviderConfig[]) {
-  const record: Record<string, string> = {};
-  configs.forEach((cfg) => {
-    record[cfg.provider] = cfg.apiKey;
-  });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
+export function saveModelConfigs(configs: ModelConfig[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
 }
 
-export function getProviderConfig(provider: string): ProviderConfig | undefined {
-  return loadProviderConfigs().find((c) => c.provider === provider);
+export function getModelConfig(id: string): ModelConfig | undefined {
+  return loadModelConfigs().find((c) => c.id === id);
 }
 
-export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
-  { provider: "OpenAI", apiKey: "", apiBase: "https://api.openai.com/v1/chat/completions" },
-  { provider: "Anthropic", apiKey: "", apiBase: "https://api.anthropic.com/v1/messages" },
-  { provider: "Google", apiKey: "", apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
-  { provider: "NVIDIA", apiKey: "", apiBase: "https://integrate.api.nvidia.com/v1/chat/completions", customModel: "meta/llama-3.3-70b-instruct" },
-  { provider: "Ollama", apiKey: "", apiBase: "http://localhost:11434/v1/chat/completions" },
-  { provider: "OpenRouter", apiKey: "", apiBase: "https://openrouter.ai/api/v1/chat/completions" },
-];
