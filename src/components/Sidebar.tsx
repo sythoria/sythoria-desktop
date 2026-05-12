@@ -10,6 +10,7 @@ import {
 import { useMemo, useState } from "react";
 import type { Conversation, ConnectionStatus } from "../types";
 import { STATUS_COLORS } from "../types";
+import { ConfirmModal } from "./ui/Modal";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -61,6 +62,7 @@ export default function Sidebar({
   connectionStatus,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
   
   const filteredConversations = useMemo(() => {
     if (!searchQuery.trim()) return conversations;
@@ -169,9 +171,7 @@ export default function Sidebar({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm("Are you sure you want to delete this chat?")) {
-                          onDeleteChat(conv.id);
-                        }
+                        setChatToDelete(conv.id);
                       }}
                       className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors"
                       title="Delete chat"
@@ -207,6 +207,21 @@ export default function Sidebar({
           </button>
         </div>
       </aside>
+
+      <ConfirmModal
+        isOpen={chatToDelete !== null}
+        title="Delete Chat"
+        message="Are you sure you want to delete this chat? This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (chatToDelete) {
+            onDeleteChat(chatToDelete);
+            setChatToDelete(null);
+          }
+        }}
+        onCancel={() => setChatToDelete(null)}
+      />
     </>
   );
 }
