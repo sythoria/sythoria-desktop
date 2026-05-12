@@ -6,6 +6,17 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    {
+      "identifier": "core:event:allow-listen",
+      "allow": [
+        { "event": "chat-stream-chunk" },
+        { "event": "chat-stream-done" },
+        { "event": "ws-error" },
+        { "event": "ws-closed" },
+        { "event": "ws-message" }
+      ]
+    },
+    "core:event:allow-emit",
     "opener:default"
   ]
 }
