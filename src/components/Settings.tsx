@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Settings as SettingsIcon,
   Moon,
@@ -8,7 +8,7 @@ import {
   EyeOff,
   Check,
 } from "lucide-react";
-import { MODELS, loadProviderConfigs, saveProviderConfigs, type ProviderConfig } from "../types";
+import { MODELS, saveProviderConfigs, DEFAULT_PROVIDER_CONFIGS, type ProviderConfig } from "../types";
 
 interface SettingsProps {
   selectedModel: string;
@@ -19,14 +19,7 @@ interface SettingsProps {
   setProviderConfigs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }
 
-const DEFAULT_CONFIGS: ProviderConfig[] = [
-  { provider: "OpenAI", apiKey: "", apiBase: "https://api.openai.com/v1/chat/completions" },
-  { provider: "Anthropic", apiKey: "", apiBase: "https://api.anthropic.com/v1/messages" },
-  { provider: "Google", apiKey: "", apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
-  { provider: "NVIDIA", apiKey: "", apiBase: "https://integrate.api.nvidia.com/v1/chat/completions", customModel: "meta/llama-3.3-70b-instruct" },
-  { provider: "Ollama", apiKey: "", apiBase: "http://localhost:11434/v1/chat/completions" },
-  { provider: "OpenRouter", apiKey: "", apiBase: "https://openrouter.ai/api/v1/chat/completions" },
-];
+
 
 export default function Settings({
   selectedModel,
@@ -40,9 +33,10 @@ export default function Settings({
     return document.documentElement.classList.contains("dark");
   });
   const [configs, setConfigs] = useState<ProviderConfig[]>(() => {
-    const saved = loadProviderConfigs();
-    if (saved.length > 0) return saved;
-    return DEFAULT_CONFIGS;
+    return DEFAULT_PROVIDER_CONFIGS.map((cfg) => ({
+      ...cfg,
+      apiKey: providerConfigs[cfg.provider] || cfg.apiKey,
+    }));
   });
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -57,27 +51,34 @@ export default function Settings({
     }
   }, [darkMode]);
 
-  // Sync provider configs from App component
-  useEffect(() => {
-    // Convert providerConfigs record to ProviderConfig[] format
-    const updatedConfigs = configs.map(config => ({
-      ...config,
-      apiKey: providerConfigs[config.provider] || config.apiKey
-    }));
-    setConfigs(updatedConfigs);
-  }, [providerConfigs, configs]);
+  const syncToParent = useRef(false);
 
-  // Save provider configs to App component when they change
   useEffect(() => {
-    // Convert ProviderConfig[] to providerConfigs record
-    const configsRecord: Record<string, string> = {};
-    configs.forEach(config => {
-      configsRecord[config.provider] = config.apiKey;
-    });
-    setProviderConfigs(configsRecord);
-    
-    // Also save to localStorage for persistence
-    saveProviderConfigs(configs);
+    if (!syncToParent.current) {
+      const initializedConfigs = DEFAULT_PROVIDER_CONFIGS.map(config => ({
+        ...config,
+        apiKey: providerConfigs[config.provider] || config.apiKey
+      }));
+      setConfigs(initializedConfigs);
+      const configsRecord: Record<string, string> = {};
+      initializedConfigs.forEach(config => {
+        configsRecord[config.provider] = config.apiKey;
+      });
+      setProviderConfigs(configsRecord);
+      saveProviderConfigs(initializedConfigs);
+      syncToParent.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (syncToParent.current) {
+      const configsRecord: Record<string, string> = {};
+      configs.forEach(config => {
+        configsRecord[config.provider] = config.apiKey;
+      });
+      setProviderConfigs(configsRecord);
+      saveProviderConfigs(configs);
+    }
   }, [configs, setProviderConfigs]);
 
   const updateConfig = (provider: string, field: keyof ProviderConfig, value: string) => {
