@@ -5,8 +5,9 @@ import {
   X,
   Pencil,
   Trash2,
+  Search,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Conversation, ConnectionStatus } from "../types";
 import { STATUS_COLORS } from "../types";
 
@@ -59,7 +60,19 @@ export default function Sidebar({
   onClose,
   connectionStatus,
 }: SidebarProps) {
-  const groups = useMemo(() => groupConversations(conversations), [conversations]);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const query = searchQuery.toLowerCase();
+    return conversations.filter(
+      (conv) =>
+        conv.title.toLowerCase().includes(query) ||
+        conv.messages.some((m) => m.content.toLowerCase().includes(query))
+    );
+  }, [conversations, searchQuery]);
+
+  const groups = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
 
   return (
     <>
@@ -72,8 +85,8 @@ export default function Sidebar({
 
       <aside
         className={`
-        fixed md:relative z-30 h-full flex flex-col
-        glass-sidebar border-r border-border
+          fixed md:relative z-30 h-full flex flex-col
+          glass-sidebar border-r border-border
           transition-transform duration-200 ease-out
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
@@ -103,55 +116,71 @@ export default function Sidebar({
           </button>
         </div>
 
+        <div className="px-3 mb-2">
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search conversations..."
+              className="w-full pl-8 pr-3 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+            />
+          </div>
+        </div>
+
         <nav className="flex-1 overflow-y-auto px-3 py-1">
           {groups.map((group) => (
             <div key={group.label} className="mb-3">
               <p className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
                 {group.label}
               </p>
-               {group.items.map((conv) => (
-                 <div key={conv.id} className="relative group">
-                   <button
-                     onClick={() => onSelect(conv.id)}
-                     className={`
-                       w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
-                       text-sm text-left transition-colors duration-100
-                       ${
-                         activeId === conv.id
-                           ? "bg-accent-soft text-accent"
-                           : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                       }
-                     `}
-                   >
-                     <MessageSquare size={14} className="shrink-0" />
-                     <span className="truncate">{conv.title}</span>
-                   </button>
-        <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRenameChat(conv.id, prompt("Enter new chat name:", conv.title) || conv.title);
-            }}
-            className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors"
-            title="Rename chat"
-          >
-            <Pencil size={12} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm("Are you sure you want to delete this chat?")) {
-                onDeleteChat(conv.id);
-              }
-            }}
-            className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors"
-            title="Delete chat"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-                 </div>
-               ))}
+              {group.items.map((conv) => (
+                <div key={conv.id} className="relative group">
+                  <button
+                    onClick={() => onSelect(conv.id)}
+                    className={`
+                      w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
+                      text-sm text-left transition-colors duration-100
+                      ${
+                        activeId === conv.id
+                          ? "bg-accent-soft text-accent"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                      }
+                    `}
+                  >
+                    <MessageSquare size={14} className="shrink-0" />
+                    <span className="truncate">{conv.title}</span>
+                  </button>
+                  <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRenameChat(conv.id, conv.title);
+                      }}
+                      className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors"
+                      title="Rename chat"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Are you sure you want to delete this chat?")) {
+                          onDeleteChat(conv.id);
+                        }
+                      }}
+                      className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors"
+                      title="Delete chat"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
 

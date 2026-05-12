@@ -183,17 +183,19 @@ async fn chat_stream(
 
 #[tauri::command]
 async fn ws_chat(
-    url: String,
-    api_key: Option<String>,
-    model: String,
-    app: tauri::AppHandle,
+  url: String,
+  api_key: Option<String>,
+  model: String,
+  app: tauri::AppHandle,
 ) -> Result<String, String> {
-    let config = ws_handler::WsConfig {
-        url,
-        api_key,
-        model,
-    };
-    ws_handler::ws_chat_stream(config, app).await
+  let config = ws_handler::WsConfig {
+    url,
+    api_key,
+    model,
+    reconnect: true,
+    max_reconnect_attempts: 5,
+  };
+  ws_handler::ws_chat_stream(config, app).await
 }
 
 #[tauri::command]

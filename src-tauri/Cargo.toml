@@ -27,4 +27,6 @@ tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 tokio-tungstenite = "0.24"
 url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 

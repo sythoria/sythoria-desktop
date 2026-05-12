@@ -7,6 +7,7 @@ import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import AuthScreen from "./components/AuthScreen";
+import { Modal } from "./components/ui/Modal";
 import type { Conversation, Message, ConnectionStatus } from "./types";
 import { MODELS, getProviderConfig } from "./types";
 import "./index.css";
@@ -28,6 +29,8 @@ function toErrorString(err: unknown): string {
   return "Authentication failed";
 }
 
+type View = "chat" | "settings";
+
 function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -39,7 +42,10 @@ function App() {
   const [providerConfigs, setProviderConfigs] = useState<Record<string, string>>({});
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState("");
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<View>("chat");
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -56,11 +62,39 @@ function App() {
         console.error("Failed to parse provider configs", e);
       }
     }
+
+    const savedConversations = localStorage.getItem("sythoria-conversations");
+    if (savedConversations) {
+      try {
+        const parsed = JSON.parse(savedConversations);
+        parsed.forEach((c: any) => {
+          if (c.timestamp) c.timestamp = new Date(c.timestamp);
+          c.messages?.forEach((m: any) => {
+            if (m.timestamp) m.timestamp = new Date(m.timestamp);
+          });
+        });
+        setConversations(parsed);
+        if (parsed.length > 0) {
+          setActiveId(parsed[0].id);
+        }
+      } catch (e) {
+        console.error("Failed to load conversations", e);
+      }
+    }
   }, []);
 
   useEffect(() => {
     localStorage.setItem("provider-api-keys", JSON.stringify(providerConfigs));
   }, [providerConfigs]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    try {
+      localStorage.setItem("sythoria-conversations", JSON.stringify(conversations));
+    } catch (e) {
+      console.error("Failed to save conversations", e);
+    }
+  }, [conversations, isAuthenticated]);
 
   const handleAuth = useCallback(
     async (user: string, apiKey: string, serverUrl: string) => {
@@ -102,6 +136,8 @@ function App() {
     setConversations((prev) => [conv, ...prev]);
     setActiveId(id);
     setSidebarOpen(false);
+    setView("chat");
+    return id;
   }, [selectedModel]);
 
   const handleDeleteChat = useCallback((id: string) => {
@@ -115,6 +151,21 @@ function App() {
     );
   }, []);
 
+  const handleStartRename = useCallback((id: string, currentTitle: string) => {
+    setRenameId(id);
+    setRenameValue(currentTitle);
+    setShowRenameModal(true);
+  }, []);
+
+  const handleConfirmRename = useCallback(() => {
+    if (renameId && renameValue.trim()) {
+      handleRenameChat(renameId, renameValue.trim());
+    }
+    setShowRenameModal(false);
+    setRenameId(null);
+    setRenameValue("");
+  }, [renameId, renameValue, handleRenameChat]);
+
   const handleSend = useCallback(
     async (text: string) => {
       if (isStreaming) return;
@@ -125,7 +176,7 @@ function App() {
         const id = generateId();
         const conv: Conversation = {
           id,
-          title: text.length > 40 ? text.slice(0, 40) + "\u2026" : text,
+          title: text.length > 40 ? text.slice(0, 40) + "…" : text,
           timestamp: new Date(),
           messages: [],
           model: selectedModel,
@@ -163,7 +214,7 @@ function App() {
             title:
               c.messages.length === 0
                 ? text.length > 40
-                  ? text.slice(0, 40) + "\u2026"
+                  ? text.slice(0, 40) + "…"
                   : text
                 : c.title,
             messages: [...c.messages, userMsg, assistantMsg],
@@ -270,13 +321,17 @@ function App() {
     let cancelled = false;
 
     async function setupListeners() {
-      unlistenFns.push(await listen<string>("ws-error", (event) => {
-        if (!cancelled) setConnectionStatus("error");
-        console.error("WS error:", event.payload);
-      }));
-      unlistenFns.push(await listen("ws-closed", () => {
-        if (!cancelled) setConnectionStatus("disconnected");
-      }));
+      unlistenFns.push(
+        await listen<string>("ws-error", (event) => {
+          if (!cancelled) setConnectionStatus("error");
+          console.error("WS error:", event.payload);
+        })
+      );
+      unlistenFns.push(
+        await listen("ws-closed", () => {
+          if (!cancelled) setConnectionStatus("disconnected");
+        })
+      );
     }
     setupListeners();
 
@@ -289,6 +344,10 @@ function App() {
   const handleSettingsClick = useCallback(() => {
     setView("settings");
     setSidebarOpen(false);
+  }, []);
+
+  const handleBackToChat = useCallback(() => {
+    setView("chat");
   }, []);
 
   const handleSelectConversation = useCallback((id: string) => {
@@ -310,7 +369,7 @@ function App() {
         onNewChat={handleNewChat}
         onSettingsClick={handleSettingsClick}
         onDeleteChat={handleDeleteChat}
-        onRenameChat={handleRenameChat}
+        onRenameChat={handleStartRename}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         connectionStatus={connectionStatus}
@@ -324,6 +383,12 @@ function App() {
           onTemperatureChange={setTemperature}
           providerConfigs={providerConfigs}
           setProviderConfigs={setProviderConfigs}
+          onBack={handleBackToChat}
+          onCreateChat={() => {
+            const newId = handleNewChat();
+            setView("chat");
+            return newId;
+          }}
         />
       ) : (
         <main className="flex-1 flex flex-col min-w-0 bg-chat">
@@ -342,7 +407,9 @@ function App() {
 
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">User</span>
+                <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
+                  User
+                </span>
                 <span className="text-xs font-semibold text-text-primary">{username}</span>
               </div>
               <button
@@ -355,10 +422,7 @@ function App() {
             </div>
           </header>
 
-          <ChatArea
-            messages={messages}
-            connectionStatus={connectionStatus}
-          />
+          <ChatArea messages={messages} connectionStatus={connectionStatus} />
 
           <InputBar
             onSend={handleSend}
@@ -369,6 +433,53 @@ function App() {
           />
         </main>
       )}
+
+      <Modal
+        isOpen={showRenameModal}
+        onClose={() => {
+          setShowRenameModal(false);
+          setRenameId(null);
+          setRenameValue("");
+        }}
+        title="Rename Chat"
+      >
+        <div className="space-y-4">
+          <input
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-input border border-border focus:border-primary focus:outline-none text-text-primary"
+            placeholder="Enter new title"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleConfirmRename();
+              if (e.key === "Escape") {
+                setShowRenameModal(false);
+                setRenameId(null);
+                setRenameValue("");
+              }
+            }}
+          />
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => {
+                setShowRenameModal(false);
+                setRenameId(null);
+                setRenameValue("");
+              }}
+              className="px-4 py-2 rounded-lg border border-border text-text-secondary hover:bg-hover transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmRename}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Rename
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
