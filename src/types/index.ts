@@ -83,20 +83,42 @@ export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   error: "bg-red-500",
 };
 
-const STORAGE_KEY = "sythoria-provider-configs";
+const STORAGE_KEY = "provider-api-keys";
 
 export function loadProviderConfigs(): ProviderConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "object" && !Array.isArray(parsed)) {
+        return DEFAULT_PROVIDER_CONFIGS.map((cfg) => ({
+          ...cfg,
+          apiKey: parsed[cfg.provider] || "",
+        }));
+      }
+      if (Array.isArray(parsed)) return parsed;
+    }
   } catch {}
-  return [];
+  return DEFAULT_PROVIDER_CONFIGS;
 }
 
 export function saveProviderConfigs(configs: ProviderConfig[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
+  const record: Record<string, string> = {};
+  configs.forEach((cfg) => {
+    record[cfg.provider] = cfg.apiKey;
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
 }
 
 export function getProviderConfig(provider: string): ProviderConfig | undefined {
   return loadProviderConfigs().find((c) => c.provider === provider);
 }
+
+export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
+  { provider: "OpenAI", apiKey: "", apiBase: "https://api.openai.com/v1/chat/completions" },
+  { provider: "Anthropic", apiKey: "", apiBase: "https://api.anthropic.com/v1/messages" },
+  { provider: "Google", apiKey: "", apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
+  { provider: "NVIDIA", apiKey: "", apiBase: "https://integrate.api.nvidia.com/v1/chat/completions", customModel: "meta/llama-3.3-70b-instruct" },
+  { provider: "Ollama", apiKey: "", apiBase: "http://localhost:11434/v1/chat/completions" },
+  { provider: "OpenRouter", apiKey: "", apiBase: "https://openrouter.ai/api/v1/chat/completions" },
+];
