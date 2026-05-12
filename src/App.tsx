@@ -24,13 +24,14 @@ type View = "chat" | "settings";
 function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [models, setModels] = useState<ModelConfig[]>(loadModelConfigs);
-  const [selectedModel, setSelectedModel] = useState(models[0]?.id || "");
+  const [models, setModels] = useState<ModelConfig[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
   const [temperature, setTemperature] = useState(0.7);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [hasStarted, setHasStarted] = useState(false);
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [view, setView] = useState<View>("chat");
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -41,6 +42,28 @@ function App() {
     [conversations, activeId]
   );
   const messages = activeConversation?.messages ?? [];
+
+  useEffect(() => {
+    async function loadConfigs() {
+      const loaded = await loadModelConfigs();
+      if (loaded && loaded.length > 0) {
+        setModels(loaded);
+        setSelectedModel(loaded[0].id);
+        setHasStarted(true);
+      }
+      setIsConfigLoaded(true);
+    }
+    loadConfigs();
+  }, []);
+
+  useEffect(() => {
+    if (isConfigLoaded) {
+      saveModelConfigs(models);
+      if (!models.find(m => m.id === selectedModel) && models.length > 0) {
+        setSelectedModel(models[0].id);
+      }
+    }
+  }, [models, selectedModel, isConfigLoaded]);
 
   useEffect(() => {
     const savedConversations = localStorage.getItem("sythoria-conversations");
@@ -62,13 +85,6 @@ function App() {
       }
     }
   }, []);
-
-  useEffect(() => {
-    saveModelConfigs(models);
-    if (!models.find(m => m.id === selectedModel) && models.length > 0) {
-      setSelectedModel(models[0].id);
-    }
-  }, [models, selectedModel]);
 
   useEffect(() => {
     if (!hasStarted) return;

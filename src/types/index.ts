@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
@@ -23,41 +25,6 @@ export interface ModelConfig {
   provider?: string;
 }
 
-export const DEFAULT_MODELS: ModelConfig[] = [
-  {
-    id: "default-gpt-4o",
-    name: "GPT-4o (OpenAI)",
-    apiBase: "https://api.openai.com/v1/chat/completions",
-    apiKey: "",
-    modelId: "gpt-4o",
-    provider: "OpenAI",
-  },
-  {
-    id: "default-claude-3-5-sonnet",
-    name: "Claude 3.5 Sonnet",
-    apiBase: "https://api.anthropic.com/v1/messages",
-    apiKey: "",
-    modelId: "claude-3-5-sonnet-20240620",
-    provider: "Anthropic",
-  },
-  {
-    id: "default-gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    apiKey: "",
-    modelId: "gemini-2.5-pro",
-    provider: "Google Gemini",
-  },
-  {
-    id: "default-llama3.1",
-    name: "Llama 3.1 (Ollama)",
-    apiBase: "http://localhost:11434/v1/chat/completions",
-    apiKey: "",
-    modelId: "llama3.1",
-    provider: "Ollama (Local)",
-  },
-];
-
 export type AuthState = {
   isAuthenticated: boolean;
   username: string;
@@ -74,26 +41,32 @@ export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   error: "bg-red-500",
 };
 
-const STORAGE_KEY = "sythoria-model-configs";
-
-export function loadModelConfigs(): ModelConfig[] {
+export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await invoke<string>("load_config");
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
       }
     }
-  } catch {}
-  return DEFAULT_MODELS;
+  } catch (e) {
+    console.error("Failed to load config from system", e);
+  }
+  return null; // Return null to indicate no saved config
 }
 
-export function saveModelConfigs(configs: ModelConfig[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
+export async function saveModelConfigs(configs: ModelConfig[]) {
+  try {
+    await invoke("save_config", { config: JSON.stringify(configs) });
+  } catch (e) {
+    console.error("Failed to save config to system", e);
+  }
 }
 
-export function getModelConfig(id: string): ModelConfig | undefined {
-  return loadModelConfigs().find((c) => c.id === id);
+export async function getModelConfig(id: string): Promise<ModelConfig | undefined> {
+  const configs = await loadModelConfigs() || [];
+  return configs.find((c) => c.id === id);
 }
+
 

@@ -3,6 +3,9 @@ mod ws_handler;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
+use std::fs;
+use std::io::Write;
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +51,27 @@ struct StreamChoice {
 #[derive(Debug, Deserialize)]
 struct StreamDelta {
     content: Option<String>,
+}
+
+#[tauri::command]
+async fn load_config(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let config_path = app_data_dir.join("config.json");
+    if config_path.exists() {
+        fs::read_to_string(config_path).map_err(|e| e.to_string())
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[tauri::command]
+async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+    let config_path = app_data_dir.join("config.json");
+    let mut file = fs::File::create(config_path).map_err(|e| e.to_string())?;
+    file.write_all(config.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -244,6 +268,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            load_config,
+            save_config,
             chat_completion,
             chat_stream,
             ws_authenticate,
