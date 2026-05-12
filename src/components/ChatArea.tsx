@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Bot, Sparkles, Code, BookOpen, Lightbulb } from "lucide-react";
 import type { Message, ConnectionStatus } from "../types";
 import { STATUS_COLORS } from "../types";
 
@@ -32,7 +33,10 @@ function MessageBubble({ message }: { message: Message }) {
   }
 
   return (
-    <div className="flex justify-start animate-fade-in">
+    <div className="flex justify-start gap-3 animate-fade-in">
+      <div className="shrink-0 w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mt-0.5">
+        <Bot size={14} className="text-accent" />
+      </div>
       <div className="max-w-[80%] text-sm text-text-primary leading-relaxed markdown-body">
         {message.isStreaming ? (
           <StreamingText content={message.content} />
@@ -56,6 +60,13 @@ export default function ChatArea({ messages, connectionStatus }: ChatAreaProps) 
   const showStatus = connectionStatus !== 'connected';
 
   if (messages.length === 0) {
+    const suggestions = [
+      { icon: <Sparkles size={16} />, label: "Creative writing", prompt: "Help me write a short story" },
+      { icon: <Code size={16} />, label: "Code help", prompt: "Explain this code snippet" },
+      { icon: <BookOpen size={16} />, label: "Research", prompt: "Summarize a topic for me" },
+      { icon: <Lightbulb size={16} />, label: "Brainstorm", prompt: "Help me brainstorm ideas" },
+    ];
+
     return (
       <div className="flex-1 flex flex-col items-center justify-center select-none animate-slide-up relative">
         <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -68,23 +79,28 @@ export default function ChatArea({ messages, connectionStatus }: ChatAreaProps) 
             </div>
           )}
         </div>
-        <div className="flex flex-col items-center gap-3">
-          <h1 className="text-4xl font-bold tracking-tight text-text-primary">
-            Sythoria
-          </h1>
-          <p className="text-text-muted text-base">
-            Your intelligent AI assistant
-          </p>
-          <div className="mt-4 flex gap-2">
-            <span className="w-2 h-2 rounded-full bg-accent animate-pulse-soft" />
-            <span
-              className="w-2 h-2 rounded-full bg-accent animate-pulse-soft"
-              style={{ animationDelay: "0.4s" }}
-            />
-            <span
-              className="w-2 h-2 rounded-full bg-accent animate-pulse-soft"
-              style={{ animationDelay: "0.8s" }}
-            />
+        <div className="flex flex-col items-center gap-4 px-4">
+          <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+            <Bot size={28} className="text-accent" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+              Sythoria
+            </h1>
+            <p className="text-text-muted text-sm mt-1">
+              Your intelligent AI assistant
+            </p>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 w-full max-w-sm">
+            {suggestions.map((s) => (
+              <button
+                key={s.label}
+                className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-border bg-surface/50 hover:bg-hover text-text-secondary hover:text-text-primary text-xs font-medium transition-all duration-150 text-left"
+              >
+                <span className="text-accent shrink-0">{s.icon}</span>
+                {s.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
