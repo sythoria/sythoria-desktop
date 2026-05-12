@@ -3,6 +3,8 @@ import {
   Settings,
   MessageSquare,
   X,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { useMemo } from "react";
 import type { Conversation, ConnectionStatus } from "../types";
@@ -70,8 +72,8 @@ export default function Sidebar({
 
       <aside
         className={`
-          fixed md:relative z-30 h-full flex flex-col
-          bg-sidebar border-r border-border
+        fixed md:relative z-30 h-full flex flex-col
+        glass-sidebar border-r border-border
           transition-transform duration-200 ease-out
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
@@ -108,7 +110,7 @@ export default function Sidebar({
                 {group.label}
               </p>
                {group.items.map((conv) => (
-                 <div key={conv.id} className="relative">
+                 <div key={conv.id} className="relative group">
                    <button
                      onClick={() => onSelect(conv.id)}
                      className={`
@@ -124,30 +126,30 @@ export default function Sidebar({
                      <MessageSquare size={14} className="shrink-0" />
                      <span className="truncate">{conv.title}</span>
                    </button>
-                   <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1">
-                     <button
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         onRenameChat(conv.id, prompt("Enter new chat name:", conv.title) || conv.title);
-                       }}
-                       className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors text-[10px]"
-                       title="Rename chat"
-                     >
-                       <Settings size={12} />
-                     </button>
-                     <button
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         if (confirm("Are you sure you want to delete this chat?")) {
-                           onDeleteChat(conv.id);
-                         }
-                       }}
-                       className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors text-[10px]"
-                       title="Delete chat"
-                     >
-                       <X size={12} />
-                     </button>
-                   </div>
+        <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRenameChat(conv.id, prompt("Enter new chat name:", conv.title) || conv.title);
+            }}
+            className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors"
+            title="Rename chat"
+          >
+            <Pencil size={12} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Are you sure you want to delete this chat?")) {
+                onDeleteChat(conv.id);
+              }
+            }}
+            className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors"
+            title="Delete chat"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
                  </div>
                ))}
             </div>
