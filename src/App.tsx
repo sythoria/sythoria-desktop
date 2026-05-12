@@ -1,12 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { Menu, LogOut } from "lucide-react";
+import { Menu } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
-import AuthScreen from "./components/AuthScreen";
+import StartScreen from "./components/StartScreen";
 import { Modal } from "./components/ui/Modal";
 import type { Conversation, Message, ConnectionStatus } from "./types";
 import { MODELS, getProviderConfig } from "./types";
@@ -17,16 +17,6 @@ function generateId() {
     return crypto.randomUUID().slice(0, 8);
   }
   return Math.random().toString(36).substring(2, 11);
-}
-
-function toErrorString(err: unknown): string {
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.message === "string") return obj.message;
-    if (typeof obj.toString === "function") return obj.toString();
-  }
-  return "Authentication failed";
 }
 
 type View = "chat" | "settings";
@@ -40,8 +30,7 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [providerConfigs, setProviderConfigs] = useState<Record<string, string>>({});
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState("");
+  const [hasStarted, setHasStarted] = useState(false);
   const [view, setView] = useState<View>("chat");
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -88,39 +77,16 @@ function App() {
   }, [providerConfigs]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!hasStarted) return;
     try {
       localStorage.setItem("sythoria-conversations", JSON.stringify(conversations));
     } catch (e) {
       console.error("Failed to save conversations", e);
     }
-  }, [conversations, isAuthenticated]);
+  }, [conversations, hasStarted]);
 
-  const handleAuth = useCallback(
-    async (user: string, apiKey: string, serverUrl: string) => {
-      setConnectionStatus("connecting");
-      try {
-        await invoke("ws_authenticate", { username: user, apiKey, serverUrl });
-        setIsAuthenticated(true);
-        setUsername(user);
-        setConnectionStatus("connected");
-      } catch (err) {
-        setConnectionStatus("error");
-        throw new Error(toErrorString(err));
-      }
-    },
-    []
-  );
-
-  const handleDisconnect = useCallback(() => {
-    setIsAuthenticated(false);
-    setConnectionStatus("disconnected");
-    setUsername("");
-  }, []);
-
-  const handleSkipAuth = useCallback(() => {
-    setIsAuthenticated(true);
-    setUsername("local");
+  const handleStart = useCallback(() => {
+    setHasStarted(true);
     setConnectionStatus("disconnected");
   }, []);
 
@@ -356,8 +322,8 @@ function App() {
     setSidebarOpen(false);
   }, []);
 
-  if (!isAuthenticated) {
-    return <AuthScreen onAuth={handleAuth} onSkip={handleSkipAuth} />;
+  if (!hasStarted) {
+    return <StartScreen onStart={handleStart} />;
   }
 
   return (
@@ -406,19 +372,6 @@ function App() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
-                  User
-                </span>
-                <span className="text-xs font-semibold text-text-primary">{username}</span>
-              </div>
-              <button
-                onClick={handleDisconnect}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-text-secondary hover:text-red-500 hover:border-red-500/50 hover:bg-red-500/5 transition-all"
-              >
-                <LogOut size={14} />
-                <span className="hidden xs:inline">Disconnect</span>
-              </button>
             </div>
           </header>
 
