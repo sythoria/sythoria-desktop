@@ -69,9 +69,9 @@ export default function InputBar({
   const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
 
   return (
-    <div className="px-4 md:px-0 pb-4 pt-2 animate-slide-up">
+    <div className="px-4 md:px-0 pb-4 pt-2">
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/50 focus-within:shadow-md">
+        <div className="flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5">
           <button
             className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
             title="Attach file"
