@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { X } from "lucide-react";
+import { X, AlertTriangle } from "lucide-react";
 
 interface ModalProps {
   isOpen: boolean;
@@ -28,22 +28,22 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70 backdrop-blur-md"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-md mx-4 rounded-xl glass-card border border-border/50 shadow-2xl animate-in fade-in zoom-in duration-200">
-        <div className="flex items-center justify-between p-4 border-b border-border/50">
-          <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-surface border border-border shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-text-primary px-2">{title}</h3>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+            className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
           >
             <X size={20} />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-6">{children}</div>
       </div>
     </div>
   );
@@ -89,30 +89,42 @@ export function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/80 backdrop-blur-md"
         onClick={onCancel}
       />
-      <div className="relative z-10 w-full max-w-md mx-4 rounded-xl glass-card border border-border/50 shadow-2xl animate-in fade-in zoom-in duration-200">
+      <div className="relative z-10 w-full max-w-sm rounded-2xl bg-surface border border-border shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
+        {variant === "danger" && (
+          <div className="h-1.5 w-full bg-red-500" />
+        )}
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-text-primary mb-2">
-            {title}
-          </h3>
-          <p className="text-text-secondary mb-6">{message}</p>
-          <div className="flex gap-3 justify-end">
+          <div className="flex items-center gap-3 mb-4">
+            {variant === "danger" && (
+              <div className="p-2.5 rounded-full bg-red-500/10 text-red-500">
+                <AlertTriangle size={22} />
+              </div>
+            )}
+            <h3 className="text-xl font-bold text-text-primary">
+              {title}
+            </h3>
+          </div>
+          <p className="text-text-secondary mb-8 leading-relaxed">
+            {message}
+          </p>
+          <div className="flex gap-3">
             <button
               onClick={onCancel}
-              className="px-4 py-2 rounded-lg border border-border text-text-secondary hover:bg-hover transition-colors"
+              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-text-secondary font-medium hover:bg-hover transition-all active:scale-95"
             >
               {cancelText}
             </button>
             <button
               onClick={onConfirm}
-              className={`px-4 py-2 rounded-lg transition-colors ${
+              className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all active:scale-95 ${
                 variant === "danger"
-                  ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/50"
-                  : "bg-primary/20 text-primary hover:bg-primary/30 border border-primary/50"
+                  ? "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/25"
+                  : "bg-accent text-white hover:bg-accent-hover shadow-lg shadow-accent/25"
               }`}
             >
               {confirmText}
@@ -123,3 +135,4 @@ export function ConfirmModal({
     </div>
   );
 }
+
