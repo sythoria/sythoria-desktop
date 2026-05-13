@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { X, AlertTriangle } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 
 interface ModalProps {
   isOpen: boolean;
@@ -30,20 +30,20 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-lg rounded-2xl bg-surface border border-border shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="text-lg font-semibold text-text-primary px-2">{title}</h3>
+      <div className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border shadow-xl">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h3 className="text-sm font-medium text-text-primary">{title}</h3>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+            className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
           >
-            <X size={20} />
+            <X size={16} />
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-5">{children}</div>
       </div>
     </div>
   );
@@ -91,48 +91,135 @@ export function ConfirmModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onCancel}
       />
-      <div className="relative z-10 w-full max-w-sm rounded-2xl bg-surface border border-border shadow-2xl animate-in fade-in zoom-in duration-200 overflow-hidden">
-        {variant === "danger" && (
-          <div className="h-1.5 w-full bg-red-500" />
-        )}
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-            {variant === "danger" && (
-              <div className="p-2.5 rounded-full bg-red-500/10 text-red-500">
-                <AlertTriangle size={22} />
-              </div>
-            )}
-            <h3 className="text-xl font-bold text-text-primary">
-              {title}
-            </h3>
-          </div>
-          <p className="text-text-secondary mb-8 leading-relaxed">
+      <div className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl">
+        <div className="px-5 pt-5 pb-1">
+          <h3 className="text-sm font-semibold text-text-primary">
+            {title}
+          </h3>
+          <p className="mt-1.5 text-xs text-text-muted leading-relaxed">
             {message}
           </p>
-          <div className="flex gap-3">
-            <button
-              onClick={onCancel}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-text-secondary font-medium hover:bg-hover transition-all active:scale-95"
-            >
-              {cancelText}
-            </button>
-            <button
-              onClick={onConfirm}
-              className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all active:scale-95 ${
-                variant === "danger"
-                  ? "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/25"
-                  : "bg-accent text-white hover:bg-accent-hover shadow-lg shadow-accent/25"
-              }`}
-            >
-              {confirmText}
-            </button>
-          </div>
+        </div>
+        <div className="flex gap-2 p-4 pt-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              variant === "danger"
+                ? "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                : "bg-accent/10 text-accent hover:bg-accent/20"
+            }`}
+          >
+            {confirmText}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
+interface RenameChatModalProps {
+  isOpen: boolean;
+  currentTitle: string;
+  onConfirm: (newTitle: string) => void;
+  onCancel: () => void;
+}
+
+export function RenameChatModal({
+  isOpen,
+  currentTitle,
+  onConfirm,
+  onCancel,
+}: RenameChatModalProps) {
+  const [value, setValue] = useState(currentTitle);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isEmpty = value.trim().length === 0;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setValue(currentTitle);
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    document.body.style.overflow = "hidden";
+
+    requestAnimationFrame(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    });
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = "unset";
+    };
+  }, [isOpen, currentTitle, onCancel]);
+
+  if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (!isEmpty) {
+      onConfirm(value.trim());
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onCancel}
+      />
+      <div className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl">
+        <div className="px-5 pt-5 pb-1">
+          <h3 className="text-sm font-semibold text-text-primary">
+            Rename Chat
+          </h3>
+          <input
+            ref={inputRef}
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="mt-3 w-full px-3 py-1.5 rounded-lg text-sm bg-input border border-input-border text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+            placeholder="Enter new title"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleConfirm();
+              if (e.key === "Escape") onCancel();
+            }}
+          />
+        </div>
+        <div className="flex gap-2 p-4 pt-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:bg-hover transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={isEmpty}
+            className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              isEmpty
+                ? "bg-accent/10 text-accent/40 cursor-not-allowed"
+                : "bg-accent/10 text-accent hover:bg-accent/20"
+            }`}
+          >
+            Rename
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

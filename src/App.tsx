@@ -7,7 +7,7 @@ import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
-import { Modal } from "./components/ui/Modal";
+import { RenameChatModal } from "./components/ui/Modal";
 import type { Conversation, Message, ConnectionStatus, ModelConfig } from "./types";
 import { loadModelConfigs, saveModelConfigs } from "./types";
 import "./index.css";
@@ -35,7 +35,7 @@ function App() {
   const [view, setView] = useState<View>("chat");
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [renameCurrentTitle, setRenameCurrentTitle] = useState("");
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -129,18 +129,24 @@ function App() {
 
   const handleStartRename = useCallback((id: string, currentTitle: string) => {
     setRenameId(id);
-    setRenameValue(currentTitle);
+    setRenameCurrentTitle(currentTitle);
     setShowRenameModal(true);
   }, []);
 
-  const handleConfirmRename = useCallback(() => {
-    if (renameId && renameValue.trim()) {
-      handleRenameChat(renameId, renameValue.trim());
+  const handleConfirmRename = useCallback((newTitle: string) => {
+    if (renameId) {
+      handleRenameChat(renameId, newTitle);
     }
     setShowRenameModal(false);
     setRenameId(null);
-    setRenameValue("");
-  }, [renameId, renameValue, handleRenameChat]);
+    setRenameCurrentTitle("");
+  }, [renameId, handleRenameChat]);
+
+  const handleCancelRename = useCallback(() => {
+    setShowRenameModal(false);
+    setRenameId(null);
+    setRenameCurrentTitle("");
+  }, []);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -402,52 +408,12 @@ function App() {
         </main>
       )}
 
-      <Modal
+      <RenameChatModal
         isOpen={showRenameModal}
-        onClose={() => {
-          setShowRenameModal(false);
-          setRenameId(null);
-          setRenameValue("");
-        }}
-        title="Rename Chat"
-      >
-        <div className="space-y-4">
-          <input
-            type="text"
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-input border border-border focus:border-primary focus:outline-none text-text-primary"
-            placeholder="Enter new title"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleConfirmRename();
-              if (e.key === "Escape") {
-                setShowRenameModal(false);
-                setRenameId(null);
-                setRenameValue("");
-              }
-            }}
-          />
-          <div className="flex gap-3 justify-end">
-            <button
-              onClick={() => {
-                setShowRenameModal(false);
-                setRenameId(null);
-                setRenameValue("");
-              }}
-              className="px-4 py-2 rounded-lg border border-border text-text-secondary hover:bg-hover transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirmRename}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Rename
-            </button>
-          </div>
-        </div>
-      </Modal>
+        currentTitle={renameCurrentTitle}
+        onConfirm={handleConfirmRename}
+        onCancel={handleCancelRename}
+      />
     </div>
   );
 }
