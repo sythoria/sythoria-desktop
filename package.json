@@ -7,43 +7,65 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bundle:visualize": "vite-bundle-visualizer",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{css,json,md}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-store": "^2.4.3",
-    "dompurify": "^3.4.3",
+    "@tauri-apps/plugin-store": "^2",
+    "dompurify": "^3.2.6",
     "lucide-react": "^1.14.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/dompurify": "^3.0.5",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@types/dompurify": "^3.2.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@typescript-eslint/eslint-plugin": "^8.59.3",
-    "@typescript-eslint/parser": "^8.59.3",
+    "@typescript-eslint/eslint-plugin": "^8.34.0",
+    "@typescript-eslint/parser": "^8.34.0",
     "@vitejs/plugin-react": "^4.6.0",
-    "eslint": "^10.3.0",
-    "eslint-config-prettier": "^10.1.8",
+    "eslint": "^9.29.0",
+    "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.2.0",
     "husky": "^9.1.7",
-    "jsdom": "^29.1.1",
-    "lint-staged": "^17.0.4",
-    "prettier": "^3.8.3",
+    "jsdom": "^26.1.0",
+    "lint-staged": "^16.1.2",
+    "prettier": "^3.5.3",
     "tailwindcss": "^4.3.0",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.34.0",
     "vite": "^7.0.4",
-    "vitest": "^4.1.6"
+    "vite-bundle-visualizer": "^1.2.1",
+    "vitest": "^3.2.4"
   }
 }
