@@ -1,6 +1,6 @@
 import { Store } from "@tauri-apps/plugin-store";
-import type { Conversation, ModelConfig } from "../types";
-import { logError, logInfo } from "./logger";
+import type { Conversation } from "../types";
+import { logError } from "./logger";
 
 const CONVERSATIONS_KEY = "sythoria-conversations";
 const THEME_KEY = "sythoria-theme";
@@ -11,7 +11,7 @@ let storeInstance: Store | null = null;
 
 async function getStore(): Promise<Store> {
   if (!storeInstance) {
-    storeInstance = await Store.load(STORE_FILE, { autoSave: true });
+    storeInstance = await Store.load(STORE_FILE);
   }
   return storeInstance;
 }
@@ -23,8 +23,8 @@ export async function loadConversations(): Promise<Conversation[]> {
     if (raw && Array.isArray(raw)) {
       raw.forEach((c: Conversation) => {
         if (c.timestamp) c.timestamp = new Date(c.timestamp);
-        c.messages?.forEach((m: any) => {
-          if (m.timestamp) m.timestamp = new Date(m.timestamp);
+        c.messages?.forEach((m: Record<string, unknown>) => {
+          if (m.timestamp) m.timestamp = new Date(m.timestamp as string);
         });
       });
       return raw;
@@ -37,13 +37,13 @@ export async function loadConversations(): Promise<Conversation[]> {
         const parsed = JSON.parse(fallback);
         parsed.forEach((c: Conversation) => {
           if (c.timestamp) c.timestamp = new Date(c.timestamp);
-          c.messages?.forEach((m: any) => {
-            if (m.timestamp) m.timestamp = new Date(m.timestamp);
+          c.messages?.forEach((m: Record<string, unknown>) => {
+            if (m.timestamp) m.timestamp = new Date(m.timestamp as string);
           });
         });
         return parsed;
-      } catch {
-        logError("Failed to parse conversations from localStorage", e);
+      } catch (e2) {
+        logError("Failed to parse conversations from localStorage", e2);
       }
     }
   }
