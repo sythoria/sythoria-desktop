@@ -1,10 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 
-// Initialize theme from local storage or system preference
-const theme = localStorage.getItem("theme");
-if (theme === "dark" || (!theme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+const theme = localStorage.getItem("sythoria-theme");
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+if (theme === "dark" || (!theme && prefersDark)) {
   document.documentElement.classList.add("dark");
 } else {
   document.documentElement.classList.remove("dark");
@@ -12,6 +13,8 @@ if (theme === "dark" || (!theme && window.matchMedia("(prefers-color-scheme: dar
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
-  </React.StrictMode>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </React.StrictMode>,
 );
