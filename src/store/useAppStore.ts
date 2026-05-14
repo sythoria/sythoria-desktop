@@ -14,7 +14,7 @@ import {
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
-import { API_CONFIG, TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
+import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
 
 interface AppState {
   conversations: Conversation[];
@@ -42,6 +42,7 @@ interface AppState {
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: "light" | "dark") => void;
   setHasStarted: (started: boolean) => void;
+  setConnectionStatus: (status: ConnectionStatus) => void;
   setError: (error: string | null) => void;
   updateModels: (models: ModelConfig[]) => void;
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
@@ -113,6 +114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setView: (view) => set({ view }),
   setHasStarted: (started) => set({ hasStarted: started }),
+  setConnectionStatus: (status) => set({ connectionStatus: status }),
   setError: () => {},
 
   setTheme: (theme) => {
@@ -123,7 +125,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateModels: (models) => {
     set({ models });
-    saveModelConfigs(models.map(({ apiKey, ...rest }) => rest as ModelConfig));
+    saveModelConfigs(models.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     const keys: Record<string, string> = {};
     models.forEach((m) => {
       if (m.apiKey) keys[m.id] = m.apiKey;
@@ -134,11 +136,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateModel: (id, updates) => {
     const { models, apiKeys } = get();
-    const updatedModels = models.map((m) =>
-      m.id === id ? { ...m, ...updates } : m
-    );
+    const updatedModels = models.map((m) => (m.id === id ? { ...m, ...updates } : m));
     set({ models: updatedModels });
-    saveModelConfigs(updatedModels.map(({ apiKey, ...rest }) => rest as ModelConfig));
+    saveModelConfigs(updatedModels.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
 
     if (updates.apiKey !== undefined) {
       const newKeys = { ...apiKeys, [id]: updates.apiKey };
@@ -158,7 +158,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newKeys = { ...apiKeys };
     delete newKeys[id];
     set({ models: updated, apiKeys: newKeys });
-    saveModelConfigs(updated.map(({ apiKey, ...rest }) => rest as ModelConfig));
+    saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     saveApiKeys(newKeys);
     if (selectedModel === id && updated.length > 0) {
       set({ selectedModel: updated[0].id });
@@ -177,7 +177,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { models } = get();
     const updated = [...models, newModel];
     set({ models: updated });
-    saveModelConfigs(updated.map(({ apiKey, ...rest }) => rest as ModelConfig));
+    saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
   },
 
   newChat: () => {
@@ -211,9 +211,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameChat: (id, newTitle) => {
     set((state) => ({
-      conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, title: newTitle } : c
-      ),
+      conversations: state.conversations.map((c) => (c.id === id ? { ...c, title: newTitle } : c)),
     }));
     get().persistConversations();
   },
@@ -287,11 +285,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           ...c,
           timestamp: new Date(),
-          title: c.messages.length === 0
-            ? text.length > TITLE_MAX_LENGTH
-              ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026"
-              : text
-            : c.title,
+          title:
+            c.messages.length === 0
+              ? text.length > TITLE_MAX_LENGTH
+                ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026"
+                : text
+              : c.title,
           messages: [...c.messages, userMsg, assistantMsg],
         };
       }),
@@ -339,10 +338,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           apiKey,
           model: modelConfig.modelId,
           messages: [
-            ...(conversations.find((c) => c.id === finalId)?.messages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })) ?? []),
+            ...(conversations
+              .find((c) => c.id === finalId)
+              ?.messages.map((m) => ({
+                role: m.role,
+                content: m.content,
+              })) ?? []),
             { role: "user", content: text },
           ],
           temperature,
@@ -412,7 +413,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           set({ connectionStatus: "error" });
           logError("WS error", event.payload);
         }
-      })
+      }),
     );
 
     unlistenFns.push(
@@ -420,7 +421,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!cancelled) {
           set({ connectionStatus: "disconnected" });
         }
-      })
+      }),
     );
 
     unlistenFns.push(
@@ -428,7 +429,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!cancelled) {
           set({ connectionStatus: "connected" });
         }
-      })
+      }),
     );
 
     unlistenFns.push(
@@ -436,7 +437,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!cancelled) {
           set({ connectionStatus: "connecting" });
         }
-      })
+      }),
     );
 
     return () => {
