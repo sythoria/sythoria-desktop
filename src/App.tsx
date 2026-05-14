@@ -395,7 +395,7 @@ function App() {
             </div>
           </header>
 
-          <ChatArea messages={messages} connectionStatus={connectionStatus} />
+          <ChatArea messages={messages} connectionStatus={connectionStatus} onSuggestionClick={handleSend} />
 
           <InputBar
             models={models}

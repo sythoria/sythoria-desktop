@@ -1,31 +1,31 @@
 import { useCallback } from "react";
-import { useConnection } from "../contexts/ConnectionContext";
 import { invoke } from "@tauri-apps/api/core";
+import { useAppStore } from "../store/useAppStore";
+import { API_CONFIG } from "../config/constants";
+import { logError } from "../utils/logger";
 
 export function useWebSocket() {
-  const { connect, disconnect } = useConnection();
+  const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
 
   const sendMessage = useCallback(
     async (model: string) => {
-      connect();
+      setConnectionStatus("connecting");
 
       try {
         const result = await invoke("ws_chat", {
-          url: "ws://localhost:8080/chat",
+          url: API_CONFIG.wsEndpoint,
           apiKey: null,
-          model: model,
+          model,
         });
-
         return result;
       } catch (err) {
-        disconnect();
+        setConnectionStatus("error");
+        logError("WebSocket send failed", err);
         throw err;
       }
     },
-    [connect, disconnect]
+    [setConnectionStatus]
   );
 
-  return {
-    sendMessage,
-  };
+  return { sendMessage };
 }

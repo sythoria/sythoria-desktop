@@ -7,10 +7,12 @@ import {
   Trash2,
   Search,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import type { Conversation, ConnectionStatus } from "../types";
 import { STATUS_COLORS } from "../types";
 import { ConfirmModal } from "./ui/Modal";
+import { useDebounce } from "../hooks/useDebounce";
+import { SIDEBAR_WIDTH } from "../config/constants";
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -63,18 +65,26 @@ export default function Sidebar({
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
-  
+  const debouncedQuery = useDebounce(searchQuery);
+
   const filteredConversations = useMemo(() => {
-    if (!searchQuery.trim()) return conversations;
-    const query = searchQuery.toLowerCase();
+    if (!debouncedQuery.trim()) return conversations;
+    const query = debouncedQuery.toLowerCase();
     return conversations.filter(
       (conv) =>
         conv.title.toLowerCase().includes(query) ||
         conv.messages.some((m) => m.content.toLowerCase().includes(query))
     );
-  }, [conversations, searchQuery]);
+  }, [conversations, debouncedQuery]);
 
   const groups = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (chatToDelete) {
+      onDeleteChat(chatToDelete);
+      setChatToDelete(null);
+    }
+  }, [chatToDelete, onDeleteChat]);
 
   return (
     <>
@@ -92,7 +102,7 @@ export default function Sidebar({
           transition-transform duration-200 ease-out
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
-        style={{ width: 260 }}
+        style={{ width: SIDEBAR_WIDTH }}
       >
         <div className="flex items-center justify-between px-4 py-4">
           <h1 className="text-lg font-semibold tracking-tight text-text-primary">
@@ -214,12 +224,7 @@ export default function Sidebar({
         message="Are you sure you want to delete this chat? This action cannot be undone."
         confirmText="Delete"
         variant="danger"
-        onConfirm={() => {
-          if (chatToDelete) {
-            onDeleteChat(chatToDelete);
-            setChatToDelete(null);
-          }
-        }}
+        onConfirm={handleDeleteConfirm}
         onCancel={() => setChatToDelete(null)}
       />
     </>

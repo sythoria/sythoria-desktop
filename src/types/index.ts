@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { logError } from "../utils/logger";
 
 export interface Message {
   id: string;
@@ -13,7 +14,7 @@ export interface Conversation {
   title: string;
   timestamp: Date;
   messages: Message[];
-  model: string; // The ID of the ModelConfig
+  model: string;
 }
 
 export interface ModelConfig {
@@ -32,7 +33,7 @@ export type AuthState = {
   token: string;
 };
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: "bg-gray-400",
@@ -51,22 +52,20 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
       }
     }
   } catch (e) {
-    console.error("Failed to load config from system", e);
+    logError("Failed to load config from system", e);
   }
-  return null; // Return null to indicate no saved config
+  return null;
 }
 
 export async function saveModelConfigs(configs: ModelConfig[]) {
   try {
     await invoke("save_config", { config: JSON.stringify(configs) });
   } catch (e) {
-    console.error("Failed to save config to system", e);
+    logError("Failed to save config to system", e);
   }
 }
 
 export async function getModelConfig(id: string): Promise<ModelConfig | undefined> {
-  const configs = await loadModelConfigs() || [];
+  const configs = (await loadModelConfigs()) || [];
   return configs.find((c) => c.id === id);
 }
-
-
