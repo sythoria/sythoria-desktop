@@ -1,346 +1,96 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Menu } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
 import { RenameChatModal } from "./components/ui/Modal";
-import type { Conversation, Message, ConnectionStatus, ModelConfig } from "./types";
-import { loadModelConfigs, saveModelConfigs } from "./types";
+import { useAppStore } from "./store/useAppStore";
 import "./index.css";
 
-function generateId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID().slice(0, 8);
-  }
-  return Math.random().toString(36).substring(2, 11);
-}
-
-type View = "chat" | "settings";
-
 function App() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [temperature, setTemperature] = useState(0.7);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
-  const [hasStarted, setHasStarted] = useState(false);
-  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
-  const [view, setView] = useState<View>("chat");
-  const [showRenameModal, setShowRenameModal] = useState(false);
-  const [renameId, setRenameId] = useState<string | null>(null);
-  const [renameCurrentTitle, setRenameCurrentTitle] = useState("");
+  const conversations = useAppStore((s) => s.conversations);
+  const activeId = useAppStore((s) => s.activeId);
+  const models = useAppStore((s) => s.models);
+  const selectedModel = useAppStore((s) => s.selectedModel);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const isStreaming = useAppStore((s) => s.isStreaming);
+  const connectionStatus = useAppStore((s) => s.connectionStatus);
+  const hasStarted = useAppStore((s) => s.hasStarted);
+  const isConfigLoaded = useAppStore((s) => s.isConfigLoaded);
+  const view = useAppStore((s) => s.view);
+  const showRenameModal = useAppStore((s) => s.showRenameModal);
+  const renameCurrentTitle = useAppStore((s) => s.renameCurrentTitle);
+
+  const init = useAppStore((s) => s.init);
+  const setActiveId = useAppStore((s) => s.setActiveId);
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
+  const setView = useAppStore((s) => s.setView);
+  const setHasStarted = useAppStore((s) => s.setHasStarted);
+  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
+  const newChat = useAppStore((s) => s.newChat);
+  const deleteChat = useAppStore((s) => s.deleteChat);
+  const openRenameModal = useAppStore((s) => s.openRenameModal);
+  const confirmRename = useAppStore((s) => s.confirmRename);
+  const closeRenameModal = useAppStore((s) => s.closeRenameModal);
+  const sendMessage = useAppStore((s) => s.sendMessage);
+  const setupConnectionListeners = useAppStore((s) => s.setupConnectionListeners);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
-    [conversations, activeId]
+    [conversations, activeId],
   );
   const messages = activeConversation?.messages ?? [];
 
   useEffect(() => {
-    async function loadConfigs() {
-      const loaded = await loadModelConfigs();
-      if (loaded && loaded.length > 0) {
-        setModels(loaded);
-        setSelectedModel(loaded[0].id);
-        setHasStarted(true);
-      }
-      setIsConfigLoaded(true);
-    }
-    loadConfigs();
-  }, []);
+    init();
+  }, [init]);
 
   useEffect(() => {
-    if (isConfigLoaded) {
-      saveModelConfigs(models);
-      if (!models.find(m => m.id === selectedModel) && models.length > 0) {
-        setSelectedModel(models[0].id);
-      }
-    }
-  }, [models, selectedModel, isConfigLoaded]);
-
-  useEffect(() => {
-    const savedConversations = localStorage.getItem("sythoria-conversations");
-    if (savedConversations) {
-      try {
-        const parsed = JSON.parse(savedConversations);
-        parsed.forEach((c: any) => {
-          if (c.timestamp) c.timestamp = new Date(c.timestamp);
-          c.messages?.forEach((m: any) => {
-            if (m.timestamp) m.timestamp = new Date(m.timestamp);
-          });
-        });
-        setConversations(parsed);
-        if (parsed.length > 0) {
-          setActiveId(parsed[0].id);
-        }
-      } catch (e) {
-        console.error("Failed to load conversations", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!hasStarted) return;
-    try {
-      localStorage.setItem("sythoria-conversations", JSON.stringify(conversations));
-    } catch (e) {
-      console.error("Failed to save conversations", e);
-    }
-  }, [conversations, hasStarted]);
+    let cleanup: (() => void) | undefined;
+    setupConnectionListeners().then((fn) => {
+      cleanup = fn;
+    });
+    return () => cleanup?.();
+  }, [setupConnectionListeners]);
 
   const handleStart = useCallback(() => {
     setHasStarted(true);
-    setConnectionStatus("disconnected");
-  }, []);
+  }, [setHasStarted]);
 
   const handleNewChat = useCallback(() => {
-    const id = generateId();
-    const conv: Conversation = {
-      id,
-      title: "New chat",
-      timestamp: new Date(),
-      messages: [],
-      model: selectedModel,
-    };
-    setConversations((prev) => [conv, ...prev]);
-    setActiveId(id);
-    setSidebarOpen(false);
-    setView("chat");
-    return id;
-  }, [selectedModel]);
+    return newChat();
+  }, [newChat]);
 
-  const handleDeleteChat = useCallback((id: string) => {
-    setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (activeId === id) setActiveId(null);
-  }, [activeId]);
-
-  const handleRenameChat = useCallback((id: string, newTitle: string) => {
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c))
-    );
-  }, []);
-
-  const handleStartRename = useCallback((id: string, currentTitle: string) => {
-    setRenameId(id);
-    setRenameCurrentTitle(currentTitle);
-    setShowRenameModal(true);
-  }, []);
-
-  const handleConfirmRename = useCallback((newTitle: string) => {
-    if (renameId) {
-      handleRenameChat(renameId, newTitle);
-    }
-    setShowRenameModal(false);
-    setRenameId(null);
-    setRenameCurrentTitle("");
-  }, [renameId, handleRenameChat]);
-
-  const handleCancelRename = useCallback(() => {
-    setShowRenameModal(false);
-    setRenameId(null);
-    setRenameCurrentTitle("");
-  }, []);
-
-  const handleSend = useCallback(
-    async (text: string) => {
-      if (isStreaming) return;
-
-      let convId = activeId;
-
-      if (!convId) {
-        const id = generateId();
-        const conv: Conversation = {
-          id,
-          title: text.length > 40 ? text.slice(0, 40) + "…" : text,
-          timestamp: new Date(),
-          messages: [],
-          model: selectedModel,
-        };
-        setConversations((prev) => [conv, ...prev]);
-        setActiveId(id);
-        convId = id;
-      }
-
-      const userMsg: Message = {
-        id: generateId(),
-        role: "user",
-        content: text,
-        timestamp: new Date(),
-      };
-
-      const assistantMsg: Message = {
-        id: generateId(),
-        role: "assistant",
-        content: "",
-        timestamp: new Date(),
-        isStreaming: true,
-      };
-
-      const finalId = convId;
-      const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
-
-      if (!modelConfig) {
-         console.error("No model configuration selected");
-         return;
-      }
-
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id !== finalId) return c;
-          return {
-            ...c,
-            timestamp: new Date(),
-            title:
-              c.messages.length === 0
-                ? text.length > 40
-                  ? text.slice(0, 40) + "…"
-                  : text
-                : c.title,
-            messages: [...c.messages, userMsg, assistantMsg],
-          };
-        })
-      );
-
-      setIsStreaming(true);
-
-      try {
-        const apiUrl = modelConfig.apiBase;
-        const apiKey = modelConfig.apiKey;
-
-        const unlistenChunk = await listen<string>("chat-stream-chunk", (event) => {
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== finalId) return c;
-              const updated = [...c.messages];
-              const last = updated[updated.length - 1];
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  content: last.content + event.payload,
-                };
-              }
-              return { ...c, messages: updated };
-            })
-          );
-        });
-
-        const unlistenDone = await listen("chat-stream-done", () => {
-          setConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== finalId) return c;
-              const updated = [...c.messages];
-              const last = updated[updated.length - 1];
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  isStreaming: false,
-                };
-              }
-              return { ...c, messages: updated };
-            })
-          );
-          setIsStreaming(false);
-        });
-
-        try {
-          await invoke("chat_stream", {
-            apiUrl,
-            apiKey,
-            model: modelConfig.modelId,
-            messages: [
-              ...(conversations.find((c) => c.id === finalId)?.messages.map((m) => ({
-                role: m.role,
-                content: m.content,
-              })) ?? []),
-              { role: "user", content: text },
-            ],
-            temperature,
-          });
-        } finally {
-          unlistenChunk();
-          unlistenDone();
-        }
-
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== finalId) return c;
-            const updated = [...c.messages];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant" && last.isStreaming) {
-              updated[updated.length - 1] = { ...last, isStreaming: false };
-            }
-            return { ...c, messages: updated };
-          })
-        );
-      } catch (err) {
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id !== finalId) return c;
-            const updated = [...c.messages];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
-                ...last,
-                content: `**Error:** ${err}`,
-                isStreaming: false,
-              };
-            }
-            return { ...c, messages: updated };
-          })
-        );
-      } finally {
-        setIsStreaming(false);
-      }
+  const handleDeleteChat = useCallback(
+    (id: string) => {
+      deleteChat(id);
     },
-    [activeId, selectedModel, temperature, isStreaming, conversations, models]
+    [deleteChat],
   );
 
-  useEffect(() => {
-    const unlistenFns: UnlistenFn[] = [];
-    let cancelled = false;
-
-    async function setupListeners() {
-      unlistenFns.push(
-        await listen<string>("ws-error", (event) => {
-          if (!cancelled) setConnectionStatus("error");
-          console.error("WS error:", event.payload);
-        })
-      );
-      unlistenFns.push(
-        await listen("ws-closed", () => {
-          if (!cancelled) setConnectionStatus("disconnected");
-        })
-      );
-    }
-    setupListeners();
-
-    return () => {
-      cancelled = true;
-      unlistenFns.forEach((fn) => fn());
-    };
-  }, []);
+  const handleSelectConversation = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      setView("chat");
+      setSidebarOpen(false);
+    },
+    [setActiveId, setView, setSidebarOpen],
+  );
 
   const handleSettingsClick = useCallback(() => {
     setView("settings");
     setSidebarOpen(false);
-  }, []);
+  }, [setView, setSidebarOpen]);
 
-  const handleBackToChat = useCallback(() => {
-    setView("chat");
-  }, []);
-
-  const handleSelectConversation = useCallback((id: string) => {
-    setActiveId(id);
-    setView("chat");
-    setSidebarOpen(false);
-  }, []);
+  if (!isConfigLoaded) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-chat">
+        <div className="animate-pulse-soft w-8 h-8 rounded-full bg-accent/30" />
+      </div>
+    );
+  }
 
   if (!hasStarted) {
     return <StartScreen onStart={handleStart} />;
@@ -355,27 +105,14 @@ function App() {
         onNewChat={handleNewChat}
         onSettingsClick={handleSettingsClick}
         onDeleteChat={handleDeleteChat}
-        onRenameChat={handleStartRename}
+        onRenameChat={openRenameModal}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         connectionStatus={connectionStatus}
       />
 
       {view === "settings" ? (
-        <Settings
-          models={models}
-          setModels={setModels}
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-          temperature={temperature}
-          onTemperatureChange={setTemperature}
-          onBack={handleBackToChat}
-          onCreateChat={() => {
-            const newId = handleNewChat();
-            setView("chat");
-            return newId;
-          }}
-        />
+        <Settings />
       ) : (
         <main className="flex-1 flex flex-col min-w-0 bg-chat">
           <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
@@ -391,15 +128,14 @@ function App() {
               </h2>
             </div>
 
-            <div className="flex items-center gap-3">
-            </div>
+            <div className="flex items-center gap-3" />
           </header>
 
-          <ChatArea messages={messages} connectionStatus={connectionStatus} onSuggestionClick={handleSend} />
+          <ChatArea messages={messages} connectionStatus={connectionStatus} onSuggestionClick={sendMessage} />
 
           <InputBar
             models={models}
-            onSend={handleSend}
+            onSend={sendMessage}
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
             disabled={isStreaming}
@@ -411,8 +147,8 @@ function App() {
       <RenameChatModal
         isOpen={showRenameModal}
         currentTitle={renameCurrentTitle}
-        onConfirm={handleConfirmRename}
-        onCancel={handleCancelRename}
+        onConfirm={confirmRename}
+        onCancel={closeRenameModal}
       />
     </div>
   );
