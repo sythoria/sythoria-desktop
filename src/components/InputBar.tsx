@@ -1,12 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import {
-  Send,
-  Paperclip,
-  ChevronDown,
-  Check,
-} from "lucide-react";
+import { Send, Paperclip, ChevronDown, Check } from "lucide-react";
 import { STATUS_COLORS, ModelConfig } from "../types";
 import type { ConnectionStatus } from "../types";
+import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -30,20 +26,20 @@ export default function InputBar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const isOverLimit = value.length > MAX_INPUT_LENGTH;
+  const trimmed = value.trim();
+  const canSend = trimmed.length > 0 && !isOverLimit && !disabled;
+
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height =
-        Math.min(textareaRef.current.scrollHeight, 200) + "px";
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, MAX_TEXTAREA_HEIGHT) + "px";
     }
   }, [value]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setModelOpen(false);
       }
     }
@@ -52,8 +48,7 @@ export default function InputBar({
   }, []);
 
   const handleSubmit = () => {
-    const trimmed = value.trim();
-    if (!trimmed || disabled) return;
+    if (!canSend) return;
     onSend(trimmed);
     setValue("");
     if (textareaRef.current) {
@@ -68,12 +63,21 @@ export default function InputBar({
     }
   };
 
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    if (val.length <= MAX_INPUT_LENGTH + 100) {
+      setValue(val);
+    }
+  };
+
   const currentModel = models.find((m) => m.id === selectedModel) ?? models[0];
 
   return (
     <div className="px-4 md:px-0 pb-4 pt-2">
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5">
+        <div
+          className={`flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""}`}
+        >
           <button
             className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
             title="Attach file"
@@ -84,13 +88,12 @@ export default function InputBar({
           <textarea
             ref={textareaRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={handleChange}
             onKeyDown={handleKeyDown}
             placeholder="Message Sythoria..."
             rows={1}
             disabled={disabled}
-            className="flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted
-              resize-none outline-none leading-relaxed max-h-[200px]"
+            className={`flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed max-h-[${MAX_TEXTAREA_HEIGHT}px] ${isOverLimit ? "text-red-400" : ""}`}
           />
 
           <div ref={dropdownRef} className="relative shrink-0">
@@ -102,10 +105,7 @@ export default function InputBar({
             >
               <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
               {currentModel?.name || "No Model"}
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${modelOpen ? "rotate-180" : ""}`}
-              />
+              <ChevronDown size={12} className={`transition-transform ${modelOpen ? "rotate-180" : ""}`} />
             </button>
 
             {modelOpen && (
@@ -126,13 +126,15 @@ export default function InputBar({
                         <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
                         {model.name}
                       </span>
-                      <span className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap" style={{ maxWidth: '140px' }} title={model.apiBase}>
-                        {model.apiBase.replace(/^https?:\/\//, '').split('/')[0]}
+                      <span
+                        className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
+                        style={{ maxWidth: "140px" }}
+                        title={model.apiBase}
+                      >
+                        {model.apiBase.replace(/^https?:\/\//, "").split("/")[0]}
                       </span>
                     </div>
-                    {selectedModel === model.id && (
-                      <Check size={14} className="text-accent shrink-0" />
-                    )}
+                    {selectedModel === model.id && <Check size={14} className="text-accent shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -141,7 +143,7 @@ export default function InputBar({
 
           <button
             onClick={handleSubmit}
-            disabled={!value.trim() || disabled}
+            disabled={!canSend}
             className="shrink-0 p-2 rounded-lg bg-accent hover:bg-accent-hover
               text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg"
           >
@@ -150,7 +152,11 @@ export default function InputBar({
         </div>
 
         <p className="mt-2 text-center text-[11px] text-text-muted">
-          Sythoria can make mistakes. Consider checking important information.
+          {isOverLimit ? (
+            <span className="text-red-400">Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit</span>
+          ) : (
+            "Sythoria can make mistakes. Consider checking important information."
+          )}
         </p>
       </div>
     </div>
