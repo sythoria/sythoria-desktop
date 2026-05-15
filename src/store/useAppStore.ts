@@ -188,11 +188,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       apiKey: loadedKeys[m.id] ?? m.apiKey,
     }));
 
+    const nonEmptyConvs = loadedConvs.filter((c) => c.messages.length > 0);
+
     set({
       models: modelsWithKeys,
       selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
-      conversations: loadedConvs,
-      activeId: loadedConvs.length > 0 ? loadedConvs[0].id : null,
+      conversations: nonEmptyConvs,
+      activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
       theme: loadedTheme,
       apiKeys: loadedKeys,
       hasStarted: modelsWithKeys.length > 0,
@@ -203,11 +205,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     logInfo("App state initialized");
   },
 
-  setActiveId: (id) => set({ activeId: id }),
+  setActiveId: (id) => {
+    const { activeId, conversations } = get();
+    if (activeId === id) return;
+    const prev = conversations.find((c) => c.id === activeId);
+    if (prev && prev.messages.length === 0) {
+      set({
+        conversations: conversations.filter((c) => c.id !== activeId),
+        activeId: id,
+      });
+    } else {
+      set({ activeId: id });
+    }
+  },
   setSelectedModel: (model) => set({ selectedModel: model }),
   setTemperature: (t) => set({ temperature: t }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  setView: (view) => set({ view }),
+  setView: (view) => {
+    const { conversations, activeId } = get();
+    const cleaned = conversations.filter((c) => c.messages.length > 0);
+    const activeRemoved = activeId && !cleaned.find((c) => c.id === activeId);
+    set({
+      view,
+      conversations: cleaned,
+      ...(activeRemoved ? { activeId: cleaned.length > 0 ? cleaned[0].id : null } : {}),
+    });
+    if (cleaned.length !== conversations.length) {
+      get().persistConversations();
+    }
+  },
   setHasStarted: (started) => set({ hasStarted: started }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setError: () => {},
@@ -292,7 +318,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       sidebarOpen: false,
       view: "chat",
     }));
-    get().persistConversations();
     return id;
   },
 
@@ -423,7 +448,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   persistConversations: async () => {
     const { conversations, hasStarted } = get();
     if (!hasStarted) return;
-    await saveConversations(conversations);
+    const nonEmpty = conversations.filter((c) => c.messages.length > 0);
+    await saveConversations(nonEmpty);
+    if (nonEmpty.length !== conversations.length) {
+      const { activeId } = get();
+      const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
+      set({
+        conversations: nonEmpty,
+        ...(activeRemoved ? { activeId: nonEmpty.length > 0 ? nonEmpty[0].id : null } : {}),
+      });
+    }
   },
 
   persistApiKeys: async () => {

@@ -59,14 +59,16 @@ export default function Sidebar({
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
   const debouncedQuery = useDebounce(searchQuery);
 
+  const nonEmptyConversations = useMemo(() => conversations.filter((c) => c.messages.length > 0), [conversations]);
+
   const filteredConversations = useMemo(() => {
-    if (!debouncedQuery.trim()) return conversations;
+    if (!debouncedQuery.trim()) return nonEmptyConversations;
     const query = debouncedQuery.toLowerCase();
-    return conversations.filter(
+    return nonEmptyConversations.filter(
       (conv) =>
         conv.title.toLowerCase().includes(query) || conv.messages.some((m) => m.content.toLowerCase().includes(query)),
     );
-  }, [conversations, debouncedQuery]);
+  }, [nonEmptyConversations, debouncedQuery]);
 
   const groups = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
 
@@ -175,7 +177,7 @@ export default function Sidebar({
             </div>
           ))}
 
-          {conversations.length === 0 && (
+          {nonEmptyConversations.length === 0 && (
             <p className="px-2 py-4 text-sm text-text-muted text-center">No conversations yet</p>
           )}
         </nav>
