@@ -130,6 +130,7 @@ interface AppState {
   renameCurrentTitle: string;
 
   init: () => Promise<void>;
+  cleanupEmptyConversations: () => void;
   setActiveId: (id: string | null) => void;
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
@@ -205,34 +206,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     logInfo("App state initialized");
   },
 
+  cleanupEmptyConversations: () => {
+    const { conversations, activeId } = get();
+    const nonEmpty = conversations.filter((c) => c.messages.length > 0);
+    if (nonEmpty.length === conversations.length) return;
+    const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
+    set({
+      conversations: nonEmpty,
+      ...(activeRemoved ? { activeId: nonEmpty.length > 0 ? nonEmpty[0].id : null } : {}),
+    });
+  },
+
   setActiveId: (id) => {
-    const { activeId, conversations } = get();
+    const { activeId } = get();
     if (activeId === id) return;
-    const prev = conversations.find((c) => c.id === activeId);
-    if (prev && prev.messages.length === 0) {
-      set({
-        conversations: conversations.filter((c) => c.id !== activeId),
-        activeId: id,
-      });
-    } else {
-      set({ activeId: id });
-    }
+    get().cleanupEmptyConversations();
+    set({ activeId: id });
   },
   setSelectedModel: (model) => set({ selectedModel: model }),
   setTemperature: (t) => set({ temperature: t }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setView: (view) => {
-    const { conversations, activeId } = get();
-    const cleaned = conversations.filter((c) => c.messages.length > 0);
-    const activeRemoved = activeId && !cleaned.find((c) => c.id === activeId);
-    set({
-      view,
-      conversations: cleaned,
-      ...(activeRemoved ? { activeId: cleaned.length > 0 ? cleaned[0].id : null } : {}),
-    });
-    if (cleaned.length !== conversations.length) {
-      get().persistConversations();
-    }
+    get().cleanupEmptyConversations();
+    set({ view });
   },
   setHasStarted: (started) => set({ hasStarted: started }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
@@ -446,18 +442,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   persistConversations: async () => {
-    const { conversations, hasStarted } = get();
+    const { hasStarted } = get();
     if (!hasStarted) return;
-    const nonEmpty = conversations.filter((c) => c.messages.length > 0);
-    await saveConversations(nonEmpty);
-    if (nonEmpty.length !== conversations.length) {
-      const { activeId } = get();
-      const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
-      set({
-        conversations: nonEmpty,
-        ...(activeRemoved ? { activeId: nonEmpty.length > 0 ? nonEmpty[0].id : null } : {}),
-      });
-    }
+    get().cleanupEmptyConversations();
+    const { conversations } = get();
+    await saveConversations(conversations);
   },
 
   persistApiKeys: async () => {
