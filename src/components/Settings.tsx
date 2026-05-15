@@ -16,6 +16,7 @@ import { ModelConfig } from "../types";
 import { useAppStore } from "../store/useAppStore";
 import { PROVIDER_PRESETS } from "../config/providerPresets";
 import { MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_STEP } from "../config/constants";
+import { Switch } from "./ui/Switch";
 
 interface ModelCardProps {
   model: ModelConfig;
@@ -201,24 +202,12 @@ export default function Settings() {
               <h3 className="text-sm font-semibold text-text-primary">Appearance</h3>
             </div>
             <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">Dark Mode</p>
-                  <p className="text-xs text-text-muted mt-0.5">Toggle between light and dark themes</p>
-                </div>
-                <button
-                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${
-                    theme === "dark" ? "bg-accent" : "bg-input-border"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ${
-                      theme === "dark" ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
+              <Switch
+                checked={theme === "dark"}
+                onChange={(checked) => setTheme(checked ? "dark" : "light")}
+                label="Dark Mode"
+                description="Toggle between light and dark themes"
+              />
             </div>
           </div>
 
