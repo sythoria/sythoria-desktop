@@ -7,35 +7,71 @@ import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
 import { RenameChatModal } from "./components/ui/Modal";
 import { useAppStore } from "./store/useAppStore";
+import { useShallow } from "zustand/react/shallow";
 import "./index.css";
 
 function App() {
-  const conversations = useAppStore((s) => s.conversations);
-  const activeId = useAppStore((s) => s.activeId);
-  const models = useAppStore((s) => s.models);
-  const selectedModel = useAppStore((s) => s.selectedModel);
-  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
-  const isStreaming = useAppStore((s) => s.isStreaming);
-  const connectionStatus = useAppStore((s) => s.connectionStatus);
-  const hasStarted = useAppStore((s) => s.hasStarted);
-  const isConfigLoaded = useAppStore((s) => s.isConfigLoaded);
-  const view = useAppStore((s) => s.view);
-  const showRenameModal = useAppStore((s) => s.showRenameModal);
-  const renameCurrentTitle = useAppStore((s) => s.renameCurrentTitle);
+  const {
+    conversations,
+    activeId,
+    models,
+    selectedModel,
+    sidebarOpen,
+    isStreaming,
+    connectionStatus,
+    hasStarted,
+    isConfigLoaded,
+    view,
+    showRenameModal,
+    renameCurrentTitle,
+  } = useAppStore(
+    useShallow((s) => ({
+      conversations: s.conversations,
+      activeId: s.activeId,
+      models: s.models,
+      selectedModel: s.selectedModel,
+      sidebarOpen: s.sidebarOpen,
+      isStreaming: s.isStreaming,
+      connectionStatus: s.connectionStatus,
+      hasStarted: s.hasStarted,
+      isConfigLoaded: s.isConfigLoaded,
+      view: s.view,
+      showRenameModal: s.showRenameModal,
+      renameCurrentTitle: s.renameCurrentTitle,
+    })),
+  );
 
-  const init = useAppStore((s) => s.init);
-  const setActiveId = useAppStore((s) => s.setActiveId);
-  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
-  const setView = useAppStore((s) => s.setView);
-  const setHasStarted = useAppStore((s) => s.setHasStarted);
-  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
-  const newChat = useAppStore((s) => s.newChat);
-  const deleteChat = useAppStore((s) => s.deleteChat);
-  const openRenameModal = useAppStore((s) => s.openRenameModal);
-  const confirmRename = useAppStore((s) => s.confirmRename);
-  const closeRenameModal = useAppStore((s) => s.closeRenameModal);
-  const sendMessage = useAppStore((s) => s.sendMessage);
-  const setupConnectionListeners = useAppStore((s) => s.setupConnectionListeners);
+  const {
+    init,
+    setActiveId,
+    setSidebarOpen,
+    setView,
+    setHasStarted,
+    setSelectedModel,
+    newChat,
+    deleteChat,
+    openRenameModal,
+    confirmRename,
+    closeRenameModal,
+    sendMessage,
+    setupConnectionListeners,
+  } = useAppStore(
+    useShallow((s) => ({
+      init: s.init,
+      setActiveId: s.setActiveId,
+      setSidebarOpen: s.setSidebarOpen,
+      setView: s.setView,
+      setHasStarted: s.setHasStarted,
+      setSelectedModel: s.setSelectedModel,
+      newChat: s.newChat,
+      deleteChat: s.deleteChat,
+      openRenameModal: s.openRenameModal,
+      confirmRename: s.confirmRename,
+      closeRenameModal: s.closeRenameModal,
+      sendMessage: s.sendMessage,
+      setupConnectionListeners: s.setupConnectionListeners,
+    })),
+  );
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
