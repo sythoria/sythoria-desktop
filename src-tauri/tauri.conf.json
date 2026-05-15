@@ -18,7 +18,7 @@
       }
     ],
   "security": {
-    "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost 'self' https: http://localhost ws://localhost"
+    "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; font-src 'self' data: https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost 'self' https: http://localhost ws://localhost"
   }
   },
   "bundle": {
