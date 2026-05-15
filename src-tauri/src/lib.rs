@@ -53,24 +53,63 @@ struct StreamDelta {
     content: Option<String>,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum AppError {
+    #[error("Config I/O error: {0}")]
+    ConfigIo(#[from] std::io::Error),
+    #[error("App path error: {0}")]
+    AppPath(String),
+    #[error("HTTP request failed: {0}")]
+    RequestFailed(#[from] reqwest::Error),
+    #[error("API error {status}: {body}")]
+    ApiError { status: u16, body: String },
+    #[error("Stream error: {0}")]
+    StreamError(String),
+    #[error("Response parse error: {0}")]
+    ParseError(String),
+    #[error("Auth error: {0}")]
+    AuthError(String),
+}
+
+impl From<AppError> for String {
+    fn from(err: AppError) -> String {
+        err.to_string()
+    }
+}
+
+impl serde::Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 #[tauri::command]
-async fn load_config(app: tauri::AppHandle) -> Result<String, String> {
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+async fn load_config(app: tauri::AppHandle) -> Result<String, AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
     let config_path = app_data_dir.join("config.json");
     if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| e.to_string())
+        fs::read_to_string(config_path).map_err(AppError::ConfigIo)
     } else {
         Ok("".to_string())
     }
 }
 
 #[tauri::command]
-async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), String> {
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| e.to_string())?;
+async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    fs::create_dir_all(&app_data_dir).map_err(AppError::ConfigIo)?;
     let config_path = app_data_dir.join("config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| e.to_string())?;
-    file.write_all(config.as_bytes()).map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(config_path).map_err(AppError::ConfigIo)?;
+    file.write_all(config.as_bytes()).map_err(AppError::ConfigIo)?;
     Ok(())
 }
 
@@ -81,7 +120,7 @@ async fn chat_completion(
     model: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let client = Client::new();
     let body = ChatRequest {
         model,
@@ -90,32 +129,24 @@ async fn chat_completion(
         stream: false,
     };
 
-    let auth_header = format!("Bearer {}", api_key);
-
     let mut request = client.post(&api_url).json(&body);
     request = request.header("Content-Type", "application/json");
     if !api_key.is_empty() {
-        request = request.header("Authorization", &auth_header);
+        request = request.header("Authorization", format!("Bearer {}", api_key));
     }
 
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+    let resp = request.send().await.map_err(AppError::RequestFailed)?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".into());
-        return Err(format!("API error {}: {}", status, text));
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+        return Err(AppError::ApiError { status, body: text });
     }
 
     let chat_resp: ChatResponse = resp
         .json()
         .await
-        .map_err(|e| format!("Parse error: {}", e))?;
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
 
     let content = chat_resp
         .choices
@@ -136,7 +167,7 @@ async fn chat_stream(
     messages: Vec<ChatMessage>,
     temperature: f64,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     use tauri::Emitter;
 
     let client = Client::new();
@@ -156,18 +187,12 @@ async fn chat_stream(
         );
     }
 
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+    let resp = request.send().await.map_err(AppError::RequestFailed)?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".into());
-        return Err(format!("API error {}: {}", status, text));
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+        return Err(AppError::ApiError { status, body: text });
     }
 
     let mut stream = resp.bytes_stream();
@@ -175,7 +200,7 @@ async fn chat_stream(
     let mut buffer = String::new();
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+        let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
         while let Some(line_end) = buffer.find('\n') {
@@ -207,19 +232,21 @@ async fn chat_stream(
 
 #[tauri::command]
 async fn ws_chat(
-  url: String,
-  api_key: Option<String>,
-  model: String,
-  app: tauri::AppHandle,
-) -> Result<String, String> {
-  let config = ws_handler::WsConfig {
-    url,
-    api_key,
-    model,
-    reconnect: true,
-    max_reconnect_attempts: 5,
-  };
-  ws_handler::ws_chat_stream(config, app).await
+    url: String,
+    api_key: Option<String>,
+    model: String,
+    app: tauri::AppHandle,
+) -> Result<String, AppError> {
+    let config = ws_handler::WsConfig {
+        url,
+        api_key,
+        model,
+        reconnect: true,
+        max_reconnect_attempts: 5,
+    };
+    ws_handler::ws_chat_stream(config, app)
+        .await
+        .map_err(|e| AppError::AuthError(e))
 }
 
 #[tauri::command]
@@ -227,7 +254,7 @@ async fn ws_authenticate(
     username: String,
     api_key: String,
     server_url: String,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let client = Client::new();
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
 
@@ -241,21 +268,18 @@ async fn ws_authenticate(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Auth request failed: {}", e))?;
+        .map_err(|e| AppError::RequestFailed(e))?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".into());
-        return Err(format!("Auth error {}: {}", status, text));
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".into());
+        return Err(AppError::ApiError { status, body: text });
     }
 
     let token: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("Parse error: {}", e))?;
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
 
     Ok(token["token"]
         .as_str()
