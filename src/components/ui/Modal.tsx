@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 
 interface ModalProps {
   isOpen: boolean;
@@ -16,12 +17,12 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
     if (isOpen) {
       document.addEventListener("keydown", handleEscape);
-      document.body.style.overflow = "hidden";
+      lockBodyScroll();
     }
 
     return () => {
       document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
+      if (isOpen) unlockBodyScroll();
     };
   }, [isOpen, onClose]);
 
@@ -29,10 +30,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border shadow-xl">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-medium text-text-primary">{title}</h3>
@@ -78,11 +76,11 @@ export function ConfirmModal({
     };
 
     document.addEventListener("keydown", handleEscape);
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
 
     return () => {
       document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
+      unlockBodyScroll();
     };
   }, [isOpen, onCancel]);
 
@@ -90,18 +88,11 @@ export function ConfirmModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onCancel}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl">
         <div className="px-5 pt-5 pb-1">
-          <h3 className="text-sm font-semibold text-text-primary">
-            {title}
-          </h3>
-          <p className="mt-1.5 text-xs text-text-muted leading-relaxed">
-            {message}
-          </p>
+          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+          <p className="mt-1.5 text-xs text-text-muted leading-relaxed">{message}</p>
         </div>
         <div className="flex gap-2 p-4 pt-3">
           <button
@@ -133,12 +124,7 @@ interface RenameChatModalProps {
   onCancel: () => void;
 }
 
-export function RenameChatModal({
-  isOpen,
-  currentTitle,
-  onConfirm,
-  onCancel,
-}: RenameChatModalProps) {
+export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: RenameChatModalProps) {
   const [value, setValue] = useState(currentTitle);
   const inputRef = useRef<HTMLInputElement>(null);
   const isEmpty = value.trim().length === 0;
@@ -153,7 +139,7 @@ export function RenameChatModal({
     };
 
     document.addEventListener("keydown", handleEscape);
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
 
     requestAnimationFrame(() => {
       if (inputRef.current) {
@@ -164,7 +150,7 @@ export function RenameChatModal({
 
     return () => {
       document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
+      unlockBodyScroll();
     };
   }, [isOpen, currentTitle, onCancel]);
 
@@ -178,15 +164,10 @@ export function RenameChatModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onCancel}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl">
         <div className="px-5 pt-5 pb-1">
-          <h3 className="text-sm font-semibold text-text-primary">
-            Rename Chat
-          </h3>
+          <h3 className="text-sm font-semibold text-text-primary">Rename Chat</h3>
           <input
             ref={inputRef}
             type="text"
@@ -211,9 +192,7 @@ export function RenameChatModal({
             onClick={handleConfirm}
             disabled={isEmpty}
             className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              isEmpty
-                ? "bg-accent/10 text-accent/40 cursor-not-allowed"
-                : "bg-accent/10 text-accent hover:bg-accent/20"
+              isEmpty ? "bg-accent/10 text-accent/40 cursor-not-allowed" : "bg-accent/10 text-accent hover:bg-accent/20"
             }`}
           >
             Rename
