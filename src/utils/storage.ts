@@ -1,6 +1,29 @@
+import { z } from "zod";
 import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation } from "../types";
 import { logError } from "./logger";
+
+const MessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+  timestamp: z.coerce.date(),
+  isStreaming: z.boolean().optional(),
+});
+
+const ConversationSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  timestamp: z.coerce.date(),
+  messages: z.array(MessageSchema),
+  model: z.string(),
+});
+
+const ConversationsArraySchema = z.array(ConversationSchema);
+
+const ThemeSchema = z.enum(["light", "dark"]);
+
+const ApiKeysSchema = z.record(z.string(), z.string());
 
 const CONVERSATIONS_KEY = "sythoria-conversations";
 const THEME_KEY = "sythoria-theme";
@@ -16,32 +39,24 @@ async function getStore(): Promise<Store> {
   return storeInstance;
 }
 
+function parseConversations(raw: unknown): Conversation[] {
+  const result = ConversationsArraySchema.safeParse(raw);
+  if (result.success) return result.data as Conversation[];
+  logError("Stored conversations failed validation, resetting", result.error);
+  return [];
+}
+
 export async function loadConversations(): Promise<Conversation[]> {
   try {
     const store = await getStore();
-    const raw = await store.get<Conversation[]>(CONVERSATIONS_KEY);
-    if (raw && Array.isArray(raw)) {
-      raw.forEach((c: Conversation) => {
-        if (c.timestamp) c.timestamp = new Date(c.timestamp);
-        c.messages?.forEach((m: Record<string, unknown>) => {
-          if (m.timestamp) m.timestamp = new Date(m.timestamp as string);
-        });
-      });
-      return raw;
-    }
+    const raw = await store.get<unknown>(CONVERSATIONS_KEY);
+    if (raw) return parseConversations(raw);
   } catch (e) {
     logError("Failed to load conversations from secure store", e);
     const fallback = localStorage.getItem(CONVERSATIONS_KEY);
     if (fallback) {
       try {
-        const parsed = JSON.parse(fallback);
-        parsed.forEach((c: Conversation) => {
-          if (c.timestamp) c.timestamp = new Date(c.timestamp);
-          c.messages?.forEach((m: Record<string, unknown>) => {
-            if (m.timestamp) m.timestamp = new Date(m.timestamp as string);
-          });
-        });
-        return parsed;
+        return parseConversations(JSON.parse(fallback));
       } catch (e2) {
         logError("Failed to parse conversations from localStorage", e2);
       }
@@ -67,13 +82,15 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 export async function loadTheme(): Promise<"light" | "dark"> {
   try {
     const store = await getStore();
-    const theme = await store.get<string>(THEME_KEY);
-    if (theme === "light" || theme === "dark") return theme;
+    const raw = await store.get<unknown>(THEME_KEY);
+    const result = ThemeSchema.safeParse(raw);
+    if (result.success) return result.data;
   } catch (e) {
     logError("Failed to load theme from secure store", e);
   }
   const fallback = localStorage.getItem(THEME_KEY);
-  if (fallback === "light" || fallback === "dark") return fallback;
+  const result = ThemeSchema.safeParse(fallback);
+  if (result.success) return result.data;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -90,8 +107,10 @@ export async function saveTheme(theme: "light" | "dark"): Promise<void> {
 export async function loadApiKeys(): Promise<Record<string, string>> {
   try {
     const store = await getStore();
-    const keys = await store.get<Record<string, string>>(API_KEYS_KEY);
-    if (keys && typeof keys === "object") return keys;
+    const raw = await store.get<unknown>(API_KEYS_KEY);
+    const result = ApiKeysSchema.safeParse(raw);
+    if (result.success) return result.data;
+    if (raw) logError("Stored API keys failed validation, resetting");
   } catch (e) {
     logError("Failed to load API keys from secure store", e);
   }
