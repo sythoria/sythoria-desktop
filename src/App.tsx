@@ -18,7 +18,7 @@ function App() {
     selectedModel,
     sidebarOpen,
     isStreaming,
-    connectionStatus,
+    modelStatuses,
     hasStarted,
     isConfigLoaded,
     view,
@@ -32,7 +32,7 @@ function App() {
       selectedModel: s.selectedModel,
       sidebarOpen: s.sidebarOpen,
       isStreaming: s.isStreaming,
-      connectionStatus: s.connectionStatus,
+      modelStatuses: s.modelStatuses,
       hasStarted: s.hasStarted,
       isConfigLoaded: s.isConfigLoaded,
       view: s.view,
@@ -54,7 +54,6 @@ function App() {
     confirmRename,
     closeRenameModal,
     sendMessage,
-    setupConnectionListeners,
   } = useAppStore(
     useShallow((s) => ({
       init: s.init,
@@ -69,7 +68,6 @@ function App() {
       confirmRename: s.confirmRename,
       closeRenameModal: s.closeRenameModal,
       sendMessage: s.sendMessage,
-      setupConnectionListeners: s.setupConnectionListeners,
     })),
   );
 
@@ -82,14 +80,6 @@ function App() {
   useEffect(() => {
     init();
   }, [init]);
-
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    setupConnectionListeners().then((fn) => {
-      cleanup = fn;
-    });
-    return () => cleanup?.();
-  }, [setupConnectionListeners]);
 
   const handleStart = useCallback(() => {
     setHasStarted(true);
@@ -144,7 +134,7 @@ function App() {
         onRenameChat={openRenameModal}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        connectionStatus={connectionStatus}
+        modelStatuses={modelStatuses}
       />
 
       {view === "settings" ? (
@@ -167,7 +157,7 @@ function App() {
             <div className="flex items-center gap-3" />
           </header>
 
-          <ChatArea messages={messages} connectionStatus={connectionStatus} onSuggestionClick={sendMessage} />
+          <ChatArea messages={messages} onSuggestionClick={sendMessage} />
 
           <InputBar
             models={models}
@@ -175,7 +165,7 @@ function App() {
             selectedModel={selectedModel}
             onModelChange={setSelectedModel}
             disabled={isStreaming}
-            connectionStatus={connectionStatus}
+            modelStatuses={modelStatuses}
           />
         </main>
       )}

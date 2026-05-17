@@ -42,6 +42,8 @@ export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   error: "bg-red-500",
 };
 
+export type ModelStatuses = Record<string, ConnectionStatus>;
+
 export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
   try {
     const raw = await invoke<string>("load_config");

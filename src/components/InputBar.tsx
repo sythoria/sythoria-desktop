@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Paperclip, ChevronDown, Check } from "lucide-react";
 import { STATUS_COLORS, ModelConfig } from "../types";
-import type { ConnectionStatus } from "../types";
+import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
 
 interface InputBarProps {
@@ -10,7 +10,7 @@ interface InputBarProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
-  connectionStatus: ConnectionStatus;
+  modelStatuses: ModelStatuses;
 }
 
 export default function InputBar({
@@ -19,7 +19,7 @@ export default function InputBar({
   selectedModel,
   onModelChange,
   disabled,
-  connectionStatus,
+  modelStatuses,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -71,6 +71,7 @@ export default function InputBar({
   };
 
   const currentModel = models.find((m) => m.id === selectedModel) ?? models[0];
+  const currentStatus = modelStatuses[selectedModel] ?? "disconnected";
 
   return (
     <div className="px-4 md:px-0 pb-4 pt-2">
@@ -99,44 +100,43 @@ export default function InputBar({
           <div ref={dropdownRef} className="relative shrink-0">
             <button
               onClick={() => setModelOpen(!modelOpen)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg
-                text-xs text-text-muted hover:text-text-secondary hover:bg-hover
-                transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-secondary hover:bg-hover transition-colors whitespace-nowrap"
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
+              <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[currentStatus]}`} />
               {currentModel?.name || "No Model"}
               <ChevronDown size={12} className={`transition-transform ${modelOpen ? "rotate-180" : ""}`} />
             </button>
 
             {modelOpen && (
               <div className="absolute bottom-full right-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in max-h-64 overflow-y-auto">
-                {models.map((model) => (
-                  <button
-                    key={model.id}
-                    onClick={() => {
-                      onModelChange(model.id);
-                      setModelOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-2
-                      text-sm text-text-secondary hover:bg-hover hover:text-text-primary
-                      transition-colors"
-                  >
-                    <div className="flex flex-col items-start">
-                      <span className="flex items-center gap-1.5">
-                        <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
-                        {model.name}
-                      </span>
-                      <span
-                        className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
-                        style={{ maxWidth: "140px" }}
-                        title={model.apiBase}
-                      >
-                        {model.apiBase.replace(/^https?:\/\//, "").split("/")[0]}
-                      </span>
-                    </div>
-                    {selectedModel === model.id && <Check size={14} className="text-accent shrink-0" />}
-                  </button>
-                ))}
+                {models.map((model) => {
+                  const status = modelStatuses[model.id] ?? "disconnected";
+                  return (
+                    <button
+                      key={model.id}
+                      onClick={() => {
+                        onModelChange(model.id);
+                        setModelOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[status]}`} />
+                          {model.name}
+                        </span>
+                        <span
+                          className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
+                          style={{ maxWidth: "140px" }}
+                          title={model.apiBase}
+                        >
+                          {model.apiBase.replace(/^https?:\/\//, "").split("/")[0]}
+                        </span>
+                      </div>
+                      {selectedModel === model.id && <Check size={14} className="text-accent shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -144,8 +144,7 @@ export default function InputBar({
           <button
             onClick={handleSubmit}
             disabled={!canSend}
-            className="shrink-0 p-2 rounded-lg bg-accent hover:bg-accent-hover
-              text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg"
+            className="shrink-0 p-2 rounded-lg bg-accent hover:bg-accent-hover  text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg"
           >
             <Send size={16} />
           </button>

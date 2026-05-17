@@ -1,7 +1,8 @@
 import { MessageSquarePlus, Settings, MessageSquare, X, Pencil, Trash2, Search } from "lucide-react";
 import { useMemo, useState, useCallback } from "react";
-import type { Conversation, ConnectionStatus } from "../types";
+import type { Conversation } from "../types";
 import { STATUS_COLORS } from "../types";
+import type { ModelStatuses, ConnectionStatus } from "../types";
 import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
 import { SIDEBAR_WIDTH } from "../config/constants";
@@ -16,7 +17,7 @@ interface SidebarProps {
   onRenameChat: (id: string, newTitle: string) => void;
   isOpen: boolean;
   onClose: () => void;
-  connectionStatus: ConnectionStatus;
+  modelStatuses: ModelStatuses;
 }
 
 function groupConversations(conversations: Conversation[]) {
@@ -53,7 +54,7 @@ export default function Sidebar({
   onRenameChat,
   isOpen,
   onClose,
-  connectionStatus,
+  modelStatuses,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
@@ -78,6 +79,15 @@ export default function Sidebar({
       setChatToDelete(null);
     }
   }, [chatToDelete, onDeleteChat]);
+
+  const aggregateStatus: ConnectionStatus = useMemo(() => {
+    const statuses = Object.values(modelStatuses);
+    if (statuses.length === 0) return "disconnected";
+    if (statuses.some((s) => s === "error")) return "error";
+    if (statuses.some((s) => s === "connecting")) return "connecting";
+    if (statuses.every((s) => s === "connected")) return "connected";
+    return "disconnected";
+  }, [modelStatuses]);
 
   return (
     <>
@@ -184,8 +194,8 @@ export default function Sidebar({
 
         <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
           <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-text-muted">
-            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[connectionStatus]}`} />
-            <span className="capitalize">{connectionStatus}</span>
+            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} />
+            <span className="capitalize">{aggregateStatus}</span>
           </div>
           <button
             onClick={onSettingsClick}

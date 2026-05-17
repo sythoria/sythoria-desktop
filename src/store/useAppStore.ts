@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import type { Conversation, Message, ModelConfig, ConnectionStatus } from "../types";
+import { listen } from "@tauri-apps/api/event";
+import type { Conversation, Message, ModelConfig, ConnectionStatus, ModelStatuses } from "../types";
 import { loadModelConfigs, saveModelConfigs } from "../types";
 import {
   loadConversations,
@@ -19,6 +19,7 @@ import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
 let activeStreamId: string | null = null;
 let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 async function ensureStreamListeners(set: (fn: (state: AppState) => Partial<AppState>) => void) {
   streamListenerRefCount++;
@@ -119,7 +120,7 @@ interface AppState {
   temperature: number;
   sidebarOpen: boolean;
   isStreaming: boolean;
-  connectionStatus: ConnectionStatus;
+  modelStatuses: ModelStatuses;
   hasStarted: boolean;
   isConfigLoaded: boolean;
   view: "chat" | "settings";
@@ -154,7 +155,9 @@ interface AppState {
   persistConversations: () => Promise<void>;
   persistApiKeys: () => Promise<void>;
   clearAllChats: () => Promise<void>;
-  setupConnectionListeners: () => Promise<() => void>;
+  checkModelConnections: (modelIds?: string[]) => Promise<void>;
+  startHealthCheck: () => void;
+  stopHealthCheck: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -165,7 +168,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   temperature: DEFAULT_TEMPERATURE,
   sidebarOpen: false,
   isStreaming: false,
-  connectionStatus: "disconnected",
+  modelStatuses: {},
   hasStarted: false,
   isConfigLoaded: false,
   view: "chat",
@@ -204,6 +207,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     document.documentElement.classList.toggle("dark", loadedTheme === "dark");
     logInfo("App state initialized");
+
+    get().checkModelConnections();
+    get().startHealthCheck();
   },
 
   cleanupEmptyConversations: () => {
@@ -223,7 +229,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().cleanupEmptyConversations();
     set({ activeId: id });
   },
-  setSelectedModel: (model) => set({ selectedModel: model }),
+  setSelectedModel: (model) => {
+    set({ selectedModel: model });
+    const { modelStatuses } = get();
+    if (!modelStatuses[model]) {
+      get().checkModelConnections([model]);
+    }
+  },
   setTemperature: (t) => set({ temperature: t }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setView: (view) => {
@@ -231,7 +243,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ view });
   },
   setHasStarted: (started) => set({ hasStarted: started }),
-  setConnectionStatus: (status) => set({ connectionStatus: status }),
+  setConnectionStatus: () => {},
   setError: () => {},
 
   setTheme: (theme) => {
@@ -249,6 +261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     set({ apiKeys: keys });
     saveApiKeys(keys);
+    get().checkModelConnections(models.map((m) => m.id));
   },
 
   updateModel: (id, updates) => {
@@ -263,6 +276,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       saveApiKeys(newKeys);
     }
 
+    if (updates.apiBase || updates.apiKey !== undefined) {
+      get().checkModelConnections([id]);
+    }
+
     const { selectedModel } = get();
     if (!updatedModels.find((m) => m.id === selectedModel) && updatedModels.length > 0) {
       set({ selectedModel: updatedModels[0].id });
@@ -270,11 +287,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteModel: (id) => {
-    const { models, selectedModel, apiKeys } = get();
+    const { models, selectedModel, apiKeys, modelStatuses } = get();
     const updated = models.filter((m) => m.id !== id);
     const newKeys = { ...apiKeys };
     delete newKeys[id];
-    set({ models: updated, apiKeys: newKeys });
+    const newStatuses = { ...modelStatuses };
+    delete newStatuses[id];
+    set({ models: updated, apiKeys: newKeys, modelStatuses: newStatuses });
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     saveApiKeys(newKeys);
     if (selectedModel === id && updated.length > 0) {
@@ -295,6 +314,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = [...models, newModel];
     set({ models: updated });
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
+    get().checkModelConnections([newModel.id]);
   },
 
   newChat: () => {
@@ -459,46 +479,58 @@ export const useAppStore = create<AppState>((set, get) => ({
     await clearConversations();
   },
 
-  setupConnectionListeners: async () => {
-    const unlistenFns: UnlistenFn[] = [];
-    let cancelled = false;
+  checkModelConnections: async (modelIds?: string[]) => {
+    const { models, apiKeys, modelStatuses } = get();
+    const toCheck = modelIds ? models.filter((m) => modelIds.includes(m.id)) : models;
 
-    unlistenFns.push(
-      await listen<string>("ws-error", (event) => {
-        if (!cancelled) {
-          set({ connectionStatus: "error" });
-          logError("WS error", event.payload);
+    if (toCheck.length === 0) return;
+
+    const updating: ModelStatuses = { ...modelStatuses };
+    for (const model of toCheck) {
+      updating[model.id] = "connecting";
+    }
+    set({ modelStatuses: updating });
+
+    const results = await Promise.allSettled(
+      toCheck.map(async (model) => {
+        const apiKey = apiKeys[model.id] || model.apiKey;
+        try {
+          const ok = await invoke<boolean>("check_api", {
+            apiUrl: model.apiBase,
+            apiKey,
+          });
+          return { id: model.id, status: (ok ? "connected" : "error") as ConnectionStatus };
+        } catch {
+          return { id: model.id, status: "error" as ConnectionStatus };
         }
       }),
     );
 
-    unlistenFns.push(
-      await listen("ws-closed", () => {
-        if (!cancelled) {
-          set({ connectionStatus: "disconnected" });
-        }
-      }),
-    );
+    const newStatuses: ModelStatuses = { ...get().modelStatuses };
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const model = toCheck[i];
+      if (result.status === "fulfilled") {
+        newStatuses[model.id] = result.value.status;
+      } else {
+        newStatuses[model.id] = "error";
+      }
+    }
 
-    unlistenFns.push(
-      await listen("ws-connected", () => {
-        if (!cancelled) {
-          set({ connectionStatus: "connected" });
-        }
-      }),
-    );
+    set({ modelStatuses: newStatuses });
+  },
 
-    unlistenFns.push(
-      await listen("ws-reconnecting", () => {
-        if (!cancelled) {
-          set({ connectionStatus: "connecting" });
-        }
-      }),
-    );
+  startHealthCheck: () => {
+    if (healthCheckInterval) return;
+    healthCheckInterval = setInterval(() => {
+      get().checkModelConnections();
+    }, 30000);
+  },
 
-    return () => {
-      cancelled = true;
-      unlistenFns.forEach((fn) => fn());
-    };
+  stopHealthCheck: () => {
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+      healthCheckInterval = null;
+    }
   },
 }));

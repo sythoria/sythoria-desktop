@@ -231,6 +231,28 @@ async fn chat_stream(
 }
 
 #[tauri::command]
+async fn check_api(api_url: String, api_key: String) -> Result<bool, AppError> {
+    let client = Client::new();
+
+    let base_url = api_url
+        .trim_end_matches('/')
+        .trim_end_matches("/chat/completions")
+        .trim_end_matches("/completions")
+        .trim_end_matches("/messages");
+
+    let models_url = format!("{}/models", base_url);
+
+    let mut request = client.get(&models_url).timeout(std::time::Duration::from_secs(10));
+    if !api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+
+    let resp = request.send().await.map_err(AppError::RequestFailed)?;
+
+    Ok(resp.status().is_success())
+}
+
+#[tauri::command]
 async fn ws_chat(
     url: String,
     api_key: Option<String>,
@@ -298,6 +320,7 @@ pub fn run() {
             save_config,
             chat_completion,
             chat_stream,
+            check_api,
             ws_authenticate,
             ws_chat
         ])
