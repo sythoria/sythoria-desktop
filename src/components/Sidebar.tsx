@@ -186,7 +186,7 @@ export default function Sidebar({
                     <span className="truncate group-hover:pr-12 transition-[padding] duration-100">{conv.title}</span>
                   </button>
                   <div
-                    className="absolute right-0 top-0 mt-1.5 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                     role="group"
                     aria-label="Conversation actions"
                   >
@@ -195,30 +195,30 @@ export default function Sidebar({
                         e.stopPropagation();
                         onExportChat(conv.id);
                       }}
-                      className="p-1.5 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
                       aria-label={`Export ${conv.title}`}
                     >
-                      <Download size={12} />
+                      <Download size={14} />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onRenameChat(conv.id, conv.title);
                       }}
-                      className="p-1.5 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
                       aria-label={`Rename ${conv.title}`}
                     >
-                      <Pencil size={12} />
+                      <Pencil size={14} />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setChatToDelete(conv.id);
                       }}
-                      className="p-1.5 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
                       aria-label={`Delete ${conv.title}`}
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
