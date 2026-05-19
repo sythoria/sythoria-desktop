@@ -336,3 +336,12 @@
   background: var(--color-surface);
   font-weight: 600;
 }
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
