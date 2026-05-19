@@ -3,6 +3,7 @@ import { Send, Paperclip, ChevronDown, Check } from "lucide-react";
 import { STATUS_COLORS, ModelConfig } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
+import { SYSTEM_PROMPTS } from "../config/systemPrompts";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -11,6 +12,9 @@ interface InputBarProps {
   onModelChange: (model: string) => void;
   disabled?: boolean;
   modelStatuses: ModelStatuses;
+  systemPromptId: string | null;
+  onSystemPromptChange: (id: string | null) => void;
+  inputAutoFocus?: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -27,6 +31,9 @@ export default function InputBar({
   onModelChange,
   disabled,
   modelStatuses,
+  systemPromptId,
+  onSystemPromptChange,
+  inputAutoFocus,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -40,9 +47,17 @@ export default function InputBar({
   const canSend = trimmed.length > 0 && !isOverLimit && !disabled;
 
   useEffect(() => {
+    if (inputAutoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [inputAutoFocus]);
+
+  useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, MAX_TEXTAREA_HEIGHT) + "px";
+      const newHeight = Math.min(textareaRef.current.scrollHeight, MAX_TEXTAREA_HEIGHT);
+      textareaRef.current.style.height = newHeight + "px";
+      textareaRef.current.style.overflowY = textareaRef.current.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
     }
   }, [value]);
 
@@ -114,8 +129,34 @@ export default function InputBar({
   return (
     <div className="px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4">
       <div className="max-w-3xl mx-auto">
+        <label htmlFor="chat-input" className="sr-only">
+          Message
+        </label>
+        <div className="flex items-center gap-1 mb-1.5 px-1">
+          {SYSTEM_PROMPTS.map((p) => {
+            const isActive = systemPromptId === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => onSystemPromptChange(isActive ? null : p.id)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+                  isActive
+                    ? "bg-accent/15 text-accent border border-accent/30"
+                    : "text-text-muted hover:text-text-secondary hover:bg-hover border border-transparent"
+                }`}
+                aria-label={`${isActive ? "Deselect" : "Select"} ${p.label} mode`}
+                aria-pressed={isActive}
+              >
+                <span className="shrink-0" aria-hidden="true">
+                  {p.icon}
+                </span>
+                <span>{p.label}</span>
+              </button>
+            );
+          })}
+        </div>
         <div
-          className={`flex items-end gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""}`}
+          className={`flex items-center gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""}`}
         >
           <button
             className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
@@ -126,9 +167,6 @@ export default function InputBar({
             <Paperclip size={18} />
           </button>
 
-          <label htmlFor="chat-input" className="sr-only">
-            Message
-          </label>
           <textarea
             id="chat-input"
             ref={textareaRef}
@@ -140,7 +178,7 @@ export default function InputBar({
             disabled={disabled}
             aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
             aria-invalid={isOverLimit}
-            className={`flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed max-h-[${MAX_TEXTAREA_HEIGHT}px] ${isOverLimit ? "text-red-400" : ""}`}
+            className={`flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed max-h-[${MAX_TEXTAREA_HEIGHT}px] overflow-y-hidden ${isOverLimit ? "text-red-400" : ""}`}
           />
 
           <div ref={dropdownRef} className="relative shrink-0">
