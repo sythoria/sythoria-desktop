@@ -10,7 +10,7 @@ import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import { useAppStore } from "./store/useAppStore";
 import { useShallow } from "zustand/react/shallow";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import "./index.css";
 
 function App() {
@@ -105,12 +105,7 @@ function App() {
   }, [isStreaming, stopStreaming]);
 
   useEffect(() => {
-    const appWindow = getCurrentWindow();
-    const unlisten = appWindow.onCloseRequested(() => {
-      useAppStore.getState().cleanup();
-    });
     return () => {
-      unlisten.then((fn) => fn());
       useAppStore.getState().cleanup();
     };
   }, []);
