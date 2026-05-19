@@ -121,7 +121,10 @@ async fn chat_completion(
     messages: Vec<ChatMessage>,
     temperature: f64,
 ) -> Result<String, AppError> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(AppError::RequestFailed)?;
     let body = ChatRequest {
         model,
         messages,
@@ -170,7 +173,10 @@ async fn chat_stream(
 ) -> Result<String, AppError> {
     use tauri::Emitter;
 
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(AppError::RequestFailed)?;
     let body = ChatRequest {
         model,
         messages,
@@ -212,15 +218,24 @@ async fn chat_stream(
             }
 
             if let Some(data) = line.strip_prefix("data: ") {
-                if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
-                    for choice in parsed.choices {
-                        if let Some(content) = choice.delta.content {
-                            full_content.push_str(&content);
-                            let _ = app.emit("chat-stream-chunk", &content);
+                match serde_json::from_str::<StreamChunk>(data) {
+                    Ok(parsed) => {
+                        for choice in parsed.choices {
+                            if let Some(content) = choice.delta.content {
+                                full_content.push_str(&content);
+                                let _ = app.emit("chat-stream-chunk", &content);
+                            }
+                            if choice.finish_reason.is_some() {
+                                let _ = app.emit("chat-stream-done", ());
+                            }
                         }
-                        if choice.finish_reason.is_some() {
-                            let _ = app.emit("chat-stream-done", ());
-                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "SSE parse warning: skipping malformed chunk ({} bytes): {}",
+                            data.len(),
+                            e
+                        );
                     }
                 }
             }
