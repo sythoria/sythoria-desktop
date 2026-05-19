@@ -1,11 +1,18 @@
-import { MessageSquarePlus, Settings, MessageSquare, X, Pencil, Trash2, Search } from "lucide-react";
-import { useMemo, useState, useCallback } from "react";
+import { MessageSquarePlus, Settings, MessageSquare, X, Pencil, Trash2, Search, Download } from "lucide-react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import type { Conversation } from "../types";
 import { STATUS_COLORS } from "../types";
 import type { ModelStatuses, ConnectionStatus } from "../types";
 import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
 import { SIDEBAR_WIDTH } from "../config/constants";
+
+const STATUS_LABELS: Record<ConnectionStatus, string> = {
+  disconnected: "Disconnected",
+  connecting: "Connecting\u2026",
+  connected: "Connected",
+  error: "Connection error",
+};
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -15,6 +22,7 @@ interface SidebarProps {
   onSettingsClick: () => void;
   onDeleteChat: (id: string) => void;
   onRenameChat: (id: string, newTitle: string) => void;
+  onExportChat: (id: string) => void;
   isOpen: boolean;
   onClose: () => void;
   modelStatuses: ModelStatuses;
@@ -52,6 +60,7 @@ export default function Sidebar({
   onSettingsClick,
   onDeleteChat,
   onRenameChat,
+  onExportChat,
   isOpen,
   onClose,
   modelStatuses,
@@ -59,6 +68,7 @@ export default function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
   const debouncedQuery = useDebounce(searchQuery);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const nonEmptyConversations = useMemo(() => conversations.filter((c) => c.messages.length > 0), [conversations]);
 
@@ -91,7 +101,7 @@ export default function Sidebar({
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={onClose} />}
+      {isOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={onClose} aria-hidden="true" />}
 
       <aside
         className={`
@@ -101,12 +111,15 @@ export default function Sidebar({
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
         style={{ width: SIDEBAR_WIDTH }}
+        role="navigation"
+        aria-label="Sidebar navigation"
       >
         <div className="flex items-center justify-between px-4 py-4">
           <h1 className="text-lg font-semibold tracking-tight text-text-primary">Sythoria</h1>
           <button
             onClick={onClose}
-            className="md:hidden p-1 rounded-md hover:bg-hover text-text-muted transition-colors"
+            className="md:hidden p-1 rounded-md hover:bg-hover text-text-muted transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label="Close sidebar"
           >
             <X size={18} />
           </button>
@@ -115,9 +128,10 @@ export default function Sidebar({
         <div className="px-3 mb-2">
           <button
             onClick={onNewChat}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg
               bg-accent hover:bg-accent-hover text-white
-              text-sm font-medium transition-colors duration-150"
+              text-sm font-medium transition-colors duration-150 min-h-[44px]"
+            aria-label="Start new chat"
           >
             <MessageSquarePlus size={16} />
             New Chat
@@ -126,18 +140,27 @@ export default function Sidebar({
 
         <div className="px-3 mb-2">
           <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+            <Search
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+              aria-hidden="true"
+            />
+            <label htmlFor="sidebar-search" className="sr-only">
+              Search conversations
+            </label>
             <input
-              type="text"
+              id="sidebar-search"
+              ref={searchRef}
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search conversations..."
-              className="w-full pl-8 pr-3 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full pl-8 pr-3 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors min-h-[44px]"
             />
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-1">
+        <nav className="flex-1 overflow-y-auto px-3 py-1" aria-label="Conversation list">
           {groups.map((group) => (
             <div key={group.label} className="mb-3">
               <p className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
@@ -148,26 +171,42 @@ export default function Sidebar({
                   <button
                     onClick={() => onSelect(conv.id)}
                     className={`
-              w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
-              text-sm text-left transition-colors duration-100
-              ${
-                activeId === conv.id
-                  ? "bg-accent-soft text-accent"
-                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
-              }
-            `}
+                      w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
+                      text-sm text-left transition-colors duration-100 min-h-[44px]
+                      ${
+                        activeId === conv.id
+                          ? "bg-accent-soft text-accent"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                      }
+                    `}
+                    aria-label={`Open conversation: ${conv.title}`}
+                    aria-current={activeId === conv.id ? "page" : undefined}
                   >
-                    <MessageSquare size={14} className="shrink-0" />
+                    <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
                     <span className="truncate group-hover:pr-12 transition-[padding] duration-100">{conv.title}</span>
                   </button>
-                  <div className="absolute right-0 top-0 mt-2 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div
+                    className="absolute right-0 top-0 mt-1.5 mr-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    role="group"
+                    aria-label="Conversation actions"
+                  >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExportChat(conv.id);
+                      }}
+                      className="p-1.5 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      aria-label={`Export ${conv.title}`}
+                    >
+                      <Download size={12} />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onRenameChat(conv.id, conv.title);
                       }}
-                      className="p-1 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors"
-                      title="Rename chat"
+                      className="p-1.5 rounded hover:text-text-secondary hover:bg-hover/50 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      aria-label={`Rename ${conv.title}`}
                     >
                       <Pencil size={12} />
                     </button>
@@ -176,8 +215,8 @@ export default function Sidebar({
                         e.stopPropagation();
                         setChatToDelete(conv.id);
                       }}
-                      className="p-1 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors"
-                      title="Delete chat"
+                      className="p-1.5 rounded hover:text-red-500 hover:bg-red-500/20 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      aria-label={`Delete ${conv.title}`}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -193,17 +232,22 @@ export default function Sidebar({
         </nav>
 
         <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
-          <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-text-muted">
-            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} />
-            <span className="capitalize">{aggregateStatus}</span>
+          <div
+            className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-text-muted"
+            role="status"
+            aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+          >
+            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
+            <span>{STATUS_LABELS[aggregateStatus]}</span>
           </div>
           <button
             onClick={onSettingsClick}
             className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg
               text-sm text-text-secondary hover:bg-hover hover:text-text-primary
-              transition-colors duration-100"
+              transition-colors duration-100 min-h-[44px]"
+            aria-label="Open settings"
           >
-            <Settings size={14} />
+            <Settings size={14} aria-hidden="true" />
             Settings
           </button>
         </div>
