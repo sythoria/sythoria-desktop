@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef, memo, useMemo, useCallback, forwardRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Bot, Sparkles, Code, BookOpen, Lightbulb, Copy, Check, ArrowDown } from "lucide-react";
+import { Bot, Copy, Check, ArrowDown } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
 import { MessageSkeleton } from "./ui/Skeleton";
+import { SYSTEM_PROMPTS } from "../config/systemPrompts";
 
 interface ChatAreaProps {
   messages: Message[];
-  onSuggestionClick: (prompt: string) => void;
+  onSuggestionClick: (systemPromptId: string) => void;
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -106,12 +107,11 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   );
 });
 
-const SUGGESTIONS = [
-  { icon: <Sparkles size={16} />, label: "Creative writing", prompt: "Help me write a short story" },
-  { icon: <Code size={16} />, label: "Code help", prompt: "Explain this code snippet" },
-  { icon: <BookOpen size={16} />, label: "Research", prompt: "Summarize a topic for me" },
-  { icon: <Lightbulb size={16} />, label: "Brainstorm", prompt: "Help me brainstorm ideas" },
-];
+const SUGGESTIONS = SYSTEM_PROMPTS.map((p) => ({
+  id: p.id,
+  icon: p.icon,
+  label: p.label,
+}));
 
 const VIRTUALIZED_THRESHOLD = 50;
 
@@ -150,8 +150,8 @@ export default function ChatArea({ messages, onSuggestionClick }: ChatAreaProps)
           <div className="mt-2 grid grid-cols-2 gap-2 w-full max-w-sm" role="group" aria-label="Suggested prompts">
             {SUGGESTIONS.map((s) => (
               <button
-                key={s.label}
-                onClick={() => onSuggestionClick(s.prompt)}
+                key={s.id}
+                onClick={() => onSuggestionClick(s.id)}
                 className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-border bg-surface/50 hover:bg-hover text-text-secondary hover:text-text-primary text-xs font-medium transition-all duration-150 text-left min-h-[44px]"
                 aria-label={s.label}
               >
