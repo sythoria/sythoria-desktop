@@ -48,9 +48,9 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
   try {
     const raw = await invoke<string>("load_config");
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed as ModelConfig[];
       }
     }
   } catch (e) {
