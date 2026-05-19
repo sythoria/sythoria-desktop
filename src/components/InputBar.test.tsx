@@ -37,6 +37,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
@@ -52,6 +54,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
@@ -68,6 +72,8 @@ describe("InputBar", () => {
         onModelChange={vi.fn()}
         disabled={true}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
@@ -83,6 +89,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
@@ -99,6 +107,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
@@ -117,6 +127,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
+        systemPromptId={null}
+        onSystemPromptChange={vi.fn()}
       />,
     );
 
