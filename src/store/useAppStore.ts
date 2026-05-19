@@ -15,6 +15,9 @@ import {
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
+import { parseApiError } from "../components/ui/Toast";
+import type { Toast } from "../components/ui/Toast";
+import { validateModelConfig } from "../utils/validation";
 
 let activeStreamId: string | null = null;
 let streamListenerCleanup: (() => void) | null = null;
@@ -102,15 +105,18 @@ function finalizeAssistantMessage(conversations: Conversation[], convId: string)
 }
 
 function setAssistantError(conversations: Conversation[], convId: string, err: unknown): Conversation[] {
+  const friendlyMessage = parseApiError(err);
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
     const last = updated[updated.length - 1];
     if (last && last.role === "assistant") {
-      updated[updated.length - 1] = { ...last, content: `**Error:** ${err}`, isStreaming: false };
+      updated[updated.length - 1] = { ...last, content: `**Error:** ${friendlyMessage}`, isStreaming: false };
     }
     return updated;
   });
 }
+
+export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig";
 
 interface AppState {
   conversations: Conversation[];
@@ -129,6 +135,8 @@ interface AppState {
   showRenameModal: boolean;
   renameId: string | null;
   renameCurrentTitle: string;
+  loading: Record<LoadingKey, boolean>;
+  toasts: Toast[];
 
   init: () => Promise<void>;
   cleanupEmptyConversations: () => void;
@@ -139,8 +147,8 @@ interface AppState {
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: "light" | "dark") => void;
   setHasStarted: (started: boolean) => void;
-  setConnectionStatus: (status: ConnectionStatus) => void;
-  setError: (error: string | null) => void;
+  addToast: (message: string, variant?: Toast["variant"]) => void;
+  dismissToast: (id: string) => void;
   updateModels: (models: ModelConfig[]) => void;
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
   deleteModel: (id: string) => void;
@@ -152,13 +160,18 @@ interface AppState {
   closeRenameModal: () => void;
   confirmRename: (newTitle: string) => void;
   sendMessage: (text: string) => Promise<void>;
+  stopStreaming: () => void;
+  exportChat: (id: string) => void;
   persistConversations: () => Promise<void>;
   persistApiKeys: () => Promise<void>;
   clearAllChats: () => Promise<void>;
   checkModelConnections: (modelIds?: string[]) => Promise<void>;
   startHealthCheck: () => void;
   stopHealthCheck: () => void;
+  cleanup: () => void;
 }
+
+let toastCounter = 0;
 
 export const useAppStore = create<AppState>((set, get) => ({
   conversations: [],
@@ -177,39 +190,50 @@ export const useAppStore = create<AppState>((set, get) => ({
   showRenameModal: false,
   renameId: null,
   renameCurrentTitle: "",
+  loading: { init: true, sendMessage: false, checkConnection: false, saveConfig: false },
+  toasts: [],
 
   init: async () => {
-    const [loadedModels, loadedConvs, loadedTheme, loadedKeys] = await Promise.all([
-      loadModelConfigs(),
-      loadConversations(),
-      loadTheme(),
-      loadApiKeys(),
-    ]);
+    set((s) => ({ loading: { ...s.loading, init: true } }));
+    try {
+      const [loadedModels, loadedConvs, loadedTheme, loadedKeys] = await Promise.all([
+        loadModelConfigs(),
+        loadConversations(),
+        loadTheme(),
+        loadApiKeys(),
+      ]);
 
-    const models = loadedModels || [];
-    const modelsWithKeys = models.map((m) => ({
-      ...m,
-      apiKey: loadedKeys[m.id] ?? m.apiKey,
-    }));
+      const models = loadedModels || [];
+      const modelsWithKeys = models.map((m) => ({
+        ...m,
+        apiKey: loadedKeys[m.id] ?? m.apiKey,
+      }));
 
-    const nonEmptyConvs = loadedConvs.filter((c) => c.messages.length > 0);
+      const nonEmptyConvs = loadedConvs.filter((c) => c.messages.length > 0);
 
-    set({
-      models: modelsWithKeys,
-      selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
-      conversations: nonEmptyConvs,
-      activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
-      theme: loadedTheme,
-      apiKeys: loadedKeys,
-      hasStarted: modelsWithKeys.length > 0,
-      isConfigLoaded: true,
-    });
+      set({
+        models: modelsWithKeys,
+        selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
+        conversations: nonEmptyConvs,
+        activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
+        theme: loadedTheme,
+        apiKeys: loadedKeys,
+        hasStarted: modelsWithKeys.length > 0,
+        isConfigLoaded: true,
+      });
 
-    document.documentElement.classList.toggle("dark", loadedTheme === "dark");
-    logInfo("App state initialized");
+      document.documentElement.classList.toggle("dark", loadedTheme === "dark");
+      logInfo("App state initialized");
 
-    get().checkModelConnections();
-    get().startHealthCheck();
+      get().checkModelConnections();
+      get().startHealthCheck();
+    } catch (err) {
+      logError("Failed to initialize app", err);
+      get().addToast(parseApiError(err), "error");
+      set({ isConfigLoaded: true });
+    } finally {
+      set((s) => ({ loading: { ...s.loading, init: false } }));
+    }
   },
 
   cleanupEmptyConversations: () => {
@@ -229,6 +253,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().cleanupEmptyConversations();
     set({ activeId: id });
   },
+
   setSelectedModel: (model) => {
     set({ selectedModel: model });
     const { modelStatuses } = get();
@@ -236,15 +261,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().checkModelConnections([model]);
     }
   },
+
   setTemperature: (t) => set({ temperature: t }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
   setView: (view) => {
     get().cleanupEmptyConversations();
     set({ view });
   },
+
   setHasStarted: (started) => set({ hasStarted: started }),
-  setConnectionStatus: () => {},
-  setError: () => {},
+
+  addToast: (message, variant = "info") => {
+    const id = `toast-${++toastCounter}`;
+    set((s) => ({ toasts: [...s.toasts, { id, message, variant }] }));
+  },
+
+  dismissToast: (id) => {
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
 
   setTheme: (theme) => {
     set({ theme });
@@ -253,6 +288,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateModels: (models) => {
+    const validationResults = models.map((m) => validateModelConfig(m));
+    const hasErrors = validationResults.some((r) => !r.success);
+    if (hasErrors) {
+      const errors = validationResults
+        .filter((r) => !r.success)
+        .flatMap((r) => (!r.success ? r.error.issues.map((i) => i.message) : []));
+      get().addToast(`Validation: ${errors[0]}`, "error");
+      return;
+    }
     set({ models });
     saveModelConfigs(models.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     const keys: Record<string, string> = {};
@@ -262,6 +306,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ apiKeys: keys });
     saveApiKeys(keys);
     get().checkModelConnections(models.map((m) => m.id));
+    get().addToast("Models updated", "success");
   },
 
   updateModel: (id, updates) => {
@@ -299,6 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (selectedModel === id && updated.length > 0) {
       set({ selectedModel: updated[0].id });
     }
+    get().addToast("Model deleted", "info");
   },
 
   addModel: () => {
@@ -315,6 +361,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ models: updated });
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     get().checkModelConnections([newModel.id]);
+    get().addToast("Model added — configure its details", "info");
   },
 
   newChat: () => {
@@ -405,11 +452,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (!modelConfig) {
       logError("No model configuration selected");
+      get().addToast("No model configured — add one in Settings", "error");
       return;
     }
 
     set((state) => ({
       isStreaming: true,
+      loading: { ...state.loading, sendMessage: true },
       conversations: updateConversationMessages(
         state.conversations,
         finalId,
@@ -450,15 +499,52 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       get().persistConversations();
     } catch (err) {
+      const friendlyMessage = parseApiError(err);
+      activeStreamId = null;
+      releaseStreamListeners();
       set((state) => ({
         conversations: setAssistantError(state.conversations, finalId, err),
         isStreaming: false,
+        loading: { ...state.loading, sendMessage: false },
       }));
+      get().addToast(friendlyMessage, "error");
       logError("Failed to send message", err);
     } finally {
-      activeStreamId = null;
-      releaseStreamListeners();
+      set((s) => ({ loading: { ...s.loading, sendMessage: false } }));
     }
+  },
+
+  stopStreaming: () => {
+    activeStreamId = null;
+    releaseStreamListeners();
+    set((state) => {
+      const convs = state.conversations.map((c) => ({
+        ...c,
+        messages: c.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+      }));
+      return { isStreaming: false, loading: { ...state.loading, sendMessage: false }, conversations: convs };
+    });
+  },
+
+  exportChat: (id) => {
+    const conv = get().conversations.find((c) => c.id === id);
+    if (!conv) return;
+    const lines = [
+      `# ${conv.title}`,
+      ``,
+      ...conv.messages.map((m) => {
+        const label = m.role === "user" ? "You" : "Assistant";
+        return `**${label}:** ${m.content}`;
+      }),
+    ];
+    const blob = new Blob([lines.join("\n\n")], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    get().addToast("Chat exported", "success");
   },
 
   persistConversations: async () => {
@@ -477,6 +563,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearAllChats: async () => {
     set({ conversations: [], activeId: null });
     await clearConversations();
+    get().addToast("All chats cleared", "info");
   },
 
   checkModelConnections: async (modelIds?: string[]) => {
@@ -484,6 +571,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const toCheck = modelIds ? models.filter((m) => modelIds.includes(m.id)) : models;
 
     if (toCheck.length === 0) return;
+
+    set((s) => ({ loading: { ...s.loading, checkConnection: true } }));
 
     const updating: ModelStatuses = { ...modelStatuses };
     for (const model of toCheck) {
@@ -517,7 +606,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    set({ modelStatuses: newStatuses });
+    set((s) => ({ modelStatuses: newStatuses, loading: { ...s.loading, checkConnection: false } }));
   },
 
   startHealthCheck: () => {
@@ -532,5 +621,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       clearInterval(healthCheckInterval);
       healthCheckInterval = null;
     }
+  },
+
+  cleanup: () => {
+    get().stopHealthCheck();
+    get().stopStreaming();
+    releaseStreamListeners();
   },
 }));
