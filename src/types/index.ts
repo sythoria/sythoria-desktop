@@ -15,6 +15,7 @@ export interface Conversation {
   timestamp: Date;
   messages: Message[];
   model: string;
+  systemPromptId?: string;
 }
 
 export interface ModelConfig {
