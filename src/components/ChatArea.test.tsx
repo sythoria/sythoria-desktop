@@ -61,9 +61,9 @@ describe("ChatArea", () => {
     const onSuggestionClick = vi.fn();
     render(<ChatArea messages={[]} onSuggestionClick={onSuggestionClick} />);
 
-    const suggestion = screen.getByLabelText("Creative writing");
+    const suggestion = screen.getByLabelText("Code Help");
     await user.click(suggestion);
 
-    expect(onSuggestionClick).toHaveBeenCalledWith("Help me write a short story");
+    expect(onSuggestionClick).toHaveBeenCalledWith("code-help");
   });
 });
