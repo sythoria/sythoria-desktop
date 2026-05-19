@@ -5,7 +5,7 @@ export const API_CONFIG = {
 
 export const MAX_INPUT_LENGTH = 10000;
 export const MAX_TEXTAREA_HEIGHT = 200;
-export const DEBOUNCE_MS = 300;
+export const DEBOUNCE_MS = 150;
 export const TITLE_MAX_LENGTH = 40;
 export const ID_LENGTH = 8;
 export const WS_TIMEOUT_SECS = 30;
