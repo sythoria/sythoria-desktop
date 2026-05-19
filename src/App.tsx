@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo } from "react";
-import { Menu } from "lucide-react";
+import { Menu, Square } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
 import { RenameChatModal } from "./components/ui/Modal";
+import { Spinner } from "./components/ui/Spinner";
+import { ToastContainer } from "./components/ui/Toast";
 import { useAppStore } from "./store/useAppStore";
 import { useShallow } from "zustand/react/shallow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./index.css";
 
 function App() {
@@ -24,6 +27,8 @@ function App() {
     view,
     showRenameModal,
     renameCurrentTitle,
+    loading,
+    toasts,
   } = useAppStore(
     useShallow((s) => ({
       conversations: s.conversations,
@@ -38,6 +43,8 @@ function App() {
       view: s.view,
       showRenameModal: s.showRenameModal,
       renameCurrentTitle: s.renameCurrentTitle,
+      loading: s.loading,
+      toasts: s.toasts,
     })),
   );
 
@@ -54,6 +61,9 @@ function App() {
     confirmRename,
     closeRenameModal,
     sendMessage,
+    stopStreaming,
+    exportChat,
+    dismissToast,
   } = useAppStore(
     useShallow((s) => ({
       init: s.init,
@@ -68,6 +78,9 @@ function App() {
       confirmRename: s.confirmRename,
       closeRenameModal: s.closeRenameModal,
       sendMessage: s.sendMessage,
+      stopStreaming: s.stopStreaming,
+      exportChat: s.exportChat,
+      dismissToast: s.dismissToast,
     })),
   );
 
@@ -80,6 +93,27 @@ function App() {
   useEffect(() => {
     init();
   }, [init]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && isStreaming) {
+        stopStreaming();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isStreaming, stopStreaming]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    const unlisten = appWindow.onCloseRequested(() => {
+      useAppStore.getState().cleanup();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+      useAppStore.getState().cleanup();
+    };
+  }, []);
 
   const handleStart = useCallback(() => {
     setHasStarted(true);
@@ -110,10 +144,17 @@ function App() {
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
 
-  if (!isConfigLoaded) {
+  if (!isConfigLoaded || loading.init) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-chat">
-        <div className="animate-pulse-soft w-8 h-8 rounded-full bg-accent/30" />
+      <div
+        className="flex h-screen w-screen items-center justify-center bg-chat"
+        role="status"
+        aria-label="Loading application"
+      >
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <p className="text-sm text-text-muted">Loading Sythoria...</p>
+        </div>
       </div>
     );
   }
@@ -132,6 +173,7 @@ function App() {
         onSettingsClick={handleSettingsClick}
         onDeleteChat={handleDeleteChat}
         onRenameChat={openRenameModal}
+        onExportChat={exportChat}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         modelStatuses={modelStatuses}
@@ -140,12 +182,13 @@ function App() {
       {view === "settings" ? (
         <Settings />
       ) : (
-        <main className="flex-1 flex flex-col min-w-0 bg-chat">
+        <main className="flex-1 flex flex-col min-w-0 bg-chat" aria-label="Chat area">
           <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                aria-label="Open sidebar"
               >
                 <Menu size={18} />
               </button>
@@ -154,7 +197,18 @@ function App() {
               </h2>
             </div>
 
-            <div className="flex items-center gap-3" />
+            <div className="flex items-center gap-2">
+              {isStreaming && (
+                <button
+                  onClick={stopStreaming}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+                  aria-label="Stop generating"
+                >
+                  <Square size={12} />
+                  Stop
+                </button>
+              )}
+            </div>
           </header>
 
           <ChatArea messages={messages} onSuggestionClick={sendMessage} />
@@ -176,6 +230,8 @@ function App() {
         onConfirm={confirmRename}
         onCancel={closeRenameModal}
       />
+
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
