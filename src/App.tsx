@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Menu, Square } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
@@ -29,6 +29,7 @@ function App() {
     renameCurrentTitle,
     loading,
     toasts,
+    systemPromptId,
   } = useAppStore(
     useShallow((s) => ({
       conversations: s.conversations,
@@ -45,6 +46,7 @@ function App() {
       renameCurrentTitle: s.renameCurrentTitle,
       loading: s.loading,
       toasts: s.toasts,
+      systemPromptId: s.systemPromptId,
     })),
   );
 
@@ -55,6 +57,7 @@ function App() {
     setView,
     setHasStarted,
     setSelectedModel,
+    setSystemPromptId,
     newChat,
     deleteChat,
     openRenameModal,
@@ -72,6 +75,7 @@ function App() {
       setView: s.setView,
       setHasStarted: s.setHasStarted,
       setSelectedModel: s.setSelectedModel,
+      setSystemPromptId: s.setSystemPromptId,
       newChat: s.newChat,
       deleteChat: s.deleteChat,
       openRenameModal: s.openRenameModal,
@@ -93,6 +97,11 @@ function App() {
   useEffect(() => {
     init();
   }, [init]);
+
+  useEffect(() => {
+    const conv = useAppStore.getState().conversations.find((c) => c.id === activeId);
+    useAppStore.getState().setSystemPromptId(conv?.systemPromptId ?? null);
+  }, [activeId]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -138,6 +147,17 @@ function App() {
     setView("settings");
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
+
+  const [inputAutoFocus, setInputAutoFocus] = useState(false);
+
+  const handleSuggestionClick = useCallback(
+    (systemPromptId: string) => {
+      setSystemPromptId(systemPromptId);
+      setInputAutoFocus(false);
+      requestAnimationFrame(() => setInputAutoFocus(true));
+    },
+    [setSystemPromptId],
+  );
 
   if (!isConfigLoaded || loading.init) {
     return (
@@ -206,7 +226,7 @@ function App() {
             </div>
           </header>
 
-          <ChatArea messages={messages} onSuggestionClick={sendMessage} />
+          <ChatArea messages={messages} onSuggestionClick={handleSuggestionClick} />
 
           <InputBar
             models={models}
@@ -215,6 +235,9 @@ function App() {
             onModelChange={setSelectedModel}
             disabled={isStreaming}
             modelStatuses={modelStatuses}
+            systemPromptId={systemPromptId}
+            onSystemPromptChange={setSystemPromptId}
+            inputAutoFocus={inputAutoFocus}
           />
         </main>
       )}
