@@ -15,6 +15,7 @@ import {
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
+import { getSystemPrompt } from "../config/systemPrompts";
 import { parseApiError } from "../components/ui/Toast";
 import type { Toast } from "../components/ui/Toast";
 import { validateModelConfig } from "../utils/validation";
@@ -135,10 +136,12 @@ interface AppState {
   showRenameModal: boolean;
   renameId: string | null;
   renameCurrentTitle: string;
+  systemPromptId: string | null;
   loading: Record<LoadingKey, boolean>;
   toasts: Toast[];
 
   init: () => Promise<void>;
+  setSystemPromptId: (id: string | null) => void;
   cleanupEmptyConversations: () => void;
   setActiveId: (id: string | null) => void;
   setSelectedModel: (model: string) => void;
@@ -192,6 +195,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   renameCurrentTitle: "",
   loading: { init: true, sendMessage: false, checkConnection: false, saveConfig: false },
   toasts: [],
+  systemPromptId: null,
 
   init: async () => {
     set((s) => ({ loading: { ...s.loading, init: true } }));
@@ -271,6 +275,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setHasStarted: (started) => set({ hasStarted: started }),
+
+  setSystemPromptId: (id) => {
+    const { systemPromptId, activeId, conversations } = get();
+    if (systemPromptId === id && !activeId) return;
+    set({ systemPromptId: id });
+    if (activeId) {
+      const conv = conversations.find((c) => c.id === activeId);
+      if (conv?.systemPromptId !== (id ?? undefined)) {
+        set({
+          conversations: conversations.map((c) => (c.id === activeId ? { ...c, systemPromptId: id ?? undefined } : c)),
+        });
+        get().persistConversations();
+      }
+    }
+  },
 
   addToast: (message, variant = "info") => {
     const id = `toast-${++toastCounter}`;
@@ -365,7 +384,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   newChat: () => {
-    const { selectedModel, models } = get();
+    const { selectedModel, models, systemPromptId } = get();
     const id = generateId();
     const modelConfig = models.find((m) => m.id === selectedModel);
     const conv: Conversation = {
@@ -374,6 +393,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       timestamp: new Date(),
       messages: [],
       model: modelConfig?.id || selectedModel,
+      systemPromptId: systemPromptId ?? undefined,
     };
     set((state) => ({
       conversations: [conv, ...state.conversations],
@@ -416,7 +436,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   sendMessage: async (text) => {
-    const { isStreaming, activeId, selectedModel, models, temperature, conversations, apiKeys } = get();
+    const { isStreaming, activeId, selectedModel, models, temperature, apiKeys, systemPromptId } = get();
     if (isStreaming) return;
 
     let convId = activeId;
@@ -430,6 +450,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
+        systemPromptId: systemPromptId ?? undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -477,19 +498,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       const apiUrl = modelConfig.apiBase;
       const apiKey = apiKeys[modelConfig.id] || modelConfig.apiKey;
 
+      const conv = get().conversations.find((c) => c.id === finalId);
+      const promptId = conv?.systemPromptId ?? systemPromptId;
+      const systemContent = promptId ? getSystemPrompt(promptId) : undefined;
+
+      const apiMessages: { role: string; content: string }[] = [];
+      if (systemContent) {
+        apiMessages.push({ role: "system", content: systemContent });
+      }
+      apiMessages.push(
+        ...(conv?.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) ?? []),
+      );
+      apiMessages.push({ role: "user", content: text });
+
       await invoke("chat_stream", {
         apiUrl,
         apiKey,
         model: modelConfig.modelId,
-        messages: [
-          ...(conversations
-            .find((c) => c.id === finalId)
-            ?.messages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })) ?? []),
-          { role: "user", content: text },
-        ],
+        messages: apiMessages,
         temperature,
       });
 
