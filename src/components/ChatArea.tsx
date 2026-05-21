@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, memo, useMemo, useCallback, forwardRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { Bot, Copy, Check, ArrowDown } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
@@ -13,7 +16,14 @@ interface ChatAreaProps {
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
-  const markdown = useMemo(() => <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>, [content]);
+  const markdown = useMemo(
+    () => (
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {content}
+      </ReactMarkdown>
+    ),
+    [content],
+  );
 
   return (
     <>

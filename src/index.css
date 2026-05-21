@@ -337,6 +337,31 @@
   font-weight: 600;
 }
 
+.markdown-body .katex-display {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}
+
+.markdown-body .katex-display > .katex {
+  text-align: center;
+}
+
+.markdown-body .katex {
+  font-size: 1em;
+  color: var(--color-text-primary);
+}
+
+.markdown-body .katex-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-family: var(--font-mono);
+}
+
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
