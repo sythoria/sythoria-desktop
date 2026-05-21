@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { Bot, Copy, Check, ArrowDown } from "lucide-react";
+import { Bot, Copy, Check } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
 import { MessageSkeleton } from "./ui/Skeleton";
@@ -13,6 +13,9 @@ import { SYSTEM_PROMPTS } from "../config/systemPrompts";
 interface ChatAreaProps {
   messages: Message[];
   onSuggestionClick: (systemPromptId: string) => void;
+  isAtBottom: boolean;
+  setIsAtBottom: (v: boolean) => void;
+  virtuosoRef: React.RefObject<VirtuosoHandle | null>;
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -125,20 +128,13 @@ const SUGGESTIONS = SYSTEM_PROMPTS.map((p) => ({
 
 const VIRTUALIZED_THRESHOLD = 50;
 
-export default function ChatArea({ messages, onSuggestionClick }: ChatAreaProps) {
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-
-  useEffect(() => {
-    if (isAtBottom && virtuosoRef.current && messages.length > 0) {
-      virtuosoRef.current.scrollToIndex({
-        index: messages.length - 1,
-        behavior: "smooth",
-        align: "end",
-      });
-    }
-  }, [messages, isAtBottom]);
-
+export default function ChatArea({
+  messages,
+  onSuggestionClick,
+  isAtBottom,
+  setIsAtBottom,
+  virtuosoRef,
+}: ChatAreaProps) {
   if (messages.length === 0) {
     return (
       <div
@@ -197,55 +193,42 @@ export default function ChatArea({ messages, onSuggestionClick }: ChatAreaProps)
           }}
           followOutput="smooth"
         />
-        {!isAtBottom && (
-          <button
-            onClick={() =>
-              virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: "smooth", align: "end" })
-            }
-            className="absolute bottom-4 right-4 p-2.5 rounded-full bg-accent text-white shadow-lg hover:bg-accent-hover transition-colors animate-fade-in z-10"
-            aria-label="Scroll to bottom"
-          >
-            <ArrowDown size={18} />
-          </button>
-        )}
       </div>
     );
   }
 
-  return <NonVirtualizedChatArea messages={messages} />;
+  return <NonVirtualizedChatArea messages={messages} isAtBottom={isAtBottom} setIsAtBottom={setIsAtBottom} />;
 }
 
-function NonVirtualizedChatArea({ messages }: { messages: Message[] }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+function NonVirtualizedChatArea({
+  messages,
+  setIsAtBottom,
+}: {
+  messages: Message[];
+  isAtBottom: boolean;
+  setIsAtBottom: (v: boolean) => void;
+}) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-
-  useEffect(() => {
-    if (isAtBottom) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, isAtBottom]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
 
-    function onScroll() {
+    const onScroll = () => {
       const target = scrollContainerRef.current;
       if (!target) return;
       const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
       setIsAtBottom(atBottom);
-      setShowScrollBtn(!atBottom);
-    }
+    };
 
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [setIsAtBottom]);
 
   return (
     <div
       ref={scrollContainerRef}
+      data-chat-scroll
       className="flex-1 overflow-y-auto px-4 md:px-0 relative"
       role="log"
       aria-label="Chat messages"
@@ -255,17 +238,8 @@ function NonVirtualizedChatArea({ messages }: { messages: Message[] }) {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        <div ref={bottomRef} aria-hidden="true" />
+        <div aria-hidden="true" className="h-1" />
       </div>
-      {showScrollBtn && (
-        <button
-          onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
-          className="absolute bottom-4 right-4 p-2.5 rounded-full bg-accent text-white shadow-lg hover:bg-accent-hover transition-colors animate-fade-in z-10"
-          aria-label="Scroll to bottom"
-        >
-          <ArrowDown size={18} />
-        </button>
-      )}
     </div>
   );
 }

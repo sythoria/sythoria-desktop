@@ -14,10 +14,17 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
+const defaultProps = {
+  onSuggestionClick: vi.fn(),
+  isAtBottom: true,
+  setIsAtBottom: vi.fn(),
+  virtuosoRef: { current: null } as React.RefObject<null>,
+};
+
 describe("ChatArea", () => {
   it("shows empty state with suggestions when no messages", () => {
     const onSuggestionClick = vi.fn();
-    render(<ChatArea messages={[]} onSuggestionClick={onSuggestionClick} />);
+    render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
 
     expect(screen.getByRole("region", { name: /empty chat/i })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: /suggested prompts/i })).toBeInTheDocument();
@@ -25,7 +32,7 @@ describe("ChatArea", () => {
 
   it("renders user messages", () => {
     const messages = [makeMessage({ role: "user", content: "Hello world" })];
-    render(<ChatArea messages={messages} onSuggestionClick={vi.fn()} />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByRole("log", { name: /chat messages/i })).toBeInTheDocument();
     expect(screen.getByText("Hello world")).toBeInTheDocument();
@@ -33,7 +40,7 @@ describe("ChatArea", () => {
 
   it("renders assistant messages with markdown", () => {
     const messages = [makeMessage({ role: "assistant", content: "Hi there **bold**" })];
-    render(<ChatArea messages={messages} onSuggestionClick={vi.fn()} />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByRole("log")).toBeInTheDocument();
     expect(screen.getByText("bold")).toBeInTheDocument();
@@ -41,7 +48,7 @@ describe("ChatArea", () => {
 
   it("shows skeleton when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    const { container } = render(<ChatArea messages={messages} onSuggestionClick={vi.fn()} />);
+    const { container } = render(<ChatArea messages={messages} {...defaultProps} />);
 
     const skeletons = container.querySelectorAll("[aria-hidden='true'].animate-pulse");
     expect(skeletons.length).toBeGreaterThan(0);
@@ -49,7 +56,7 @@ describe("ChatArea", () => {
 
   it("shows cursor when assistant is streaming with content", () => {
     const messages = [makeMessage({ role: "assistant", content: "Loading...", isStreaming: true })];
-    render(<ChatArea messages={messages} onSuggestionClick={vi.fn()} />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     const cursor = document.querySelector(".cursor-blink");
@@ -59,7 +66,7 @@ describe("ChatArea", () => {
   it("calls onSuggestionClick when suggestion is clicked", async () => {
     const user = userEvent.setup();
     const onSuggestionClick = vi.fn();
-    render(<ChatArea messages={[]} onSuggestionClick={onSuggestionClick} />);
+    render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
 
     const suggestion = screen.getByLabelText("Code Help");
     await user.click(suggestion);

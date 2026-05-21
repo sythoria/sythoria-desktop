@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Menu, Square } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/Settings";
 import StartScreen from "./components/StartScreen";
+import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import { useAppStore } from "./store/useAppStore";
 import { useShallow } from "zustand/react/shallow";
+import { useScrollButton } from "./hooks/useScrollPosition";
 
 import "./index.css";
 
@@ -94,6 +96,21 @@ function App() {
   );
   const messages = activeConversation?.messages ?? [];
 
+  const { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef } = useScrollButton();
+
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const prevMessageCountRef = useRef(0);
+
+  useEffect(() => {
+    if (messages.length > prevMessageCountRef.current && !isAtBottom) {
+      setHasNewMessages(true);
+    }
+    if (isAtBottom) {
+      setHasNewMessages(false);
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length, isAtBottom]);
+
   useEffect(() => {
     init();
   }, [init]);
@@ -101,6 +118,7 @@ function App() {
   useEffect(() => {
     const conv = useAppStore.getState().conversations.find((c) => c.id === activeId);
     useAppStore.getState().setSystemPromptId(conv?.systemPromptId ?? null);
+    setHasNewMessages(false);
   }, [activeId]);
 
   useEffect(() => {
@@ -159,6 +177,11 @@ function App() {
     [setSystemPromptId],
   );
 
+  const handleScrollToBottom = useCallback(() => {
+    scrollToBottom();
+    setHasNewMessages(false);
+  }, [scrollToBottom]);
+
   if (!isConfigLoaded || loading.init) {
     return (
       <div
@@ -197,7 +220,7 @@ function App() {
       {view === "settings" ? (
         <Settings />
       ) : (
-        <main className="flex-1 flex flex-col min-w-0 bg-chat" aria-label="Chat area">
+        <main className="flex-1 flex flex-col min-w-0 relative bg-chat" aria-label="Chat area">
           <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <button
@@ -226,7 +249,19 @@ function App() {
             </div>
           </header>
 
-          <ChatArea messages={messages} onSuggestionClick={handleSuggestionClick} />
+          <ChatArea
+            messages={messages}
+            onSuggestionClick={handleSuggestionClick}
+            isAtBottom={isAtBottom}
+            setIsAtBottom={setIsAtBottom}
+            virtuosoRef={virtuosoRef}
+          />
+
+          <div
+            className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${!isAtBottom && messages.length > 0 ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+          >
+            <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+          </div>
 
           <InputBar
             models={models}
