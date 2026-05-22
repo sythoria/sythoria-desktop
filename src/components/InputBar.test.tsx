@@ -37,8 +37,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -54,8 +54,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -72,8 +72,8 @@ describe("InputBar", () => {
         onModelChange={vi.fn()}
         disabled={true}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -89,8 +89,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -107,8 +107,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -127,8 +127,8 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        systemPromptId={null}
-        onSystemPromptChange={vi.fn()}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
       />,
     );
 
@@ -137,5 +137,47 @@ describe("InputBar", () => {
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
 
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("shows web search option in plus dropdown", () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+      />,
+    );
+
+    const plusButton = screen.getByLabelText("Attach or search");
+    expect(plusButton).toBeInTheDocument();
+  });
+
+  it("toggles web search from plus dropdown", async () => {
+    const user = userEvent.setup();
+    const onToggleSearch = vi.fn();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={onToggleSearch}
+      />,
+    );
+
+    const plusButton = screen.getByLabelText("Attach or search");
+    await user.click(plusButton);
+
+    const searchOption = screen.getByRole("menuitemcheckbox", { name: /web search/i });
+    expect(searchOption).toBeInTheDocument();
+
+    await user.click(searchOption);
+    expect(onToggleSearch).toHaveBeenCalledWith(true);
   });
 });

@@ -50,6 +50,43 @@ describe("parseApiError", () => {
     expect(result.length).toBeLessThanOrEqual(203);
     expect(result).toContain("\u2026");
   });
+
+  it("handles structured AppError JSON from Rust backend", () => {
+    const structuredError = JSON.stringify({
+      ApiError: { status: 401, message: "Unauthorized" },
+    });
+    const result = parseApiError(structuredError);
+    expect(result).toContain("Invalid API key");
+  });
+
+  it("handles structured UrlValidationError from Rust backend", () => {
+    const structuredError = JSON.stringify({
+      UrlValidationError: "URL points to localhost",
+    });
+    const result = parseApiError(structuredError);
+    expect(result).toContain("URL validation error");
+  });
+
+  it("handles structured KeyNotFound from Rust backend", () => {
+    const structuredError = JSON.stringify({
+      KeyNotFound: "No API key found for search config 'search-123'",
+    });
+    const result = parseApiError(structuredError);
+    expect(result).toContain("No API key found");
+  });
+
+  it("handles structured StreamError from Rust backend", () => {
+    const structuredError = JSON.stringify({
+      StreamError: "connection reset",
+    });
+    const result = parseApiError(structuredError);
+    expect(result).toContain("Stream error");
+  });
+
+  it("falls through for non-JSON error strings", () => {
+    const result = parseApiError("some plain text error");
+    expect(result).toBe("some plain text error");
+  });
 });
 
 describe("ToastContainer", () => {

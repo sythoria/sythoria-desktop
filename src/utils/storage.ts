@@ -3,12 +3,33 @@ import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation } from "../types";
 import { logError } from "./logger";
 
+const ToolCallSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  arguments: z.record(z.string(), z.unknown()),
+});
+
+const ToolCallResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  content: z.string(),
+});
+
+const SourceSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+});
+
 const MessageSchema = z.object({
   id: z.string(),
-  role: z.enum(["user", "assistant"]),
+  role: z.enum(["user", "assistant", "tool"]),
   content: z.string(),
   timestamp: z.coerce.date(),
   isStreaming: z.boolean().optional(),
+  toolCall: ToolCallSchema.optional(),
+  toolResult: ToolCallResultSchema.optional(),
+  sources: z.array(SourceSchema).optional(),
+  thoughtProcess: z.string().optional(),
 });
 
 const ConversationSchema = z.object({
@@ -25,9 +46,24 @@ const ThemeSchema = z.enum(["light", "dark"]);
 
 const ApiKeysSchema = z.record(z.string(), z.string());
 
+const SearchConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.enum(["google", "searxng", "firecrawl", "custom"]),
+  baseUrl: z.string(),
+  apiKey: z.string().optional(),
+  cx: z.string().optional(),
+  maxResults: z.number(),
+  enabled: z.boolean(),
+});
+
+const SearchConfigsArraySchema = z.array(SearchConfigSchema);
+
 const CONVERSATIONS_KEY = "sythoria-conversations";
 const THEME_KEY = "sythoria-theme";
 const API_KEYS_KEY = "sythoria-api-keys";
+const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
+const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -126,6 +162,30 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
   }
 }
 
+export async function loadSearchConfigs(): Promise<import("../types").SearchApiConfig[] | null> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SEARCH_CONFIGS_KEY);
+    if (raw) {
+      const result = SearchConfigsArraySchema.safeParse(raw);
+      if (result.success) return result.data as import("../types").SearchApiConfig[];
+      logError("Stored search configs failed validation", result.error);
+    }
+  } catch (e) {
+    logError("Failed to load search configs from secure store", e);
+  }
+  return null;
+}
+
+export async function saveSearchConfigs(configs: import("../types").SearchApiConfig[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SEARCH_CONFIGS_KEY, configs);
+  } catch (e) {
+    logError("Failed to save search configs to secure store", e);
+  }
+}
+
 export async function clearConversations(): Promise<void> {
   try {
     const store = await getStore();
@@ -134,4 +194,26 @@ export async function clearConversations(): Promise<void> {
     logError("Failed to clear conversations from secure store", e);
   }
   localStorage.removeItem(CONVERSATIONS_KEY);
+}
+
+export async function loadSearchApiKeys(): Promise<Record<string, string>> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SEARCH_API_KEYS_KEY);
+    const result = ApiKeysSchema.safeParse(raw);
+    if (result.success) return result.data;
+    if (raw) logError("Stored search API keys failed validation, resetting");
+  } catch (e) {
+    logError("Failed to load search API keys from secure store", e);
+  }
+  return {};
+}
+
+export async function saveSearchApiKeys(keys: Record<string, string>): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SEARCH_API_KEYS_KEY, keys);
+  } catch (e) {
+    logError("Failed to save search API keys to secure store", e);
+  }
 }

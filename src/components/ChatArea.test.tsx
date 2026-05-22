@@ -22,12 +22,12 @@ const defaultProps = {
 };
 
 describe("ChatArea", () => {
-  it("shows empty state with suggestions when no messages", () => {
+  it("shows empty state with search button when no messages", () => {
     const onSuggestionClick = vi.fn();
     render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
 
     expect(screen.getByRole("region", { name: /empty chat/i })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /suggested prompts/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /enable web search/i })).toBeInTheDocument();
   });
 
   it("renders user messages", () => {
@@ -63,14 +63,14 @@ describe("ChatArea", () => {
     expect(cursor).toBeInTheDocument();
   });
 
-  it("calls onSuggestionClick when suggestion is clicked", async () => {
+  it("calls onSuggestionClick when search button is clicked", async () => {
     const user = userEvent.setup();
     const onSuggestionClick = vi.fn();
     render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
 
-    const suggestion = screen.getByLabelText("Code Help");
-    await user.click(suggestion);
+    const button = screen.getByRole("button", { name: /enable web search/i });
+    await user.click(button);
 
-    expect(onSuggestionClick).toHaveBeenCalledWith("code-help");
+    expect(onSuggestionClick).toHaveBeenCalled();
   });
 });

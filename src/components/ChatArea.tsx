@@ -1,31 +1,33 @@
-import { useState, useEffect, useRef, memo, useMemo, useCallback, forwardRef } from "react";
+import { useState, useEffect, useRef, memo, useMemo, useCallback, forwardRef, useDeferredValue } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { Bot, Copy, Check } from "lucide-react";
+import { Bot, Copy, Check, Search, Globe, Wrench, ChevronDown, Loader2, ExternalLink, Brain } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
 import { MessageSkeleton } from "./ui/Skeleton";
-import { SYSTEM_PROMPTS } from "../config/systemPrompts";
 
 interface ChatAreaProps {
   messages: Message[];
-  onSuggestionClick: (systemPromptId: string) => void;
+  onSuggestionClick: () => void;
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const deferredContent = useDeferredValue(content);
+  const renderContent = isStreaming ? deferredContent : content;
+
   const markdown = useMemo(
     () => (
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {content}
+        {renderContent}
       </ReactMarkdown>
     ),
-    [content],
+    [renderContent],
   );
 
   return (
@@ -61,9 +63,208 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function SourcesList({ sources }: { sources: { title: string; url: string }[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const displaySources = expanded ? sources : sources.slice(0, 3);
+
+  return (
+    <div className="mt-2 pt-2 border-t border-border/30">
+      <p className="text-[10px] text-text-muted mb-1.5 font-medium">Sources</p>
+      <div className="flex flex-wrap gap-1.5">
+        {displaySources.map((s, i) => (
+          <a
+            key={i}
+            href={s.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline max-w-[180px] truncate"
+            title={s.title}
+          >
+            <ExternalLink size={9} className="shrink-0" />
+            <span className="truncate">{s.title || s.url}</span>
+          </a>
+        ))}
+      </div>
+      {sources.length > 3 && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="text-[10px] text-text-muted hover:text-text-secondary mt-1"
+        >
+          +{sources.length - 3} more sources
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ToolCallDisplay({ message }: { message: Message }) {
+  const { name, arguments: args } = message.toolCall!;
+  const isSearch = name === "search_query";
+  const isFetch = name === "fetch_url";
+  const isCompleted = !!message.toolResult;
+
+  return (
+    <div className="flex items-start gap-2 animate-fade-in">
+      <div
+        className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
+          isCompleted ? "bg-green-500/10 border-green-500/20" : "bg-yellow-500/10 border-yellow-500/20"
+        }`}
+        aria-hidden="true"
+      >
+        {isSearch ? (
+          <Search size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+        ) : isFetch ? (
+          <Globe size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+        ) : (
+          <Wrench size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className={`flex items-center gap-1.5 text-xs font-medium ${
+            isCompleted ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
+          }`}
+        >
+          <span>
+            {isCompleted
+              ? isSearch
+                ? "Search results"
+                : isFetch
+                  ? "Page content"
+                  : "Tool result"
+              : isSearch
+                ? "Searching"
+                : isFetch
+                  ? "Fetching"
+                  : "Calling tool"}
+          </span>
+          {!isCompleted && <Loader2 size={12} className="animate-spin" />}
+        </div>
+        {isCompleted ? (
+          <ToolResultContent message={message} />
+        ) : (
+          <p className="text-xs text-text-muted mt-0.5 font-mono truncate">
+            {isSearch && args.query ? `"${args.query}"` : isFetch && args.url ? args.url : JSON.stringify(args)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ToolResultContent({ message }: { message: Message }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1 mt-0.5"
+        aria-label={expanded ? "Collapse" : "Expand"}
+      >
+        <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        {expanded ? "Hide details" : "Show details"}
+      </button>
+      {expanded && (
+        <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10px]">{message.content.slice(0, 2000)}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallBubble({ message }: { message: Message }) {
+  if (message.toolCall) return <ToolCallDisplay message={message} />;
+  if (message.toolResult) return <LegacyToolResultDisplay message={message} />;
+  return null;
+}
+
+function LegacyToolResultDisplay({ message }: { message: Message }) {
+  const { name } = message.toolResult!;
+  const isSearch = name === "search_query";
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="flex items-start gap-2 animate-fade-in">
+      <div
+        className="shrink-0 w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center mt-0.5"
+        aria-hidden="true"
+      >
+        {isSearch ? <Search size={14} className="text-green-500" /> : <Globe size={14} className="text-green-500" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
+          <span>{isSearch ? "Search results" : "Page content"}</span>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-text-muted hover:text-text-secondary"
+            aria-label={expanded ? "Collapse" : "Expand"}
+          >
+            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+        {expanded ? (
+          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
+            <pre className="whitespace-pre-wrap break-words font-mono text-[10px]">
+              {message.content.slice(0, 2000)}
+            </pre>
+          </div>
+        ) : (
+          <p className="text-[10px] text-text-muted mt-0.5 truncate">{message.content.slice(0, 120)}...</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ThoughtProcessBubble({ message }: { message: Message }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="flex items-start gap-2 animate-fade-in">
+      <div
+        className="shrink-0 w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-0.5"
+        aria-hidden="true"
+      >
+        <Brain size={14} className="text-purple-500" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400">
+          <span>Thinking</span>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-text-muted hover:text-text-secondary"
+            aria-label={expanded ? "Collapse" : "Expand thought"}
+          >
+            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+        {expanded ? (
+          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          </div>
+        ) : (
+          <p className="text-[10px] text-text-muted mt-0.5 truncate italic">{message.content.slice(0, 120)}...</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  const isTool = message.role === "tool";
+  const isThought = message.role === "assistant" && !!message.thoughtProcess;
   const [hovered, setHovered] = useState(false);
+
+  if (isTool) {
+    return <ToolCallBubble message={message} />;
+  }
+
+  if (isThought) {
+    return <ThoughtProcessBubble message={message} />;
+  }
 
   if (isUser) {
     return (
@@ -115,16 +316,13 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
             )}
           </>
         )}
+        {message.sources && message.sources.length > 0 && !message.isStreaming && (
+          <SourcesList sources={message.sources} />
+        )}
       </div>
     </div>
   );
 });
-
-const SUGGESTIONS = SYSTEM_PROMPTS.map((p) => ({
-  id: p.id,
-  icon: p.icon,
-  label: p.label,
-}));
 
 const VIRTUALIZED_THRESHOLD = 50;
 
@@ -140,7 +338,7 @@ export default function ChatArea({
       <div
         className="flex-1 flex flex-col items-center justify-center select-none animate-slide-up relative"
         role="region"
-        aria-label="Empty chat — choose a suggestion or type a message"
+        aria-label="Empty chat — type a message to begin"
       >
         <div className="flex flex-col items-center gap-4 px-4">
           <div
@@ -153,21 +351,16 @@ export default function ChatArea({
             <h1 className="text-2xl font-bold tracking-tight text-text-primary">Sythoria</h1>
             <p className="text-text-muted text-sm mt-1">Your intelligent AI assistant</p>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 w-full max-w-sm" role="group" aria-label="Suggested prompts">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => onSuggestionClick(s.id)}
-                className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-border bg-surface/50 hover:bg-hover text-text-secondary hover:text-text-primary text-xs font-medium transition-all duration-150 text-left min-h-[44px]"
-                aria-label={s.label}
-              >
-                <span className="text-accent shrink-0" aria-hidden="true">
-                  {s.icon}
-                </span>
-                {s.label}
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={onSuggestionClick}
+            className="mt-2 flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-border bg-surface/50 hover:bg-hover text-text-secondary hover:text-text-primary text-xs font-medium transition-all duration-150 text-left min-h-[44px]"
+            aria-label="Enable web search"
+          >
+            <span className="text-accent shrink-0" aria-hidden="true">
+              <Search size={14} />
+            </span>
+            Enable Web Search
+          </button>
         </div>
       </div>
     );

@@ -31,7 +31,7 @@ function App() {
     renameCurrentTitle,
     loading,
     toasts,
-    systemPromptId,
+    isSearchEnabled,
   } = useAppStore(
     useShallow((s) => ({
       conversations: s.conversations,
@@ -48,7 +48,7 @@ function App() {
       renameCurrentTitle: s.renameCurrentTitle,
       loading: s.loading,
       toasts: s.toasts,
-      systemPromptId: s.systemPromptId,
+      isSearchEnabled: s.isSearchEnabled,
     })),
   );
 
@@ -59,7 +59,7 @@ function App() {
     setView,
     setHasStarted,
     setSelectedModel,
-    setSystemPromptId,
+    toggleSearchEnabled,
     newChat,
     deleteChat,
     openRenameModal,
@@ -77,7 +77,7 @@ function App() {
       setView: s.setView,
       setHasStarted: s.setHasStarted,
       setSelectedModel: s.setSelectedModel,
-      setSystemPromptId: s.setSystemPromptId,
+      toggleSearchEnabled: s.toggleSearchEnabled,
       newChat: s.newChat,
       deleteChat: s.deleteChat,
       openRenameModal: s.openRenameModal,
@@ -116,8 +116,6 @@ function App() {
   }, [init]);
 
   useEffect(() => {
-    const conv = useAppStore.getState().conversations.find((c) => c.id === activeId);
-    useAppStore.getState().setSystemPromptId(conv?.systemPromptId ?? null);
     setHasNewMessages(false);
   }, [activeId]);
 
@@ -168,14 +166,11 @@ function App() {
 
   const [inputAutoFocus, setInputAutoFocus] = useState(false);
 
-  const handleSuggestionClick = useCallback(
-    (systemPromptId: string) => {
-      setSystemPromptId(systemPromptId);
-      setInputAutoFocus(false);
-      requestAnimationFrame(() => setInputAutoFocus(true));
-    },
-    [setSystemPromptId],
-  );
+  const handleSuggestionClick = useCallback(() => {
+    toggleSearchEnabled(true);
+    setInputAutoFocus(false);
+    requestAnimationFrame(() => setInputAutoFocus(true));
+  }, [toggleSearchEnabled]);
 
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();
@@ -270,8 +265,8 @@ function App() {
             onModelChange={setSelectedModel}
             disabled={isStreaming}
             modelStatuses={modelStatuses}
-            systemPromptId={systemPromptId}
-            onSystemPromptChange={setSystemPromptId}
+            isSearchEnabled={isSearchEnabled}
+            onToggleSearch={toggleSearchEnabled}
             inputAutoFocus={inputAutoFocus}
           />
         </main>

@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Conversation, Message, ModelConfig, ConnectionStatus, ModelStatuses } from "../types";
+import type {
+  Conversation,
+  Message,
+  ModelConfig,
+  ConnectionStatus,
+  ModelStatuses,
+  SearchApiConfig,
+  SearchResult,
+  UrlContent,
+} from "../types";
 import { loadModelConfigs, saveModelConfigs } from "../types";
 import {
   loadConversations,
@@ -11,14 +20,18 @@ import {
   loadApiKeys,
   saveApiKeys,
   clearConversations,
+  loadSearchConfigs,
+  saveSearchConfigs,
+  loadSearchApiKeys,
+  saveSearchApiKeys,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
-import { getSystemPrompt } from "../config/systemPrompts";
 import { parseApiError } from "../components/ui/Toast";
 import type { Toast } from "../components/ui/Toast";
-import { validateModelConfig } from "../utils/validation";
+import { validateModelConfig, validateSearchConfig } from "../utils/validation";
+import { sendWithToolLoop } from "../services/toolLoop";
 
 let activeStreamId: string | null = null;
 let streamListenerCleanup: (() => void) | null = null;
@@ -117,7 +130,7 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
   });
 }
 
-export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig";
+export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
 
 interface AppState {
   conversations: Conversation[];
@@ -136,12 +149,14 @@ interface AppState {
   showRenameModal: boolean;
   renameId: string | null;
   renameCurrentTitle: string;
-  systemPromptId: string | null;
   loading: Record<LoadingKey, boolean>;
   toasts: Toast[];
+  searchConfigs: SearchApiConfig[];
+  activeSearchId: string | null;
+  isSearchEnabled: boolean;
+  searchApiKeys: Record<string, string>;
 
   init: () => Promise<void>;
-  setSystemPromptId: (id: string | null) => void;
   cleanupEmptyConversations: () => void;
   setActiveId: (id: string | null) => void;
   setSelectedModel: (model: string) => void;
@@ -172,6 +187,13 @@ interface AppState {
   startHealthCheck: () => void;
   stopHealthCheck: () => void;
   cleanup: () => void;
+  addSearchConfig: () => void;
+  updateSearchConfig: (id: string, updates: Partial<SearchApiConfig>) => void;
+  deleteSearchConfig: (id: string) => void;
+  setActiveSearchId: (id: string | null) => void;
+  toggleSearchEnabled: (enabled: boolean) => void;
+  performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>;
+  fetchUrlContent: (url: string) => Promise<UrlContent>;
 }
 
 let toastCounter = 0;
@@ -193,19 +215,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   showRenameModal: false,
   renameId: null,
   renameCurrentTitle: "",
-  loading: { init: true, sendMessage: false, checkConnection: false, saveConfig: false },
+  loading: { init: true, sendMessage: false, checkConnection: false, saveConfig: false, toolExecution: false },
   toasts: [],
-  systemPromptId: null,
+  searchConfigs: [],
+  activeSearchId: null,
+  isSearchEnabled: false,
+  searchApiKeys: {},
 
   init: async () => {
     set((s) => ({ loading: { ...s.loading, init: true } }));
     try {
-      const [loadedModels, loadedConvs, loadedTheme, loadedKeys] = await Promise.all([
-        loadModelConfigs(),
-        loadConversations(),
-        loadTheme(),
-        loadApiKeys(),
-      ]);
+      const [loadedModels, loadedConvs, loadedTheme, loadedKeys, loadedSearchConfigs, loadedSearchKeys] =
+        await Promise.all([
+          loadModelConfigs(),
+          loadConversations(),
+          loadTheme(),
+          loadApiKeys(),
+          loadSearchConfigs(),
+          loadSearchApiKeys(),
+        ]);
 
       const models = loadedModels || [];
       const modelsWithKeys = models.map((m) => ({
@@ -214,6 +242,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
 
       const nonEmptyConvs = loadedConvs.filter((c) => c.messages.length > 0);
+
+      const searchConfigs = loadedSearchConfigs || [];
 
       set({
         models: modelsWithKeys,
@@ -224,6 +254,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         apiKeys: loadedKeys,
         hasStarted: modelsWithKeys.length > 0,
         isConfigLoaded: true,
+        searchConfigs,
+        activeSearchId: searchConfigs.find((c) => c.enabled)?.id ?? null,
+        searchApiKeys: loadedSearchKeys,
       });
 
       document.documentElement.classList.toggle("dark", loadedTheme === "dark");
@@ -275,21 +308,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setHasStarted: (started) => set({ hasStarted: started }),
-
-  setSystemPromptId: (id) => {
-    const { systemPromptId, activeId, conversations } = get();
-    if (systemPromptId === id && !activeId) return;
-    set({ systemPromptId: id });
-    if (activeId) {
-      const conv = conversations.find((c) => c.id === activeId);
-      if (conv?.systemPromptId !== (id ?? undefined)) {
-        set({
-          conversations: conversations.map((c) => (c.id === activeId ? { ...c, systemPromptId: id ?? undefined } : c)),
-        });
-        get().persistConversations();
-      }
-    }
-  },
 
   addToast: (message, variant = "info") => {
     const id = `toast-${++toastCounter}`;
@@ -384,7 +402,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   newChat: () => {
-    const { selectedModel, models, systemPromptId } = get();
+    const { selectedModel, models } = get();
     const id = generateId();
     const modelConfig = models.find((m) => m.id === selectedModel);
     const conv: Conversation = {
@@ -393,7 +411,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       timestamp: new Date(),
       messages: [],
       model: modelConfig?.id || selectedModel,
-      systemPromptId: systemPromptId ?? undefined,
     };
     set((state) => ({
       conversations: [conv, ...state.conversations],
@@ -435,8 +452,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ showRenameModal: false, renameId: null, renameCurrentTitle: "" });
   },
 
+  performSearch: async (query, config, apiKey) => {
+    try {
+      const configPayload = { ...config, apiKey };
+      const raw = await invoke<string>("web_search", {
+        provider: config.provider,
+        query,
+        config: JSON.stringify(configPayload),
+        configId: config.id,
+      });
+      return JSON.parse(raw) as SearchResult[];
+    } catch (err) {
+      logError("Search failed", err);
+      get().addToast(parseApiError(err), "error");
+      return [];
+    }
+  },
+
+  fetchUrlContent: async (url) => {
+    try {
+      const raw = await invoke<string>("fetch_url_content", { url });
+      return JSON.parse(raw) as UrlContent;
+    } catch (err) {
+      logError("Fetch URL failed", err);
+      return { url, title: "", content: `Error: ${parseApiError(err)}`, status: "error", error: parseApiError(err) };
+    }
+  },
+
   sendMessage: async (text) => {
-    const { isStreaming, activeId, selectedModel, models, temperature, apiKeys, systemPromptId } = get();
+    const {
+      isStreaming,
+      activeId,
+      selectedModel,
+      models,
+      temperature,
+      apiKeys,
+      isSearchEnabled,
+      activeSearchId,
+      searchConfigs,
+      searchApiKeys,
+    } = get();
     if (isStreaming) return;
 
     let convId = activeId;
@@ -450,7 +505,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
-        systemPromptId: systemPromptId ?? undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -459,13 +513,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       convId = id;
     }
 
-    const userMsg: Message = { id: generateId(), role: "user", content: text, timestamp: new Date() };
-    const assistantMsg: Message = {
+    const userMsg: Message = {
       id: generateId(),
-      role: "assistant",
-      content: "",
+      role: "user",
+      content: text,
       timestamp: new Date(),
-      isStreaming: true,
     };
 
     const finalId = convId;
@@ -478,68 +530,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     set((state) => ({
-      isStreaming: true,
-      loading: { ...state.loading, sendMessage: true },
-      conversations: updateConversationMessages(
-        state.conversations,
-        finalId,
-        (msgs) => [...msgs, userMsg, assistantMsg],
-        {
-          title:
-            state.conversations.find((c) => c.id === finalId)?.messages.length === 0 ? truncateTitle(text) : undefined,
-        },
-      ),
+      conversations: updateConversationMessages(state.conversations, finalId, (msgs) => [...msgs, userMsg], {
+        title:
+          state.conversations.find((c) => c.id === finalId)?.messages.length === 0 ? truncateTitle(text) : undefined,
+      }),
     }));
 
-    activeStreamId = finalId;
-    await ensureStreamListeners(set);
+    const useTools = isSearchEnabled && activeSearchId;
+    const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
+    const searchApiKey = useTools && searchConfig ? searchApiKeys[searchConfig.id] || searchConfig.apiKey || "" : "";
 
-    try {
-      const apiUrl = modelConfig.apiBase;
-      const apiKey = apiKeys[modelConfig.id] || modelConfig.apiKey;
-
-      const conv = get().conversations.find((c) => c.id === finalId);
-      const promptId = conv?.systemPromptId ?? systemPromptId;
-      const systemContent = promptId ? getSystemPrompt(promptId) : undefined;
-
-      const apiMessages: { role: string; content: string }[] = [];
-      if (systemContent) {
-        apiMessages.push({ role: "system", content: systemContent });
-      }
-      apiMessages.push(
-        ...(conv?.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })) ?? []),
-      );
-      apiMessages.push({ role: "user", content: text });
-
-      await invoke("chat_stream", {
-        apiUrl,
-        apiKey,
-        model: modelConfig.modelId,
-        messages: apiMessages,
+    if (useTools && searchConfig) {
+      await sendWithToolLoop(
+        finalId,
+        modelConfig,
         temperature,
-      });
-
-      set((state) => ({
-        conversations: finalizeAssistantMessage(state.conversations, finalId),
-      }));
-
-      get().persistConversations();
-    } catch (err) {
-      const friendlyMessage = parseApiError(err);
-      activeStreamId = null;
-      releaseStreamListeners();
-      set((state) => ({
-        conversations: setAssistantError(state.conversations, finalId, err),
-        isStreaming: false,
-        loading: { ...state.loading, sendMessage: false },
-      }));
-      get().addToast(friendlyMessage, "error");
-      logError("Failed to send message", err);
-    } finally {
-      set((s) => ({ loading: { ...s.loading, sendMessage: false } }));
+        apiKeys,
+        searchConfig,
+        searchApiKey,
+        set,
+        get,
+        get().performSearch,
+        get().fetchUrlContent,
+      );
+    } else {
+      await sendNormal(finalId, modelConfig, temperature, apiKeys, set, get);
     }
   },
 
@@ -551,7 +566,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...c,
         messages: c.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
       }));
-      return { isStreaming: false, loading: { ...state.loading, sendMessage: false }, conversations: convs };
+      return {
+        isStreaming: false,
+        loading: { ...state.loading, sendMessage: false, toolExecution: false },
+        conversations: convs,
+      };
     });
   },
 
@@ -562,6 +581,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       `# ${conv.title}`,
       ``,
       ...conv.messages.map((m) => {
+        if (m.role === "tool") {
+          const result = m.toolResult;
+          return `**Tool (${result?.name ?? "unknown"}):** ${m.content.slice(0, 200)}`;
+        }
         const label = m.role === "user" ? "You" : "Assistant";
         return `**${label}:** ${m.content}`;
       }),
@@ -652,9 +675,134 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  addSearchConfig: () => {
+    const newConfig: SearchApiConfig = {
+      id: "search-" + Date.now(),
+      name: "New Search API",
+      provider: "google",
+      baseUrl: "https://www.googleapis.com/customsearch/v1",
+      apiKey: "",
+      cx: "",
+      maxResults: 5,
+      enabled: true,
+    };
+    const validation = validateSearchConfig(newConfig);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message ?? "Invalid search config";
+      get().addToast(`Validation: ${firstError}`, "error");
+      return;
+    }
+    const { searchConfigs } = get();
+    const updated = [...searchConfigs, newConfig];
+    set({ searchConfigs: updated, activeSearchId: newConfig.id });
+    saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
+    get().addToast("Search API added — configure its details", "info");
+  },
+
+  updateSearchConfig: (id, updates) => {
+    const { searchConfigs, searchApiKeys } = get();
+    const updatedConfigs = searchConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    set({ searchConfigs: updatedConfigs });
+
+    if (updates.apiKey !== undefined) {
+      const newKeys = { ...searchApiKeys, [id]: updates.apiKey! };
+      set({ searchApiKeys: newKeys });
+      saveSearchApiKeys(newKeys);
+    }
+
+    const configsWithoutKeys = updatedConfigs.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig);
+    saveSearchConfigs(configsWithoutKeys);
+
+    if (!updatedConfigs.find((c) => c.id === get().activeSearchId) && updatedConfigs.length > 0) {
+      set({ activeSearchId: updatedConfigs[0].id });
+    }
+  },
+
+  deleteSearchConfig: (id) => {
+    const { searchConfigs, activeSearchId, searchApiKeys } = get();
+    const updated = searchConfigs.filter((c) => c.id !== id);
+    const newKeys = { ...searchApiKeys };
+    delete newKeys[id];
+    set({
+      searchConfigs: updated,
+      activeSearchId: activeSearchId === id ? (updated[0]?.id ?? null) : activeSearchId,
+      searchApiKeys: newKeys,
+    });
+    saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
+    saveSearchApiKeys(newKeys);
+    get().addToast("Search API deleted", "info");
+  },
+
+  setActiveSearchId: (id) => set({ activeSearchId: id }),
+  toggleSearchEnabled: (enabled) => set({ isSearchEnabled: enabled }),
+
   cleanup: () => {
     get().stopHealthCheck();
     get().stopStreaming();
     releaseStreamListeners();
   },
 }));
+
+async function sendNormal(
+  convId: string,
+  modelConfig: ModelConfig,
+  temperature: number,
+  apiKeys: Record<string, string>,
+  set: (fn: (state: AppState) => Partial<AppState>) => void,
+  get: () => AppState,
+) {
+  const assistantMsg: Message = {
+    id: generateId(),
+    role: "assistant",
+    content: "",
+    timestamp: new Date(),
+    isStreaming: true,
+  };
+
+  set((state) => ({
+    isStreaming: true,
+    loading: { ...state.loading, sendMessage: true },
+    conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
+  }));
+
+  activeStreamId = convId;
+  await ensureStreamListeners(set);
+
+  try {
+    const apiUrl = modelConfig.apiBase;
+    const apiKey = apiKeys[modelConfig.id] || modelConfig.apiKey;
+
+    const conv = get().conversations.find((c) => c.id === convId);
+    const apiMessages =
+      conv?.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content })) ?? [];
+
+    await invoke("chat_stream", {
+      apiUrl,
+      apiKey,
+      model: modelConfig.modelId,
+      messages: apiMessages,
+      temperature,
+    });
+
+    set((state) => ({
+      conversations: finalizeAssistantMessage(state.conversations, convId),
+    }));
+
+    get().persistConversations();
+  } catch (err) {
+    const friendlyMessage = parseApiError(err);
+    activeStreamId = null;
+    releaseStreamListeners();
+    set((state) => ({
+      conversations: setAssistantError(state.conversations, convId, err),
+      isStreaming: false,
+      loading: { ...state.loading, sendMessage: false },
+    }));
+    get().addToast(friendlyMessage, "error");
+    logError("Failed to send message", err);
+  } finally {
+    set((s) => ({ loading: { ...s.loading, sendMessage: false } }));
+  }
+}
