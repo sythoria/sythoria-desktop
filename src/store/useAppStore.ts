@@ -775,7 +775,7 @@ async function sendNormal(
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages =
       conv?.messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
         .map((m) => ({ role: m.role, content: m.content })) ?? [];
 
     await invoke("chat_stream", {

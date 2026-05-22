@@ -122,7 +122,7 @@ export async function sendWithToolLoop(
     const conv = get().conversations.find((c) => c.id === convId);
     const baseMessages =
       conv?.messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
         .map((m) => ({ role: m.role, content: m.content })) ?? [];
 
     const apiMessages: {
