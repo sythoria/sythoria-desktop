@@ -227,7 +227,11 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
         className="shrink-0 w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
-        <Sparkles size={14} className="text-purple-500" />
+        {isStreaming ? (
+          <Loader2 size={14} className="animate-spin text-purple-500" />
+        ) : (
+          <Sparkles size={14} className="text-purple-500" />
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <button
@@ -235,8 +239,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
           className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
           aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
         >
-          <span>Reasoning</span>
-          {isStreaming && <Loader2 size={12} className="animate-spin text-purple-500" />}
+          <span>Thinking</span>
           <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
         {expanded ? (
@@ -245,14 +248,18 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
               {content || "Thinking..."}
             </p>
           </div>
+        ) : isStreaming && !hasContent ? (
+          <span className="generating-dots mt-0.5">
+            <span />
+            <span />
+            <span />
+          </span>
         ) : hasContent ? (
           <p className="text-[10px] text-text-muted mt-0.5 truncate italic">
             {content.slice(0, 120)}
             {content.length > 120 && "..."}
           </p>
-        ) : (
-          <p className="text-[10px] text-text-muted mt-0.5 italic">Analyzing...</p>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -262,7 +269,11 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isThought = message.role === "assistant" && !!message.thoughtProcess;
-  const hasReasoning = message.role === "assistant" && message.content.includes("<reasoning>");
+  const hasOpenReasoning =
+    message.role === "assistant" &&
+    (message.content.includes("<reasoning>") ||
+      message.content.includes("<thinking>") ||
+      message.content.includes("<thought>"));
   const [hovered, setHovered] = useState(false);
 
   if (isTool) {
@@ -308,14 +319,29 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
     );
   }
 
-  // Parse reasoning content
+  // Parse reasoning content (supports <reasoning>, <thinking>, <thought> tags from different LLMs)
   let reasoningContent = "";
   let displayContent = message.content;
-  if (hasReasoning) {
-    const reasoningMatch = message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/);
+  if (hasOpenReasoning) {
+    const reasoningMatch =
+      message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/) ||
+      message.content.match(/<thinking>([\s\S]*?)<\/thinking>/) ||
+      message.content.match(/<thought>([\s\S]*?)<\/thought>/);
     if (reasoningMatch) {
       reasoningContent = reasoningMatch[1].trim();
-      displayContent = message.content.replace(/<reasoning>[\s\S]*?<\/reasoning>/, "").trim();
+      displayContent = message.content
+        .replace(/<(?:reasoning|thinking|thought)>[\s\S]*?<\/(?:reasoning|thinking|thought)>/, "")
+        .trim();
+    } else {
+      // Stream in progress — extract content between opening tag and end of string
+      const openMatch =
+        message.content.match(/<reasoning>([\s\S]*)/) ||
+        message.content.match(/<thinking>([\s\S]*)/) ||
+        message.content.match(/<thought>([\s\S]*)/);
+      if (openMatch) {
+        reasoningContent = openMatch[1].trim();
+        displayContent = message.content.replace(/<(?:reasoning|thinking|thought)>[\s\S]*/, "").trim();
+      }
     }
   }
 
@@ -328,33 +354,26 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
       aria-label={`Assistant message${message.isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
     >
       <div
-        className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
-          message.isStreaming ? "bg-accent/20 border-accent/30" : "bg-accent/10 border-accent/20"
-        }`}
+        className="shrink-0 w-7 h-7 rounded-lg border bg-accent/10 border-accent/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
-        {message.isStreaming ? (
-          <Loader2 size={14} className="text-accent animate-spin" />
-        ) : (
-          <Bot size={14} className="text-accent" />
-        )}
+        <Bot size={14} className="text-accent" />
       </div>
       <div className="relative max-w-[80%] text-sm text-text-primary leading-relaxed">
-        {hasReasoning && <ReasoningBubble content={reasoningContent} isStreaming={message.isStreaming} />}
+        {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={message.isStreaming} />}
+        {message.isStreaming && !hasOpenReasoning && displayContent.length === 0 ? (
+          <div className="flex items-center gap-2 py-1">
+            <Loader2 size={14} className="text-accent animate-spin" />
+            <span className="text-xs text-text-muted font-medium">Thinking</span>
+            <span className="generating-dots">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
+        ) : null}
         <div className="markdown-body">
-          {message.isStreaming && displayContent.length === 0 && !hasReasoning ? (
-            <div className="flex items-center gap-2.5 py-1">
-              <Loader2 size={14} className="text-accent animate-spin" />
-              <div className="flex items-center gap-1.5 text-xs text-text-muted font-medium">
-                <span>Thinking</span>
-                <span className="generating-dots">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </div>
-            </div>
-          ) : displayContent.length > 0 ? (
+          {displayContent.length > 0 ? (
             <>
               <MessageContent content={displayContent} isStreaming={!!message.isStreaming} />
               {!message.isStreaming && hovered && (

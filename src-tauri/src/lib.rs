@@ -368,17 +368,24 @@ async fn chat_stream(
                             }
 
                             if let Some(content) = choice.delta.content {
+                                // Normalize <thinking>/<thought> tags to <reasoning>
+                                let normalized = content
+                                    .replace("<thinking>", "<reasoning>")
+                                    .replace("</thinking>", "</reasoning>")
+                                    .replace("<thought>", "<reasoning>")
+                                    .replace("</thought>", "</reasoning>");
+
                                 // Track inline <reasoning> tags (some models embed them in content)
-                                if content.contains("<reasoning>") || content.contains("</reasoning>") {
-                                    let has_open = content.contains("<reasoning>");
-                                    let has_close = content.contains("</reasoning>");
+                                if normalized.contains("<reasoning>") || normalized.contains("</reasoning>") {
+                                    let has_open = normalized.contains("<reasoning>");
+                                    let has_close = normalized.contains("</reasoning>");
 
                                     if has_open && !in_reasoning {
                                         in_reasoning = true;
                                     }
 
-                                    full_content.push_str(&content);
-                                    let _ = app.emit("chat-stream-chunk", &content);
+                                    full_content.push_str(&normalized);
+                                    let _ = app.emit("chat-stream-chunk", &normalized);
 
                                     if has_close && in_reasoning {
                                         in_reasoning = false;
@@ -392,13 +399,13 @@ async fn chat_stream(
                                 } else {
                                     // Close reasoning block if we get regular content while in_reasoning
                                     // (for models that don't emit </reasoning> explicitly)
-                                    if in_reasoning && !content.trim().is_empty() {
+                                    if in_reasoning && !normalized.trim().is_empty() {
                                         in_reasoning = false;
                                         let _ = app.emit("chat-stream-chunk", "</reasoning>");
                                         full_content.push_str("</reasoning>");
                                     }
-                                    full_content.push_str(&content);
-                                    let _ = app.emit("chat-stream-chunk", &content);
+                                    full_content.push_str(&normalized);
+                                    let _ = app.emit("chat-stream-chunk", &normalized);
                                 }
                             }
                             if choice.finish_reason.is_some() {
@@ -514,27 +521,34 @@ async fn chat_stream_tools(
                                         }
                                     }
 
-                                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                        if content.contains("<reasoning>") || content.contains("</reasoning>") {
-                                            let has_open = content.contains("<reasoning>");
-                                            let has_close = content.contains("</reasoning>");
-                                            if has_open && !in_reasoning {
-                                                in_reasoning = true;
-                                            }
-                                            accumulated.push_str(content);
-                                            let _ = app.emit("chat-stream-chunk", content);
-                                            if has_close && in_reasoning {
-                                                in_reasoning = false;
-                                            }
-                                        } else {
-                                            if in_reasoning && !content.trim().is_empty() {
-                                                in_reasoning = false;
-                                                let _ = app.emit("chat-stream-chunk", "</reasoning>");
-                                                accumulated.push_str("</reasoning>");
-                                            }
-                                            accumulated.push_str(content);
-                                            let _ = app.emit("chat-stream-chunk", content);
-                                        }
+                            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                // Normalize <thinking>/<thought> tags to <reasoning>
+                                let normalized = content
+                                    .replace("<thinking>", "<reasoning>")
+                                    .replace("</thinking>", "</reasoning>")
+                                    .replace("<thought>", "<reasoning>")
+                                    .replace("</thought>", "</reasoning>");
+
+                                if normalized.contains("<reasoning>") || normalized.contains("</reasoning>") {
+                                    let has_open = normalized.contains("<reasoning>");
+                                    let has_close = normalized.contains("</reasoning>");
+                                    if has_open && !in_reasoning {
+                                        in_reasoning = true;
+                                    }
+                                    accumulated.push_str(&normalized);
+                                    let _ = app.emit("chat-stream-chunk", &normalized);
+                                    if has_close && in_reasoning {
+                                        in_reasoning = false;
+                                    }
+                                } else {
+                                    if in_reasoning && !normalized.trim().is_empty() {
+                                        in_reasoning = false;
+                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                        accumulated.push_str("</reasoning>");
+                                    }
+                                    accumulated.push_str(&normalized);
+                                    let _ = app.emit("chat-stream-chunk", &normalized);
+                                }
                                     }
                                 }
                                 if choice.get("finish_reason").and_then(|r| r.as_str()).is_some() {
