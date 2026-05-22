@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Plus, Paperclip, ChevronDown, Check, Search } from "lucide-react";
+import { Send, Plus, Paperclip, ChevronDown, Check, Search, Square, Loader2 } from "lucide-react";
 import { STATUS_COLORS, ModelConfig } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
@@ -14,6 +14,8 @@ interface InputBarProps {
   isSearchEnabled: boolean;
   onToggleSearch: (enabled: boolean) => void;
   inputAutoFocus?: boolean;
+  isStreaming?: boolean;
+  onStop?: () => void;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -33,6 +35,8 @@ export default function InputBar({
   isSearchEnabled,
   onToggleSearch,
   inputAutoFocus,
+  isStreaming,
+  onStop,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -45,13 +49,19 @@ export default function InputBar({
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
-  const canSend = trimmed.length > 0 && !isOverLimit && !disabled;
+  const canSend = trimmed.length > 0 && !isOverLimit && !disabled && !isStreaming;
 
   useEffect(() => {
     if (inputAutoFocus && textareaRef.current) {
       textareaRef.current.focus();
     }
   }, [inputAutoFocus]);
+
+  useEffect(() => {
+    if (isStreaming && textareaRef.current) {
+      textareaRef.current.blur();
+    }
+  }, [isStreaming]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -141,7 +151,7 @@ export default function InputBar({
           Message
         </label>
         <div
-          className={`flex items-center gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""}`}
+          className={`flex items-center gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""} ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""}`}
         >
           <div ref={plusDropdownRef} className="relative shrink-0">
             <button
@@ -290,12 +300,14 @@ export default function InputBar({
           </div>
 
           <button
-            onClick={handleSubmit}
-            disabled={!canSend}
-            className="shrink-0 p-2 rounded-lg bg-accent hover:bg-accent-hover text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Send message"
+            onClick={isStreaming ? onStop : handleSubmit}
+            disabled={!isStreaming && !canSend}
+            className={`shrink-0 p-2 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg min-w-[44px] min-h-[44px] flex items-center justify-center ${
+              isStreaming ? "bg-red-500/90 hover:bg-red-600 text-white" : "bg-accent hover:bg-accent-hover text-white"
+            }`}
+            aria-label={isStreaming ? "Stop generating" : "Send message"}
           >
-            <Send size={16} />
+            {isStreaming ? <Square size={16} className="fill-current" /> : <Send size={16} />}
           </button>
         </div>
 
@@ -306,6 +318,16 @@ export default function InputBar({
           {isOverLimit ? (
             <span className="text-red-400" role="alert">
               Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
+            </span>
+          ) : isStreaming ? (
+            <span className="flex items-center justify-center gap-2 text-accent font-medium animate-generating-pulse">
+              <Loader2 size={13} className="animate-spin" />
+              <span>Generating response</span>
+              <span className="generating-dots">
+                <span />
+                <span />
+                <span />
+              </span>
             </span>
           ) : isSearchEnabled ? (
             <span className="flex items-center justify-center gap-1.5">

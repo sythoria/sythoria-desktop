@@ -80,6 +80,8 @@ struct StreamChoice {
 #[derive(Debug, Deserialize)]
 struct StreamDelta {
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, Serialize)]
@@ -333,7 +335,9 @@ async fn chat_stream(
 
     let mut stream = resp.bytes_stream();
     let mut full_content = String::new();
+    let mut full_reasoning = String::new();
     let mut buffer = String::new();
+    let mut in_reasoning = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
@@ -351,11 +355,59 @@ async fn chat_stream(
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(parsed) => {
                         for choice in parsed.choices {
+                            // Handle explicit reasoning_content field (Anthropic/Gemini style)
+                            if let Some(reasoning) = choice.delta.reasoning_content {
+                                if !reasoning.is_empty() {
+                                    full_reasoning.push_str(&reasoning);
+                                    if !in_reasoning {
+                                        in_reasoning = true;
+                                        let _ = app.emit("chat-stream-chunk", "<reasoning>");
+                                    }
+                                    let _ = app.emit("chat-stream-chunk", &reasoning);
+                                }
+                            }
+
                             if let Some(content) = choice.delta.content {
-                                full_content.push_str(&content);
-                                let _ = app.emit("chat-stream-chunk", &content);
+                                // Track inline <reasoning> tags (some models embed them in content)
+                                if content.contains("<reasoning>") || content.contains("</reasoning>") {
+                                    let has_open = content.contains("<reasoning>");
+                                    let has_close = content.contains("</reasoning>");
+
+                                    if has_open && !in_reasoning {
+                                        in_reasoning = true;
+                                    }
+
+                                    full_content.push_str(&content);
+                                    let _ = app.emit("chat-stream-chunk", &content);
+
+                                    if has_close && in_reasoning {
+                                        in_reasoning = false;
+                                        // Extract reasoning from full_content for separate tracking
+                                        if let Some(start) = full_content.find("<reasoning>") {
+                                            if let Some(end) = full_content.find("</reasoning>") {
+                                                full_reasoning = full_content[start + "<reasoning>".len()..end].to_string();
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Close reasoning block if we get regular content while in_reasoning
+                                    // (for models that don't emit </reasoning> explicitly)
+                                    if in_reasoning && !content.trim().is_empty() {
+                                        in_reasoning = false;
+                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                        full_content.push_str("</reasoning>");
+                                    }
+                                    full_content.push_str(&content);
+                                    let _ = app.emit("chat-stream-chunk", &content);
+                                }
                             }
                             if choice.finish_reason.is_some() {
+                                // Close any unclosed reasoning tag
+                                if in_reasoning {
+                                    let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                    full_content.push_str("</reasoning>");
+                                    in_reasoning = false;
+                                }
                                 let _ = app.emit("chat-stream-done", ());
                             }
                         }
@@ -370,6 +422,11 @@ async fn chat_stream(
                 }
             }
         }
+    }
+
+    // If we accumulated reasoning but no tags were emitted, prepend them
+    if !full_reasoning.is_empty() && !full_content.contains("<reasoning>") {
+        full_content = format!("<reasoning>{}</reasoning>{}", full_reasoning, full_content);
     }
 
     Ok(full_content)
@@ -424,6 +481,8 @@ async fn chat_stream_tools(
     let mut _full_content = String::new();
     let mut buffer = String::new();
     let mut accumulated = String::new();
+    let mut full_reasoning = String::new();
+    let mut in_reasoning = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
@@ -443,12 +502,47 @@ async fn chat_stream_tools(
                         if let Some(choices) = parsed.get("choices").and_then(|c| c.as_array()) {
                             for choice in choices {
                                 if let Some(delta) = choice.get("delta") {
+                                    // Handle explicit reasoning_content field
+                                    if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+                                        if !reasoning.is_empty() {
+                                            full_reasoning.push_str(reasoning);
+                                            if !in_reasoning {
+                                                in_reasoning = true;
+                                                let _ = app.emit("chat-stream-chunk", "<reasoning>");
+                                            }
+                                            let _ = app.emit("chat-stream-chunk", reasoning);
+                                        }
+                                    }
+
                                     if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                        accumulated.push_str(content);
-                                        let _ = app.emit("chat-stream-chunk", content);
+                                        if content.contains("<reasoning>") || content.contains("</reasoning>") {
+                                            let has_open = content.contains("<reasoning>");
+                                            let has_close = content.contains("</reasoning>");
+                                            if has_open && !in_reasoning {
+                                                in_reasoning = true;
+                                            }
+                                            accumulated.push_str(content);
+                                            let _ = app.emit("chat-stream-chunk", content);
+                                            if has_close && in_reasoning {
+                                                in_reasoning = false;
+                                            }
+                                        } else {
+                                            if in_reasoning && !content.trim().is_empty() {
+                                                in_reasoning = false;
+                                                let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                                accumulated.push_str("</reasoning>");
+                                            }
+                                            accumulated.push_str(content);
+                                            let _ = app.emit("chat-stream-chunk", content);
+                                        }
                                     }
                                 }
                                 if choice.get("finish_reason").and_then(|r| r.as_str()).is_some() {
+                                    if in_reasoning {
+                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                        accumulated.push_str("</reasoning>");
+                                        in_reasoning = false;
+                                    }
                                     let _ = app.emit("chat-stream-done", ());
                                 }
                             }
@@ -463,6 +557,10 @@ async fn chat_stream_tools(
                 }
             }
         }
+    }
+
+    if !full_reasoning.is_empty() && !accumulated.contains("<reasoning>") {
+        accumulated = format!("<reasoning>{}</reasoning>{}", full_reasoning, accumulated);
     }
 
     Ok(accumulated)

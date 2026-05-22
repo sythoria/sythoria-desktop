@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Menu, Square } from "lucide-react";
+import { Menu } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
@@ -102,14 +102,14 @@ function App() {
   const prevMessageCountRef = useRef(0);
 
   useEffect(() => {
-    if (messages.length > prevMessageCountRef.current && !isAtBottom) {
+    if (messages.length > prevMessageCountRef.current && !isAtBottom && !isStreaming) {
       setHasNewMessages(true);
     }
     if (isAtBottom) {
       setHasNewMessages(false);
     }
     prevMessageCountRef.current = messages.length;
-  }, [messages.length, isAtBottom]);
+  }, [messages.length, isAtBottom, isStreaming]);
 
   useEffect(() => {
     init();
@@ -230,18 +230,7 @@ function App() {
               </h2>
             </div>
 
-            <div className="flex items-center gap-2">
-              {isStreaming && (
-                <button
-                  onClick={stopStreaming}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-colors"
-                  aria-label="Stop generating"
-                >
-                  <Square size={12} />
-                  Stop
-                </button>
-              )}
-            </div>
+            <div className="flex items-center gap-2" />
           </header>
 
           <ChatArea
@@ -253,7 +242,7 @@ function App() {
           />
 
           <div
-            className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${!isAtBottom && messages.length > 0 ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+            className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
           >
             <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
           </div>
@@ -268,6 +257,8 @@ function App() {
             isSearchEnabled={isSearchEnabled}
             onToggleSearch={toggleSearchEnabled}
             inputAutoFocus={inputAutoFocus}
+            isStreaming={isStreaming}
+            onStop={stopStreaming}
           />
         </main>
       )}

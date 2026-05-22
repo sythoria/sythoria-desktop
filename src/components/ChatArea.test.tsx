@@ -46,12 +46,11 @@ describe("ChatArea", () => {
     expect(screen.getByText("bold")).toBeInTheDocument();
   });
 
-  it("shows skeleton when assistant is streaming with empty content", () => {
+  it("shows generating indicator when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    const { container } = render(<ChatArea messages={messages} {...defaultProps} />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
-    const skeletons = container.querySelectorAll("[aria-hidden='true'].animate-pulse");
-    expect(skeletons.length).toBeGreaterThan(0);
+    expect(screen.getByText("Thinking...")).toBeInTheDocument();
   });
 
   it("shows cursor when assistant is streaming with content", () => {

@@ -4,10 +4,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { Bot, Copy, Check, Search, Globe, Wrench, ChevronDown, Loader2, ExternalLink, Brain } from "lucide-react";
+import { Bot, Copy, Check, Search, Globe, Wrench, ChevronDown, Loader2, ExternalLink, Sparkles } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
-import { MessageSkeleton } from "./ui/Skeleton";
 
 interface ChatAreaProps {
   messages: Message[];
@@ -218,34 +217,41 @@ function LegacyToolResultDisplay({ message }: { message: Message }) {
   );
 }
 
-function ThoughtProcessBubble({ message }: { message: Message }) {
+function ReasoningBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const hasContent = content.length > 0;
 
   return (
-    <div className="flex items-start gap-2 animate-fade-in">
+    <div className="flex items-start gap-2 animate-fade-in mb-2">
       <div
         className="shrink-0 w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
-        <Brain size={14} className="text-purple-500" />
+        <Sparkles size={14} className="text-purple-500" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400">
-          <span>Thinking</span>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-text-muted hover:text-text-secondary"
-            aria-label={expanded ? "Collapse" : "Expand thought"}
-          >
-            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </button>
-        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+          aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
+        >
+          <span>Reasoning</span>
+          {isStreaming && <Loader2 size={12} className="animate-spin text-purple-500" />}
+          <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
         {expanded ? (
-          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
-            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <div className="mt-1.5 p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/15 text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+            <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+              {content || "Thinking..."}
+            </p>
           </div>
+        ) : hasContent ? (
+          <p className="text-[10px] text-text-muted mt-0.5 truncate italic">
+            {content.slice(0, 120)}
+            {content.length > 120 && "..."}
+          </p>
         ) : (
-          <p className="text-[10px] text-text-muted mt-0.5 truncate italic">{message.content.slice(0, 120)}...</p>
+          <p className="text-[10px] text-text-muted mt-0.5 italic">Analyzing...</p>
         )}
       </div>
     </div>
@@ -256,6 +262,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isThought = message.role === "assistant" && !!message.thoughtProcess;
+  const hasReasoning = message.role === "assistant" && message.content.includes("<reasoning>");
   const [hovered, setHovered] = useState(false);
 
   if (isTool) {
@@ -263,7 +270,19 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   }
 
   if (isThought) {
-    return <ThoughtProcessBubble message={message} />;
+    return (
+      <div className="flex justify-start gap-3 animate-fade-in">
+        <div
+          className="shrink-0 w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mt-0.5"
+          aria-hidden="true"
+        >
+          <Bot size={14} className="text-accent" />
+        </div>
+        <div className="max-w-[80%]">
+          <ReasoningBubble content={message.thoughtProcess!} isStreaming={message.isStreaming} />
+        </div>
+      </div>
+    );
   }
 
   if (isUser) {
@@ -289,6 +308,17 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
     );
   }
 
+  // Parse reasoning content
+  let reasoningContent = "";
+  let displayContent = message.content;
+  if (hasReasoning) {
+    const reasoningMatch = message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/);
+    if (reasoningMatch) {
+      reasoningContent = reasoningMatch[1].trim();
+      displayContent = message.content.replace(/<reasoning>[\s\S]*?<\/reasoning>/, "").trim();
+    }
+  }
+
   return (
     <div
       className="flex justify-start gap-3 animate-fade-in group"
@@ -298,24 +328,43 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
       aria-label={`Assistant message${message.isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
     >
       <div
-        className="shrink-0 w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mt-0.5"
+        className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
+          message.isStreaming ? "bg-accent/20 border-accent/30" : "bg-accent/10 border-accent/20"
+        }`}
         aria-hidden="true"
       >
-        <Bot size={14} className="text-accent" />
-      </div>
-      <div className="relative max-w-[80%] text-sm text-text-primary leading-relaxed markdown-body">
-        {message.isStreaming && message.content.length === 0 ? (
-          <MessageSkeleton />
+        {message.isStreaming ? (
+          <Loader2 size={14} className="text-accent animate-spin" />
         ) : (
-          <>
-            <MessageContent content={message.content} isStreaming={!!message.isStreaming} />
-            {!message.isStreaming && hovered && (
-              <div className="absolute -top-1 right-0">
-                <CopyButton text={message.content} />
-              </div>
-            )}
-          </>
+          <Bot size={14} className="text-accent" />
         )}
+      </div>
+      <div className="relative max-w-[80%] text-sm text-text-primary leading-relaxed">
+        {hasReasoning && <ReasoningBubble content={reasoningContent} isStreaming={message.isStreaming} />}
+        <div className="markdown-body">
+          {message.isStreaming && displayContent.length === 0 && !hasReasoning ? (
+            <div className="flex items-center gap-2.5 py-1">
+              <Loader2 size={14} className="text-accent animate-spin" />
+              <div className="flex items-center gap-1.5 text-xs text-text-muted font-medium">
+                <span>Thinking</span>
+                <span className="generating-dots">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </div>
+            </div>
+          ) : displayContent.length > 0 ? (
+            <>
+              <MessageContent content={displayContent} isStreaming={!!message.isStreaming} />
+              {!message.isStreaming && hovered && (
+                <div className="absolute -top-1 right-0">
+                  <CopyButton text={displayContent} />
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
         {message.sources && message.sources.length > 0 && !message.isStreaming && (
           <SourcesList sources={message.sources} />
         )}
