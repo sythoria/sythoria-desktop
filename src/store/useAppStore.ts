@@ -178,6 +178,7 @@ interface AppState {
   closeRenameModal: () => void;
   confirmRename: (newTitle: string) => void;
   sendMessage: (text: string) => Promise<void>;
+  retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: () => void;
   exportChat: (id: string) => void;
   persistConversations: () => Promise<void>;
@@ -572,6 +573,70 @@ export const useAppStore = create<AppState>((set, get) => ({
         conversations: convs,
       };
     });
+  },
+
+  retryLastMessage: async (convId) => {
+    const {
+      isStreaming,
+      conversations,
+      models,
+      selectedModel,
+      temperature,
+      apiKeys,
+      isSearchEnabled,
+      activeSearchId,
+      searchConfigs,
+      searchApiKeys,
+    } = get();
+    if (isStreaming) return;
+
+    const conv = conversations.find((c) => c.id === convId);
+    if (!conv || conv.messages.length === 0) return;
+
+    let lastUserIdx = -1;
+    for (let i = conv.messages.length - 1; i >= 0; i--) {
+      if (conv.messages[i].role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return;
+
+    const trimmed = conv.messages.slice(0, lastUserIdx + 1);
+
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === convId ? { ...c, messages: trimmed, timestamp: new Date() } : c,
+      ),
+    }));
+
+    const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    if (!modelConfig) {
+      logError("No model configuration selected");
+      get().addToast("No model configured — add one in Settings", "error");
+      return;
+    }
+
+    const useTools = isSearchEnabled && activeSearchId;
+    const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
+    const searchApiKey = useTools && searchConfig ? searchApiKeys[searchConfig.id] || searchConfig.apiKey || "" : "";
+
+    if (useTools && searchConfig) {
+      await sendWithToolLoop(
+        convId,
+        modelConfig,
+        temperature,
+        apiKeys,
+        searchConfig,
+        searchApiKey,
+        set,
+        get,
+        get().performSearch,
+        get().fetchUrlContent,
+      );
+    } else {
+      await sendNormal(convId, modelConfig, temperature, apiKeys, set, get);
+    }
   },
 
   exportChat: (id) => {

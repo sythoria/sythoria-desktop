@@ -67,6 +67,7 @@ function App() {
     closeRenameModal,
     sendMessage,
     stopStreaming,
+    retryLastMessage,
     exportChat,
     dismissToast,
   } = useAppStore(
@@ -85,6 +86,7 @@ function App() {
       closeRenameModal: s.closeRenameModal,
       sendMessage: s.sendMessage,
       stopStreaming: s.stopStreaming,
+      retryLastMessage: s.retryLastMessage,
       exportChat: s.exportChat,
       dismissToast: s.dismissToast,
     })),
@@ -177,6 +179,10 @@ function App() {
     setHasNewMessages(false);
   }, [scrollToBottom]);
 
+  const handleRetry = useCallback(() => {
+    if (activeId) retryLastMessage(activeId);
+  }, [activeId, retryLastMessage]);
+
   if (!isConfigLoaded || loading.init) {
     return (
       <div
@@ -239,6 +245,7 @@ function App() {
             isAtBottom={isAtBottom}
             setIsAtBottom={setIsAtBottom}
             virtuosoRef={virtuosoRef}
+            onRetry={handleRetry}
           />
 
           <div

@@ -19,6 +19,7 @@ const defaultProps = {
   isAtBottom: true,
   setIsAtBottom: vi.fn(),
   virtuosoRef: { current: null } as React.RefObject<null>,
+  onRetry: vi.fn(),
 };
 
 describe("ChatArea", () => {
