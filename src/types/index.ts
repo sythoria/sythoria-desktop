@@ -1,8 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { logError } from "../utils/logger";
 
-type MessageRole = "user" | "assistant" | "tool";
-
 export interface SearchResult {
   title: string;
   url: string;
@@ -17,26 +15,14 @@ export interface UrlContent {
   error?: string;
 }
 
-interface ToolCall {
-  id: string;
-  name: "search_query" | "fetch_url";
-  arguments: Record<string, string>;
-}
-
-interface ToolCallResult {
-  id: string;
-  name: string;
-  content: string;
-}
-
 export interface Message {
   id: string;
-  role: MessageRole;
+  role: "user" | "assistant" | "tool";
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
-  toolCall?: ToolCall;
-  toolResult?: ToolCallResult;
+  toolCall?: { id: string; name: "search_query" | "fetch_url"; arguments: Record<string, string> };
+  toolResult?: { id: string; name: string; content: string };
   sources?: { title: string; url: string }[];
   thoughtProcess?: string;
 }
