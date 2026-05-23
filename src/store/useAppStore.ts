@@ -293,6 +293,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSelectedModel: (model) => {
+    const { models } = get();
+    const target = models.find((m) => m.id === model);
+    if (target && target.enabled === false) return;
     set({ selectedModel: model });
     const { modelStatuses } = get();
     if (!modelStatuses[model]) {
@@ -348,7 +351,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateModel: (id, updates) => {
-    const { models, apiKeys } = get();
+    const { models, apiKeys, modelStatuses } = get();
     const updatedModels = models.map((m) => (m.id === id ? { ...m, ...updates } : m));
     set({ models: updatedModels });
     saveModelConfigs(updatedModels.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
@@ -359,12 +362,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       saveApiKeys(newKeys);
     }
 
-    if (updates.apiBase || updates.apiKey !== undefined) {
+    if (updates.enabled === false) {
+      const newStatuses = { ...modelStatuses, [id]: "disconnected" as const };
+      set({ modelStatuses: newStatuses });
+    } else if (updates.enabled === true) {
+      get().checkModelConnections([id]);
+    } else if (updates.apiBase || updates.apiKey !== undefined) {
       get().checkModelConnections([id]);
     }
 
     const { selectedModel } = get();
-    if (!updatedModels.find((m) => m.id === selectedModel) && updatedModels.length > 0) {
+    const enabledModels = updatedModels.filter((m) => m.enabled !== false);
+    if (enabledModels.length > 0 && !enabledModels.find((m) => m.id === selectedModel)) {
+      set({ selectedModel: enabledModels[0].id });
+    } else if (enabledModels.length === 0 && updatedModels.length > 0) {
       set({ selectedModel: updatedModels[0].id });
     }
   },
@@ -393,6 +404,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       apiKey: "",
       modelId: "gpt-4o",
       provider: "OpenAI",
+      enabled: true,
     };
     const { models } = get();
     const updated = [...models, newModel];
@@ -685,7 +697,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   checkModelConnections: async (modelIds?: string[]) => {
     const { models, apiKeys, modelStatuses } = get();
-    const toCheck = modelIds ? models.filter((m) => modelIds.includes(m.id)) : models;
+    const toCheck = modelIds
+      ? models.filter((m) => modelIds.includes(m.id) && m.enabled !== false)
+      : models.filter((m) => m.enabled !== false);
 
     if (toCheck.length === 0) return;
 

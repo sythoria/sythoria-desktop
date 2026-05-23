@@ -56,6 +56,7 @@ export interface ModelConfig {
   apiKey: string;
   modelId: string;
   provider?: string;
+  enabled?: boolean;
 }
 
 export type SearchProvider = "google" | "searxng" | "firecrawl" | "custom";

@@ -20,6 +20,7 @@ export const ModelConfigSchema = z.object({
   apiKey: z.string(),
   modelId: z.string().min(1, "Model ID is required"),
   provider: z.string().optional(),
+  enabled: z.boolean().optional(),
 });
 
 const SearchApiConfigSchema = z.object({

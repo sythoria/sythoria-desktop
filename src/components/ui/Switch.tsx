@@ -7,9 +7,9 @@ interface SwitchProps {
 
 export function Switch({ checked, onChange, label, description }: SwitchProps) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center gap-3">
       {(label || description) && (
-        <div>
+        <div className="min-w-0">
           {label && <p className="text-sm font-medium text-text-primary">{label}</p>}
           {description && <p className="text-xs text-text-muted mt-0.5">{description}</p>}
         </div>
@@ -26,7 +26,7 @@ export function Switch({ checked, onChange, label, description }: SwitchProps) {
             onChange(!checked);
           }
         }}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
           checked ? "bg-accent" : "bg-input-border"
         }`}
       >

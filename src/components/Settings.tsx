@@ -45,16 +45,49 @@ const ModelCard = memo(function ModelCard({
   const keyValidation = validateApiKey(model.apiKey, model.provider);
 
   return (
-    <div className="bg-surface border border-border rounded-xl p-4 space-y-3 shadow-sm relative group">
-      <button
-        onClick={() => onDelete(model.id)}
-        className="absolute top-4 right-4 p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-        aria-label={`Delete model ${model.name}`}
-      >
-        <Trash2 size={16} />
-      </button>
+    <div
+      className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${model.enabled !== false ? "border-border" : "border-border opacity-60"}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Enabled</p>
+          <p className="text-xs text-text-muted mt-0.5">Show in model selector & health check</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={model.enabled !== false}
+            aria-label="Toggle model enabled"
+            onClick={() => onUpdate(model.id, { enabled: !(model.enabled !== false) })}
+            onKeyDown={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onUpdate(model.id, { enabled: !(model.enabled !== false) });
+              }
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
+              model.enabled !== false ? "bg-accent" : "bg-input-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 shadow-sm ${
+                model.enabled !== false ? "translate-x-6" : "translate-x-1"
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+          <button
+            onClick={() => onDelete(model.id)}
+            className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label={`Delete model ${model.name}`}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
 
-      <div className="pr-12 space-y-3">
+      <div className="space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <div
             className={`w-2 h-2 rounded-full ${
@@ -232,16 +265,49 @@ const SearchApiCard = memo(function SearchApiCard({
   const keyValidation = validateSearchApiKey(config.apiKey, config.provider);
 
   return (
-    <div className="bg-surface border border-border rounded-xl p-4 space-y-3 shadow-sm relative group">
-      <button
-        onClick={() => onDelete(config.id)}
-        className="absolute top-4 right-4 p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-        aria-label={`Delete search API ${config.name}`}
-      >
-        <Trash2 size={16} />
-      </button>
+    <div
+      className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Enabled</p>
+          <p className="text-xs text-text-muted mt-0.5">Show in search API selector</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enabled}
+            aria-label="Toggle search API enabled"
+            onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
+            onKeyDown={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onUpdate(config.id, { enabled: !config.enabled });
+              }
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
+              config.enabled ? "bg-accent" : "bg-input-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 shadow-sm ${
+                config.enabled ? "translate-x-6" : "translate-x-1"
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+          <button
+            onClick={() => onDelete(config.id)}
+            className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label={`Delete search API ${config.name}`}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
 
-      <div className="pr-12 space-y-3">
+      <div className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-name-${config.id}`}>
@@ -370,30 +436,19 @@ const SearchApiCard = memo(function SearchApiCard({
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted" htmlFor={`search-results-${config.id}`}>
-              Max Results
-            </label>
-            <input
-              id={`search-results-${config.id}`}
-              type="number"
-              min={1}
-              max={20}
-              value={config.maxResults}
-              onChange={(e) => onUpdate(config.id, { maxResults: parseInt(e.target.value) || 5 })}
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
-            />
-          </div>
-
-          <div className="space-y-1 flex items-end">
-            <Switch
-              checked={config.enabled}
-              onChange={(checked) => onUpdate(config.id, { enabled: checked })}
-              label="Enabled"
-              description="Show in search API selector"
-            />
-          </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-text-muted" htmlFor={`search-results-${config.id}`}>
+            Max Results
+          </label>
+          <input
+            id={`search-results-${config.id}`}
+            type="number"
+            min={1}
+            max={20}
+            value={config.maxResults}
+            onChange={(e) => onUpdate(config.id, { maxResults: parseInt(e.target.value) || 5 })}
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+          />
         </div>
       </div>
     </div>
@@ -431,12 +486,13 @@ export default function Settings() {
   const addToast = useAppStore((s) => s.addToast);
 
   const currentModel = models.find((m) => m.id === selectedModel);
+  const enabledModels = models.filter((m) => m.enabled !== false);
 
   useEffect(() => {
-    if (!currentModel && models.length > 0) {
-      setSelectedModel(models[0].id);
+    if (!currentModel && enabledModels.length > 0) {
+      setSelectedModel(enabledModels[0].id);
     }
-  }, [currentModel, models, setSelectedModel]);
+  }, [currentModel, enabledModels, setSelectedModel]);
 
   const effectiveModel = currentModel ?? models[0];
   const enabledSearchConfigs = searchConfigs.filter((c) => c.enabled);
@@ -569,7 +625,7 @@ export default function Settings() {
                         role="listbox"
                         aria-label="Available models"
                       >
-                        {models.map((model) => (
+                        {enabledModels.map((model) => (
                           <button
                             key={model.id}
                             onClick={() => {

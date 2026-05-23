@@ -50,6 +50,7 @@ export default function InputBar({
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
   const canSend = trimmed.length > 0 && !isOverLimit && !disabled && !isStreaming;
+  const enabledModels = models.filter((m) => m.enabled !== false);
 
   useEffect(() => {
     if (inputAutoFocus && textareaRef.current) {
@@ -106,13 +107,13 @@ export default function InputBar({
         if (modelOpen) {
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            setFocusedIndex((i) => Math.min(i + 1, models.length - 1));
+            setFocusedIndex((i) => Math.min(i + 1, enabledModels.length - 1));
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
             setFocusedIndex((i) => Math.max(i - 1, 0));
           } else if (e.key === "Enter" && focusedIndex >= 0) {
             e.preventDefault();
-            onModelChange(models[focusedIndex].id);
+            onModelChange(enabledModels[focusedIndex].id);
             setModelOpen(false);
             setFocusedIndex(-1);
           }
@@ -125,7 +126,7 @@ export default function InputBar({
         handleSubmit();
       }
     },
-    [modelOpen, plusOpen, focusedIndex, models, onModelChange, handleSubmit],
+    [modelOpen, plusOpen, focusedIndex, enabledModels, onModelChange, handleSubmit],
   );
 
   useEffect(() => {
@@ -141,7 +142,10 @@ export default function InputBar({
     }
   };
 
-  const currentModel = models.find((m) => m.id === selectedModel) ?? models[0];
+  const currentModel =
+    models.find((m) => m.id === selectedModel && m.enabled !== false) ??
+    models.find((m) => m.enabled !== false) ??
+    models[0];
   const currentStatus = modelStatuses[selectedModel] ?? "disconnected";
 
   return (
@@ -251,7 +255,7 @@ export default function InputBar({
                 role="listbox"
                 aria-label="Available models"
               >
-                {models.map((model, idx) => {
+                {enabledModels.map((model, idx) => {
                   const status = modelStatuses[model.id] ?? "disconnected";
                   return (
                     <button
