@@ -4,7 +4,19 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { Bot, Copy, Check, Search, Globe, Wrench, ChevronDown, Loader2, ExternalLink, Sparkles } from "lucide-react";
+import {
+  Bot,
+  Copy,
+  Check,
+  Search,
+  Globe,
+  Wrench,
+  ChevronDown,
+  Loader2,
+  ExternalLink,
+  Sparkles,
+  RotateCw,
+} from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message } from "../types";
 
@@ -14,6 +26,7 @@ interface ChatAreaProps {
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
+  onRetry: () => void;
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -37,61 +50,105 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
   );
 }
 
-function CopyButton({ text }: { text: string }) {
+function ActionButton({
+  icon,
+  label,
+  activeIcon,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  activeIcon?: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors flex items-center justify-center ${
+        active ? "text-accent" : ""
+      }`}
+      aria-label={label}
+      title={label}
+    >
+      {active && activeIcon ? activeIcon : icon}
+    </button>
+  );
+}
+
+function MessageActions({
+  content,
+  sources,
+  isUser,
+  onSourceClick,
+  onRetry,
+}: {
+  content: string;
+  sources?: { title: string; url: string }[];
+  isUser: boolean;
+  onSourceClick?: () => void;
+  onRetry?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       /* clipboard not available */
     }
-  }, [text]);
+  }, [content]);
 
   return (
-    <button
-      onClick={handleCopy}
-      className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
-      aria-label={copied ? "Copied" : "Copy message"}
-      title={copied ? "Copied" : "Copy"}
-    >
-      {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-    </button>
+    <div className="flex items-center gap-0.5 mt-1 -ml-1">
+      <ActionButton
+        icon={<Copy size={14} />}
+        activeIcon={<Check size={14} className="text-green-500" />}
+        active={copied}
+        label={copied ? "Copied" : "Copy"}
+        onClick={handleCopy}
+      />
+      {!isUser && <ActionButton icon={<RotateCw size={14} />} label="Regenerate" onClick={onRetry} />}
+      {sources && sources.length > 0 && (
+        <>
+          <span className="w-px h-3.5 bg-border/50 mx-1" />
+          <button
+            onClick={onSourceClick}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] text-text-muted hover:text-accent hover:bg-accent-soft transition-colors"
+            title={`${sources.length} source${sources.length !== 1 ? "s" : ""}`}
+          >
+            <Globe size={12} />
+            <span>
+              {sources.length} source{sources.length !== 1 ? "s" : ""}
+            </span>
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
 function SourcesList({ sources }: { sources: { title: string; url: string }[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const displaySources = expanded ? sources : sources.slice(0, 3);
-
   return (
-    <div className="mt-2 pt-2 border-t border-border/30">
-      <p className="text-[10px] text-text-muted mb-1.5 font-medium">Sources</p>
+    <div className="mt-1.5 p-2 rounded-lg bg-surface/50 border border-border/40">
       <div className="flex flex-wrap gap-1.5">
-        {displaySources.map((s, i) => (
+        {sources.map((s, i) => (
           <a
             key={i}
             href={s.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline max-w-[180px] truncate"
-            title={s.title}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-accent hover:bg-accent-soft border border-border/30 max-w-[200px] truncate transition-colors"
+            title={s.title || s.url}
           >
-            <ExternalLink size={9} className="shrink-0" />
+            <ExternalLink size={10} className="shrink-0 text-text-muted" />
             <span className="truncate">{s.title || s.url}</span>
           </a>
         ))}
       </div>
-      {sources.length > 3 && !expanded && (
-        <button
-          onClick={() => setExpanded(true)}
-          className="text-[10px] text-text-muted hover:text-text-secondary mt-1"
-        >
-          +{sources.length - 3} more sources
-        </button>
-      )}
     </div>
   );
 }
@@ -265,7 +322,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
   );
 }
 
-const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
+const MessageBubble = memo(function MessageBubble({ message, onRetry }: { message: Message; onRetry?: () => void }) {
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
   const isThought = message.role === "assistant" && !!message.thoughtProcess;
@@ -274,7 +331,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
     (message.content.includes("<reasoning>") ||
       message.content.includes("<thinking>") ||
       message.content.includes("<thought>"));
-  const [hovered, setHovered] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
 
   if (isTool) {
     return <ToolCallBubble message={message} />;
@@ -300,20 +357,16 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
     return (
       <div
         className="flex justify-end animate-fade-in group"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         role="article"
         aria-label={`User message: ${message.content.slice(0, 80)}`}
       >
-        <div className="relative max-w-[75%]">
+        <div className="max-w-[75%]">
           <div className="glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm whitespace-pre-wrap break-words">
             {message.content}
           </div>
-          {hovered && (
-            <div className="absolute -left-8 top-1/2 -translate-y-1/2">
-              <CopyButton text={message.content} />
-            </div>
-          )}
+          <div className="flex justify-end">
+            <MessageActions content={message.content} isUser />
+          </div>
         </div>
       </div>
     );
@@ -348,8 +401,6 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
   return (
     <div
       className="flex justify-start gap-3 animate-fade-in group"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       role="article"
       aria-label={`Assistant message${message.isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
     >
@@ -359,7 +410,7 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
       >
         <Bot size={14} className="text-accent" />
       </div>
-      <div className="relative max-w-[80%] text-sm text-text-primary leading-relaxed">
+      <div className="max-w-[80%] text-sm text-text-primary leading-relaxed">
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={message.isStreaming} />}
         {message.isStreaming && !hasOpenReasoning && displayContent.length === 0 ? (
           <div className="flex items-center gap-2 py-1">
@@ -374,19 +425,21 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
         ) : null}
         <div className="markdown-body">
           {displayContent.length > 0 ? (
-            <>
-              <MessageContent content={displayContent} isStreaming={!!message.isStreaming} />
-              {!message.isStreaming && hovered && (
-                <div className="absolute -top-1 right-0">
-                  <CopyButton text={displayContent} />
-                </div>
-              )}
-            </>
+            <MessageContent content={displayContent} isStreaming={!!message.isStreaming} />
           ) : null}
         </div>
-        {message.sources && message.sources.length > 0 && !message.isStreaming && (
-          <SourcesList sources={message.sources} />
+        {!message.isStreaming && displayContent.length > 0 && (
+          <MessageActions
+            content={displayContent}
+            sources={message.sources}
+            isUser={false}
+            onSourceClick={
+              message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
+            }
+            onRetry={onRetry}
+          />
         )}
+        {sourcesExpanded && message.sources && message.sources.length > 0 && <SourcesList sources={message.sources} />}
       </div>
     </div>
   );
@@ -400,6 +453,7 @@ export default function ChatArea({
   isAtBottom,
   setIsAtBottom,
   virtuosoRef,
+  onRetry,
 }: ChatAreaProps) {
   if (messages.length === 0) {
     return (
@@ -444,7 +498,7 @@ export default function ChatArea({
           atBottomThreshold={100}
           itemContent={(index, msg) => (
             <div className={index > 0 ? "mt-6" : ""}>
-              <MessageBubble message={msg} />
+              <MessageBubble message={msg} onRetry={onRetry} />
             </div>
           )}
           components={{
@@ -458,16 +512,25 @@ export default function ChatArea({
     );
   }
 
-  return <NonVirtualizedChatArea messages={messages} isAtBottom={isAtBottom} setIsAtBottom={setIsAtBottom} />;
+  return (
+    <NonVirtualizedChatArea
+      messages={messages}
+      isAtBottom={isAtBottom}
+      setIsAtBottom={setIsAtBottom}
+      onRetry={onRetry}
+    />
+  );
 }
 
 function NonVirtualizedChatArea({
   messages,
   setIsAtBottom,
+  onRetry,
 }: {
   messages: Message[];
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
+  onRetry?: () => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -497,7 +560,7 @@ function NonVirtualizedChatArea({
     >
       <div className="max-w-3xl mx-auto py-8 space-y-6">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble key={msg.id} message={msg} onRetry={onRetry} />
         ))}
         <div aria-hidden="true" className="h-1" />
       </div>
