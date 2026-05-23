@@ -13,11 +13,3 @@ export function unlockBodyScroll(): void {
     document.body.style.overflow = "";
   }
 }
-
-export function useScrollLock(active: boolean): void {
-  if (active) {
-    lockBodyScroll();
-  } else {
-    unlockBodyScroll();
-  }
-}

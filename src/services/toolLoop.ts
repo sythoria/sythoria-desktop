@@ -5,7 +5,7 @@ import { logError } from "../utils/logger";
 import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../components/ui/Toast";
 
-export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
+type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
 
 export interface AppState {
   conversations: Conversation[];

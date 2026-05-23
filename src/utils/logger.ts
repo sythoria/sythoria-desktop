@@ -38,15 +38,3 @@ export async function logInfo(message: string): Promise<void> {
     }
   }
 }
-
-export async function logWarn(message: string): Promise<void> {
-  console.warn(message);
-  if (tauriLogAvailable) {
-    try {
-      const { warn } = await import("@tauri-apps/plugin-log");
-      await warn(message);
-    } catch {
-      /* Tauri log plugin not available */
-    }
-  }
-}

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { logError } from "../utils/logger";
 
-export type MessageRole = "user" | "assistant" | "tool";
+type MessageRole = "user" | "assistant" | "tool";
 
 export interface SearchResult {
   title: string;
@@ -17,13 +17,13 @@ export interface UrlContent {
   error?: string;
 }
 
-export interface ToolCall {
+interface ToolCall {
   id: string;
   name: "search_query" | "fetch_url";
   arguments: Record<string, string>;
 }
 
-export interface ToolCallResult {
+interface ToolCallResult {
   id: string;
   name: string;
   content: string;
@@ -71,13 +71,6 @@ export interface SearchApiConfig {
   enabled: boolean;
 }
 
-export type AuthState = {
-  isAuthenticated: boolean;
-  username: string;
-  serverUrl: string;
-  token: string;
-};
-
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
@@ -109,33 +102,5 @@ export async function saveModelConfigs(configs: ModelConfig[]) {
     await invoke("save_config", { config: JSON.stringify(configs) });
   } catch (e) {
     logError("Failed to save config to system", e);
-  }
-}
-
-export async function getModelConfig(id: string): Promise<ModelConfig | undefined> {
-  const configs = (await loadModelConfigs()) || [];
-  return configs.find((c) => c.id === id);
-}
-
-export async function loadSearchConfigs(): Promise<SearchApiConfig[] | null> {
-  try {
-    const raw = await invoke<string>("load_search_config");
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as SearchApiConfig[];
-      }
-    }
-  } catch (e) {
-    logError("Failed to load search config from system", e);
-  }
-  return null;
-}
-
-export async function saveSearchConfigs(configs: SearchApiConfig[]) {
-  try {
-    await invoke("save_search_config", { config: JSON.stringify(configs) });
-  } catch (e) {
-    logError("Failed to save search config to system", e);
   }
 }

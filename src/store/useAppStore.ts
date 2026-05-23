@@ -130,7 +130,7 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
   });
 }
 
-export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
+type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
 
 interface AppState {
   conversations: Conversation[];

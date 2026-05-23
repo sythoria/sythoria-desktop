@@ -22,7 +22,7 @@ export const ModelConfigSchema = z.object({
   provider: z.string().optional(),
 });
 
-export const SearchApiConfigSchema = z.object({
+const SearchApiConfigSchema = z.object({
   id: z.string().min(1, "Search config ID is required"),
   name: z.string().min(1, "Name is required").max(60, "Name is too long"),
   provider: z.enum(["google", "searxng", "firecrawl", "custom"]),
@@ -31,10 +31,6 @@ export const SearchApiConfigSchema = z.object({
   cx: z.string().optional(),
   maxResults: z.number().min(1).max(20),
   enabled: z.boolean(),
-});
-
-export const SendMessageSchema = z.object({
-  text: z.string().min(1, "Message cannot be empty").max(10000, "Message exceeds 10,000 character limit"),
 });
 
 export function validateModelConfig(config: unknown) {

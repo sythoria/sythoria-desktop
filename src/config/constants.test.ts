@@ -1,12 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { API_CONFIG, MAX_INPUT_LENGTH, TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
+import { MAX_INPUT_LENGTH, TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
 
 describe("constants", () => {
-  it("has a WebSocket endpoint", () => {
-    expect(API_CONFIG.wsEndpoint).toBeDefined();
-    expect(typeof API_CONFIG.wsEndpoint).toBe("string");
-  });
-
   it("MAX_INPUT_LENGTH is a positive number", () => {
     expect(MAX_INPUT_LENGTH).toBeGreaterThan(0);
   });

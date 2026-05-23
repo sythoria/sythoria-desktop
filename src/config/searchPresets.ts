@@ -28,5 +28,3 @@ export const SEARCH_PROVIDER_PRESETS = [
     fields: ["baseUrl", "apiKey", "maxResults"] as const,
   },
 ] as const;
-
-export type SearchProviderPreset = (typeof SEARCH_PROVIDER_PRESETS)[number];
