@@ -18,9 +18,9 @@
     "bundle:visualize": "vite-bundle-visualizer",
     "prepare": "husky",
     "sync-version": "tsx scripts/sync-version.ts",
-    "release:patch": "npm version patch && npm run sync-version",
-    "release:minor": "npm version minor && npm run sync-version",
-    "release:major": "npm version major && npm run sync-version"
+    "release:patch": "npm version patch --no-git-tag-version && npm run sync-version",
+    "release:minor": "npm version minor --no-git-tag-version && npm run sync-version",
+    "release:major": "npm version major --no-git-tag-version && npm run sync-version"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
