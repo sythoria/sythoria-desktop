@@ -9,10 +9,9 @@ pub async fn search(
         .and_then(|v| v.as_str())
         .ok_or_else(|| SearchError::ConfigError("Missing API key for Google Search".into()))?;
 
-    let cx = config
-        .get("cx")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| SearchError::ConfigError("Missing CX (Custom Search Engine ID) for Google Search".into()))?;
+    let cx = config.get("cx").and_then(|v| v.as_str()).ok_or_else(|| {
+        SearchError::ConfigError("Missing CX (Custom Search Engine ID) for Google Search".into())
+    })?;
 
     let num = config
         .get("maxResults")
@@ -44,14 +43,11 @@ pub async fn search(
     )
     .map_err(|e| SearchError::ConfigError(format!("Invalid base URL: {}", e)))?;
 
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| {
-            log::error!("Google search request failed: {}", e);
-            SearchError::RequestFailed(e.to_string())
-        })?;
+    let resp = client.get(url).send().await.map_err(|e| {
+        let sanitized = e.without_url().to_string();
+        log::error!("Google search request failed: {}", sanitized);
+        SearchError::RequestFailed(sanitized)
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -63,13 +59,10 @@ pub async fn search(
         )));
     }
 
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to parse Google search response: {}", e);
-            SearchError::ParseError(e.to_string())
-        })?;
+    let json: serde_json::Value = resp.json().await.map_err(|e| {
+        log::error!("Failed to parse Google search response: {}", e);
+        SearchError::ParseError(e.to_string())
+    })?;
 
     let items = json
         .get("items")

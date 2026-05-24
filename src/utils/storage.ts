@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation } from "../types";
 import { logError } from "./logger";
@@ -142,23 +143,34 @@ export async function saveTheme(theme: "light" | "dark"): Promise<void> {
 
 export async function loadApiKeys(): Promise<Record<string, string>> {
   try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(API_KEYS_KEY);
+    const raw = await invoke<unknown>("load_api_keys");
     const result = ApiKeysSchema.safeParse(raw);
-    if (result.success) return result.data;
-    if (raw) logError("Stored API keys failed validation, resetting");
+    if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("Failed to load API keys from secure store", e);
+    logError("Failed to load API keys from keychain", e);
+  }
+
+  try {
+    const store = await getStore();
+    const legacyRaw = await store.get<unknown>(API_KEYS_KEY);
+    const legacy = ApiKeysSchema.safeParse(legacyRaw);
+    if (legacy.success && Object.keys(legacy.data).length > 0) {
+      await saveApiKeys(legacy.data);
+      await store.delete(API_KEYS_KEY);
+      return legacy.data;
+    }
+    if (legacyRaw) logError("Stored API keys failed validation, resetting");
+  } catch (e) {
+    logError("Failed to migrate legacy API keys", e);
   }
   return {};
 }
 
 export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
   try {
-    const store = await getStore();
-    await store.set(API_KEYS_KEY, keys);
+    await invoke("save_api_keys_cmd", { keys });
   } catch (e) {
-    logError("Failed to save API keys to secure store", e);
+    logError("Failed to save API keys to keychain", e);
   }
 }
 
@@ -198,22 +210,33 @@ export async function clearConversations(): Promise<void> {
 
 export async function loadSearchApiKeys(): Promise<Record<string, string>> {
   try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(SEARCH_API_KEYS_KEY);
+    const raw = await invoke<unknown>("load_search_api_keys");
     const result = ApiKeysSchema.safeParse(raw);
-    if (result.success) return result.data;
-    if (raw) logError("Stored search API keys failed validation, resetting");
+    if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("Failed to load search API keys from secure store", e);
+    logError("Failed to load search API keys from keychain", e);
+  }
+
+  try {
+    const store = await getStore();
+    const legacyRaw = await store.get<unknown>(SEARCH_API_KEYS_KEY);
+    const legacy = ApiKeysSchema.safeParse(legacyRaw);
+    if (legacy.success && Object.keys(legacy.data).length > 0) {
+      await saveSearchApiKeys(legacy.data);
+      await store.delete(SEARCH_API_KEYS_KEY);
+      return legacy.data;
+    }
+    if (legacyRaw) logError("Stored search API keys failed validation, resetting");
+  } catch (e) {
+    logError("Failed to migrate legacy search API keys", e);
   }
   return {};
 }
 
 export async function saveSearchApiKeys(keys: Record<string, string>): Promise<void> {
   try {
-    const store = await getStore();
-    await store.set(SEARCH_API_KEYS_KEY, keys);
+    await invoke("save_search_api_keys_cmd", { keys });
   } catch (e) {
-    logError("Failed to save search API keys to secure store", e);
+    logError("Failed to save search API keys to keychain", e);
   }
 }

@@ -42,8 +42,9 @@ pub async fn search(
         .send()
         .await
         .map_err(|e| {
-            log::error!("SearXNG request failed: {}", e);
-            SearchError::RequestFailed(e.to_string())
+            let sanitized = e.without_url().to_string();
+            log::error!("SearXNG request failed: {}", sanitized);
+            SearchError::RequestFailed(sanitized)
         })?;
 
     if !resp.status().is_success() {
@@ -56,13 +57,10 @@ pub async fn search(
         )));
     }
 
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to parse SearXNG response: {}", e);
-            SearchError::ParseError(e.to_string())
-        })?;
+    let json: serde_json::Value = resp.json().await.map_err(|e| {
+        log::error!("Failed to parse SearXNG response: {}", e);
+        SearchError::ParseError(e.to_string())
+    })?;
 
     let results = json
         .get("results")

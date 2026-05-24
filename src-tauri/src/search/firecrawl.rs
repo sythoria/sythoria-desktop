@@ -43,8 +43,9 @@ pub async fn search(
         .send()
         .await
         .map_err(|e| {
-            log::error!("Firecrawl request failed: {}", e);
-            SearchError::RequestFailed(e.to_string())
+            let sanitized = e.without_url().to_string();
+            log::error!("Firecrawl request failed: {}", sanitized);
+            SearchError::RequestFailed(sanitized)
         })?;
 
     if !resp.status().is_success() {
@@ -57,13 +58,10 @@ pub async fn search(
         )));
     }
 
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to parse Firecrawl response: {}", e);
-            SearchError::ParseError(e.to_string())
-        })?;
+    let json: serde_json::Value = resp.json().await.map_err(|e| {
+        log::error!("Failed to parse Firecrawl response: {}", e);
+        SearchError::ParseError(e.to_string())
+    })?;
 
     let data = json
         .get("data")

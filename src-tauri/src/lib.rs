@@ -181,39 +181,131 @@ impl From<search::SearchError> for AppError {
     }
 }
 
-async fn get_search_api_key(
-    app: &tauri::AppHandle,
-    config_id: &str,
-) -> Result<String, AppError> {
+async fn get_search_api_key(app: &tauri::AppHandle, config_id: &str) -> Result<String, AppError> {
+    get_secret(app, "search", config_id).await
+}
+
+const STORE_FILE: &str = "sythoria-store.json";
+const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
+const API_KEY_INDEX: &str = "sythoria-api-key-index";
+const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
+
+fn keychain_account(namespace: &str, id: &str) -> String {
+    format!("{}:{}", namespace, id)
+}
+
+fn load_secret_index(app: &tauri::AppHandle, index_key: &str) -> Result<Vec<String>, AppError> {
     let store = tauri_plugin_store::StoreExt::store(app, "sythoria-store.json")
         .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
 
-    let keys: Option<serde_json::Value> = store.get("sythoria-search-api-keys");
-    drop(store);
+    let index: Option<serde_json::Value> = store.get(index_key);
+    Ok(index
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(ToString::to_string))
+        .collect())
+}
 
-    if let Some(keys_val) = keys {
-        if let Some(key_str) = keys_val.get(config_id).and_then(|v| v.as_str()) {
-            if !key_str.is_empty() {
-                return Ok(key_str.to_string());
+fn save_secret_index(
+    app: &tauri::AppHandle,
+    index_key: &str,
+    ids: &[String],
+) -> Result<(), AppError> {
+    let store = tauri_plugin_store::StoreExt::store(app, STORE_FILE)
+        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
+
+    store.set(index_key, serde_json::json!(ids));
+    Ok(())
+}
+
+fn set_keychain_secret(namespace: &str, id: &str, secret: &str) -> Result<(), AppError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
+    entry
+        .set_password(secret)
+        .map_err(|e| AppError::ConfigIo(format!("Failed to save secret: {}", e)))
+}
+
+fn get_keychain_secret(namespace: &str, id: &str) -> Result<String, AppError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
+    entry.get_password().map_err(|e| match e {
+        keyring::Error::NoEntry => AppError::KeyNotFound(format!("No key found for '{}'", id)),
+        _ => AppError::ConfigIo(format!("Failed to load secret: {}", e)),
+    })
+}
+
+fn delete_keychain_secret(namespace: &str, id: &str) -> Result<(), AppError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
+    entry.delete_credential().or_else(|e| match e {
+        keyring::Error::NoEntry => Ok(()),
+        _ => Err(AppError::ConfigIo(format!(
+            "Failed to delete secret: {}",
+            e
+        ))),
+    })
+}
+
+async fn get_secret(
+    _app: &tauri::AppHandle,
+    namespace: &str,
+    id: &str,
+) -> Result<String, AppError> {
+    get_keychain_secret(namespace, id)
+}
+
+async fn load_secret_map(
+    app: &tauri::AppHandle,
+    namespace: &str,
+    index_key: &str,
+) -> Result<serde_json::Value, AppError> {
+    let ids = load_secret_index(app, index_key)?;
+    let mut keys = serde_json::Map::new();
+
+    for id in ids {
+        match get_keychain_secret(namespace, &id) {
+            Ok(secret) if !secret.is_empty() => {
+                keys.insert(id, serde_json::Value::String(secret));
             }
+            Ok(_) | Err(AppError::KeyNotFound(_)) => {}
+            Err(err) => return Err(err),
         }
     }
 
-    Err(AppError::KeyNotFound(format!(
-        "No API key found for search config '{}'",
-        config_id
-    )))
+    Ok(serde_json::Value::Object(keys))
 }
 
-async fn save_search_api_keys(
+async fn save_secret_map(
     app: &tauri::AppHandle,
+    namespace: &str,
+    index_key: &str,
     keys: &serde_json::Value,
 ) -> Result<(), AppError> {
-    let store = tauri_plugin_store::StoreExt::store(app, "sythoria-store.json")
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
+    let existing_ids = load_secret_index(app, index_key)?;
+    let key_map = keys
+        .as_object()
+        .ok_or_else(|| AppError::ParseError("API keys payload must be an object".to_string()))?;
 
-    store.set("sythoria-search-api-keys", keys.clone());
-    Ok(())
+    for id in existing_ids {
+        if !key_map.contains_key(&id) {
+            delete_keychain_secret(namespace, &id)?;
+        }
+    }
+
+    let mut ids = Vec::new();
+    for (id, value) in key_map {
+        let secret = value.as_str().unwrap_or_default();
+        if secret.is_empty() {
+            delete_keychain_secret(namespace, id)?;
+            continue;
+        }
+        set_keychain_secret(namespace, id, secret)?;
+        ids.push(id.clone());
+    }
+
+    save_secret_index(app, index_key, &ids)
 }
 
 #[tauri::command]
@@ -239,7 +331,8 @@ async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), AppErr
     fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
     let config_path = app_data_dir.join("config.json");
     let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes()).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    file.write_all(config.as_bytes())
+        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
     Ok(())
 }
 
@@ -266,19 +359,24 @@ async fn save_search_config(app: tauri::AppHandle, config: String) -> Result<(),
     fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
     let config_path = app_data_dir.join("search_config.json");
     let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes()).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    file.write_all(config.as_bytes())
+        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
     Ok(())
 }
 
 #[tauri::command]
+async fn load_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
+    load_secret_map(&app, "model", API_KEY_INDEX).await
+}
+
+#[tauri::command]
+async fn save_api_keys_cmd(app: tauri::AppHandle, keys: serde_json::Value) -> Result<(), AppError> {
+    save_secret_map(&app, "model", API_KEY_INDEX, &keys).await
+}
+
+#[tauri::command]
 async fn load_search_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
-    let store = tauri_plugin_store::StoreExt::store(&app, "sythoria-store.json")
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-
-    let keys: Option<serde_json::Value> = store.get("sythoria-search-api-keys");
-    drop(store);
-
-    Ok(keys.unwrap_or(serde_json::json!({})))
+    load_secret_map(&app, "search", SEARCH_API_KEY_INDEX).await
 }
 
 #[tauri::command]
@@ -286,7 +384,7 @@ async fn save_search_api_keys_cmd(
     app: tauri::AppHandle,
     keys: serde_json::Value,
 ) -> Result<(), AppError> {
-    save_search_api_keys(&app, &keys).await
+    save_secret_map(&app, "search", SEARCH_API_KEY_INDEX, &keys).await
 }
 
 #[tauri::command]
@@ -370,10 +468,7 @@ async fn chat_stream(
     let mut request = client.post(&api_url).json(&body);
     request = request.header("Content-Type", "application/json");
     if !api_key.is_empty() {
-        request = request.header(
-            "Authorization",
-            format!("Bearer {}", api_key),
-        );
+        request = request.header("Authorization", format!("Bearer {}", api_key));
     }
 
     let resp = request.send().await?;
@@ -436,7 +531,9 @@ async fn chat_stream(
                                     .replace("</thought>", "</reasoning>");
 
                                 // Track inline <reasoning> tags (some models embed them in content)
-                                if normalized.contains("<reasoning>") || normalized.contains("</reasoning>") {
+                                if normalized.contains("<reasoning>")
+                                    || normalized.contains("</reasoning>")
+                                {
                                     let has_open = normalized.contains("<reasoning>");
                                     let has_close = normalized.contains("</reasoning>");
 
@@ -452,7 +549,9 @@ async fn chat_stream(
                                         // Extract reasoning from full_content for separate tracking
                                         if let Some(start) = full_content.find("<reasoning>") {
                                             if let Some(end) = full_content.find("</reasoning>") {
-                                                full_reasoning = full_content[start + "<reasoning>".len()..end].to_string();
+                                                full_reasoning = full_content
+                                                    [start + "<reasoning>".len()..end]
+                                                    .to_string();
                                             }
                                         }
                                     }
@@ -571,48 +670,60 @@ async fn chat_stream_tools(
                             for choice in choices {
                                 if let Some(delta) = choice.get("delta") {
                                     // Handle explicit reasoning_content field
-                                    if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+                                    if let Some(reasoning) =
+                                        delta.get("reasoning_content").and_then(|c| c.as_str())
+                                    {
                                         if !reasoning.is_empty() {
                                             full_reasoning.push_str(reasoning);
                                             if !in_reasoning {
                                                 in_reasoning = true;
-                                                let _ = app.emit("chat-stream-chunk", "<reasoning>");
+                                                let _ =
+                                                    app.emit("chat-stream-chunk", "<reasoning>");
                                             }
                                             let _ = app.emit("chat-stream-chunk", reasoning);
                                         }
                                     }
 
-                            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                // Normalize <thinking>/<thought> tags to <reasoning>
-                                let normalized = content
-                                    .replace("<thinking>", "<reasoning>")
-                                    .replace("</thinking>", "</reasoning>")
-                                    .replace("<thought>", "<reasoning>")
-                                    .replace("</thought>", "</reasoning>");
+                                    if let Some(content) =
+                                        delta.get("content").and_then(|c| c.as_str())
+                                    {
+                                        // Normalize <thinking>/<thought> tags to <reasoning>
+                                        let normalized = content
+                                            .replace("<thinking>", "<reasoning>")
+                                            .replace("</thinking>", "</reasoning>")
+                                            .replace("<thought>", "<reasoning>")
+                                            .replace("</thought>", "</reasoning>");
 
-                                if normalized.contains("<reasoning>") || normalized.contains("</reasoning>") {
-                                    let has_open = normalized.contains("<reasoning>");
-                                    let has_close = normalized.contains("</reasoning>");
-                                    if has_open && !in_reasoning {
-                                        in_reasoning = true;
+                                        if normalized.contains("<reasoning>")
+                                            || normalized.contains("</reasoning>")
+                                        {
+                                            let has_open = normalized.contains("<reasoning>");
+                                            let has_close = normalized.contains("</reasoning>");
+                                            if has_open && !in_reasoning {
+                                                in_reasoning = true;
+                                            }
+                                            accumulated.push_str(&normalized);
+                                            let _ = app.emit("chat-stream-chunk", &normalized);
+                                            if has_close && in_reasoning {
+                                                in_reasoning = false;
+                                            }
+                                        } else {
+                                            if in_reasoning && !normalized.trim().is_empty() {
+                                                in_reasoning = false;
+                                                let _ =
+                                                    app.emit("chat-stream-chunk", "</reasoning>");
+                                                accumulated.push_str("</reasoning>");
+                                            }
+                                            accumulated.push_str(&normalized);
+                                            let _ = app.emit("chat-stream-chunk", &normalized);
+                                        }
                                     }
-                                    accumulated.push_str(&normalized);
-                                    let _ = app.emit("chat-stream-chunk", &normalized);
-                                    if has_close && in_reasoning {
-                                        in_reasoning = false;
-                                    }
-                                } else {
-                                    if in_reasoning && !normalized.trim().is_empty() {
-                                        in_reasoning = false;
-                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
-                                        accumulated.push_str("</reasoning>");
-                                    }
-                                    accumulated.push_str(&normalized);
-                                    let _ = app.emit("chat-stream-chunk", &normalized);
                                 }
-                                    }
-                                }
-                                if choice.get("finish_reason").and_then(|r| r.as_str()).is_some() {
+                                if choice
+                                    .get("finish_reason")
+                                    .and_then(|r| r.as_str())
+                                    .is_some()
+                                {
                                     if in_reasoning {
                                         let _ = app.emit("chat-stream-chunk", "</reasoning>");
                                         accumulated.push_str("</reasoning>");
@@ -624,10 +735,7 @@ async fn chat_stream_tools(
                         }
                     }
                     Err(e) => {
-                        log::warn!(
-                            "Tool SSE parse warning: skipping malformed chunk: {}",
-                            e
-                        );
+                        log::warn!("Tool SSE parse warning: skipping malformed chunk: {}", e);
                     }
                 }
             }
@@ -676,7 +784,10 @@ async fn chat_completion_tools(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let _body = resp.text().await.unwrap_or_default();
-        log::error!("chat_completion_tools API error {}: [body sanitized]", status);
+        log::error!(
+            "chat_completion_tools API error {}: [body sanitized]",
+            status
+        );
         return Err(AppError::ApiError {
             status,
             message: "Request failed (response body omitted for security)".to_string(),
@@ -699,7 +810,9 @@ async fn check_api(api_url: String, api_key: String) -> Result<bool, AppError> {
 
     let models_url = format!("{}/models", base_url);
 
-    let mut request = client.get(&models_url).timeout(std::time::Duration::from_secs(10));
+    let mut request = client
+        .get(&models_url)
+        .timeout(std::time::Duration::from_secs(10));
     if !api_key.is_empty() {
         request = request.header("Authorization", format!("Bearer {}", api_key));
     }
@@ -721,13 +834,21 @@ async fn web_search(
         .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
 
     if let Some(id) = config_id {
-        if config_json.get("apiKey").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+        if config_json
+            .get("apiKey")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
             match get_search_api_key(&app, &id).await {
                 Ok(key) => {
                     config_json["apiKey"] = serde_json::Value::String(key);
                 }
                 Err(_) => {
-                    log::warn!("No API key found in secure store for search config '{}'", id);
+                    log::warn!(
+                        "No API key found in secure store for search config '{}'",
+                        id
+                    );
                 }
             }
         }
@@ -745,12 +866,10 @@ async fn web_search(
 
 #[tauri::command]
 async fn fetch_url_content(url: String) -> Result<String, AppError> {
-    let content = search::fetch_url(&url)
-        .await
-        .map_err(|e| {
-            log::error!("Fetch URL failed for '{}': {}", url, e);
-            AppError::from(e)
-        })?;
+    let content = search::fetch_url(&url).await.map_err(|e| {
+        log::error!("Fetch URL failed for '{}': {}", url, e);
+        AppError::from(e)
+    })?;
 
     Ok(serde_json::to_string(&content).unwrap_or_default())
 }
@@ -788,11 +907,7 @@ async fn ws_authenticate(
         "api_key": api_key,
     });
 
-    let resp = client
-        .post(&auth_url)
-        .json(&body)
-        .send()
-        .await?;
+    let resp = client.post(&auth_url).json(&body).send().await?;
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -830,6 +945,8 @@ pub fn run() {
             save_config,
             load_search_config,
             save_search_config,
+            load_api_keys,
+            save_api_keys_cmd,
             load_search_api_keys,
             save_search_api_keys_cmd,
             chat_completion,
