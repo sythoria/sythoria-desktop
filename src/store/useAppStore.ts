@@ -34,33 +34,43 @@ import { validateModelConfig, validateSearchConfig } from "../utils/validation";
 import { sendWithToolLoop } from "../services/toolLoop";
 
 let activeStreamId: string | null = null;
+let activeStreamConversationId: string | null = null;
 let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+interface StreamChunkPayload {
+  streamId: string;
+  content: string;
+}
+
+interface StreamDonePayload {
+  streamId: string;
+}
 
 async function ensureStreamListeners(set: (fn: (state: AppState) => Partial<AppState>) => void) {
   streamListenerRefCount++;
   if (streamListenerCleanup) return;
 
-  const unlistenChunk = await listen<string>("chat-stream-chunk", (event) => {
-    if (!activeStreamId) return;
-    const convId = activeStreamId;
+  const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
+    if (!activeStreamId || event.payload.streamId !== activeStreamId || !activeStreamConversationId) return;
+    const convId = activeStreamConversationId;
     set((state) => ({
       conversations: state.conversations.map((c) => {
         if (c.id !== convId) return c;
         const updated = [...c.messages];
         const last = updated[updated.length - 1];
         if (last && last.role === "assistant") {
-          updated[updated.length - 1] = { ...last, content: last.content + event.payload };
+          updated[updated.length - 1] = { ...last, content: last.content + event.payload.content };
         }
         return { ...c, messages: updated };
       }),
     }));
   });
 
-  const unlistenDone = await listen("chat-stream-done", () => {
-    if (!activeStreamId) return;
-    const convId = activeStreamId;
+  const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
+    if (!activeStreamId || event.payload.streamId !== activeStreamId || !activeStreamConversationId) return;
+    const convId = activeStreamConversationId;
     set((state) => ({
       conversations: state.conversations.map((c) => {
         if (c.id !== convId) return c;
@@ -74,6 +84,7 @@ async function ensureStreamListeners(set: (fn: (state: AppState) => Partial<AppS
       isStreaming: false,
     }));
     activeStreamId = null;
+    activeStreamConversationId = null;
   });
 
   streamListenerCleanup = () => {
@@ -572,7 +583,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   stopStreaming: () => {
+    const streamId = activeStreamId;
     activeStreamId = null;
+    activeStreamConversationId = null;
+    if (streamId) {
+      void invoke("cancel_chat_stream", { streamId }).catch((err) => {
+        logError("Failed to cancel stream", err);
+      });
+    }
     releaseStreamListeners();
     set((state) => {
       const convs = state.conversations.map((c) => ({
@@ -844,7 +862,9 @@ async function sendNormal(
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
 
-  activeStreamId = convId;
+  const streamId = generateId();
+  activeStreamId = streamId;
+  activeStreamConversationId = convId;
   await ensureStreamListeners(set);
 
   try {
@@ -863,16 +883,25 @@ async function sendNormal(
       model: modelConfig.modelId,
       messages: apiMessages,
       temperature,
+      streamId,
     });
+
+    const streamStillActive = activeStreamId === streamId;
+    if (streamStillActive) {
+      activeStreamId = null;
+      activeStreamConversationId = null;
+    }
 
     set((state) => ({
       conversations: finalizeAssistantMessage(state.conversations, convId),
+      ...(streamStillActive ? { isStreaming: false } : {}),
     }));
 
     get().persistConversations();
   } catch (err) {
     const friendlyMessage = parseApiError(err);
     activeStreamId = null;
+    activeStreamConversationId = null;
     releaseStreamListeners();
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),

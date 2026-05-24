@@ -4,9 +4,11 @@ mod ws_handler;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
+use std::sync::{LazyLock, Mutex};
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
@@ -82,6 +84,54 @@ struct StreamDelta {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamChunkPayload<'a> {
+    stream_id: &'a str,
+    content: &'a str,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamDonePayload<'a> {
+    stream_id: &'a str,
+}
+
+static CANCELLED_STREAMS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn emit_stream_chunk(app: &tauri::AppHandle, stream_id: &str, content: &str) {
+    let _ = app.emit(
+        "chat-stream-chunk",
+        StreamChunkPayload { stream_id, content },
+    );
+}
+
+fn emit_stream_done(app: &tauri::AppHandle, stream_id: &str) {
+    let _ = app.emit("chat-stream-done", StreamDonePayload { stream_id });
+}
+
+fn mark_stream_cancelled(stream_id: String) -> Result<(), AppError> {
+    let mut cancelled = CANCELLED_STREAMS
+        .lock()
+        .map_err(|e| AppError::StreamError(format!("Stream cancellation lock poisoned: {}", e)))?;
+    cancelled.insert(stream_id);
+    Ok(())
+}
+
+fn clear_stream_cancelled(stream_id: &str) {
+    if let Ok(mut cancelled) = CANCELLED_STREAMS.lock() {
+        cancelled.remove(stream_id);
+    }
+}
+
+fn is_stream_cancelled(stream_id: &str) -> bool {
+    CANCELLED_STREAMS
+        .lock()
+        .map(|cancelled| cancelled.contains(stream_id))
+        .unwrap_or(true)
 }
 
 #[derive(Debug, thiserror::Error, Serialize)]
@@ -292,16 +342,21 @@ async fn chat_completion(
 }
 
 #[tauri::command]
+async fn cancel_chat_stream(stream_id: String) -> Result<(), AppError> {
+    mark_stream_cancelled(stream_id)
+}
+
+#[tauri::command]
 async fn chat_stream(
     api_url: String,
     api_key: String,
     model: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
+    stream_id: String,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    use tauri::Emitter;
-
+    clear_stream_cancelled(&stream_id);
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
@@ -340,6 +395,11 @@ async fn chat_stream(
     let mut in_reasoning = false;
 
     while let Some(chunk_result) = stream.next().await {
+        if is_stream_cancelled(&stream_id) {
+            clear_stream_cancelled(&stream_id);
+            return Ok(full_content);
+        }
+
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -361,9 +421,9 @@ async fn chat_stream(
                                     full_reasoning.push_str(&reasoning);
                                     if !in_reasoning {
                                         in_reasoning = true;
-                                        let _ = app.emit("chat-stream-chunk", "<reasoning>");
+                                        emit_stream_chunk(&app, &stream_id, "<reasoning>");
                                     }
-                                    let _ = app.emit("chat-stream-chunk", &reasoning);
+                                    emit_stream_chunk(&app, &stream_id, &reasoning);
                                 }
                             }
 
@@ -385,7 +445,7 @@ async fn chat_stream(
                                     }
 
                                     full_content.push_str(&normalized);
-                                    let _ = app.emit("chat-stream-chunk", &normalized);
+                                    emit_stream_chunk(&app, &stream_id, &normalized);
 
                                     if has_close && in_reasoning {
                                         in_reasoning = false;
@@ -401,21 +461,21 @@ async fn chat_stream(
                                     // (for models that don't emit </reasoning> explicitly)
                                     if in_reasoning && !normalized.trim().is_empty() {
                                         in_reasoning = false;
-                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                        emit_stream_chunk(&app, &stream_id, "</reasoning>");
                                         full_content.push_str("</reasoning>");
                                     }
                                     full_content.push_str(&normalized);
-                                    let _ = app.emit("chat-stream-chunk", &normalized);
+                                    emit_stream_chunk(&app, &stream_id, &normalized);
                                 }
                             }
                             if choice.finish_reason.is_some() {
                                 // Close any unclosed reasoning tag
                                 if in_reasoning {
-                                    let _ = app.emit("chat-stream-chunk", "</reasoning>");
+                                    emit_stream_chunk(&app, &stream_id, "</reasoning>");
                                     full_content.push_str("</reasoning>");
                                     in_reasoning = false;
                                 }
-                                let _ = app.emit("chat-stream-done", ());
+                                emit_stream_done(&app, &stream_id);
                             }
                         }
                     }
@@ -436,6 +496,7 @@ async fn chat_stream(
         full_content = format!("<reasoning>{}</reasoning>{}", full_reasoning, full_content);
     }
 
+    clear_stream_cancelled(&stream_id);
     Ok(full_content)
 }
 
@@ -773,6 +834,7 @@ pub fn run() {
             save_search_api_keys_cmd,
             chat_completion,
             chat_stream,
+            cancel_chat_stream,
             chat_completion_tools,
             chat_stream_tools,
             check_api,
