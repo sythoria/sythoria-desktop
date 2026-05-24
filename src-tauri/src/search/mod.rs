@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use futures_util::StreamExt;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub title: String,
@@ -51,18 +53,30 @@ pub enum SearchError {
 impl SearchError {
     pub fn to_response(&self) -> SearchErrorResponse {
         match self {
-            SearchError::RequestFailed(msg) => SearchErrorResponse::RequestFailed { message: msg.clone() },
-            SearchError::ParseError(msg) => SearchErrorResponse::ParseError { message: msg.clone() },
-            SearchError::ConfigError(msg) => SearchErrorResponse::ConfigError { message: msg.clone() },
-            SearchError::UrlValidationError(msg) => SearchErrorResponse::UrlValidationError { message: msg.clone() },
+            SearchError::RequestFailed(msg) => SearchErrorResponse::RequestFailed {
+                message: msg.clone(),
+            },
+            SearchError::ParseError(msg) => SearchErrorResponse::ParseError {
+                message: msg.clone(),
+            },
+            SearchError::ConfigError(msg) => SearchErrorResponse::ConfigError {
+                message: msg.clone(),
+            },
+            SearchError::UrlValidationError(msg) => SearchErrorResponse::UrlValidationError {
+                message: msg.clone(),
+            },
         }
     }
 
     pub fn to_response_with_status(&self, status: u16) -> SearchErrorResponse {
         match self {
-            SearchError::RequestFailed(msg) | SearchError::ParseError(msg) | SearchError::ConfigError(msg) | SearchError::UrlValidationError(msg) => {
-                SearchErrorResponse::HttpError { status, message: msg.clone() }
-            }
+            SearchError::RequestFailed(msg)
+            | SearchError::ParseError(msg)
+            | SearchError::ConfigError(msg)
+            | SearchError::UrlValidationError(msg) => SearchErrorResponse::HttpError {
+                status,
+                message: msg.clone(),
+            },
         }
     }
 }
@@ -82,16 +96,21 @@ static BLOCKED_HOSTNAMES: LazyLock<Vec<&str>> = LazyLock::new(|| {
 
 static SELECTOR_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 static SELECTOR_BODY: LazyLock<Selector> = LazyLock::new(|| Selector::parse("body").unwrap());
+const MAX_FETCH_BYTES: usize = 5_000_000;
+const MAX_RETURN_BYTES: usize = 500_000;
+const MAX_REDIRECTS: usize = 5;
 
 fn validate_url(url: &str) -> Result<url::Url, SearchError> {
-    let parsed = url::Url::parse(url).map_err(|e| {
-        SearchError::UrlValidationError(format!("Invalid URL: {}", e))
-    })?;
+    let parsed = url::Url::parse(url)
+        .map_err(|e| SearchError::UrlValidationError(format!("Invalid URL: {}", e)))?;
 
     match parsed.scheme() {
         "https" => {}
         "http" => {
-            log::warn!("Fetching over unencrypted HTTP: {}", parsed.host_str().unwrap_or("unknown"));
+            log::warn!(
+                "Fetching over unencrypted HTTP: {}",
+                parsed.host_str().unwrap_or("unknown")
+            );
         }
         _ => {
             return Err(SearchError::UrlValidationError(format!(
@@ -112,13 +131,11 @@ fn validate_url(url: &str) -> Result<url::Url, SearchError> {
             }
         }
 
-        if let Some(ip) = parsed.host()
-            .and_then(|h| match h {
-                url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
-                url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
-                _ => None,
-            })
-        {
+        if let Some(ip) = parsed.host().and_then(|h| match h {
+            url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
+            _ => None,
+        }) {
             if is_private_or_reserved_ip(&ip) {
                 return Err(SearchError::UrlValidationError(format!(
                     "IP address '{}' is not allowed for security reasons.",
@@ -137,20 +154,49 @@ fn is_private_or_reserved_ip(ip: &std::net::IpAddr) -> bool {
             let octets = v4.octets();
             octets[0] == 0
                 || octets[0] == 10
+                || octets[0] == 127
                 || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
                 || (octets[0] == 192 && octets[1] == 168)
                 || (octets[0] == 169 && octets[1] == 254)
+                || (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127)
+                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
                 || (octets[0] >= 224 && octets[0] <= 239)
                 || octets[0] >= 240
         }
         std::net::IpAddr::V6(v6) => {
             let segments = v6.segments();
-            segments[0] == 0xfc00
-                || segments[0] == 0xfe80
+            (segments[0] & 0xfe00) == 0xfc00
+                || (segments[0] & 0xffc0) == 0xfe80
                 || v6.is_loopback()
                 || v6.is_multicast()
+                || v6.is_unspecified()
         }
     }
+}
+
+async fn validate_resolved_url(url: &url::Url) -> Result<(), SearchError> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| SearchError::UrlValidationError("URL host is required".into()))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| SearchError::UrlValidationError("URL port is required".into()))?;
+
+    let resolved = tokio::net::lookup_host((host, port)).await.map_err(|e| {
+        SearchError::UrlValidationError(format!("Failed to resolve hostname '{}': {}", host, e))
+    })?;
+
+    for addr in resolved {
+        if is_private_or_reserved_ip(&addr.ip()) {
+            return Err(SearchError::UrlValidationError(format!(
+                "Hostname '{}' resolves to blocked IP '{}'.",
+                host,
+                addr.ip()
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn search(
@@ -170,83 +216,127 @@ pub async fn search(
 }
 
 pub async fn fetch_url(url: &str) -> Result<UrlContent, SearchError> {
-    validate_url(url)?;
+    let mut current_url = validate_url(url)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
 
-    let resp = client
-        .get(url)
-        .header("User-Agent", "Sythoria/0.1.0 (Desktop AI Assistant)")
-        .send()
-        .await
-        .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
+    for redirect_count in 0..=MAX_REDIRECTS {
+        validate_resolved_url(&current_url).await?;
 
-    let status = resp.status();
-    if !status.is_success() {
-        let status_code = status.as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("Fetch URL HTTP {}: [response body sanitized]", status_code);
-        return Ok(UrlContent {
-            url: url.to_string(),
-            title: String::new(),
-            content: String::new(),
-            status: "error".to_string(),
-            error: Some(format!("HTTP {}", status_code)),
-        });
-    }
+        let resp = client
+            .get(current_url.clone())
+            .header("User-Agent", "Sythoria/0.1.0 (Desktop AI Assistant)")
+            .send()
+            .await
+            .map_err(|e| SearchError::RequestFailed(e.without_url().to_string()))?;
 
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+        if resp.status().is_redirection() {
+            if redirect_count >= MAX_REDIRECTS {
+                return Err(SearchError::UrlValidationError(format!(
+                    "Too many redirects while fetching '{}'.",
+                    url
+                )));
+            }
 
-    let is_html = content_type.contains("text/html");
+            let location = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| {
+                    SearchError::UrlValidationError("Redirect missing Location header".into())
+                })?;
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
+            let next_url = current_url.join(location).map_err(|e| {
+                SearchError::UrlValidationError(format!("Invalid redirect URL: {}", e))
+            })?;
+            current_url = validate_url(next_url.as_str())?;
+            continue;
+        }
 
-    if body.len() > 5_000_000 {
-        return Ok(UrlContent {
-            url: url.to_string(),
-            title: String::new(),
-            content: "Content too large to process (exceeded 5MB limit).".to_string(),
-            status: "ok".to_string(),
-            error: None,
-        });
-    }
+        let status = resp.status();
+        if !status.is_success() {
+            let status_code = status.as_u16();
+            log::error!("Fetch URL HTTP {}: [response body sanitized]", status_code);
+            return Ok(UrlContent {
+                url: current_url.to_string(),
+                title: String::new(),
+                content: String::new(),
+                status: "error".to_string(),
+                error: Some(format!("HTTP {}", status_code)),
+            });
+        }
 
-    if is_html {
-        let title = extract_title(&body);
-        let content = extract_readable_text(&body);
-        Ok(UrlContent {
-            url: url.to_string(),
-            title,
-            content,
-            status: "ok".to_string(),
-            error: None,
-        })
-    } else {
-        let truncated = if body.len() > 500_000 {
-            truncate_str(&body, 500_000, "500KB")
-        } else {
-            body
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let is_html = content_type.contains("text/html");
+
+        let Some(body) = read_capped_body(resp, MAX_FETCH_BYTES).await? else {
+            return Ok(UrlContent {
+                url: current_url.to_string(),
+                title: String::new(),
+                content: "Content too large to process (exceeded 5MB limit).".to_string(),
+                status: "ok".to_string(),
+                error: None,
+            });
         };
-        Ok(UrlContent {
-            url: url.to_string(),
-            title: url.to_string(),
-            content: truncated,
-            status: "ok".to_string(),
-            error: None,
-        })
+
+        if is_html {
+            let title = extract_title(&body);
+            let content = extract_readable_text(&body);
+            return Ok(UrlContent {
+                url: current_url.to_string(),
+                title,
+                content,
+                status: "ok".to_string(),
+                error: None,
+            });
+        } else {
+            let truncated = if body.len() > MAX_RETURN_BYTES {
+                truncate_str(&body, MAX_RETURN_BYTES, "500KB")
+            } else {
+                body
+            };
+            return Ok(UrlContent {
+                url: current_url.to_string(),
+                title: current_url.to_string(),
+                content: truncated,
+                status: "ok".to_string(),
+                error: None,
+            });
+        }
     }
+
+    Err(SearchError::UrlValidationError(format!(
+        "Too many redirects while fetching '{}'.",
+        url
+    )))
+}
+
+async fn read_capped_body(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Option<String>, SearchError> {
+    let mut stream = resp.bytes_stream();
+    let mut bytes = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| SearchError::RequestFailed(e.without_url().to_string()))?;
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+
+    Ok(Some(String::from_utf8_lossy(&bytes).to_string()))
 }
 
 fn truncate_str(s: &str, max_bytes: usize, label: &str) -> String {
@@ -455,6 +545,17 @@ mod tests {
     #[test]
     fn test_validate_url_link_local_rejected() {
         assert!(validate_url("http://169.254.1.1/secret").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_cgnat_rejected() {
+        assert!(validate_url("http://100.64.0.1/secret").is_err());
+        assert!(validate_url("http://100.127.255.254/secret").is_err());
+    }
+
+    #[test]
+    fn test_validate_url_ipv6_unique_local_rejected() {
+        assert!(validate_url("http://[fd00::1]/secret").is_err());
     }
 
     #[test]
