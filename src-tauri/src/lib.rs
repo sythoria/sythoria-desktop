@@ -1,4 +1,5 @@
 mod search;
+mod stream_parser;
 mod ws_handler;
 
 use futures_util::StreamExt;
@@ -8,7 +9,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
@@ -68,50 +69,7 @@ struct ChatResponse {
     choices: Vec<ChatChoice>,
 }
 
-#[derive(Debug, Deserialize)]
-struct StreamChunk {
-    choices: Vec<StreamChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StreamChoice {
-    delta: StreamDelta,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StreamDelta {
-    content: Option<String>,
-    #[serde(default)]
-    reasoning_content: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StreamChunkPayload<'a> {
-    stream_id: &'a str,
-    content: &'a str,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StreamDonePayload<'a> {
-    stream_id: &'a str,
-}
-
-static CANCELLED_STREAMS: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-
-fn emit_stream_chunk(app: &tauri::AppHandle, stream_id: &str, content: &str) {
-    let _ = app.emit(
-        "chat-stream-chunk",
-        StreamChunkPayload { stream_id, content },
-    );
-}
-
-fn emit_stream_done(app: &tauri::AppHandle, stream_id: &str) {
-    let _ = app.emit("chat-stream-done", StreamDonePayload { stream_id });
-}
+static CANCELLED_STREAMS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn mark_stream_cancelled(stream_id: String) -> Result<(), AppError> {
     let mut cancelled = CANCELLED_STREAMS
@@ -484,119 +442,21 @@ async fn chat_stream(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut full_content = String::new();
-    let mut full_reasoning = String::new();
-    let mut buffer = String::new();
-    let mut in_reasoning = false;
+    let mut parser = stream_parser::SseParser::new();
 
     while let Some(chunk_result) = stream.next().await {
         if is_stream_cancelled(&stream_id) {
             clear_stream_cancelled(&stream_id);
-            return Ok(full_content);
+            return Ok(parser.finalize());
         }
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-        while let Some(line_end) = buffer.find('\n') {
-            let line = buffer[..line_end].trim().to_string();
-            buffer = buffer[line_end + 1..].to_string();
-
-            if line.is_empty() || line == "data: [DONE]" {
-                continue;
-            }
-
-            if let Some(data) = line.strip_prefix("data: ") {
-                match serde_json::from_str::<StreamChunk>(data) {
-                    Ok(parsed) => {
-                        for choice in parsed.choices {
-                            // Handle explicit reasoning_content field (Anthropic/Gemini style)
-                            if let Some(reasoning) = choice.delta.reasoning_content {
-                                if !reasoning.is_empty() {
-                                    full_reasoning.push_str(&reasoning);
-                                    if !in_reasoning {
-                                        in_reasoning = true;
-                                        emit_stream_chunk(&app, &stream_id, "<reasoning>");
-                                    }
-                                    emit_stream_chunk(&app, &stream_id, &reasoning);
-                                }
-                            }
-
-                            if let Some(content) = choice.delta.content {
-                                // Normalize <thinking>/<thought> tags to <reasoning>
-                                let normalized = content
-                                    .replace("<thinking>", "<reasoning>")
-                                    .replace("</thinking>", "</reasoning>")
-                                    .replace("<thought>", "<reasoning>")
-                                    .replace("</thought>", "</reasoning>");
-
-                                // Track inline <reasoning> tags (some models embed them in content)
-                                if normalized.contains("<reasoning>")
-                                    || normalized.contains("</reasoning>")
-                                {
-                                    let has_open = normalized.contains("<reasoning>");
-                                    let has_close = normalized.contains("</reasoning>");
-
-                                    if has_open && !in_reasoning {
-                                        in_reasoning = true;
-                                    }
-
-                                    full_content.push_str(&normalized);
-                                    emit_stream_chunk(&app, &stream_id, &normalized);
-
-                                    if has_close && in_reasoning {
-                                        in_reasoning = false;
-                                        // Extract reasoning from full_content for separate tracking
-                                        if let Some(start) = full_content.find("<reasoning>") {
-                                            if let Some(end) = full_content.find("</reasoning>") {
-                                                full_reasoning = full_content
-                                                    [start + "<reasoning>".len()..end]
-                                                    .to_string();
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Close reasoning block if we get regular content while in_reasoning
-                                    // (for models that don't emit </reasoning> explicitly)
-                                    if in_reasoning && !normalized.trim().is_empty() {
-                                        in_reasoning = false;
-                                        emit_stream_chunk(&app, &stream_id, "</reasoning>");
-                                        full_content.push_str("</reasoning>");
-                                    }
-                                    full_content.push_str(&normalized);
-                                    emit_stream_chunk(&app, &stream_id, &normalized);
-                                }
-                            }
-                            if choice.finish_reason.is_some() {
-                                // Close any unclosed reasoning tag
-                                if in_reasoning {
-                                    emit_stream_chunk(&app, &stream_id, "</reasoning>");
-                                    full_content.push_str("</reasoning>");
-                                    in_reasoning = false;
-                                }
-                                emit_stream_done(&app, &stream_id);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "SSE parse warning: skipping malformed chunk ({} bytes): {}",
-                            data.len(),
-                            e
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // If we accumulated reasoning but no tags were emitted, prepend them
-    if !full_reasoning.is_empty() && !full_content.contains("<reasoning>") {
-        full_content = format!("<reasoning>{}</reasoning>{}", full_reasoning, full_content);
+        parser.push_bytes(&chunk);
+        parser.process_lines(&app, &stream_id, |_| {});
     }
 
     clear_stream_cancelled(&stream_id);
-    Ok(full_content)
+    Ok(parser.finalize())
 }
 
 #[tauri::command]
@@ -609,8 +469,6 @@ async fn chat_stream_tools(
     temperature: f64,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    use tauri::Emitter;
-
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
@@ -645,105 +503,15 @@ async fn chat_stream_tools(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut _full_content = String::new();
-    let mut buffer = String::new();
+    let mut parser = stream_parser::SseParser::new();
     let mut accumulated = String::new();
-    let mut full_reasoning = String::new();
-    let mut in_reasoning = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-        while let Some(line_end) = buffer.find('\n') {
-            let line = buffer[..line_end].trim().to_string();
-            buffer = buffer[line_end + 1..].to_string();
-
-            if line.is_empty() || line == "data: [DONE]" {
-                continue;
-            }
-
-            if let Some(data) = line.strip_prefix("data: ") {
-                match serde_json::from_str::<serde_json::Value>(data) {
-                    Ok(parsed) => {
-                        if let Some(choices) = parsed.get("choices").and_then(|c| c.as_array()) {
-                            for choice in choices {
-                                if let Some(delta) = choice.get("delta") {
-                                    // Handle explicit reasoning_content field
-                                    if let Some(reasoning) =
-                                        delta.get("reasoning_content").and_then(|c| c.as_str())
-                                    {
-                                        if !reasoning.is_empty() {
-                                            full_reasoning.push_str(reasoning);
-                                            if !in_reasoning {
-                                                in_reasoning = true;
-                                                let _ =
-                                                    app.emit("chat-stream-chunk", "<reasoning>");
-                                            }
-                                            let _ = app.emit("chat-stream-chunk", reasoning);
-                                        }
-                                    }
-
-                                    if let Some(content) =
-                                        delta.get("content").and_then(|c| c.as_str())
-                                    {
-                                        // Normalize <thinking>/<thought> tags to <reasoning>
-                                        let normalized = content
-                                            .replace("<thinking>", "<reasoning>")
-                                            .replace("</thinking>", "</reasoning>")
-                                            .replace("<thought>", "<reasoning>")
-                                            .replace("</thought>", "</reasoning>");
-
-                                        if normalized.contains("<reasoning>")
-                                            || normalized.contains("</reasoning>")
-                                        {
-                                            let has_open = normalized.contains("<reasoning>");
-                                            let has_close = normalized.contains("</reasoning>");
-                                            if has_open && !in_reasoning {
-                                                in_reasoning = true;
-                                            }
-                                            accumulated.push_str(&normalized);
-                                            let _ = app.emit("chat-stream-chunk", &normalized);
-                                            if has_close && in_reasoning {
-                                                in_reasoning = false;
-                                            }
-                                        } else {
-                                            if in_reasoning && !normalized.trim().is_empty() {
-                                                in_reasoning = false;
-                                                let _ =
-                                                    app.emit("chat-stream-chunk", "</reasoning>");
-                                                accumulated.push_str("</reasoning>");
-                                            }
-                                            accumulated.push_str(&normalized);
-                                            let _ = app.emit("chat-stream-chunk", &normalized);
-                                        }
-                                    }
-                                }
-                                if choice
-                                    .get("finish_reason")
-                                    .and_then(|r| r.as_str())
-                                    .is_some()
-                                {
-                                    if in_reasoning {
-                                        let _ = app.emit("chat-stream-chunk", "</reasoning>");
-                                        accumulated.push_str("</reasoning>");
-                                        in_reasoning = false;
-                                    }
-                                    let _ = app.emit("chat-stream-done", ());
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("Tool SSE parse warning: skipping malformed chunk: {}", e);
-                    }
-                }
-            }
-        }
-    }
-
-    if !full_reasoning.is_empty() && !accumulated.contains("<reasoning>") {
-        accumulated = format!("<reasoning>{}</reasoning>{}", full_reasoning, accumulated);
+        parser.push_bytes(&chunk);
+        parser.process_lines(&app, "", |chunk_text| {
+            accumulated.push_str(chunk_text);
+        });
     }
 
     Ok(accumulated)
