@@ -377,15 +377,13 @@ const SearchApiCard = memo(function SearchApiCard({
                 ? "https://www.googleapis.com/customsearch/v1"
                 : config.provider === "searxng"
                   ? "http://localhost:8080"
-                  : config.provider === "firecrawl"
-                    ? "https://api.firecrawl.dev/v1"
-                    : "https://example.com/search"
+                  : "https://api.firecrawl.dev/v1"
             }
             className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
           />
         </div>
 
-        {(config.provider === "google" || config.provider === "firecrawl" || config.provider === "custom") && (
+        {(config.provider === "google" || config.provider === "firecrawl") && (
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-key-${config.id}`}>
               API Key

@@ -26,7 +26,7 @@ export const ModelConfigSchema = z.object({
 const SearchApiConfigSchema = z.object({
   id: z.string().min(1, "Search config ID is required"),
   name: z.string().min(1, "Name is required").max(60, "Name is too long"),
-  provider: z.enum(["google", "searxng", "firecrawl", "custom"]),
+  provider: z.enum(["google", "searxng", "firecrawl"]),
   baseUrl: z.string().min(1, "Base URL is required"),
   apiKey: z.string().optional(),
   cx: z.string().optional(),
@@ -66,7 +66,7 @@ export function validateApiKey(key: string, provider?: string): { valid: boolean
 }
 
 export function validateSearchApiKey(key: string | undefined, provider: string): { valid: boolean; warning?: string } {
-  const noKeyProviders = ["searxng", "custom"];
+  const noKeyProviders = ["searxng"];
   if (noKeyProviders.includes(provider)) {
     return { valid: true };
   }

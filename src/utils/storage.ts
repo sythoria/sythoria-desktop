@@ -50,7 +50,7 @@ const ApiKeysSchema = z.record(z.string(), z.string());
 const SearchConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
-  provider: z.enum(["google", "searxng", "firecrawl", "custom"]),
+  provider: z.enum(["google", "searxng", "firecrawl"]),
   baseUrl: z.string(),
   apiKey: z.string().optional(),
   cx: z.string().optional(),
