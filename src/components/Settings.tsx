@@ -17,7 +17,10 @@ import {
 } from "lucide-react";
 import { ModelConfig, SearchApiConfig } from "../types";
 import type { SearchProvider } from "../types";
-import { useAppStore } from "../store/useAppStore";
+import { useModelStore } from "../store/useModelStore";
+import { useSearchStore } from "../store/useSearchStore";
+import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../store/useChatStore";
 import { PROVIDER_PRESETS } from "../config/providerPresets";
 import { SEARCH_PROVIDER_PRESETS } from "../config/searchPresets";
 import { MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_STEP } from "../config/constants";
@@ -454,34 +457,37 @@ const SearchApiCard = memo(function SearchApiCard({
 });
 
 export default function Settings() {
-  const models = useAppStore((s) => s.models);
-  const selectedModel = useAppStore((s) => s.selectedModel);
-  const temperature = useAppStore((s) => s.temperature);
-  const theme = useAppStore((s) => s.theme);
-  const modelStatuses = useAppStore((s) => s.modelStatuses);
-  const loading = useAppStore((s) => s.loading);
-  const searchConfigs = useAppStore((s) => s.searchConfigs);
-  const activeSearchId = useAppStore((s) => s.activeSearchId);
-  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
-  const setActiveSearchId = useAppStore((s) => s.setActiveSearchId);
-  const setTemperature = useAppStore((s) => s.setTemperature);
-  const setTheme = useAppStore((s) => s.setTheme);
-  const setView = useAppStore((s) => s.setView);
-  const updateModel = useAppStore((s) => s.updateModel);
-  const deleteModel = useAppStore((s) => s.deleteModel);
-  const addModel = useAppStore((s) => s.addModel);
-  const newChat = useAppStore((s) => s.newChat);
-  const checkModelConnections = useAppStore((s) => s.checkModelConnections);
-  const updateSearchConfig = useAppStore((s) => s.updateSearchConfig);
-  const deleteSearchConfig = useAppStore((s) => s.deleteSearchConfig);
-  const addSearchConfig = useAppStore((s) => s.addSearchConfig);
+  const models = useModelStore((s) => s.models);
+  const selectedModel = useModelStore((s) => s.selectedModel);
+  const temperature = useModelStore((s) => s.temperature);
+  const modelStatuses = useModelStore((s) => s.modelStatuses);
+  const setSelectedModel = useModelStore((s) => s.setSelectedModel);
+  const setTemperature = useModelStore((s) => s.setTemperature);
+  const updateModel = useModelStore((s) => s.updateModel);
+  const deleteModel = useModelStore((s) => s.deleteModel);
+  const addModel = useModelStore((s) => s.addModel);
+  const checkModelConnections = useModelStore((s) => s.checkModelConnections);
+
+  const searchConfigs = useSearchStore((s) => s.searchConfigs);
+  const activeSearchId = useSearchStore((s) => s.activeSearchId);
+  const setActiveSearchId = useSearchStore((s) => s.setActiveSearchId);
+  const updateSearchConfig = useSearchStore((s) => s.updateSearchConfig);
+  const deleteSearchConfig = useSearchStore((s) => s.deleteSearchConfig);
+  const addSearchConfig = useSearchStore((s) => s.addSearchConfig);
+
+  const theme = useUIStore((s) => s.theme);
+  const loading = useUIStore((s) => s.loading);
+  const setTheme = useUIStore((s) => s.setTheme);
+  const setView = useUIStore((s) => s.setView);
+  const addToast = useUIStore((s) => s.addToast);
+
+  const newChat = useChatStore((s) => s.newChat);
 
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const addToast = useAppStore((s) => s.addToast);
 
   const currentModel = models.find((m) => m.id === selectedModel);
   const enabledModels = models.filter((m) => m.enabled !== false);

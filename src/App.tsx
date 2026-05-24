@@ -9,85 +9,91 @@ import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
-import { useAppStore } from "./store/useAppStore";
+import { useChatStore } from "./store/useChatStore";
+import { useModelStore } from "./store/useModelStore";
+import { useSearchStore } from "./store/useSearchStore";
+import { useUIStore } from "./store/useUIStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 
 import "./index.css";
 
 function App() {
-  const {
-    conversations,
-    activeId,
-    models,
-    selectedModel,
-    sidebarOpen,
-    isStreaming,
-    modelStatuses,
-    hasStarted,
-    isConfigLoaded,
-    view,
-    showRenameModal,
-    renameCurrentTitle,
-    loading,
-    toasts,
-    isSearchEnabled,
-  } = useAppStore(
+  const { conversations, activeId, isStreaming } = useChatStore(
     useShallow((s) => ({
       conversations: s.conversations,
       activeId: s.activeId,
-      models: s.models,
-      selectedModel: s.selectedModel,
-      sidebarOpen: s.sidebarOpen,
       isStreaming: s.isStreaming,
-      modelStatuses: s.modelStatuses,
-      hasStarted: s.hasStarted,
-      isConfigLoaded: s.isConfigLoaded,
-      view: s.view,
-      showRenameModal: s.showRenameModal,
-      renameCurrentTitle: s.renameCurrentTitle,
-      loading: s.loading,
-      toasts: s.toasts,
-      isSearchEnabled: s.isSearchEnabled,
     })),
   );
-
   const {
     init,
     setActiveId,
-    setSidebarOpen,
-    setView,
-    setHasStarted,
-    setSelectedModel,
-    toggleSearchEnabled,
     newChat,
     deleteChat,
-    openRenameModal,
-    confirmRename,
-    closeRenameModal,
     sendMessage,
     stopStreaming,
     retryLastMessage,
     exportChat,
-    dismissToast,
-  } = useAppStore(
+    confirmRename,
+  } = useChatStore(
     useShallow((s) => ({
       init: s.init,
       setActiveId: s.setActiveId,
-      setSidebarOpen: s.setSidebarOpen,
-      setView: s.setView,
-      setHasStarted: s.setHasStarted,
-      setSelectedModel: s.setSelectedModel,
-      toggleSearchEnabled: s.toggleSearchEnabled,
       newChat: s.newChat,
       deleteChat: s.deleteChat,
-      openRenameModal: s.openRenameModal,
-      confirmRename: s.confirmRename,
-      closeRenameModal: s.closeRenameModal,
       sendMessage: s.sendMessage,
       stopStreaming: s.stopStreaming,
       retryLastMessage: s.retryLastMessage,
       exportChat: s.exportChat,
+      confirmRename: s.confirmRename,
+    })),
+  );
+
+  const { models, selectedModel, modelStatuses } = useModelStore(
+    useShallow((s) => ({
+      models: s.models,
+      selectedModel: s.selectedModel,
+      modelStatuses: s.modelStatuses,
+    })),
+  );
+  const { setSelectedModel } = useModelStore(
+    useShallow((s) => ({
+      setSelectedModel: s.setSelectedModel,
+    })),
+  );
+
+  const { isSearchEnabled } = useSearchStore(
+    useShallow((s) => ({
+      isSearchEnabled: s.isSearchEnabled,
+    })),
+  );
+  const { toggleSearchEnabled } = useSearchStore(
+    useShallow((s) => ({
+      toggleSearchEnabled: s.toggleSearchEnabled,
+    })),
+  );
+
+  const { sidebarOpen, hasStarted, isConfigLoaded, view, showRenameModal, renameCurrentTitle, loading, toasts } =
+    useUIStore(
+      useShallow((s) => ({
+        sidebarOpen: s.sidebarOpen,
+        hasStarted: s.hasStarted,
+        isConfigLoaded: s.isConfigLoaded,
+        view: s.view,
+        showRenameModal: s.showRenameModal,
+        renameCurrentTitle: s.renameCurrentTitle,
+        loading: s.loading,
+        toasts: s.toasts,
+      })),
+    );
+  const { setSidebarOpen, setView, setHasStarted, openRenameModal, closeRenameModal, dismissToast } = useUIStore(
+    useShallow((s) => ({
+      setSidebarOpen: s.setSidebarOpen,
+      setView: s.setView,
+      setHasStarted: s.setHasStarted,
+      openRenameModal: s.openRenameModal,
+      closeRenameModal: s.closeRenameModal,
       dismissToast: s.dismissToast,
     })),
   );
@@ -135,7 +141,7 @@ function App() {
 
   useEffect(() => {
     return () => {
-      useAppStore.getState().cleanup();
+      useChatStore.getState().cleanup();
     };
   }, []);
 

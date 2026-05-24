@@ -4,16 +4,12 @@ import { generateId } from "../utils/generateId";
 import { logError } from "../utils/logger";
 import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
+import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../store/useChatStore";
 
-type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
-
-export interface AppState {
+export interface ToolLoopSlice {
   conversations: Conversation[];
-  activeId: string | null;
   isStreaming: boolean;
-  loading: Record<LoadingKey, boolean>;
-  addToast: (message: string, variant?: "error" | "success" | "info") => void;
-  persistConversations: () => Promise<void>;
 }
 
 export const TOOL_DEFINITIONS = [
@@ -111,15 +107,14 @@ export async function sendWithToolLoop(
   apiKeys: Record<string, string>,
   searchConfig: SearchApiConfig,
   searchApiKey: string,
-  set: (fn: (state: AppState) => Partial<AppState>) => void,
-  get: () => AppState,
+  set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
+  get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string) => Promise<UrlContent>,
 ) {
-  set((state) => ({
-    isStreaming: true,
-    loading: { ...state.loading, sendMessage: true, toolExecution: false },
-  }));
+  set(() => ({ isStreaming: true }));
+  useUIStore.getState().setLoading("sendMessage", true);
+  useUIStore.getState().setLoading("toolExecution", false);
 
   const collectedSources: { title: string; url: string }[] = [];
 
@@ -142,7 +137,7 @@ export async function sendWithToolLoop(
     }[] = [{ role: "system", content: TOOL_SYSTEM_PROMPT }, ...baseMessages];
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-      set((state) => ({ loading: { ...state.loading, toolExecution: true } }));
+      useUIStore.getState().setLoading("toolExecution", true);
 
       const raw = await invoke<string>("chat_completion_tools", {
         apiUrl,
@@ -309,10 +304,11 @@ export async function sendWithToolLoop(
         set((state) => ({
           conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
           isStreaming: false,
-          loading: { ...state.loading, sendMessage: false, toolExecution: false },
         }));
+        useUIStore.getState().setLoading("sendMessage", false);
+        useUIStore.getState().setLoading("toolExecution", false);
 
-        get().persistConversations();
+        await useChatStore.getState().persistConversations();
         return;
       }
     }
@@ -329,18 +325,20 @@ export async function sendWithToolLoop(
     set((state) => ({
       conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]),
       isStreaming: false,
-      loading: { ...state.loading, sendMessage: false, toolExecution: false },
     }));
+    useUIStore.getState().setLoading("sendMessage", false);
+    useUIStore.getState().setLoading("toolExecution", false);
 
-    get().persistConversations();
+    await useChatStore.getState().persistConversations();
   } catch (err) {
     const friendlyMessage = parseApiError(err);
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
-      loading: { ...state.loading, sendMessage: false, toolExecution: false },
     }));
-    get().addToast(friendlyMessage, "error");
+    useUIStore.getState().setLoading("sendMessage", false);
+    useUIStore.getState().setLoading("toolExecution", false);
+    useUIStore.getState().addToast(friendlyMessage, "error");
     logError("Tool loop failed", err);
   }
 }

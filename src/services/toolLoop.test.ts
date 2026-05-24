@@ -1,9 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { TOOL_DEFINITIONS, TOOL_SYSTEM_PROMPT, sendWithToolLoop, type AppState } from "./toolLoop";
+import { TOOL_DEFINITIONS, TOOL_SYSTEM_PROMPT, sendWithToolLoop, type ToolLoopSlice } from "./toolLoop";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+}));
+
+vi.mock("../store/useUIStore", () => ({
+  useUIStore: {
+    getState: () => ({
+      setLoading: vi.fn(),
+      addToast: vi.fn(),
+    }),
+  },
+}));
+
+vi.mock("../store/useChatStore", () => ({
+  useChatStore: {
+    getState: () => ({
+      persistConversations: vi.fn(),
+    }),
+  },
 }));
 
 const invokeMock = vi.mocked(invoke);
@@ -50,7 +67,7 @@ describe("sendWithToolLoop", () => {
   it("appends an assistant error when the tool request fails before a placeholder exists", async () => {
     invokeMock.mockRejectedValueOnce(new Error("network failed"));
 
-    let state: AppState = {
+    let state: ToolLoopSlice = {
       conversations: [
         {
           id: "conv-1",
@@ -60,20 +77,10 @@ describe("sendWithToolLoop", () => {
           messages: [{ id: "msg-1", role: "user", content: "Search this", timestamp: new Date() }],
         },
       ],
-      activeId: "conv-1",
       isStreaming: false,
-      loading: {
-        init: false,
-        sendMessage: false,
-        checkConnection: false,
-        saveConfig: false,
-        toolExecution: false,
-      },
-      addToast: vi.fn(),
-      persistConversations: vi.fn(),
     };
 
-    const set = (fn: (state: AppState) => Partial<AppState>) => {
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
       state = { ...state, ...fn(state) };
     };
 
