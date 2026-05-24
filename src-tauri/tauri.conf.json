@@ -18,7 +18,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; font-src 'self' data: https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost 'self' https: http://localhost ws://localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; font-src 'self' data: https://fonts.gstatic.com; connect-src ipc: http://ipc.localhost 'self' https://api.openai.com https://generativelanguage.googleapis.com https://integrate.api.nvidia.com https://openrouter.ai https://api.anthropic.com https://www.googleapis.com https://api.firecrawl.dev http://localhost:* ws://localhost:*"
     }
   },
   "bundle": {
