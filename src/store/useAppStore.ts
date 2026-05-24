@@ -38,6 +38,7 @@ let activeStreamConversationId: string | null = null;
 let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+const HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 interface StreamChunkPayload {
   streamId: string;
@@ -357,7 +358,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     set({ apiKeys: keys });
     saveApiKeys(keys);
-    get().checkModelConnections(models.map((m) => m.id));
     get().addToast("Models updated", "success");
   },
 
@@ -378,8 +378,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ modelStatuses: newStatuses });
     } else if (updates.enabled === true) {
       get().checkModelConnections([id]);
-    } else if (updates.apiBase || updates.apiKey !== undefined) {
-      get().checkModelConnections([id]);
+    } else if (
+      updates.apiBase !== undefined ||
+      updates.apiKey !== undefined ||
+      updates.modelId !== undefined ||
+      updates.provider !== undefined
+    ) {
+      const newStatuses = { ...modelStatuses, [id]: "disconnected" as const };
+      set({ modelStatuses: newStatuses });
     }
 
     const { selectedModel } = get();
@@ -421,7 +427,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = [...models, newModel];
     set({ models: updated });
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
-    get().checkModelConnections([newModel.id]);
     get().addToast("Model added — configure its details", "info");
   },
 
@@ -714,7 +719,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   checkModelConnections: async (modelIds?: string[]) => {
-    const { models, apiKeys, modelStatuses } = get();
+    const { models, apiKeys, modelStatuses, loading } = get();
+    if (loading.checkConnection) return;
     const toCheck = modelIds
       ? models.filter((m) => modelIds.includes(m.id) && m.enabled !== false)
       : models.filter((m) => m.enabled !== false);
@@ -762,7 +768,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (healthCheckInterval) return;
     healthCheckInterval = setInterval(() => {
       get().checkModelConnections();
-    }, 30000);
+    }, HEALTH_CHECK_INTERVAL_MS);
   },
 
   stopHealthCheck: () => {
