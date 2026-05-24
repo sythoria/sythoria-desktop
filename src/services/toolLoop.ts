@@ -91,6 +91,14 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
     const last = updated[updated.length - 1];
     if (last && last.role === "assistant") {
       updated[updated.length - 1] = { ...last, content: `**Error:** ${friendlyMessage}`, isStreaming: false };
+    } else {
+      updated.push({
+        id: generateId(),
+        role: "assistant",
+        content: `**Error:** ${friendlyMessage}`,
+        timestamp: new Date(),
+        isStreaming: false,
+      });
     }
     return updated;
   });
