@@ -108,6 +108,7 @@ function App() {
       setHasNewMessages(true);
     }
     if (isAtBottom) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHasNewMessages(false);
     }
     prevMessageCountRef.current = messages.length;
@@ -118,6 +119,7 @@ function App() {
   }, [init]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasNewMessages(false);
   }, [activeId]);
 
@@ -270,12 +272,14 @@ function App() {
         </main>
       )}
 
-      <RenameChatModal
-        isOpen={showRenameModal}
-        currentTitle={renameCurrentTitle}
-        onConfirm={confirmRename}
-        onCancel={closeRenameModal}
-      />
+      {showRenameModal && (
+        <RenameChatModal
+          isOpen={showRenameModal}
+          currentTitle={renameCurrentTitle}
+          onConfirm={confirmRename}
+          onCancel={closeRenameModal}
+        />
+      )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>

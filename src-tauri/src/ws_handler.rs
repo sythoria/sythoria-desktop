@@ -197,7 +197,7 @@ impl WebSocketConnection {
         let base_delay = Duration::from_secs(1);
         let max_delay = Duration::from_secs(30);
         
-        let delay = base_delay * (2u32.pow(self.reconnect_count.min(5) as u32));
+        let delay = base_delay * (2u32.pow(self.reconnect_count.min(5)));
         delay.min(max_delay)
     }
 
@@ -453,7 +453,7 @@ mod tests {
 
         let deserialized: TypingEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.user_id, "user123");
-        assert_eq!(deserialized.is_typing, true);
+        assert!(deserialized.is_typing);
         assert_eq!(deserialized.chat_id, Some("chat456".to_string()));
     }
 

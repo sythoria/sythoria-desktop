@@ -3,7 +3,7 @@ import type { Conversation, Message, ModelConfig, SearchApiConfig, SearchResult,
 import { generateId } from "../utils/generateId";
 import { logError } from "../utils/logger";
 import { MAX_TOOL_STEPS } from "../config/constants";
-import { parseApiError } from "../components/ui/Toast";
+import { parseApiError } from "../utils/parseApiError";
 
 type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
 

@@ -194,8 +194,6 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
   useEffect(() => {
     if (!isOpen) return;
 
-    setValue(currentTitle);
-
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
     };
@@ -216,7 +214,7 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
       unlockBodyScroll();
       previouslyFocused?.focus();
     };
-  }, [isOpen, currentTitle, onCancel]);
+  }, [isOpen, onCancel]);
 
   if (!isOpen) return null;
 

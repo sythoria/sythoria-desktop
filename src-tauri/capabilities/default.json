@@ -16,7 +16,6 @@
         { "event": "ws-message" }
       ]
     },
-    "core:event:allow-emit",
     "opener:default",
     "store:default",
     "log:default"

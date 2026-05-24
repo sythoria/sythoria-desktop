@@ -28,7 +28,7 @@ import {
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH, DEFAULT_TEMPERATURE } from "../config/constants";
-import { parseApiError } from "../components/ui/Toast";
+import { parseApiError } from "../utils/parseApiError";
 import type { Toast } from "../components/ui/Toast";
 import { validateModelConfig, validateSearchConfig } from "../utils/validation";
 import { sendWithToolLoop } from "../services/toolLoop";

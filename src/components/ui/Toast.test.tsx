@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { ToastContainer, parseApiError } from "./Toast";
+import { ToastContainer } from "./Toast";
+import { parseApiError } from "../../utils/parseApiError";
 import type { Toast } from "./Toast";
 
 describe("parseApiError", () => {
