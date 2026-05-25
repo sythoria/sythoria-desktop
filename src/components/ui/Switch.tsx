@@ -7,7 +7,7 @@ interface SwitchProps {
 
 export function Switch({ checked, onChange, label, description }: SwitchProps) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-4">
       {(label || description) && (
         <div className="min-w-0">
           {label && <p className="text-sm font-medium text-text-primary">{label}</p>}
