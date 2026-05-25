@@ -55,8 +55,8 @@ export function validateApiUrl(url: string): { valid: boolean; error?: string } 
 }
 
 export function validateApiKey(key: string, provider?: string): { valid: boolean; warning?: string } {
-  const localProviders = ["Ollama (Local)", "Local"];
-  if (localProviders.includes(provider ?? "")) {
+  const noKeyProviders = ["Ollama (Local)", "Local", "Custom"];
+  if (noKeyProviders.includes(provider ?? "")) {
     return { valid: true };
   }
   if (!key || key.trim().length === 0) {
