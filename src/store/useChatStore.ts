@@ -16,9 +16,30 @@ import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { sendWithToolLoop } from "../services/toolLoop";
-import { useUIStore } from "./useUIStore";
+import {
+  uiToast,
+  uiLoading,
+  uiConfigLoaded,
+  uiHasStarted,
+  uiTheme,
+  uiSidebarOpen,
+  uiView,
+  uiCloseRenameModal,
+  modelCancelStream,
+  modelStopHealthCheck,
+  modelReleaseListeners,
+  modelCheckConnections,
+  modelStartHealthCheck,
+  modelSetState,
+  modelSetActiveStream,
+  modelGetActiveStreamId,
+  searchSetState,
+  searchPerformSearch,
+  searchFetchUrlContent,
+} from "./helpers";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
+import { useUIStore } from "./useUIStore";
 
 function truncateTitle(text: string): string {
   return text.length > TITLE_MAX_LENGTH ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026" : text;
@@ -95,7 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   init: async () => {
     if (initInProgress) return;
     initInProgress = true;
-    useUIStore.getState().setLoading("init", true);
+    uiLoading("init", true);
     try {
       const [loadedModels, loadedConvs, loadedTheme, loadedKeys, loadedSearchConfigs, loadedSearchKeys] =
         await Promise.all([
@@ -117,14 +138,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const searchConfigs = loadedSearchConfigs || [];
 
-      useModelStore.setState({
+      modelSetState({
         models: modelsWithKeys,
         selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
         apiKeys: loadedKeys,
         modelStatuses: {},
       });
 
-      useSearchStore.setState({
+      searchSetState({
         searchConfigs,
         activeSearchId: searchConfigs.find((c) => c.enabled)?.id ?? null,
         searchApiKeys: loadedSearchKeys,
@@ -135,23 +156,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
       });
 
-      useUIStore.setState({
-        theme: loadedTheme,
-        hasStarted: modelsWithKeys.length > 0,
-        isConfigLoaded: true,
-      });
+      uiHasStarted(modelsWithKeys.length > 0);
+      uiConfigLoaded(true);
+      uiTheme(loadedTheme);
 
       document.documentElement.classList.toggle("dark", loadedTheme === "dark");
       logInfo("App state initialized");
 
-      useModelStore.getState().checkModelConnections();
-      useModelStore.getState().startHealthCheck();
+      modelCheckConnections();
+      modelStartHealthCheck();
     } catch (err) {
       logError("Failed to initialize app", err);
-      useUIStore.getState().addToast(parseApiError(err), "error");
-      useUIStore.getState().setConfigLoaded(true);
+      uiToast(parseApiError(err), "error");
+      uiConfigLoaded(true);
     } finally {
-      useUIStore.getState().setLoading("init", false);
+      uiLoading("init", false);
       initInProgress = false;
     }
   },
@@ -189,8 +208,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       conversations: [conv, ...state.conversations],
       activeId: id,
     }));
-    useUIStore.getState().setSidebarOpen(false);
-    useUIStore.getState().setView("chat");
+    uiSidebarOpen(false);
+    uiView("chat");
     return id;
   },
 
@@ -214,7 +233,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (renameId) {
       get().renameChat(renameId, newTitle);
     }
-    useUIStore.getState().closeRenameModal();
+    uiCloseRenameModal();
   },
 
   sendMessage: async (text) => {
@@ -255,7 +274,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (!modelConfig) {
       logError("No model configuration selected");
-      useUIStore.getState().addToast("No model configured — add one in Settings", "error");
+      uiToast("No model configured — add one in Settings", "error");
       return;
     }
 
@@ -282,8 +301,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         searchApiKey,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
-        useSearchStore.getState().performSearch,
-        useSearchStore.getState().fetchUrlContent,
+        searchPerformSearch,
+        searchFetchUrlContent,
       );
     } else {
       await sendNormal(finalId, modelConfig, temperature, apiKeys, set, get);
@@ -291,7 +310,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   stopStreaming: () => {
-    useModelStore.getState().cancelActiveStream();
+    modelCancelStream();
     set((state) => {
       const convs = state.conversations.map((c) => ({
         ...c,
@@ -304,8 +323,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: convs,
       };
     });
-    useUIStore.getState().setLoading("sendMessage", false);
-    useUIStore.getState().setLoading("toolExecution", false);
+    uiLoading("sendMessage", false);
+    uiLoading("toolExecution", false);
   },
 
   retryLastMessage: async (convId) => {
@@ -338,7 +357,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
     if (!modelConfig) {
       logError("No model configuration selected");
-      useUIStore.getState().addToast("No model configured — add one in Settings", "error");
+      uiToast("No model configured — add one in Settings", "error");
       return;
     }
 
@@ -356,8 +375,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         searchApiKey,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
-        useSearchStore.getState().performSearch,
-        useSearchStore.getState().fetchUrlContent,
+        searchPerformSearch,
+        searchFetchUrlContent,
       );
     } else {
       await sendNormal(convId, modelConfig, temperature, apiKeys, set, get);
@@ -386,7 +405,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     a.download = `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
     a.click();
     URL.revokeObjectURL(url);
-    useUIStore.getState().addToast("Chat exported", "success");
+    uiToast("Chat exported", "success");
   },
 
   persistConversations: async () => {
@@ -400,13 +419,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   clearAllChats: async () => {
     set({ conversations: [], activeId: null });
     await clearConversations();
-    useUIStore.getState().addToast("All chats cleared", "info");
+    uiToast("All chats cleared", "info");
   },
 
   cleanup: () => {
-    useModelStore.getState().stopHealthCheck();
+    modelStopHealthCheck();
     get().stopStreaming();
-    useModelStore.getState().releaseStreamListeners();
+    modelReleaseListeners();
   },
 
   setGenerationState: (state, label, error) => {
@@ -439,7 +458,7 @@ async function sendNormal(
     generationLabel: "Thinking",
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
-  useUIStore.getState().setLoading("sendMessage", true);
+  uiLoading("sendMessage", true);
 
   const streamId = generateId();
   const modelStore = useModelStore.getState();
@@ -504,9 +523,9 @@ async function sendNormal(
       streamId,
     });
 
-    const streamStillActive = useModelStore.getState().getActiveStreamId() === streamId;
+    const streamStillActive = modelGetActiveStreamId() === streamId;
     if (streamStillActive) {
-      useModelStore.getState().setActiveStreamId(null, null);
+      modelSetActiveStream(null, null);
     }
 
     set((state) => ({
@@ -517,18 +536,18 @@ async function sendNormal(
     get().persistConversations();
   } catch (err) {
     const friendlyMessage = parseApiError(err);
-    useModelStore.getState().setActiveStreamId(null, null);
-    useModelStore.getState().releaseStreamListeners();
+    modelSetActiveStream(null, null);
+    modelReleaseListeners();
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
       generationState: "error" as GenerationState,
       generationLabel: `Generation failed: ${friendlyMessage}`,
     }));
-    useUIStore.getState().setLoading("sendMessage", false);
-    useUIStore.getState().addToast(friendlyMessage, "error");
+    uiLoading("sendMessage", false);
+    uiToast(friendlyMessage, "error");
     logError("Failed to send message", err);
   } finally {
-    useUIStore.getState().setLoading("sendMessage", false);
+    uiLoading("sendMessage", false);
   }
 }

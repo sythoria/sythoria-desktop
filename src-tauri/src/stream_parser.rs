@@ -50,6 +50,9 @@ pub(crate) struct SseParser {
     in_reasoning: bool,
 }
 
+const MAX_CONTENT_CHARS: usize = 1_000_000;
+const MAX_BUFFER_CHARS: usize = 1_000_000;
+
 impl SseParser {
     pub(crate) fn new() -> Self {
         Self {
@@ -61,7 +64,22 @@ impl SseParser {
     }
 
     pub(crate) fn push_bytes(&mut self, bytes: &[u8]) {
-        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        let incoming = String::from_utf8_lossy(bytes);
+        if self.buffer.len() + incoming.len() <= MAX_BUFFER_CHARS {
+            self.buffer.push_str(&incoming);
+        } else {
+            log::warn!(
+                "SSE buffer exceeded {} char limit ({}), dropping stale data",
+                MAX_BUFFER_CHARS,
+                self.buffer.len() + incoming.len()
+            );
+            if let Some(last_nl) = incoming.rfind('\n') {
+                self.buffer = incoming[last_nl + 1..].to_string();
+            } else {
+                self.buffer.clear();
+                self.buffer.push_str(&incoming);
+            }
+        }
     }
 
     pub(crate) fn process_lines<F>(&mut self, app: &tauri::AppHandle, stream_id: &str, mut on_chunk: F)
@@ -80,72 +98,84 @@ impl SseParser {
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(parsed) => {
                         for choice in parsed.choices {
-                            if let Some(reasoning) = choice.delta.reasoning_content {
-                                if !reasoning.is_empty() {
-                                    self.full_reasoning.push_str(&reasoning);
-                                    if !self.in_reasoning {
-                                        self.in_reasoning = true;
-                                        emit_stream_chunk(app, stream_id, "<reasoning>");
-                                        on_chunk("<reasoning>");
-                                    }
-                                    emit_stream_chunk(app, stream_id, &reasoning);
-                                    on_chunk(&reasoning);
+            if let Some(reasoning) = choice.delta.reasoning_content {
+                if !reasoning.is_empty() {
+                    if self.full_content.len() < MAX_CONTENT_CHARS {
+                        self.full_reasoning.push_str(&reasoning);
+                    }
+                    if !self.in_reasoning {
+                        self.in_reasoning = true;
+                        emit_stream_chunk(app, stream_id, "<reasoning>");
+                        on_chunk("<reasoning>");
+                    }
+                    emit_stream_chunk(app, stream_id, &reasoning);
+                    on_chunk(&reasoning);
+                }
+            }
+
+            if let Some(content) = choice.delta.content {
+                let normalized = content
+                    .replace("<thinking>", "<reasoning>")
+                    .replace("</thinking>", "</reasoning>")
+                    .replace("<thought>", "<reasoning>")
+                    .replace("</thought>", "</reasoning>");
+
+                if normalized.contains("<reasoning>")
+                    || normalized.contains("</reasoning>")
+                {
+                    let has_open = normalized.contains("<reasoning>");
+                    let has_close = normalized.contains("</reasoning>");
+
+                    if has_open && !self.in_reasoning {
+                        self.in_reasoning = true;
+                    }
+
+                    if self.full_content.len() < MAX_CONTENT_CHARS {
+                        self.full_content.push_str(&normalized);
+                    }
+                    emit_stream_chunk(app, stream_id, &normalized);
+                    on_chunk(&normalized);
+
+                    if has_close && self.in_reasoning {
+                        self.in_reasoning = false;
+                        if self.full_content.len() < MAX_CONTENT_CHARS {
+                            if let Some(start) = self.full_content.find("<reasoning>") {
+                                if let Some(end) = self.full_content.find("</reasoning>") {
+                                    self.full_reasoning = self.full_content
+                                        [start + "<reasoning>".len()..end]
+                                        .to_string();
                                 }
                             }
+                        }
+                    }
+                } else {
+                    if self.in_reasoning && !normalized.trim().is_empty() {
+                        self.in_reasoning = false;
+                        emit_stream_chunk(app, stream_id, "</reasoning>");
+                        if self.full_content.len() < MAX_CONTENT_CHARS {
+                            self.full_content.push_str("</reasoning>");
+                        }
+                        on_chunk("</reasoning>");
+                    }
+                    if self.full_content.len() < MAX_CONTENT_CHARS {
+                        self.full_content.push_str(&normalized);
+                    }
+                    emit_stream_chunk(app, stream_id, &normalized);
+                    on_chunk(&normalized);
+                }
+            }
 
-                            if let Some(content) = choice.delta.content {
-                                let normalized = content
-                                    .replace("<thinking>", "<reasoning>")
-                                    .replace("</thinking>", "</reasoning>")
-                                    .replace("<thought>", "<reasoning>")
-                                    .replace("</thought>", "</reasoning>");
-
-                                if normalized.contains("<reasoning>")
-                                    || normalized.contains("</reasoning>")
-                                {
-                                    let has_open = normalized.contains("<reasoning>");
-                                    let has_close = normalized.contains("</reasoning>");
-
-                                    if has_open && !self.in_reasoning {
-                                        self.in_reasoning = true;
-                                    }
-
-                                    self.full_content.push_str(&normalized);
-                                    emit_stream_chunk(app, stream_id, &normalized);
-                                    on_chunk(&normalized);
-
-                                    if has_close && self.in_reasoning {
-                                        self.in_reasoning = false;
-                                        if let Some(start) = self.full_content.find("<reasoning>") {
-                                            if let Some(end) = self.full_content.find("</reasoning>") {
-                                                self.full_reasoning = self.full_content
-                                                    [start + "<reasoning>".len()..end]
-                                                    .to_string();
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    if self.in_reasoning && !normalized.trim().is_empty() {
-                                        self.in_reasoning = false;
-                                        emit_stream_chunk(app, stream_id, "</reasoning>");
-                                        self.full_content.push_str("</reasoning>");
-                                        on_chunk("</reasoning>");
-                                    }
-                                    self.full_content.push_str(&normalized);
-                                    emit_stream_chunk(app, stream_id, &normalized);
-                                    on_chunk(&normalized);
-                                }
-                            }
-
-                            if choice.finish_reason.is_some() {
-                                if self.in_reasoning {
-                                    emit_stream_chunk(app, stream_id, "</reasoning>");
-                                    self.full_content.push_str("</reasoning>");
-                                    on_chunk("</reasoning>");
-                                    self.in_reasoning = false;
-                                }
-                                emit_stream_done(app, stream_id);
-                            }
+            if choice.finish_reason.is_some() {
+                if self.in_reasoning {
+                    emit_stream_chunk(app, stream_id, "</reasoning>");
+                    if self.full_content.len() < MAX_CONTENT_CHARS {
+                        self.full_content.push_str("</reasoning>");
+                    }
+                    on_chunk("</reasoning>");
+                    self.in_reasoning = false;
+                }
+                emit_stream_done(app, stream_id);
+            }
                         }
                     }
                     Err(e) => {

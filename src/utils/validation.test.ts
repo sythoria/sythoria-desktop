@@ -7,7 +7,10 @@ describe("validateApiUrl", () => {
   });
 
   it("accepts valid HTTP URLs", () => {
-    expect(validateApiUrl("http://localhost:11434/v1/chat/completions")).toEqual({ valid: true });
+    expect(validateApiUrl("http://localhost:11434/v1/chat/completions")).toEqual({
+      valid: true,
+      warning: "This is a local/private network address — ensure it is intentional",
+    });
   });
 
   it("rejects empty strings", () => {
@@ -15,7 +18,7 @@ describe("validateApiUrl", () => {
   });
 
   it("rejects non-HTTP protocols", () => {
-    expect(validateApiUrl("ftp://example.com")).toEqual({ valid: false, error: "URL must use HTTP or HTTPS protocol" });
+    expect(validateApiUrl("ftp://example.com")).toEqual({ valid: false, error: "ftp: protocol is not allowed" });
   });
 
   it("rejects malformed URLs", () => {

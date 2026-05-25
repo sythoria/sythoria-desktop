@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, useMemo, useCallback, useDeferredValue } from "react";
+import { useState, useEffect, useRef, memo, useCallback, useDeferredValue } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -76,22 +76,21 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
   );
 }
 
+const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} skipHtml>
+      {content}
+    </ReactMarkdown>
+  );
+});
+
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
   const deferredContent = useDeferredValue(content);
   const renderContent = isStreaming ? deferredContent : content;
 
-  const markdown = useMemo(
-    () => (
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {renderContent}
-      </ReactMarkdown>
-    ),
-    [renderContent],
-  );
-
   return (
     <>
-      {markdown}
+      <StreamingMarkdown content={renderContent} />
       {isStreaming && <span className="cursor-blink" aria-label="Generating response" />}
     </>
   );
