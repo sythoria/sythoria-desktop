@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, ModelConfig, SearchApiConfig, SearchResult, UrlContent } from "../types";
+import type {
+  Conversation,
+  Message,
+  ModelConfig,
+  SearchApiConfig,
+  SearchResult,
+  UrlContent,
+  GenerationState,
+  ActivityEntry,
+} from "../types";
 import { generateId } from "../utils/generateId";
 import { logError } from "../utils/logger";
 import { MAX_TOOL_STEPS } from "../config/constants";
@@ -10,6 +19,8 @@ import { useChatStore } from "../store/useChatStore";
 export interface ToolLoopSlice {
   conversations: Conversation[];
   isStreaming: boolean;
+  generationState: GenerationState;
+  activityLog: ActivityEntry[];
 }
 
 export const TOOL_DEFINITIONS = [
@@ -112,7 +123,11 @@ export async function sendWithToolLoop(
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string) => Promise<UrlContent>,
 ) {
-  set(() => ({ isStreaming: true }));
+  set(() => ({
+    isStreaming: true,
+    generationState: "thinking" as GenerationState,
+    activityLog: [{ id: generateId(), state: "thinking" as GenerationState, label: "Thinking", timestamp: new Date() }],
+  }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
 
@@ -138,6 +153,20 @@ export async function sendWithToolLoop(
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       useUIStore.getState().setLoading("toolExecution", true);
+      if (step > 0) {
+        set((state) => ({
+          generationState: "thinking" as GenerationState,
+          activityLog: [
+            ...state.activityLog,
+            {
+              id: generateId(),
+              state: "thinking" as GenerationState,
+              label: step === 0 ? "Thinking" : "Thinking (continued)",
+              timestamp: new Date(),
+            },
+          ],
+        }));
+      }
 
       const raw = await invoke<string>("chat_completion_tools", {
         apiUrl,
@@ -198,6 +227,16 @@ export async function sendWithToolLoop(
             };
             set((state) => ({
               conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
+              activityLog: [
+                ...state.activityLog,
+                {
+                  id: generateId(),
+                  state: "error" as GenerationState,
+                  label: `Unknown tool: ${rawName}`,
+                  timestamp: new Date(),
+                  error: `Unknown tool: ${rawName}`,
+                },
+              ],
             }));
             apiMessages.push({
               role: "tool",
@@ -223,6 +262,17 @@ export async function sendWithToolLoop(
 
           set((state) => ({
             conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, toolCallMsg]),
+            generationState:
+              fnName === "search_query" ? ("searching" as GenerationState) : ("fetching" as GenerationState),
+            activityLog: [
+              ...state.activityLog,
+              {
+                id: generateId(),
+                state: (fnName === "search_query" ? "searching" : "fetching") as GenerationState,
+                label: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
+                timestamp: new Date(),
+              },
+            ],
           }));
 
           let resultContent = "";
@@ -263,6 +313,8 @@ export async function sendWithToolLoop(
                 ? urlContent.content.slice(0, 2000)
                 : `Error fetching URL: ${urlContent.error || "Unknown error"}`;
 
+            const fetchFailed = urlContent.status !== "ok";
+
             set((state) => ({
               conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
                 msgs.map((m) =>
@@ -279,6 +331,20 @@ export async function sendWithToolLoop(
                     : m,
                 ),
               ),
+              ...(fetchFailed
+                ? {
+                    activityLog: [
+                      ...state.activityLog,
+                      {
+                        id: generateId(),
+                        state: "error" as GenerationState,
+                        label: `Fetch failed: ${fnArgs.url}`,
+                        timestamp: new Date(),
+                        error: urlContent.error || "Unknown error",
+                      },
+                    ],
+                  }
+                : {}),
             }));
           }
 
@@ -304,6 +370,16 @@ export async function sendWithToolLoop(
         set((state) => ({
           conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
           isStreaming: false,
+          generationState: "idle" as GenerationState,
+          activityLog: [
+            ...state.activityLog,
+            {
+              id: generateId(),
+              state: "responding" as GenerationState,
+              label: "Responding",
+              timestamp: new Date(),
+            },
+          ],
         }));
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
@@ -325,6 +401,7 @@ export async function sendWithToolLoop(
     set((state) => ({
       conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]),
       isStreaming: false,
+      generationState: "idle" as GenerationState,
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
@@ -335,6 +412,17 @@ export async function sendWithToolLoop(
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
+      generationState: "error" as GenerationState,
+      activityLog: [
+        ...state.activityLog,
+        {
+          id: generateId(),
+          state: "error" as GenerationState,
+          label: "Generation failed",
+          timestamp: new Date(),
+          error: friendlyMessage,
+        },
+      ],
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);

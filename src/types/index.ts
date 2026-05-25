@@ -60,6 +60,16 @@ export interface SearchApiConfig {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
+export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "error";
+
+export interface ActivityEntry {
+  id: string;
+  state: GenerationState;
+  label: string;
+  timestamp: Date;
+  error?: string;
+}
+
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: "bg-gray-400",
   connecting: "bg-yellow-400 animate-pulse",

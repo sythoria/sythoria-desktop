@@ -24,6 +24,8 @@ let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 const HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const MIN_CHECK_INTERVAL_MS = 30 * 1000;
+let lastCheckTime = 0;
 
 async function ensureStreamListeners(
   onChunk: (convId: string, content: string) => void,
@@ -198,6 +200,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
   checkModelConnections: async (modelIds?: string[]) => {
     const { models, apiKeys, modelStatuses } = get();
     if (useUIStore.getState().loading.checkConnection) return;
+    const now = Date.now();
+    if (now - lastCheckTime < MIN_CHECK_INTERVAL_MS) return;
+    lastCheckTime = now;
     const toCheck = modelIds
       ? models.filter((m) => modelIds.includes(m.id) && m.enabled !== false)
       : models.filter((m) => m.enabled !== false);

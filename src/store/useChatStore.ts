@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, ModelConfig } from "../types";
+import type { Conversation, Message, ModelConfig, GenerationState, ActivityEntry } from "../types";
 import { loadModelConfigs } from "../types";
 import {
   loadConversations,
@@ -63,6 +63,8 @@ interface ChatState {
   conversations: Conversation[];
   activeId: string | null;
   isStreaming: boolean;
+  generationState: GenerationState;
+  activityLog: ActivityEntry[];
 
   init: () => Promise<void>;
   cleanupEmptyConversations: () => void;
@@ -78,14 +80,22 @@ interface ChatState {
   persistConversations: () => Promise<void>;
   clearAllChats: () => Promise<void>;
   cleanup: () => void;
+  setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
+  clearActivity: () => void;
 }
+
+let initInProgress = false;
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeId: null,
   isStreaming: false,
+  generationState: "idle" as GenerationState,
+  activityLog: [],
 
   init: async () => {
+    if (initInProgress) return;
+    initInProgress = true;
     useUIStore.getState().setLoading("init", true);
     try {
       const [loadedModels, loadedConvs, loadedTheme, loadedKeys, loadedSearchConfigs, loadedSearchKeys] =
@@ -143,6 +153,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       useUIStore.getState().setConfigLoaded(true);
     } finally {
       useUIStore.getState().setLoading("init", false);
+      initInProgress = false;
     }
   },
 
@@ -250,6 +261,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     set((state) => ({
+      generationState: "idle" as GenerationState,
+      activityLog: [],
       conversations: updateConversationMessages(state.conversations, finalId, (msgs) => [...msgs, userMsg], {
         title:
           state.conversations.find((c) => c.id === finalId)?.messages.length === 0 ? truncateTitle(text) : undefined,
@@ -287,6 +300,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       return {
         isStreaming: false,
+        generationState: "idle" as GenerationState,
         conversations: convs,
       };
     });
@@ -394,6 +408,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().stopStreaming();
     useModelStore.getState().releaseStreamListeners();
   },
+
+  setGenerationState: (state, label, error) => {
+    const entry: ActivityEntry = {
+      id: generateId(),
+      state,
+      label: label ?? state,
+      timestamp: new Date(),
+      error,
+    };
+    set((s) => ({
+      generationState: state,
+      activityLog: [...s.activityLog, entry],
+    }));
+  },
+
+  clearActivity: () => {
+    set({ generationState: "idle", activityLog: [] });
+  },
 }));
 
 async function sendNormal(
@@ -414,6 +446,8 @@ async function sendNormal(
 
   set((state) => ({
     isStreaming: true,
+    generationState: "thinking" as GenerationState,
+    activityLog: [{ id: generateId(), state: "thinking" as GenerationState, label: "Thinking", timestamp: new Date() }],
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
   useUIStore.getState().setLoading("sendMessage", true);
@@ -424,17 +458,28 @@ async function sendNormal(
 
   await modelStore.ensureStreamListeners(
     (cId, content) => {
-      set((state) => ({
-        conversations: state.conversations.map((c) => {
-          if (c.id !== cId) return c;
-          const updated = [...c.messages];
-          const last = updated[updated.length - 1];
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: last.content + content };
-          }
-          return { ...c, messages: updated };
-        }),
-      }));
+      set((state) => {
+        const newState: Partial<ChatState> = {};
+        if (state.generationState === "thinking" && !content.startsWith("<reasoning>")) {
+          newState.generationState = "responding";
+          newState.activityLog = [
+            ...state.activityLog,
+            { id: generateId(), state: "responding" as GenerationState, label: "Responding", timestamp: new Date() },
+          ];
+        }
+        return {
+          ...newState,
+          conversations: state.conversations.map((c) => {
+            if (c.id !== cId) return c;
+            const updated = [...c.messages];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant") {
+              updated[updated.length - 1] = { ...last, content: last.content + content };
+            }
+            return { ...c, messages: updated };
+          }),
+        };
+      });
     },
     (cId) => {
       set((state) => ({
@@ -448,6 +493,7 @@ async function sendNormal(
           return { ...c, messages: updated };
         }),
         isStreaming: false,
+        generationState: "idle" as GenerationState,
       }));
     },
   );
@@ -489,6 +535,17 @@ async function sendNormal(
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
+      generationState: "error" as GenerationState,
+      activityLog: [
+        ...state.activityLog,
+        {
+          id: generateId(),
+          state: "error" as GenerationState,
+          label: "Generation failed",
+          timestamp: new Date(),
+          error: friendlyMessage,
+        },
+      ],
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().addToast(friendlyMessage, "error");

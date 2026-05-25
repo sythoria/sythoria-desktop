@@ -20,6 +20,8 @@ const defaultProps = {
   setIsAtBottom: vi.fn(),
   virtuosoRef: { current: null } as React.RefObject<null>,
   onRetry: vi.fn(),
+  activityLog: [] as import("../types").ActivityEntry[],
+  generationState: "idle" as import("../types").GenerationState,
 };
 
 describe("ChatArea", () => {

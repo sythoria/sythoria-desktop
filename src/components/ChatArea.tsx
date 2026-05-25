@@ -18,7 +18,8 @@ import {
   RotateCw,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message } from "../types";
+import type { Message, ActivityEntry, GenerationState } from "../types";
+import GenerationActivity from "./GenerationActivity";
 
 interface ChatAreaProps {
   messages: Message[];
@@ -27,6 +28,8 @@ interface ChatAreaProps {
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
   onRetry: () => void;
+  activityLog: ActivityEntry[];
+  generationState: GenerationState;
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -454,6 +457,8 @@ export default function ChatArea({
   setIsAtBottom,
   virtuosoRef,
   onRetry,
+  activityLog,
+  generationState,
 }: ChatAreaProps) {
   if (messages.length === 0) {
     return (
@@ -505,6 +510,12 @@ export default function ChatArea({
             List: forwardRef(function VirtuosoList(props, ref) {
               return <div {...props} ref={ref} className="max-w-3xl mx-auto py-8 px-4 md:px-0" />;
             }),
+            Footer: () =>
+              generationState !== "idle" ? (
+                <div className="max-w-3xl mx-auto">
+                  <GenerationActivity activityLog={activityLog} generationState={generationState} />
+                </div>
+              ) : null,
           }}
           followOutput="smooth"
         />
@@ -518,6 +529,8 @@ export default function ChatArea({
       isAtBottom={isAtBottom}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
+      activityLog={activityLog}
+      generationState={generationState}
     />
   );
 }
@@ -526,11 +539,15 @@ function NonVirtualizedChatArea({
   messages,
   setIsAtBottom,
   onRetry,
+  activityLog,
+  generationState,
 }: {
   messages: Message[];
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   onRetry?: () => void;
+  activityLog: ActivityEntry[];
+  generationState: GenerationState;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -562,6 +579,9 @@ function NonVirtualizedChatArea({
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} onRetry={onRetry} />
         ))}
+        {generationState !== "idle" && (
+          <GenerationActivity activityLog={activityLog} generationState={generationState} />
+        )}
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>

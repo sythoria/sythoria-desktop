@@ -19,11 +19,13 @@ import { useScrollButton } from "./hooks/useScrollPosition";
 import "./index.css";
 
 function App() {
-  const { conversations, activeId, isStreaming } = useChatStore(
+  const { conversations, activeId, isStreaming, generationState, activityLog } = useChatStore(
     useShallow((s) => ({
       conversations: s.conversations,
       activeId: s.activeId,
       isStreaming: s.isStreaming,
+      generationState: s.generationState,
+      activityLog: s.activityLog,
     })),
   );
   const {
@@ -254,6 +256,8 @@ function App() {
             setIsAtBottom={setIsAtBottom}
             virtuosoRef={virtuosoRef}
             onRetry={handleRetry}
+            activityLog={activityLog}
+            generationState={generationState}
           />
 
           <div
