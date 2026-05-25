@@ -45,7 +45,7 @@ export interface ModelConfig {
   enabled?: boolean;
 }
 
-export type SearchProvider = "google" | "searxng" | "firecrawl";
+export type SearchProvider = "google" | "searxng" | "firecrawl" | "custom";
 
 export interface SearchApiConfig {
   id: string;

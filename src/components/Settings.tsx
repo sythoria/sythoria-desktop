@@ -380,16 +380,18 @@ const SearchApiCard = memo(function SearchApiCard({
                 ? "https://www.googleapis.com/customsearch/v1"
                 : config.provider === "searxng"
                   ? "http://localhost:8080"
-                  : "https://api.firecrawl.dev/v1"
+                  : config.provider === "firecrawl"
+                    ? "https://api.firecrawl.dev/v1"
+                    : "https://example.com/search"
             }
             className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
           />
         </div>
 
-        {(config.provider === "google" || config.provider === "firecrawl") && (
+        {(config.provider === "google" || config.provider === "firecrawl" || config.provider === "custom") && (
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-key-${config.id}`}>
-              API Key
+              API Key{config.provider === "custom" ? " (optional)" : ""}
             </label>
             <div className="relative">
               <input
@@ -397,7 +399,13 @@ const SearchApiCard = memo(function SearchApiCard({
                 type={showKey ? "text" : "password"}
                 value={config.apiKey || ""}
                 onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
-                placeholder={config.provider === "google" ? "Google API Key" : "API Key"}
+                placeholder={
+                  config.provider === "google"
+                    ? "Google API Key"
+                    : config.provider === "custom"
+                      ? "API Key (optional)"
+                      : "API Key"
+                }
                 className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
                   !keyValidation.valid
                     ? "border-yellow-500/50 focus:border-yellow-500"

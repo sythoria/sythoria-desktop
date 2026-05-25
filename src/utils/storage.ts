@@ -50,7 +50,7 @@ const ApiKeysSchema = z.record(z.string(), z.string());
 const SearchConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
-  provider: z.enum(["google", "searxng", "firecrawl"]),
+  provider: z.enum(["google", "searxng", "firecrawl", "custom"]),
   baseUrl: z.string(),
   apiKey: z.string().optional(),
   cx: z.string().optional(),
@@ -159,7 +159,10 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
       await store.delete(API_KEYS_KEY);
       return legacy.data;
     }
-    if (legacyRaw) logError("Stored API keys failed validation, resetting");
+    if (legacyRaw) {
+      if (!legacy.success) logError("Stored API keys failed validation, resetting", legacy.error);
+      await store.delete(API_KEYS_KEY);
+    }
   } catch (e) {
     logError("Failed to migrate legacy API keys", e);
   }
@@ -226,7 +229,10 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
       await store.delete(SEARCH_API_KEYS_KEY);
       return legacy.data;
     }
-    if (legacyRaw) logError("Stored search API keys failed validation, resetting");
+    if (legacyRaw) {
+      if (!legacy.success) logError("Stored search API keys failed validation, resetting", legacy.error);
+      await store.delete(SEARCH_API_KEYS_KEY);
+    }
   } catch (e) {
     logError("Failed to migrate legacy search API keys", e);
   }

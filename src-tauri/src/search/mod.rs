@@ -1,3 +1,4 @@
+pub mod custom;
 pub mod firecrawl;
 pub mod google;
 pub mod searxng;
@@ -208,6 +209,7 @@ pub async fn search(
         "google" => google::search(query, config).await,
         "searxng" => searxng::search(query, config).await,
         "firecrawl" => firecrawl::search(query, config).await,
+        "custom" => custom::search(query, config).await,
         _ => Err(SearchError::ConfigError(format!(
             "Unknown search provider: {}",
             provider

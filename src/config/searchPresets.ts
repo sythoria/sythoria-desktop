@@ -20,4 +20,11 @@ export const SEARCH_PROVIDER_PRESETS = [
     defaultMaxResults: 5,
     fields: ["baseUrl", "apiKey", "maxResults"] as const,
   },
+  {
+    label: "Custom" as const,
+    provider: "custom" as const,
+    baseUrl: "",
+    defaultMaxResults: 5,
+    fields: ["baseUrl", "apiKey", "maxResults"] as const,
+  },
 ] as const;
