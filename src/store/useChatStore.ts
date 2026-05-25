@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, ModelConfig, GenerationState, ActivityEntry } from "../types";
+import type { Conversation, Message, ModelConfig, GenerationState } from "../types";
 import { loadModelConfigs } from "../types";
 import {
   loadConversations,
@@ -64,7 +64,7 @@ interface ChatState {
   activeId: string | null;
   isStreaming: boolean;
   generationState: GenerationState;
-  activityLog: ActivityEntry[];
+  generationLabel: string;
 
   init: () => Promise<void>;
   cleanupEmptyConversations: () => void;
@@ -81,7 +81,6 @@ interface ChatState {
   clearAllChats: () => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
-  clearActivity: () => void;
 }
 
 let initInProgress = false;
@@ -91,7 +90,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeId: null,
   isStreaming: false,
   generationState: "idle" as GenerationState,
-  activityLog: [],
+  generationLabel: "",
 
   init: async () => {
     if (initInProgress) return;
@@ -262,7 +261,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => ({
       generationState: "idle" as GenerationState,
-      activityLog: [],
+      generationLabel: "",
       conversations: updateConversationMessages(state.conversations, finalId, (msgs) => [...msgs, userMsg], {
         title:
           state.conversations.find((c) => c.id === finalId)?.messages.length === 0 ? truncateTitle(text) : undefined,
@@ -271,7 +270,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const useTools = isSearchEnabled && activeSearchId;
     const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
-    const searchApiKey = useTools && searchConfig ? searchApiKeys[searchConfig.id] || searchConfig.apiKey || "" : "";
+    const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
     if (useTools && searchConfig) {
       await sendWithToolLoop(
@@ -301,6 +300,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return {
         isStreaming: false,
         generationState: "idle" as GenerationState,
+        generationLabel: "",
         conversations: convs,
       };
     });
@@ -344,7 +344,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const useTools = isSearchEnabled && activeSearchId;
     const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
-    const searchApiKey = useTools && searchConfig ? searchApiKeys[searchConfig.id] || searchConfig.apiKey || "" : "";
+    const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
     if (useTools && searchConfig) {
       await sendWithToolLoop(
@@ -410,21 +410,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setGenerationState: (state, label, error) => {
-    const entry: ActivityEntry = {
-      id: generateId(),
-      state,
-      label: label ?? state,
-      timestamp: new Date(),
-      error,
-    };
-    set((s) => ({
+    set({
       generationState: state,
-      activityLog: [...s.activityLog, entry],
-    }));
-  },
-
-  clearActivity: () => {
-    set({ generationState: "idle", activityLog: [] });
+      generationLabel: error ? `${label ?? state}: ${error}` : (label ?? state),
+    });
   },
 }));
 
@@ -447,7 +436,7 @@ async function sendNormal(
   set((state) => ({
     isStreaming: true,
     generationState: "thinking" as GenerationState,
-    activityLog: [{ id: generateId(), state: "thinking" as GenerationState, label: "Thinking", timestamp: new Date() }],
+    generationLabel: "Thinking",
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
   useUIStore.getState().setLoading("sendMessage", true);
@@ -462,10 +451,7 @@ async function sendNormal(
         const newState: Partial<ChatState> = {};
         if (state.generationState === "thinking" && !content.startsWith("<reasoning>")) {
           newState.generationState = "responding";
-          newState.activityLog = [
-            ...state.activityLog,
-            { id: generateId(), state: "responding" as GenerationState, label: "Responding", timestamp: new Date() },
-          ];
+          newState.generationLabel = "Responding";
         }
         return {
           ...newState,
@@ -494,13 +480,14 @@ async function sendNormal(
         }),
         isStreaming: false,
         generationState: "idle" as GenerationState,
+        generationLabel: "",
       }));
     },
   );
 
   try {
     const apiUrl = modelConfig.apiBase;
-    const apiKey = apiKeys[modelConfig.id] || modelConfig.apiKey;
+    const apiKey = apiKeys[modelConfig.id] ?? modelConfig.apiKey ?? "";
 
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages =
@@ -536,16 +523,7 @@ async function sendNormal(
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
       generationState: "error" as GenerationState,
-      activityLog: [
-        ...state.activityLog,
-        {
-          id: generateId(),
-          state: "error" as GenerationState,
-          label: "Generation failed",
-          timestamp: new Date(),
-          error: friendlyMessage,
-        },
-      ],
+      generationLabel: `Generation failed: ${friendlyMessage}`,
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().addToast(friendlyMessage, "error");

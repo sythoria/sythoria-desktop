@@ -219,7 +219,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     const results = await Promise.allSettled(
       toCheck.map(async (model) => {
-        const apiKey = apiKeys[model.id] || model.apiKey;
+        const apiKey = apiKeys[model.id] ?? model.apiKey ?? "";
         try {
           const ok = await invoke<boolean>("check_api", {
             apiUrl: model.apiBase,

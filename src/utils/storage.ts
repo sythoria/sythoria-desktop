@@ -30,7 +30,6 @@ const MessageSchema = z.object({
   toolCall: ToolCallSchema.optional(),
   toolResult: ToolCallResultSchema.optional(),
   sources: z.array(SourceSchema).optional(),
-  thoughtProcess: z.string().optional(),
 });
 
 const ConversationSchema = z.object({

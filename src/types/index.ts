@@ -24,7 +24,6 @@ export interface Message {
   toolCall?: { id: string; name: "search_query" | "fetch_url"; arguments: Record<string, string> };
   toolResult?: { id: string; name: string; content: string };
   sources?: { title: string; url: string }[];
-  thoughtProcess?: string;
 }
 
 export interface Conversation {
@@ -61,14 +60,6 @@ export interface SearchApiConfig {
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "error";
-
-export interface ActivityEntry {
-  id: string;
-  state: GenerationState;
-  label: string;
-  timestamp: Date;
-  error?: string;
-}
 
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: "bg-gray-400",

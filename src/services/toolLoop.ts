@@ -7,7 +7,6 @@ import type {
   SearchResult,
   UrlContent,
   GenerationState,
-  ActivityEntry,
 } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError } from "../utils/logger";
@@ -20,7 +19,7 @@ export interface ToolLoopSlice {
   conversations: Conversation[];
   isStreaming: boolean;
   generationState: GenerationState;
-  activityLog: ActivityEntry[];
+  generationLabel: string;
 }
 
 export const TOOL_DEFINITIONS = [
@@ -126,7 +125,7 @@ export async function sendWithToolLoop(
   set(() => ({
     isStreaming: true,
     generationState: "thinking" as GenerationState,
-    activityLog: [{ id: generateId(), state: "thinking" as GenerationState, label: "Thinking", timestamp: new Date() }],
+    generationLabel: "Thinking",
   }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
@@ -135,7 +134,7 @@ export async function sendWithToolLoop(
 
   try {
     const apiUrl = modelConfig.apiBase;
-    const apiKey = apiKeys[modelConfig.id] || modelConfig.apiKey;
+    const apiKey = apiKeys[modelConfig.id] ?? modelConfig.apiKey ?? "";
 
     const conv = get().conversations.find((c) => c.id === convId);
     const baseMessages =
@@ -154,17 +153,9 @@ export async function sendWithToolLoop(
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       useUIStore.getState().setLoading("toolExecution", true);
       if (step > 0) {
-        set((state) => ({
+        set(() => ({
           generationState: "thinking" as GenerationState,
-          activityLog: [
-            ...state.activityLog,
-            {
-              id: generateId(),
-              state: "thinking" as GenerationState,
-              label: step === 0 ? "Thinking" : "Thinking (continued)",
-              timestamp: new Date(),
-            },
-          ],
+          generationLabel: step === 0 ? "Thinking" : "Thinking (continued)",
         }));
       }
 
@@ -184,19 +175,7 @@ export async function sendWithToolLoop(
       const msg = choice.message;
 
       if (msg.tool_calls && msg.tool_calls.length > 0) {
-        if (msg.content && msg.content.trim().length > 0) {
-          const thoughtMsg: Message = {
-            id: generateId(),
-            role: "assistant",
-            content: msg.content,
-            timestamp: new Date(),
-            thoughtProcess: msg.content,
-          };
-          set((state) => ({
-            conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, thoughtMsg]),
-          }));
-        }
-        apiMessages.push({ role: "assistant", content: null, tool_calls: msg.tool_calls });
+        apiMessages.push({ role: "assistant", content: msg.content, tool_calls: msg.tool_calls });
 
         for (const toolCall of msg.tool_calls) {
           const rawName = toolCall.function.name;
@@ -227,16 +206,8 @@ export async function sendWithToolLoop(
             };
             set((state) => ({
               conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
-              activityLog: [
-                ...state.activityLog,
-                {
-                  id: generateId(),
-                  state: "error" as GenerationState,
-                  label: `Unknown tool: ${rawName}`,
-                  timestamp: new Date(),
-                  error: `Unknown tool: ${rawName}`,
-                },
-              ],
+              generationState: "error" as GenerationState,
+              generationLabel: `Unknown tool: ${rawName}`,
             }));
             apiMessages.push({
               role: "tool",
@@ -264,15 +235,7 @@ export async function sendWithToolLoop(
             conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, toolCallMsg]),
             generationState:
               fnName === "search_query" ? ("searching" as GenerationState) : ("fetching" as GenerationState),
-            activityLog: [
-              ...state.activityLog,
-              {
-                id: generateId(),
-                state: (fnName === "search_query" ? "searching" : "fetching") as GenerationState,
-                label: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
-                timestamp: new Date(),
-              },
-            ],
+            generationLabel: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
           }));
 
           let resultContent = "";
@@ -333,16 +296,8 @@ export async function sendWithToolLoop(
               ),
               ...(fetchFailed
                 ? {
-                    activityLog: [
-                      ...state.activityLog,
-                      {
-                        id: generateId(),
-                        state: "error" as GenerationState,
-                        label: `Fetch failed: ${fnArgs.url}`,
-                        timestamp: new Date(),
-                        error: urlContent.error || "Unknown error",
-                      },
-                    ],
+                    generationState: "error" as GenerationState,
+                    generationLabel: `Fetch failed: ${fnArgs.url} — ${urlContent.error || "Unknown error"}`,
                   }
                 : {}),
             }));
@@ -371,15 +326,7 @@ export async function sendWithToolLoop(
           conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
           isStreaming: false,
           generationState: "idle" as GenerationState,
-          activityLog: [
-            ...state.activityLog,
-            {
-              id: generateId(),
-              state: "responding" as GenerationState,
-              label: "Responding",
-              timestamp: new Date(),
-            },
-          ],
+          generationLabel: "",
         }));
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
@@ -402,6 +349,7 @@ export async function sendWithToolLoop(
       conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]),
       isStreaming: false,
       generationState: "idle" as GenerationState,
+      generationLabel: "",
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
@@ -413,16 +361,7 @@ export async function sendWithToolLoop(
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
       generationState: "error" as GenerationState,
-      activityLog: [
-        ...state.activityLog,
-        {
-          id: generateId(),
-          state: "error" as GenerationState,
-          label: "Generation failed",
-          timestamp: new Date(),
-          error: friendlyMessage,
-        },
-      ],
+      generationLabel: `Generation failed: ${friendlyMessage}`,
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);

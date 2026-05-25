@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, useMemo, useCallback, forwardRef, useDeferredValue } from "react";
+import { useState, useEffect, useRef, memo, useMemo, useCallback, useDeferredValue } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -18,8 +18,18 @@ import {
   RotateCw,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message, ActivityEntry, GenerationState } from "../types";
-import GenerationActivity from "./GenerationActivity";
+import type { Message, GenerationState } from "../types";
+
+const GENERATION_STATE_CONFIG: Record<
+  Exclude<GenerationState, "idle">,
+  { icon: React.ElementType; colorClass: string; label: string }
+> = {
+  thinking: { icon: Sparkles, colorClass: "text-purple-500", label: "Thinking" },
+  searching: { icon: Search, colorClass: "text-blue-500", label: "Searching" },
+  fetching: { icon: Globe, colorClass: "text-cyan-500", label: "Fetching" },
+  responding: { icon: Bot, colorClass: "text-accent", label: "Responding" },
+  error: { icon: Loader2, colorClass: "text-red-500", label: "Error" },
+};
 
 interface ChatAreaProps {
   messages: Message[];
@@ -28,8 +38,42 @@ interface ChatAreaProps {
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
   onRetry: () => void;
-  activityLog: ActivityEntry[];
   generationState: GenerationState;
+  generationLabel: string;
+}
+
+function GenerationIndicator({ state, label }: { state: GenerationState; label: string }) {
+  if (state === "idle") return null;
+  const config = GENERATION_STATE_CONFIG[state];
+  if (!config) return null;
+  const Icon = config.icon;
+  const displayLabel = label || config.label;
+
+  return (
+    <div className="flex items-center gap-2 py-1.5 animate-fade-in">
+      <div
+        className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-accent/10"}`}
+      >
+        {state !== "error" ? (
+          <Loader2 size={12} className={`animate-spin ${config.colorClass}`} />
+        ) : (
+          <Icon size={12} className={config.colorClass} />
+        )}
+      </div>
+      <span
+        className={`text-xs font-medium ${state === "error" ? "text-red-600 dark:text-red-400" : "text-text-muted"}`}
+      >
+        {displayLabel}
+      </span>
+      {state !== "error" && (
+        <span className="generating-dots">
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
+    </div>
+  );
 }
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -325,10 +369,21 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
   );
 }
 
-const MessageBubble = memo(function MessageBubble({ message, onRetry }: { message: Message; onRetry?: () => void }) {
+const MessageBubble = memo(function MessageBubble({
+  message,
+  onRetry,
+  generationState,
+  generationLabel,
+  isLastAssistant,
+}: {
+  message: Message;
+  onRetry?: () => void;
+  generationState?: GenerationState;
+  generationLabel?: string;
+  isLastAssistant?: boolean;
+}) {
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
-  const isThought = message.role === "assistant" && !!message.thoughtProcess;
   const hasOpenReasoning =
     message.role === "assistant" &&
     (message.content.includes("<reasoning>") ||
@@ -338,22 +393,6 @@ const MessageBubble = memo(function MessageBubble({ message, onRetry }: { messag
 
   if (isTool) {
     return <ToolCallBubble message={message} />;
-  }
-
-  if (isThought) {
-    return (
-      <div className="flex justify-start gap-3 animate-fade-in">
-        <div
-          className="shrink-0 w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center mt-0.5"
-          aria-hidden="true"
-        >
-          <Bot size={14} className="text-accent" />
-        </div>
-        <div className="max-w-[80%]">
-          <ReasoningBubble content={message.thoughtProcess!} isStreaming={message.isStreaming} />
-        </div>
-      </div>
-    );
   }
 
   if (isUser) {
@@ -401,11 +440,14 @@ const MessageBubble = memo(function MessageBubble({ message, onRetry }: { messag
     }
   }
 
+  const isStreaming = !!message.isStreaming;
+  const showGenerationIndicator = isLastAssistant && isStreaming && generationState && generationState !== "idle";
+
   return (
     <div
       className="flex justify-start gap-3 animate-fade-in group"
       role="article"
-      aria-label={`Assistant message${message.isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
+      aria-label={`Assistant message${isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
     >
       <div
         className="shrink-0 w-7 h-7 rounded-lg border bg-accent/10 border-accent/20 flex items-center justify-center mt-0.5"
@@ -414,8 +456,8 @@ const MessageBubble = memo(function MessageBubble({ message, onRetry }: { messag
         <Bot size={14} className="text-accent" />
       </div>
       <div className="max-w-[80%] text-sm text-text-primary leading-relaxed">
-        {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={message.isStreaming} />}
-        {message.isStreaming && !hasOpenReasoning && displayContent.length === 0 ? (
+        {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
+        {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
           <div className="flex items-center gap-2 py-1">
             <Loader2 size={14} className="text-accent animate-spin" />
             <span className="text-xs text-text-muted font-medium">Thinking</span>
@@ -425,13 +467,14 @@ const MessageBubble = memo(function MessageBubble({ message, onRetry }: { messag
               <span />
             </span>
           </div>
-        ) : null}
+        )}
+        {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (
+          <GenerationIndicator state={generationState!} label={generationLabel!} />
+        )}
         <div className="markdown-body">
-          {displayContent.length > 0 ? (
-            <MessageContent content={displayContent} isStreaming={!!message.isStreaming} />
-          ) : null}
+          {displayContent.length > 0 ? <MessageContent content={displayContent} isStreaming={isStreaming} /> : null}
         </div>
-        {!message.isStreaming && displayContent.length > 0 && (
+        {!isStreaming && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
             sources={message.sources}
@@ -457,8 +500,8 @@ export default function ChatArea({
   setIsAtBottom,
   virtuosoRef,
   onRetry,
-  activityLog,
   generationState,
+  generationLabel,
 }: ChatAreaProps) {
   if (messages.length === 0) {
     return (
@@ -493,6 +536,10 @@ export default function ChatArea({
     );
   }
 
+  const lastAssistantIdx = [...messages].reverse().findIndex((m) => m.role === "assistant");
+  const lastAssistantMessageId =
+    lastAssistantIdx >= 0 ? messages[messages.length - 1 - lastAssistantIdx]?.id : undefined;
+
   if (messages.length >= VIRTUALIZED_THRESHOLD) {
     return (
       <div className="flex-1 relative" role="log" aria-label="Chat messages" aria-live="polite">
@@ -503,20 +550,15 @@ export default function ChatArea({
           atBottomThreshold={100}
           itemContent={(index, msg) => (
             <div className={index > 0 ? "mt-6" : ""}>
-              <MessageBubble message={msg} onRetry={onRetry} />
+              <MessageBubble
+                message={msg}
+                onRetry={onRetry}
+                generationState={generationState}
+                generationLabel={generationLabel}
+                isLastAssistant={msg.id === lastAssistantMessageId}
+              />
             </div>
           )}
-          components={{
-            List: forwardRef(function VirtuosoList(props, ref) {
-              return <div {...props} ref={ref} className="max-w-3xl mx-auto py-8 px-4 md:px-0" />;
-            }),
-            Footer: () =>
-              generationState !== "idle" ? (
-                <div className="max-w-3xl mx-auto">
-                  <GenerationActivity activityLog={activityLog} generationState={generationState} />
-                </div>
-              ) : null,
-          }}
           followOutput="smooth"
         />
       </div>
@@ -529,8 +571,9 @@ export default function ChatArea({
       isAtBottom={isAtBottom}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
-      activityLog={activityLog}
       generationState={generationState}
+      generationLabel={generationLabel}
+      lastAssistantMessageId={lastAssistantMessageId}
     />
   );
 }
@@ -539,15 +582,17 @@ function NonVirtualizedChatArea({
   messages,
   setIsAtBottom,
   onRetry,
-  activityLog,
   generationState,
+  generationLabel,
+  lastAssistantMessageId,
 }: {
   messages: Message[];
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   onRetry?: () => void;
-  activityLog: ActivityEntry[];
   generationState: GenerationState;
+  generationLabel: string;
+  lastAssistantMessageId: string | undefined;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -577,11 +622,15 @@ function NonVirtualizedChatArea({
     >
       <div className="max-w-3xl mx-auto py-8 space-y-6">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onRetry={onRetry} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            onRetry={onRetry}
+            generationState={generationState}
+            generationLabel={generationLabel}
+            isLastAssistant={msg.id === lastAssistantMessageId}
+          />
         ))}
-        {generationState !== "idle" && (
-          <GenerationActivity activityLog={activityLog} generationState={generationState} />
-        )}
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>

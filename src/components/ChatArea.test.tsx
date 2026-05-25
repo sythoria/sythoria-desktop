@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatArea from "./ChatArea";
-import type { Message } from "../types";
+import type { Message, GenerationState } from "../types";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -20,8 +20,8 @@ const defaultProps = {
   setIsAtBottom: vi.fn(),
   virtuosoRef: { current: null } as React.RefObject<null>,
   onRetry: vi.fn(),
-  activityLog: [] as import("../types").ActivityEntry[],
-  generationState: "idle" as import("../types").GenerationState,
+  generationState: "idle" as GenerationState,
+  generationLabel: "",
 };
 
 describe("ChatArea", () => {
@@ -51,14 +51,16 @@ describe("ChatArea", () => {
 
   it("shows generating indicator when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} />);
+    render(<ChatArea messages={messages} {...defaultProps} generationState="thinking" generationLabel="Thinking" />);
 
     expect(screen.getByText("Thinking")).toBeInTheDocument();
   });
 
   it("shows cursor when assistant is streaming with content", () => {
     const messages = [makeMessage({ role: "assistant", content: "Loading...", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} />);
+    render(
+      <ChatArea messages={messages} {...defaultProps} generationState="responding" generationLabel="Responding" />,
+    );
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     const cursor = document.querySelector(".cursor-blink");

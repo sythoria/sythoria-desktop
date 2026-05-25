@@ -79,7 +79,7 @@ describe("sendWithToolLoop", () => {
       ],
       isStreaming: false,
       generationState: "idle" as const,
-      activityLog: [],
+      generationLabel: "",
     };
 
     const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
