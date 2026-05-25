@@ -22,12 +22,12 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13", features = ["json", "stream"] }
-tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.13", features = ["json", "stream", "rustls"], default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
 futures-util = "0.3"
 tokio-tungstenite = "0.29"
 url = "2"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"], default-features = false }
 uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-store = "2.4.3"
 tauri-plugin-log = "2.8.0"
@@ -38,3 +38,10 @@ scraper = "0.27.0"
 ego-tree = "0.11"
 log = "0.4.29"
 keyring = "3.6.3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = 3

@@ -25,4 +25,19 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    target: "esnext",
+    minify: "esbuild",
+    cssMinify: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          markdown: ["react-markdown", "remark-gfm", "remark-math", "rehype-katex"],
+          vendor: ["zustand", "zod", "lucide-react"],
+        },
+      },
+    },
+  },
 }));
