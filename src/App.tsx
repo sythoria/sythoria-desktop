@@ -176,14 +176,6 @@ function App() {
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
 
-  const [inputAutoFocus, setInputAutoFocus] = useState(false);
-
-  const handleSuggestionClick = useCallback(() => {
-    toggleSearchEnabled(true);
-    setInputAutoFocus(false);
-    requestAnimationFrame(() => setInputAutoFocus(true));
-  }, [toggleSearchEnabled]);
-
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();
     setHasNewMessages(false);
@@ -251,7 +243,6 @@ function App() {
 
           <ChatArea
             messages={messages}
-            onSuggestionClick={handleSuggestionClick}
             isAtBottom={isAtBottom}
             setIsAtBottom={setIsAtBottom}
             virtuosoRef={virtuosoRef}
@@ -275,7 +266,6 @@ function App() {
             modelStatuses={modelStatuses}
             isSearchEnabled={isSearchEnabled}
             onToggleSearch={toggleSearchEnabled}
-            inputAutoFocus={inputAutoFocus}
             isStreaming={isStreaming}
             onStop={stopStreaming}
           />

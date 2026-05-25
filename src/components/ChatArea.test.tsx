@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import ChatArea from "./ChatArea";
 import type { Message, GenerationState } from "../types";
 
@@ -15,7 +14,6 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 }
 
 const defaultProps = {
-  onSuggestionClick: vi.fn(),
   isAtBottom: true,
   setIsAtBottom: vi.fn(),
   virtuosoRef: { current: null } as React.RefObject<null>,
@@ -25,12 +23,10 @@ const defaultProps = {
 };
 
 describe("ChatArea", () => {
-  it("shows empty state with search button when no messages", () => {
-    const onSuggestionClick = vi.fn();
-    render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
+  it("shows empty state when no messages", () => {
+    render(<ChatArea messages={[]} {...defaultProps} />);
 
     expect(screen.getByRole("region", { name: /empty chat/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /enable web search/i })).toBeInTheDocument();
   });
 
   it("renders user messages", () => {
@@ -65,16 +61,5 @@ describe("ChatArea", () => {
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     const cursor = document.querySelector(".cursor-blink");
     expect(cursor).toBeInTheDocument();
-  });
-
-  it("calls onSuggestionClick when search button is clicked", async () => {
-    const user = userEvent.setup();
-    const onSuggestionClick = vi.fn();
-    render(<ChatArea messages={[]} {...defaultProps} onSuggestionClick={onSuggestionClick} />);
-
-    const button = screen.getByRole("button", { name: /enable web search/i });
-    await user.click(button);
-
-    expect(onSuggestionClick).toHaveBeenCalled();
   });
 });

@@ -33,7 +33,6 @@ const GENERATION_STATE_CONFIG: Record<
 
 interface ChatAreaProps {
   messages: Message[];
-  onSuggestionClick: () => void;
   isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
@@ -494,7 +493,6 @@ const VIRTUALIZED_THRESHOLD = 50;
 
 export default function ChatArea({
   messages,
-  onSuggestionClick,
   isAtBottom,
   setIsAtBottom,
   virtuosoRef,
@@ -520,16 +518,6 @@ export default function ChatArea({
             <h1 className="text-2xl font-bold tracking-tight text-text-primary">Sythoria</h1>
             <p className="text-text-muted text-sm mt-1">Your intelligent AI assistant</p>
           </div>
-          <button
-            onClick={onSuggestionClick}
-            className="mt-2 flex items-center gap-2.5 px-3.5 py-3 rounded-xl border border-border bg-surface/50 hover:bg-hover text-text-secondary hover:text-text-primary text-xs font-medium transition-all duration-150 text-left min-h-[44px]"
-            aria-label="Enable web search"
-          >
-            <span className="text-accent shrink-0" aria-hidden="true">
-              <Search size={14} />
-            </span>
-            Enable Web Search
-          </button>
         </div>
       </div>
     );

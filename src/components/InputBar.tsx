@@ -13,7 +13,6 @@ interface InputBarProps {
   modelStatuses: ModelStatuses;
   isSearchEnabled: boolean;
   onToggleSearch: (enabled: boolean) => void;
-  inputAutoFocus?: boolean;
   isStreaming?: boolean;
   onStop?: () => void;
 }
@@ -34,7 +33,6 @@ export default function InputBar({
   modelStatuses,
   isSearchEnabled,
   onToggleSearch,
-  inputAutoFocus,
   isStreaming,
   onStop,
 }: InputBarProps) {
@@ -51,12 +49,6 @@ export default function InputBar({
   const trimmed = value.trim();
   const canSend = trimmed.length > 0 && !isOverLimit && !disabled && !isStreaming;
   const enabledModels = models.filter((m) => m.enabled !== false);
-
-  useEffect(() => {
-    if (inputAutoFocus && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [inputAutoFocus]);
 
   useEffect(() => {
     if (isStreaming && textareaRef.current) {
