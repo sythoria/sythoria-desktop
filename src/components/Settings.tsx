@@ -25,6 +25,7 @@ import { PROVIDER_PRESETS } from "../config/providerPresets";
 import { SEARCH_PROVIDER_PRESETS } from "../config/searchPresets";
 import { MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_STEP } from "../config/constants";
 import { Switch } from "./ui/Switch";
+import { getVersion } from "@tauri-apps/api/app";
 import { validateApiUrl, validateApiKey, validateSearchApiKey } from "../utils/validation";
 
 interface ModelCardProps {
@@ -491,6 +492,7 @@ export default function Settings() {
 
   const newChat = useChatStore((s) => s.newChat);
 
+  const [appVersion, setAppVersion] = useState<string>("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -499,6 +501,12 @@ export default function Settings() {
 
   const currentModel = models.find((m) => m.id === selectedModel);
   const enabledModels = models.filter((m) => m.enabled !== false);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion("0.1.0"));
+  }, []);
 
   useEffect(() => {
     if (!currentModel && enabledModels.length > 0) {
@@ -883,7 +891,7 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-text-primary">Sythoria</p>
-                <p className="text-xs text-text-muted mt-0.5">Version 0.1.0</p>
+                <p className="text-xs text-text-muted mt-0.5">Version {appVersion || "…"}</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted">{effectiveModel?.name || "N/A"}</span>
