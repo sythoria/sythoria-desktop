@@ -553,7 +553,7 @@ export default function Settings() {
   };
 
   const handleRefreshConnections = () => {
-    checkModelConnections();
+    checkModelConnections(undefined, true);
   };
 
   const tempPercent = ((temperature - MIN_TEMPERATURE) / (MAX_TEMPERATURE - MIN_TEMPERATURE)) * 100;

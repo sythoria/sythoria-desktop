@@ -74,7 +74,7 @@ interface ModelState {
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
   deleteModel: (id: string) => void;
   addModel: () => void;
-  checkModelConnections: (modelIds?: string[]) => Promise<void>;
+  checkModelConnections: (modelIds?: string[], force?: boolean) => Promise<void>;
   startHealthCheck: () => void;
   stopHealthCheck: () => void;
   persistApiKeys: () => Promise<void>;
@@ -197,12 +197,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
     useUIStore.getState().addToast("Model added — configure its details", "info");
   },
 
-  checkModelConnections: async (modelIds?: string[]) => {
+  checkModelConnections: async (modelIds?: string[], force?: boolean) => {
     const { models, apiKeys, modelStatuses } = get();
-    if (useUIStore.getState().loading.checkConnection) return;
-    const now = Date.now();
-    if (now - lastCheckTime < MIN_CHECK_INTERVAL_MS) return;
-    lastCheckTime = now;
+    if (!force) {
+      if (useUIStore.getState().loading.checkConnection) return;
+      const now = Date.now();
+      if (now - lastCheckTime < MIN_CHECK_INTERVAL_MS) return;
+    }
+    lastCheckTime = Date.now();
     const toCheck = modelIds
       ? models.filter((m) => modelIds.includes(m.id) && m.enabled !== false)
       : models.filter((m) => m.enabled !== false);
