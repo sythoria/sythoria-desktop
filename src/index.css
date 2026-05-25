@@ -15,7 +15,7 @@
   --color-hover: var(--theme-hover);
   --color-border: var(--theme-border);
   --color-surface: var(--theme-surface);
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
@@ -135,7 +135,7 @@
   content: "\25CD";
   animation: blink 1s step-end infinite;
   color: var(--color-accent);
-  font-weight: 300;
+  font-weight: 400;
 }
 
 @keyframes fade-in {
@@ -299,6 +299,7 @@
 }
 
 .markdown-body {
+  font-weight: 440;
   line-height: 1.7;
 }
 
@@ -313,7 +314,7 @@
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3 {
-  font-weight: 600;
+  font-weight: 700;
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
   color: var(--color-text-primary);
@@ -414,7 +415,7 @@
 
 .markdown-body th {
   background: var(--color-surface);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .markdown-body .katex-display {
