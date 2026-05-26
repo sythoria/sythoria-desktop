@@ -14,9 +14,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows portable build
           - platform: windows-latest
+            args: --no-bundle
+            uploadPlainBinary: true
+
+          # Linux bundled build
           - platform: ubuntu-22.04
+            args: ""
+            uploadPlainBinary: false
+
+          # macOS bundled build
           - platform: macos-latest
+            args: ""
+            uploadPlainBinary: false
 
     runs-on: ${{ matrix.platform }}
 
@@ -62,3 +73,6 @@ jobs:
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
+
+          args: ${{ matrix.args }}
+          uploadPlainBinary: ${{ matrix.uploadPlainBinary }}
