@@ -16,7 +16,7 @@ jobs:
         include:
           - os: windows-latest
             artifact: windows-exe
-            path: src-tauri/target/release/your-app.exe
+            path: src-tauri/target/release/sythoria.exe
 
           - os: ubuntu-22.04
             artifact: linux-appimage
