@@ -5,11 +5,11 @@ import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
-// https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
   clearScreen: false,
+
   server: {
     port: 1420,
     strictPort: true,
@@ -25,17 +25,32 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
   build: {
     target: "esnext",
     minify: "esbuild",
     cssMinify: true,
     sourcemap: false,
+
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          markdown: ["react-markdown", "remark-gfm", "remark-math", "rehype-katex"],
-          vendor: ["zustand", "zod", "lucide-react"],
+        manualChunks(id) {
+          if (
+            id.includes("react-markdown") ||
+            id.includes("remark-gfm") ||
+            id.includes("remark-math") ||
+            id.includes("rehype-katex")
+          ) {
+            return "markdown";
+          }
+
+          if (id.includes("react") || id.includes("react-dom")) {
+            return "react";
+          }
+
+          if (id.includes("zustand") || id.includes("zod") || id.includes("lucide-react")) {
+            return "vendor";
+          }
         },
       },
     },
