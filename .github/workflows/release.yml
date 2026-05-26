@@ -5,42 +5,42 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 jobs:
-  build:
+  publish-tauri:
+    permissions:
+      contents: write
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            path: src-tauri/target/release/*.exe
+          - platform: windows-latest
+          - platform: ubuntu-22.04
+          - platform: macos-latest
 
-          - os: ubuntu-22.04
-            path: src-tauri/target/release/bundle/appimage/*.AppImage
-
-          - os: macos-latest
-            path: src-tauri/target/release/bundle/dmg/*.dmg
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
-      - run: npm ci
+      - name: Install frontend deps
+        run: npm ci
 
       - name: Install Linux deps
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt update
           sudo apt install -y \
@@ -50,8 +50,7 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - run: npm run tauri build
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ matrix.path }}
+      - name: Build + Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
