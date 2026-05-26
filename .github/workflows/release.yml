@@ -16,7 +16,7 @@ jobs:
         include:
           - os: windows-latest
             artifact: windows-exe
-            path: src-tauri/target/release/sythoria.exe
+            path: src-tauri/target/release/*.exe
 
           - os: ubuntu-22.04
             artifact: linux-appimage
@@ -24,7 +24,7 @@ jobs:
 
           - os: macos-latest
             artifact: macos-app
-            path: src-tauri/target/release/bundle/macos/*.app
+            path: src-tauri/target/release/bundle/dmg/*.dmg
 
     runs-on: ${{ matrix.os }}
 
