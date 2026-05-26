@@ -15,33 +15,29 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: windows-exe
             path: src-tauri/target/release/*.exe
 
           - os: ubuntu-22.04
-            artifact: linux-appimage
             path: src-tauri/target/release/bundle/appimage/*.AppImage
 
           - os: macos-latest
-            artifact: macos-app
             path: src-tauri/target/release/bundle/dmg/*.dmg
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - name: Install frontend deps
-        run: npm install
+      - run: npm ci
 
       - name: Install Linux deps
         if: matrix.os == 'ubuntu-22.04'
@@ -54,10 +50,8 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Build Tauri app
-        run: npm run tauri build
+      - run: npm run tauri build
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.path }}
