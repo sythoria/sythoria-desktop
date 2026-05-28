@@ -159,16 +159,16 @@ export function ConfirmModal({
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-text-secondary hover:bg-hover transition-colors min-h-[44px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide text-text-secondary hover:bg-hover transition-all duration-200 min-h-[44px]"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[44px] ${
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 min-h-[44px] ${
               variant === "danger"
-                ? "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                : "bg-accent/10 text-accent hover:bg-accent/20"
+                ? "bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                : "bg-accent/15 text-accent hover:bg-accent/25 hover:shadow-[0_0_12px_rgba(var(--color-accent-rgb,99,102,241),0.15)]"
             }`}
           >
             {confirmText}
@@ -255,15 +255,17 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-text-secondary hover:bg-hover transition-colors min-h-[44px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide text-text-secondary hover:bg-hover transition-all duration-200 min-h-[44px]"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={isEmpty}
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[44px] ${
-              isEmpty ? "bg-accent/10 text-accent/40 cursor-not-allowed" : "bg-accent/10 text-accent hover:bg-accent/20"
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 min-h-[44px] ${
+              isEmpty
+                ? "bg-accent/10 text-accent/40 cursor-not-allowed"
+                : "bg-accent/15 text-accent hover:bg-accent/25 hover:shadow-[0_0_12px_rgba(var(--color-accent-rgb,99,102,241),0.15)]"
             }`}
           >
             Rename
