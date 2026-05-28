@@ -34,13 +34,11 @@ const MessageSchema = z.object({
 
 const ConversationSchema = z.object({
   id: z.string(),
-  title: z.string(),
+  title: z.string().default("Untitled"),
   timestamp: z.coerce.date(),
   messages: z.array(MessageSchema),
-  model: z.string(),
+  model: z.string().default(""),
 });
-
-const ConversationsArraySchema = z.array(ConversationSchema);
 
 const ThemeSchema = z.enum(["light", "dark"]);
 
@@ -76,10 +74,20 @@ async function getStore(): Promise<Store> {
 }
 
 function parseConversations(raw: unknown): Conversation[] {
-  const result = ConversationsArraySchema.safeParse(raw);
-  if (result.success) return result.data as Conversation[];
-  logError("Stored conversations failed validation, resetting", result.error);
-  return [];
+  if (!Array.isArray(raw)) {
+    logError("Stored conversations failed validation: expected array, resetting");
+    return [];
+  }
+  const valid: Conversation[] = [];
+  for (const item of raw) {
+    const result = ConversationSchema.safeParse(item);
+    if (result.success) {
+      valid.push(result.data as Conversation);
+    } else {
+      logError("Skipping invalid conversation", result.error);
+    }
+  }
+  return valid;
 }
 
 export async function loadConversations(): Promise<Conversation[]> {
