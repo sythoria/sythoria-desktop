@@ -35,11 +35,17 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("highlight.js/lib/languages/")) {
+            return undefined;
+          }
+
           if (
             id.includes("react-markdown") ||
             id.includes("remark-gfm") ||
             id.includes("remark-math") ||
-            id.includes("rehype-katex")
+            id.includes("rehype-katex") ||
+            id.includes("lowlight") ||
+            id.includes("highlight.js/lib/core")
           ) {
             return "markdown";
           }

@@ -16,9 +16,11 @@ import {
   ExternalLink,
   Sparkles,
   RotateCw,
+  Terminal,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState } from "../types";
+import { highlightCode } from "../utils/highlighter";
 
 const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
@@ -75,9 +77,99 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
   );
 }
 
+function SyntaxCodeBlock({ code, language }: { code: string; language: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    highlightCode(code, language).then((html) => {
+      if (!cancelled && html) {
+        setHighlighted(html);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, language]);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      const text = ref.current?.textContent || code;
+      await navigator.clipboard.writeText(text.replace(/\n$/, ""));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard not available */
+    }
+  }, [code]);
+
+  return (
+    <div className="code-block group relative">
+      <div className="flex items-center justify-between px-4 py-1.5 text-[11px] text-text-muted border-b border-border/40 select-none">
+        <span className="flex items-center gap-1.5 font-mono lowercase">
+          <Terminal size={12} />
+          {language}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100"
+          aria-label={copied ? "Copied" : "Copy code"}
+        >
+          {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {highlighted ? (
+        <div ref={ref} className="code-block-content" dangerouslySetInnerHTML={{ __html: highlighted }} />
+      ) : (
+        <div ref={ref} className="code-block-content">
+          <code className={`language-${language}`}>{code}</code>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const markdownComponents = {
+  pre({ children, ...props }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode }) {
+    return <pre {...props}>{children}</pre>;
+  },
+  code({ children, className, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
+    const isBlock = className?.startsWith("language-");
+    if (isBlock) {
+      const match = /language-(\w+)/.exec(className || "");
+      const language = match ? match[1] : "text";
+      const codeStr = extractText(children);
+      return <SyntaxCodeBlock code={codeStr} language={language} />;
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+};
+
+function extractText(children: React.ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(extractText).join("");
+  if (children && typeof children === "object" && "props" in children) {
+    return extractText((children as any).props?.children);
+  }
+  return "";
+}
+
 const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content: string }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} skipHtml>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={markdownComponents}
+      skipHtml
+    >
       {content}
     </ReactMarkdown>
   );

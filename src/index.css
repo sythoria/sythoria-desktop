@@ -344,7 +344,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 0;
   margin: 0.75rem 0;
   overflow-x: auto;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
@@ -354,12 +354,197 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-.markdown-body pre code {
+.markdown-body pre > code {
+  display: block;
+  background: none;
+  border: none;
+  padding: 1rem;
+  border-radius: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.markdown-body .code-block {
+  margin: 0;
+}
+
+.markdown-body .code-block-content {
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--color-text-primary);
+}
+
+.markdown-body .code-block-content code {
   background: none;
   border: none;
   padding: 0;
   border-radius: 0;
-  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: inherit;
+  color: inherit;
+}
+
+.markdown-body .code-block-content pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag {
+  color: #a626a4;
+}
+
+.markdown-body .hljs-built_in {
+  color: #c18401;
+}
+
+.markdown-body .hljs-type {
+  color: #c18401;
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-template-tag,
+.markdown-body .hljs-template-variable {
+  color: #50a14f;
+}
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: #a0a1a7;
+  font-style: italic;
+}
+
+.markdown-body .hljs-variable,
+.markdown-body .hljs-attr {
+  color: #e45649;
+}
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-literal {
+  color: #986801;
+}
+
+.markdown-body .hljs-params {
+  color: #383a42;
+}
+
+.markdown-body .hljs-function .hljs-title,
+.markdown-body .hljs-title.function_ {
+  color: #4078f2;
+}
+
+.markdown-body .hljs-class .hljs-title,
+.markdown-body .hljs-title.class_ {
+  color: #c18401;
+}
+
+.markdown-body .hljs-meta .hljs-keyword,
+.markdown-body .hljs-section {
+  color: #e45649;
+  font-weight: 600;
+}
+
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet,
+.markdown-body .hljs-link {
+  color: #50a14f;
+}
+
+.markdown-body .hljs-deletion {
+  color: #e45649;
+  background-color: #fde8e8;
+}
+
+.markdown-body .hljs-addition {
+  color: #50a14f;
+  background-color: #e8f5e9;
+}
+
+.dark .markdown-body .hljs-keyword,
+.dark .markdown-body .hljs-selector-tag {
+  color: #c678dd;
+}
+
+.dark .markdown-body .hljs-built_in {
+  color: #e5c07b;
+}
+
+.dark .markdown-body .hljs-type {
+  color: #e5c07b;
+}
+
+.dark .markdown-body .hljs-string,
+.dark .markdown-body .hljs-template-tag,
+.dark .markdown-body .hljs-template-variable {
+  color: #98c379;
+}
+
+.dark .markdown-body .hljs-comment,
+.dark .markdown-body .hljs-quote {
+  color: #5c6370;
+  font-style: italic;
+}
+
+.dark .markdown-body .hljs-variable,
+.dark .markdown-body .hljs-attr {
+  color: #e06c75;
+}
+
+.dark .markdown-body .hljs-number,
+.dark .markdown-body .hljs-literal {
+  color: #d19a66;
+}
+
+.dark .markdown-body .hljs-params {
+  color: #abb2bf;
+}
+
+.dark .markdown-body .hljs-function .hljs-title,
+.dark .markdown-body .hljs-title.function_ {
+  color: #61afef;
+}
+
+.dark .markdown-body .hljs-class .hljs-title,
+.dark .markdown-body .hljs-title.class_ {
+  color: #e5c07b;
+}
+
+.dark .markdown-body .hljs-meta .hljs-keyword,
+.dark .markdown-body .hljs-section {
+  color: #e06c75;
+  font-weight: 600;
+}
+
+.dark .markdown-body .hljs-regexp,
+.dark .markdown-body .hljs-symbol,
+.dark .markdown-body .hljs-bullet,
+.dark .markdown-body .hljs-link {
+  color: #98c379;
+}
+
+.dark .markdown-body .hljs-deletion {
+  color: #e06c75;
+  background-color: rgba(224, 108, 117, 0.1);
+}
+
+.dark .markdown-body .hljs-addition {
+  color: #98c379;
+  background-color: rgba(152, 195, 121, 0.1);
 }
 
 .markdown-body ul,
