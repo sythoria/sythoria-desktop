@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
-import type { Conversation } from "../types";
+import type { Conversation, TitleGenerationConfig } from "../types";
+import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError } from "./logger";
 
 const ToolCallSchema = z.object({
@@ -62,6 +63,7 @@ const THEME_KEY = "sythoria-theme";
 const API_KEYS_KEY = "sythoria-api-keys";
 const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
+const TITLE_CONFIG_KEY = "sythoria-title-config";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -251,5 +253,41 @@ export async function saveSearchApiKeys(keys: Record<string, string>): Promise<v
     await invoke("save_search_api_keys_cmd", { keys });
   } catch (e) {
     logError("Failed to save search API keys to keychain", e);
+  }
+}
+
+const TitleConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  modelId: z.string().default("__same__"),
+  systemPrompt: z.string().default(DEFAULT_TITLE_SYSTEM_PROMPT),
+});
+
+const DEFAULT_TITLE_CONFIG: TitleGenerationConfig = {
+  enabled: true,
+  modelId: "__same__",
+  systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT,
+};
+
+export async function loadTitleConfig(): Promise<TitleGenerationConfig> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(TITLE_CONFIG_KEY);
+    if (raw) {
+      const result = TitleConfigSchema.safeParse(raw);
+      if (result.success) return { ...DEFAULT_TITLE_CONFIG, ...result.data };
+      logError("Stored title config failed validation, resetting", result.error);
+    }
+  } catch (e) {
+    logError("Failed to load title config from secure store", e);
+  }
+  return { ...DEFAULT_TITLE_CONFIG };
+}
+
+export async function saveTitleConfig(config: TitleGenerationConfig): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(TITLE_CONFIG_KEY, config);
+  } catch (e) {
+    logError("Failed to save title config to secure store", e);
   }
 }

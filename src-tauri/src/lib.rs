@@ -698,6 +698,74 @@ async fn ws_authenticate(
         .to_string())
 }
 
+#[tauri::command]
+async fn generate_title(
+    api_url: String,
+    api_key: String,
+    model: String,
+    user_message: String,
+    system_prompt: String,
+) -> Result<String, AppError> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?;
+    let body = ChatRequest {
+        model,
+        messages: vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(system_prompt),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: Some(user_message),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ],
+        temperature: 0.3,
+        stream: false,
+    };
+
+    let mut request = client.post(&api_url).json(&body);
+    request = request.header("Content-Type", "application/json");
+    if !api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+
+    let resp = request.send().await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let _body = resp.text().await.unwrap_or_default();
+        log::error!("generate_title API error {}: [body sanitized]", status);
+        return Err(AppError::ApiError {
+            status,
+            message: "Title generation failed (response body omitted for security)".to_string(),
+        });
+    }
+
+    let chat_resp: ChatResponse = resp
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+
+    let content = chat_resp
+        .choices
+        .into_iter()
+        .next()
+        .and_then(|c| c.message)
+        .and_then(|m| m.content)
+        .unwrap_or_default();
+
+    let trimmed = content.trim().to_string();
+    Ok(trimmed)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -708,26 +776,27 @@ pub fn run() {
                 .level(log::LevelFilter::Warn)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![
-            load_config,
-            save_config,
-            load_search_config,
-            save_search_config,
-            load_api_keys,
-            save_api_keys_cmd,
-            load_search_api_keys,
-            save_search_api_keys_cmd,
-            chat_completion,
-            chat_stream,
-            cancel_chat_stream,
-            chat_completion_tools,
-            chat_stream_tools,
-            check_api,
-            web_search,
-            fetch_url_content,
-            ws_authenticate,
-            ws_chat
-        ])
+    .invoke_handler(tauri::generate_handler![
+        load_config,
+        save_config,
+        load_search_config,
+        save_search_config,
+        load_api_keys,
+        save_api_keys_cmd,
+        load_search_api_keys,
+        save_search_api_keys_cmd,
+        chat_completion,
+        chat_stream,
+        cancel_chat_stream,
+        chat_completion_tools,
+        chat_stream_tools,
+        generate_title,
+        check_api,
+        web_search,
+        fetch_url_content,
+        ws_authenticate,
+        ws_chat
+    ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

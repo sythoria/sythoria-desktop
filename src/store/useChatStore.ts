@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, ModelConfig, GenerationState } from "../types";
+import type { Conversation, Message, ModelConfig, GenerationState, TitleGenerationConfig } from "../types";
 import { loadModelConfigs } from "../types";
 import {
   loadConversations,
@@ -10,6 +10,7 @@ import {
   loadSearchConfigs,
   loadSearchApiKeys,
   clearConversations,
+  loadTitleConfig,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
@@ -118,15 +119,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     initInProgress = true;
     uiLoading("init", true);
     try {
-      const [loadedModels, loadedConvs, loadedTheme, loadedKeys, loadedSearchConfigs, loadedSearchKeys] =
-        await Promise.all([
-          loadModelConfigs(),
-          loadConversations(),
-          loadTheme(),
-          loadApiKeys(),
-          loadSearchConfigs(),
-          loadSearchApiKeys(),
-        ]);
+      const [
+        loadedModels,
+        loadedConvs,
+        loadedTheme,
+        loadedKeys,
+        loadedSearchConfigs,
+        loadedSearchKeys,
+        loadedTitleCfg,
+      ] = await Promise.all([
+        loadModelConfigs(),
+        loadConversations(),
+        loadTheme(),
+        loadApiKeys(),
+        loadSearchConfigs(),
+        loadSearchApiKeys(),
+        loadTitleConfig(),
+      ]);
 
       const models = loadedModels || [];
       const modelsWithKeys = models.map((m) => ({
@@ -143,6 +152,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
         apiKeys: loadedKeys,
         modelStatuses: {},
+        titleConfig: loadedTitleCfg,
       });
 
       searchSetState({
@@ -237,13 +247,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text) => {
-    const { isStreaming, activeId } = get();
-    const { selectedModel, models, temperature, apiKeys } = useModelStore.getState();
+    const { isStreaming, activeId, conversations } = get();
+    const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
     const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
 
     if (isStreaming) return;
 
     let convId = activeId;
+    let isFirstMessage = false;
 
     if (!convId) {
       const id = generateId();
@@ -260,6 +271,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeId: id,
       }));
       convId = id;
+      isFirstMessage = true;
+    } else {
+      const existing = conversations.find((c) => c.id === convId);
+      if (existing && existing.messages.length === 0) {
+        isFirstMessage = true;
+      }
     }
 
     const userMsg: Message = {
@@ -278,14 +295,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    const fallbackTitle = truncateTitle(text);
+
     set((state) => ({
       generationState: "idle" as GenerationState,
       generationLabel: "",
       conversations: updateConversationMessages(state.conversations, finalId, (msgs) => [...msgs, userMsg], {
-        title:
-          state.conversations.find((c) => c.id === finalId)?.messages.length === 0 ? truncateTitle(text) : undefined,
+        title: isFirstMessage ? fallbackTitle : undefined,
       }),
     }));
+
+    if (isFirstMessage && titleConfig.enabled) {
+      generateConversationTitle(finalId, text, modelConfig, apiKeys, titleConfig, set, get);
+    }
 
     const useTools = isSearchEnabled && activeSearchId;
     const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
@@ -550,4 +572,54 @@ async function sendNormal(
   } finally {
     uiLoading("sendMessage", false);
   }
+}
+
+function generateConversationTitle(
+  convId: string,
+  userText: string,
+  chatModelConfig: ModelConfig,
+  apiKeys: Record<string, string>,
+  titleConfig: TitleGenerationConfig,
+  set: (fn: (state: ChatState) => Partial<ChatState>) => void,
+  get: () => ChatState,
+): void {
+  const { models } = useModelStore.getState();
+
+  let titleModelConfig: ModelConfig;
+  if (titleConfig.modelId === "__same__") {
+    titleModelConfig = chatModelConfig;
+  } else {
+    const found = models.find((m) => m.id === titleConfig.modelId);
+    if (!found) {
+      logError("Title generation model not found, falling back to chat model");
+      titleModelConfig = chatModelConfig;
+    } else {
+      titleModelConfig = found;
+    }
+  }
+
+  const apiUrl = titleModelConfig.apiBase;
+  const apiKey = apiKeys[titleModelConfig.id] ?? titleModelConfig.apiKey ?? "";
+  const model = titleModelConfig.modelId;
+  const systemPrompt = titleConfig.systemPrompt.replace(/\{\{userMessage\}\}/g, userText);
+
+  invoke<string>("generate_title", {
+    apiUrl,
+    apiKey,
+    model,
+    userMessage: userText,
+    systemPrompt,
+  })
+    .then((title) => {
+      const trimmed = title.trim();
+      if (trimmed) {
+        set((state) => ({
+          conversations: state.conversations.map((c) => (c.id === convId ? { ...c, title: trimmed } : c)),
+        }));
+        get().persistConversations();
+      }
+    })
+    .catch((err) => {
+      logError("Title generation failed, keeping fallback title", err);
+    });
 }

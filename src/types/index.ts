@@ -61,6 +61,15 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "er
 
 export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "error";
 
+export const DEFAULT_TITLE_SYSTEM_PROMPT =
+  "Generate a concise, descriptive title (max 5 words) for a conversation that started with the following user message. Respond with only the title text, no quotes or explanations.\n\nUser message:\n{{userMessage}}";
+
+export interface TitleGenerationConfig {
+  enabled: boolean;
+  modelId: string;
+  systemPrompt: string;
+}
+
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: "bg-gray-400",
   connecting: "bg-yellow-400 animate-pulse",

@@ -187,9 +187,9 @@ interface RenameChatModalProps {
 }
 
 export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: RenameChatModalProps) {
-  const [value, setValue] = useState(currentTitle);
+  const [value, setValue] = useState(currentTitle ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
-  const isEmpty = value.trim().length === 0;
+  const isEmpty = !value || value.trim().length === 0;
 
   useEffect(() => {
     if (!isOpen) return;

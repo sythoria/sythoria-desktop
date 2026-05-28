@@ -14,9 +14,11 @@ import {
   AlertCircle,
   Loader2,
   Search,
+  MessageSquareText,
 } from "lucide-react";
 import { ModelConfig, SearchApiConfig } from "../types";
 import type { SearchProvider } from "../types";
+import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useSearchStore } from "../store/useSearchStore";
 import { useUIStore } from "../store/useUIStore";
@@ -470,12 +472,14 @@ export default function Settings() {
   const selectedModel = useModelStore((s) => s.selectedModel);
   const temperature = useModelStore((s) => s.temperature);
   const modelStatuses = useModelStore((s) => s.modelStatuses);
+  const titleConfig = useModelStore((s) => s.titleConfig);
   const setSelectedModel = useModelStore((s) => s.setSelectedModel);
   const setTemperature = useModelStore((s) => s.setTemperature);
   const updateModel = useModelStore((s) => s.updateModel);
   const deleteModel = useModelStore((s) => s.deleteModel);
   const addModel = useModelStore((s) => s.addModel);
   const checkModelConnections = useModelStore((s) => s.checkModelConnections);
+  const setTitleConfig = useModelStore((s) => s.setTitleConfig);
 
   const searchConfigs = useSearchStore((s) => s.searchConfigs);
   const activeSearchId = useSearchStore((s) => s.activeSearchId);
@@ -495,6 +499,7 @@ export default function Settings() {
   const [appVersion, setAppVersion] = useState<string>("");
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
+  const [titleModelDropdownOpen, setTitleModelDropdownOpen] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -785,6 +790,143 @@ export default function Settings() {
                   <span>Creative</span>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
+                <MessageSquareText size={16} className="text-accent" />
+              </div>
+              <h3 className="text-sm font-semibold text-text-primary">Title Generation</h3>
+            </div>
+            <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+              <Switch
+                checked={titleConfig.enabled}
+                onChange={(checked) => setTitleConfig({ enabled: checked })}
+                label="AI Title Generation"
+                description="Automatically generate conversation titles using AI"
+              />
+
+              {titleConfig.enabled && (
+                <>
+                  <div className="space-y-2">
+                    <label htmlFor="title-model-select" className="text-sm font-medium text-text-primary block">
+                      Title Model
+                    </label>
+                    <p className="text-xs text-text-muted mb-2">
+                      Choose the model used to generate titles, or use the same model as the conversation
+                    </p>
+                    <div className="relative">
+                      <button
+                        id="title-model-select"
+                        onClick={() => setTitleModelDropdownOpen(!titleModelDropdownOpen)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px]"
+                        aria-expanded={titleModelDropdownOpen}
+                        aria-haspopup="listbox"
+                      >
+                        <span>
+                          {titleConfig.modelId === "__same__"
+                            ? "Same as selected model"
+                            : (models.find((m) => m.id === titleConfig.modelId)?.name ?? "Same as selected model")}
+                        </span>
+                        <ChevronDown
+                          size={16}
+                          className={`text-text-muted transition-transform ${titleModelDropdownOpen ? "rotate-180" : ""}`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      {titleModelDropdownOpen && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-10"
+                            onClick={() => setTitleModelDropdownOpen(false)}
+                            aria-hidden="true"
+                          />
+                          <div
+                            className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in max-h-64 overflow-y-auto"
+                            role="listbox"
+                            aria-label="Title generation models"
+                          >
+                            <button
+                              onClick={() => {
+                                setTitleConfig({ modelId: "__same__" });
+                                setTitleModelDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                                titleConfig.modelId === "__same__"
+                                  ? "bg-accent-soft text-accent"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }`}
+                              role="option"
+                              aria-selected={titleConfig.modelId === "__same__"}
+                            >
+                              <div className="flex flex-col items-start">
+                                <span className="font-medium">Same as selected model</span>
+                                <span className="text-[10px] text-text-muted">Uses the active chat model</span>
+                              </div>
+                              {titleConfig.modelId === "__same__" && (
+                                <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                              )}
+                            </button>
+                            {enabledModels.map((model) => (
+                              <button
+                                key={model.id}
+                                onClick={() => {
+                                  setTitleConfig({ modelId: model.id });
+                                  setTitleModelDropdownOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                                  titleConfig.modelId === model.id
+                                    ? "bg-accent-soft text-accent"
+                                    : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                }`}
+                                role="option"
+                                aria-selected={titleConfig.modelId === model.id}
+                              >
+                                <div className="flex flex-col items-start">
+                                  <span className="font-medium">{model.name}</span>
+                                  <span className="text-[10px] text-text-muted">{model.modelId}</span>
+                                </div>
+                                {titleConfig.modelId === model.id && (
+                                  <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="title-system-prompt" className="text-sm font-medium text-text-primary block">
+                      System Prompt
+                    </label>
+                    <p className="text-xs text-text-muted mb-2">
+                      Customize the prompt used for title generation. Use{" "}
+                      <code className="text-accent text-[11px]">{"{{userMessage}}"}</code> as a placeholder for the
+                      user&apos;s message
+                    </p>
+                    <textarea
+                      id="title-system-prompt"
+                      value={titleConfig.systemPrompt}
+                      onChange={(e) => setTitleConfig({ systemPrompt: e.target.value })}
+                      rows={4}
+                      placeholder={DEFAULT_TITLE_SYSTEM_PROMPT}
+                      className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
+                    />
+                    {titleConfig.systemPrompt !== DEFAULT_TITLE_SYSTEM_PROMPT && (
+                      <button
+                        onClick={() => setTitleConfig({ systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT })}
+                        className="text-xs text-accent hover:text-accent-hover transition-colors"
+                      >
+                        Reset to default
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

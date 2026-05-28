@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ModelConfig, ConnectionStatus, ModelStatuses } from "../types";
+import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
+import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { saveModelConfigs } from "../types";
-import { saveApiKeys } from "../utils/storage";
+import { saveApiKeys, saveTitleConfig } from "../utils/storage";
 import { logError } from "../utils/logger";
 import { DEFAULT_TEMPERATURE } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
@@ -67,6 +68,7 @@ interface ModelState {
   temperature: number;
   apiKeys: Record<string, string>;
   modelStatuses: ModelStatuses;
+  titleConfig: TitleGenerationConfig;
 
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
@@ -78,6 +80,7 @@ interface ModelState {
   startHealthCheck: () => void;
   stopHealthCheck: () => void;
   persistApiKeys: () => Promise<void>;
+  setTitleConfig: (updates: Partial<TitleGenerationConfig>) => void;
 
   getActiveStreamId: () => string | null;
   setActiveStreamId: (id: string | null, convId?: string | null) => void;
@@ -95,6 +98,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   temperature: DEFAULT_TEMPERATURE,
   apiKeys: {},
   modelStatuses: {},
+  titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
 
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
@@ -266,6 +270,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   persistApiKeys: async () => {
     const { apiKeys } = get();
     await saveApiKeys(apiKeys);
+  },
+
+  setTitleConfig: (updates) => {
+    const { titleConfig } = get();
+    const newConfig = { ...titleConfig, ...updates };
+    set({ titleConfig: newConfig });
+    saveTitleConfig(newConfig);
   },
 
   getActiveStreamId: () => activeStreamId,
