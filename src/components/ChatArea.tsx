@@ -595,11 +595,11 @@ export default function ChatArea({
   if (messages.length === 0) {
     return (
       <div
-        className="flex-1 flex flex-col items-center justify-center select-none animate-slide-up relative"
+        className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
         role="region"
         aria-label="Empty chat — type a message to begin"
       >
-        <div className="flex flex-col items-center gap-4 px-4">
+        <div className="flex flex-col items-center gap-4 px-4 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
           <div
             className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center"
             aria-hidden="true"

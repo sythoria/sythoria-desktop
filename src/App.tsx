@@ -268,6 +268,7 @@ function App() {
             onToggleSearch={toggleSearchEnabled}
             isStreaming={isStreaming}
             onStop={stopStreaming}
+            centered={messages.length === 0}
           />
         </main>
       )}

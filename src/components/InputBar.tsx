@@ -15,6 +15,7 @@ interface InputBarProps {
   onToggleSearch: (enabled: boolean) => void;
   isStreaming?: boolean;
   onStop?: () => void;
+  centered?: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,6 +36,7 @@ export default function InputBar({
   onToggleSearch,
   isStreaming,
   onStop,
+  centered = false,
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
@@ -141,8 +143,14 @@ export default function InputBar({
   const currentStatus = modelStatuses[selectedModel] ?? "disconnected";
 
   return (
-    <div className="px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4">
-      <div className="max-w-3xl mx-auto">
+    <div
+      className={`transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        centered
+          ? "flex-1 flex flex-col items-center translate-y-[-7vh] pt-4"
+          : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
+      }`}
+    >
+      <div className="max-w-3xl mx-auto w-full px-4 md:px-0">
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
