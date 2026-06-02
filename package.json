@@ -50,7 +50,7 @@
     "remark-math": "^6.0.0",
     "unified": "^11.0.5",
     "zod": "^4.4.3",
-    "zustand": "^5.0.5"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
