@@ -177,8 +177,31 @@ fn save_secret_index(
     Ok(())
 }
 
+fn init_keyring_store() {
+    #[cfg(target_os = "macos")]
+    keyring_core::set_default_store(
+        apple_native_keyring_store::keychain::Store::new()
+            .expect("Failed to init macOS Keychain store"),
+    );
+    #[cfg(target_os = "ios")]
+    keyring_core::set_default_store(
+        apple_native_keyring_store::protected::Store::new()
+            .expect("Failed to init iOS Protected Data store"),
+    );
+    #[cfg(target_os = "windows")]
+    keyring_core::set_default_store(
+        windows_native_keyring_store::Store::new()
+            .expect("Failed to init Windows Credential store"),
+    );
+    #[cfg(target_os = "linux")]
+    keyring_core::set_default_store(
+        linux_keyutils_keyring_store::Store::new()
+            .expect("Failed to init Linux Keyutils store"),
+    );
+}
+
 fn set_keychain_secret(namespace: &str, id: &str, secret: &str) -> Result<(), AppError> {
-    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
         .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
     entry
         .set_password(secret)
@@ -186,19 +209,19 @@ fn set_keychain_secret(namespace: &str, id: &str, secret: &str) -> Result<(), Ap
 }
 
 fn get_keychain_secret(namespace: &str, id: &str) -> Result<String, AppError> {
-    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
         .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
     entry.get_password().map_err(|e| match e {
-        keyring::Error::NoEntry => AppError::KeyNotFound(format!("No key found for '{}'", id)),
+        keyring_core::Error::NoEntry => AppError::KeyNotFound(format!("No key found for '{}'", id)),
         _ => AppError::ConfigIo(format!("Failed to load secret: {}", e)),
     })
 }
 
 fn delete_keychain_secret(namespace: &str, id: &str) -> Result<(), AppError> {
-    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
+    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
         .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
     entry.delete_credential().or_else(|e| match e {
-        keyring::Error::NoEntry => Ok(()),
+        keyring_core::Error::NoEntry => Ok(()),
         _ => Err(AppError::ConfigIo(format!(
             "Failed to delete secret: {}",
             e
@@ -768,6 +791,7 @@ async fn generate_title(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_keyring_store();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
