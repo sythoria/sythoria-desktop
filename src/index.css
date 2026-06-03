@@ -391,6 +391,33 @@
   color: inherit;
 }
 
+.markdown-body pre::-webkit-scrollbar,
+.markdown-body .code-block-content::-webkit-scrollbar {
+  height: 4px;
+}
+
+.markdown-body pre::-webkit-scrollbar-track,
+.markdown-body .code-block-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.markdown-body pre::-webkit-scrollbar-thumb,
+.markdown-body .code-block-content::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.markdown-body pre::-webkit-scrollbar-thumb:hover,
+.markdown-body .code-block-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+.markdown-body pre,
+.markdown-body .code-block-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
 .markdown-body .code-block-content pre {
   margin: 0;
   padding: 0;
