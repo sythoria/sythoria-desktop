@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
-import type { ModelConfig, ModelStatuses } from "../types";
+import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
 
 const mockModels: ModelConfig[] = [
   {
@@ -28,6 +28,15 @@ const mockStatuses: ModelStatuses = {
   "model-2": "disconnected",
 };
 
+const mockMcpServerStatuses: Record<string, McpServerStatus> = {};
+
+const defaultMcpProps = {
+  mcpServers: [],
+  mcpServerStatuses: mockMcpServerStatuses,
+  enabledMcpServerIds: new Set<string>(),
+  onToggleMcpServer: vi.fn(),
+};
+
 describe("InputBar", () => {
   it("renders textarea with placeholder", () => {
     render(
@@ -39,6 +48,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -56,6 +66,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -74,6 +85,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -91,6 +103,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -109,6 +122,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -129,6 +143,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -149,6 +164,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
       />,
     );
 
@@ -168,6 +184,7 @@ describe("InputBar", () => {
         modelStatuses={mockStatuses}
         isSearchEnabled={false}
         onToggleSearch={onToggleSearch}
+        {...defaultMcpProps}
       />,
     );
 

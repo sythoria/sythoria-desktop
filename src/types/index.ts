@@ -21,7 +21,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
-  toolCall?: { id: string; name: "search_query" | "fetch_url"; arguments: Record<string, string> };
+  toolCall?: { id: string; name: string; arguments: Record<string, string> };
   toolResult?: { id: string; name: string; content: string };
   sources?: { title: string; url: string }[];
 }
@@ -59,7 +59,36 @@ export interface SearchApiConfig {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
-export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "error";
+export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";
+
+export type McpTransport = "stdio" | "sse" | "streamable-http";
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  baseUrl?: string;
+  apiKey?: string;
+  enabled: boolean;
+}
+
+export interface McpTool {
+  name: string;
+  namespacedName: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  serverId: string;
+  serverName: string;
+}
+
+export interface McpToolResult {
+  content: string;
+  isError: boolean;
+}
+
+export type McpServerStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export const DEFAULT_TITLE_SYSTEM_PROMPT =
   "Generate a concise, descriptive title (max 5 words) for a conversation that started with the following user message. Respond with only the title text, no quotes or explanations.\n\nUser message:\n{{userMessage}}";
@@ -71,6 +100,13 @@ export interface TitleGenerationConfig {
 }
 
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
+  disconnected: "bg-gray-400",
+  connecting: "bg-yellow-400 animate-pulse",
+  connected: "bg-green-500",
+  error: "bg-red-500",
+};
+
+export const MCP_STATUS_COLORS: Record<McpServerStatus, string> = {
   disconnected: "bg-gray-400",
   connecting: "bg-yellow-400 animate-pulse",
   connected: "bg-green-500",

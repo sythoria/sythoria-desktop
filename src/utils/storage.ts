@@ -64,6 +64,7 @@ const API_KEYS_KEY = "sythoria-api-keys";
 const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
+const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -289,5 +290,61 @@ export async function saveTitleConfig(config: TitleGenerationConfig): Promise<vo
     await store.set(TITLE_CONFIG_KEY, config);
   } catch (e) {
     logError("Failed to save title config to secure store", e);
+  }
+}
+
+const McpServerConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  transport: z.enum(["stdio", "sse", "streamable-http"]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  enabled: z.boolean(),
+});
+
+const McpConfigsArraySchema = z.array(McpServerConfigSchema);
+
+export async function loadMcpConfigs(): Promise<import("../types").McpServerConfig[] | null> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(MCP_CONFIGS_KEY);
+    if (raw) {
+      const result = McpConfigsArraySchema.safeParse(raw);
+      if (result.success) return result.data as import("../types").McpServerConfig[];
+      logError("Stored MCP configs failed validation", result.error);
+    }
+  } catch (e) {
+    logError("Failed to load MCP configs from secure store", e);
+  }
+  return null;
+}
+
+export async function saveMcpConfigs(configs: import("../types").McpServerConfig[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(MCP_CONFIGS_KEY, configs);
+  } catch (e) {
+    logError("Failed to save MCP configs to secure store", e);
+  }
+}
+
+export async function loadMcpEnvSecrets(): Promise<Record<string, Record<string, string>>> {
+  try {
+    const raw = await invoke<unknown>("load_mcp_env_secrets");
+    const result = z.record(z.string(), z.record(z.string(), z.string())).safeParse(raw);
+    if (result.success && Object.keys(result.data).length > 0) return result.data;
+  } catch (e) {
+    logError("Failed to load MCP env secrets from keychain", e);
+  }
+  return {};
+}
+
+export async function saveMcpEnvSecrets(secrets: Record<string, Record<string, string>>): Promise<void> {
+  try {
+    await invoke("save_mcp_env_secrets_cmd", { secrets });
+  } catch (e) {
+    logError("Failed to save MCP env secrets to keychain", e);
   }
 }

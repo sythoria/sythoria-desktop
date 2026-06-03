@@ -54,12 +54,27 @@ const SearchApiConfigSchema = z.object({
   enabled: z.boolean(),
 });
 
+const McpServerConfigSchema = z.object({
+  id: z.string().min(1, "MCP server ID is required"),
+  name: z.string().min(1, "Name is required").max(60, "Name is too long"),
+  transport: z.enum(["stdio", "sse", "streamable-http"]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  enabled: z.boolean(),
+});
+
 export function validateModelConfig(config: unknown) {
   return ModelConfigSchema.safeParse(config);
 }
 
 export function validateSearchConfig(config: unknown) {
   return SearchApiConfigSchema.safeParse(config);
+}
+
+export function validateMcpServerConfig(config: unknown) {
+  return McpServerConfigSchema.safeParse(config);
 }
 
 export function validateApiUrl(url: string, allowPrivate = true): { valid: boolean; error?: string; warning?: string } {

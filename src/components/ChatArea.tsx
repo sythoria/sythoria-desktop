@@ -30,6 +30,7 @@ const GENERATION_STATE_CONFIG: Record<
   searching: { icon: Search, colorClass: "text-blue-500", label: "Searching" },
   fetching: { icon: Globe, colorClass: "text-cyan-500", label: "Fetching" },
   responding: { icon: Bot, colorClass: "text-accent", label: "Responding" },
+  mcp_executing: { icon: Wrench, colorClass: "text-orange-500", label: "Running MCP tool" },
   error: { icon: Loader2, colorClass: "text-red-500", label: "Error" },
 };
 
@@ -294,7 +295,12 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const { name, arguments: args } = message.toolCall!;
   const isSearch = name === "search_query";
   const isFetch = name === "fetch_url";
+  const isMcp = name.includes("__");
   const isCompleted = !!message.toolResult;
+
+  const mcpParts = isMcp ? name.split("__") : [];
+  const mcpToolName = mcpParts.length > 1 ? mcpParts.slice(1).join("__") : name;
+  const mcpServerName = mcpParts[0] ?? "";
 
   return (
     <div className="flex items-start gap-2 animate-fade-in">
@@ -324,12 +330,16 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 ? "Search results"
                 : isFetch
                   ? "Page content"
-                  : "Tool result"
+                  : isMcp
+                    ? `Tool result: ${mcpToolName}`
+                    : "Tool result"
               : isSearch
                 ? "Searching"
                 : isFetch
                   ? "Fetching"
-                  : "Calling tool"}
+                  : isMcp
+                    ? `Running: ${mcpToolName} via ${mcpServerName}`
+                    : "Calling tool"}
           </span>
           {!isCompleted && <Loader2 size={12} className="animate-spin" />}
         </div>
@@ -337,7 +347,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
           <ToolResultContent message={message} />
         ) : (
           <p className="text-xs text-text-muted mt-0.5 font-mono truncate">
-            {isSearch && args.query ? `"${args.query}"` : isFetch && args.url ? args.url : JSON.stringify(args)}
+            {isSearch && args.query
+              ? `"${args.query}"`
+              : isFetch && args.url
+                ? args.url
+                : isMcp
+                  ? `${mcpToolName}(${Object.values(args).join(", ")})`
+                  : JSON.stringify(args)}
           </p>
         )}
       </div>

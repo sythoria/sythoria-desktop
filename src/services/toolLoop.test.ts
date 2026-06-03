@@ -47,7 +47,7 @@ describe("TOOL_DEFINITIONS", () => {
   it("all tools have required parameters", () => {
     for (const tool of TOOL_DEFINITIONS) {
       expect(tool.function.parameters.required).toBeDefined();
-      expect(tool.function.parameters.required.length).toBeGreaterThan(0);
+      expect(tool.function.parameters.required!.length).toBeGreaterThan(0);
     }
   });
 });
@@ -106,6 +106,8 @@ describe("sendWithToolLoop", () => {
         enabled: true,
       },
       "",
+      [],
+      undefined,
       set,
       () => state,
       vi.fn(),

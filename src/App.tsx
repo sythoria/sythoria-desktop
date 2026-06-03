@@ -12,6 +12,7 @@ import { ToastContainer } from "./components/ui/Toast";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
+import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
@@ -74,6 +75,23 @@ function App() {
     useShallow((s) => ({
       toggleSearchEnabled: s.toggleSearchEnabled,
     })),
+  );
+
+  const { mcpConfigs, serverStatuses, enabledServerIds, toggleServerEnabled } = useMcpStore(
+    useShallow((s) => ({
+      mcpConfigs: s.mcpConfigs,
+      serverStatuses: s.serverStatuses,
+      enabledServerIds: s.enabledServerIds,
+      toggleServerEnabled: s.toggleServerEnabled,
+    })),
+  );
+
+  const handleToggleMcpServer = useCallback(
+    (serverId: string) => {
+      const isEnabled = enabledServerIds.has(serverId);
+      toggleServerEnabled(serverId, !isEnabled);
+    },
+    [enabledServerIds, toggleServerEnabled],
   );
 
   const { sidebarOpen, hasStarted, isConfigLoaded, view, showRenameModal, renameCurrentTitle, loading, toasts } =
@@ -266,6 +284,10 @@ function App() {
             modelStatuses={modelStatuses}
             isSearchEnabled={isSearchEnabled}
             onToggleSearch={toggleSearchEnabled}
+            mcpServers={mcpConfigs}
+            mcpServerStatuses={serverStatuses}
+            enabledMcpServerIds={enabledServerIds}
+            onToggleMcpServer={handleToggleMcpServer}
             isStreaming={isStreaming}
             onStop={stopStreaming}
             centered={messages.length === 0}

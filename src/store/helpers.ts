@@ -1,13 +1,14 @@
 import { useUIStore } from "./useUIStore";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
+import { useMcpStore } from "./useMcpStore";
 
 export function uiToast(message: string, variant: "info" | "success" | "error" = "info") {
   useUIStore.getState().addToast(message, variant);
 }
 
 export function uiLoading(
-  key: "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution",
+  key: "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect",
   value: boolean,
 ) {
   useUIStore.getState().setLoading(key, value);
@@ -71,6 +72,7 @@ export function modelGetActiveStreamId() {
 
 export type ModelState = ReturnType<typeof useModelStore.getState>;
 export type SearchState = ReturnType<typeof useSearchStore.getState>;
+export type McpState = ReturnType<typeof useMcpStore.getState>;
 
 export function modelSetState(partial: Partial<ModelState>) {
   useModelStore.setState(partial);
@@ -86,4 +88,24 @@ export function searchPerformSearch(...args: Parameters<SearchState["performSear
 
 export function searchFetchUrlContent(...args: Parameters<SearchState["fetchUrlContent"]>) {
   return useSearchStore.getState().fetchUrlContent(...args);
+}
+
+export function mcpSetState(partial: Partial<McpState>) {
+  useMcpStore.setState(partial);
+}
+
+export function mcpConnectServer(id: string) {
+  return useMcpStore.getState().connectServer(id);
+}
+
+export function mcpDisconnectServer(id: string) {
+  return useMcpStore.getState().disconnectServer(id);
+}
+
+export function mcpCallTool(serverId: string, toolName: string, args: Record<string, string>) {
+  return useMcpStore.getState().callTool(serverId, toolName, args);
+}
+
+export function mcpGetEnabledTools() {
+  return useMcpStore.getState().getEnabledTools();
 }

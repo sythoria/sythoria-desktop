@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Plus, Paperclip, ChevronDown, Check, Search, Square, Loader2 } from "lucide-react";
-import { STATUS_COLORS, ModelConfig } from "../types";
+import { Send, Plus, Paperclip, ChevronDown, Check, Search, Square, Loader2, Cpu } from "lucide-react";
+import { STATUS_COLORS, ModelConfig, McpServerConfig, McpServerStatus } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
 
@@ -13,6 +13,10 @@ interface InputBarProps {
   modelStatuses: ModelStatuses;
   isSearchEnabled: boolean;
   onToggleSearch: (enabled: boolean) => void;
+  mcpServers: McpServerConfig[];
+  mcpServerStatuses: Record<string, McpServerStatus>;
+  enabledMcpServerIds: Set<string>;
+  onToggleMcpServer: (serverId: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
   centered?: boolean;
@@ -34,6 +38,10 @@ export default function InputBar({
   modelStatuses,
   isSearchEnabled,
   onToggleSearch,
+  mcpServers,
+  mcpServerStatuses,
+  enabledMcpServerIds,
+  onToggleMcpServer,
   isStreaming,
   onStop,
   centered = false,
@@ -46,6 +54,9 @@ export default function InputBar({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
+  const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
@@ -161,7 +172,7 @@ export default function InputBar({
             <button
               onClick={() => setPlusOpen(!plusOpen)}
               className={`p-1.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                isSearchEnabled
+                anyToolActive
                   ? "text-accent hover:bg-accent/10"
                   : "text-text-muted hover:text-text-secondary hover:bg-hover"
               }`}
@@ -207,6 +218,33 @@ export default function InputBar({
                   <span>Web Search</span>
                   {isSearchEnabled && <Check size={14} className="text-accent ml-auto" />}
                 </button>
+                {connectedMcpServers.length > 0 && (
+                  <>
+                    <div className="border-t border-border my-1" />
+                    {connectedMcpServers.map((server) => {
+                      const isEnabled = enabledMcpServerIds.has(server.id);
+                      return (
+                        <button
+                          key={server.id}
+                          onClick={() => {
+                            onToggleMcpServer(server.id);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                            isEnabled
+                              ? "text-accent bg-accent/5 hover:bg-accent/10"
+                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                          }`}
+                          role="menuitemcheckbox"
+                          aria-checked={isEnabled}
+                        >
+                          <Cpu size={16} className={isEnabled ? "text-accent" : "text-text-muted"} />
+                          <span className="truncate">{server.name}</span>
+                          {isEnabled && <Check size={14} className="text-accent ml-auto" />}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -337,6 +375,11 @@ export default function InputBar({
             <span className="flex items-center justify-center gap-1.5">
               <Search size={11} className="text-accent" />
               Web Search enabled
+            </span>
+          ) : enabledMcpServerIds.size > 0 ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <Cpu size={11} className="text-accent" />
+              {enabledMcpServerIds.size} MCP server{enabledMcpServerIds.size !== 1 ? "s" : ""} enabled
             </span>
           ) : (
             "Sythoria can make mistakes. Consider checking important information."

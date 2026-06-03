@@ -11,6 +11,8 @@ import {
   loadSearchApiKeys,
   clearConversations,
   loadTitleConfig,
+  loadMcpConfigs,
+  loadMcpEnvSecrets,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
@@ -37,9 +39,11 @@ import {
   searchSetState,
   searchPerformSearch,
   searchFetchUrlContent,
+  mcpSetState,
 } from "./helpers";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
+import { useMcpStore } from "./useMcpStore";
 import { useUIStore } from "./useUIStore";
 
 function truncateTitle(text: string): string {
@@ -127,6 +131,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedSearchConfigs,
         loadedSearchKeys,
         loadedTitleCfg,
+        loadedMcpConfigs,
+        loadedMcpEnvSecrets,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -135,6 +141,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadSearchConfigs(),
         loadSearchApiKeys(),
         loadTitleConfig(),
+        loadMcpConfigs(),
+        loadMcpEnvSecrets(),
       ]);
 
       const models = loadedModels || [];
@@ -161,6 +169,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         searchApiKeys: loadedSearchKeys,
       });
 
+      const mcpConfigs = loadedMcpConfigs || [];
+      mcpSetState({
+        mcpConfigs,
+        envSecrets: loadedMcpEnvSecrets,
+        serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
+      });
+
       set({
         conversations: nonEmptyConvs,
         activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
@@ -175,6 +190,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       modelCheckConnections();
       modelStartHealthCheck();
+
+      useMcpStore.getState().connectAllEnabled();
     } catch (err) {
       logError("Failed to initialize app", err);
       uiToast(parseApiError(err), "error");
@@ -313,7 +330,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
     const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
-    if (useTools && searchConfig) {
+    const { enabledServerIds, availableTools } = useMcpStore.getState();
+    const enabledMcpTools = availableTools.filter((t) => enabledServerIds.has(t.serverId));
+    const hasMcp = enabledMcpTools.length > 0;
+
+    if ((useTools && searchConfig) || hasMcp) {
+      const mcpCallTool = hasMcp
+        ? (serverId: string, toolName: string, args: Record<string, string>) =>
+            useMcpStore.getState().callTool(serverId, toolName, args)
+        : undefined;
+
       await sendWithToolLoop(
         finalId,
         modelConfig,
@@ -321,6 +347,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKeys,
         searchConfig,
         searchApiKey,
+        enabledMcpTools,
+        mcpCallTool,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
         searchPerformSearch,
@@ -387,7 +415,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
     const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
-    if (useTools && searchConfig) {
+    const { enabledServerIds: retryEnabledIds, availableTools: retryAvailableTools } = useMcpStore.getState();
+    const retryMcpTools = retryAvailableTools.filter((t) => retryEnabledIds.has(t.serverId));
+    const retryHasMcp = retryMcpTools.length > 0;
+
+    if ((useTools && searchConfig) || retryHasMcp) {
+      const mcpCallTool = retryHasMcp
+        ? (serverId: string, toolName: string, args: Record<string, string>) =>
+            useMcpStore.getState().callTool(serverId, toolName, args)
+        : undefined;
+
       await sendWithToolLoop(
         convId,
         modelConfig,
@@ -395,6 +432,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKeys,
         searchConfig,
         searchApiKey,
+        retryMcpTools,
+        mcpCallTool,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
         searchPerformSearch,

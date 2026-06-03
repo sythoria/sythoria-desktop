@@ -15,16 +15,22 @@ import {
   Loader2,
   Search,
   MessageSquareText,
+  Cpu,
+  Plug,
+  PlugZap,
 } from "lucide-react";
-import { ModelConfig, SearchApiConfig } from "../types";
-import type { SearchProvider } from "../types";
+import { ModelConfig, SearchApiConfig, McpServerConfig } from "../types";
+import type { SearchProvider, McpTransport, McpServerStatus } from "../types";
+import { MCP_STATUS_COLORS } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useSearchStore } from "../store/useSearchStore";
+import { useMcpStore } from "../store/useMcpStore";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { PROVIDER_PRESETS } from "../config/providerPresets";
 import { SEARCH_PROVIDER_PRESETS } from "../config/searchPresets";
+import { MCP_TRANSPORT_PRESETS } from "../config/mcpPresets";
 import { MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_STEP } from "../config/constants";
 import { Switch } from "./ui/Switch";
 import { getVersion } from "@tauri-apps/api/app";
@@ -467,6 +473,266 @@ const SearchApiCard = memo(function SearchApiCard({
   );
 });
 
+interface McpServerCardProps {
+  config: McpServerConfig;
+  status: McpServerStatus;
+  tools: { name: string; description: string }[];
+  onUpdate: (id: string, updates: Partial<McpServerConfig>) => void;
+  onDelete: (id: string) => void;
+  onConnect: (id: string) => void;
+  onDisconnect: (id: string) => void;
+  showKey: boolean;
+  onToggleKey: (id: string) => void;
+}
+
+const MCP_STATUS_LABELS: Record<McpServerStatus, string> = {
+  disconnected: "Disconnected",
+  connecting: "Connecting\u2026",
+  connected: "Connected",
+  error: "Error",
+};
+
+const McpServerCard = memo(function McpServerCard({
+  config,
+  status,
+  tools,
+  onUpdate,
+  onDelete,
+  onConnect,
+  onDisconnect,
+  showKey,
+  onToggleKey,
+}: McpServerCardProps) {
+  const [toolsExpanded, setToolsExpanded] = useState(false);
+
+  return (
+    <div
+      className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Enabled</p>
+          <p className="text-xs text-text-muted mt-0.5">Auto-connect on startup</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enabled}
+            aria-label="Toggle MCP server enabled"
+            onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
+            onKeyDown={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onUpdate(config.id, { enabled: !config.enabled });
+              }
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${config.enabled ? "bg-accent" : "bg-input-border"}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 shadow-sm ${config.enabled ? "translate-x-6" : "translate-x-1"}`}
+              aria-hidden="true"
+            />
+          </button>
+          <button
+            onClick={() => onDelete(config.id)}
+            className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label={`Delete MCP server ${config.name}`}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 mb-1">
+          <div className={`w-2 h-2 rounded-full ${MCP_STATUS_COLORS[status]}`} aria-label={`Status: ${status}`} />
+          <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
+          {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-name-${config.id}`}>
+              Name
+            </label>
+            <input
+              id={`mcp-name-${config.id}`}
+              type="text"
+              value={config.name}
+              onChange={(e) => onUpdate(config.id, { name: e.target.value })}
+              placeholder="e.g. Filesystem"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-transport-${config.id}`}>
+              Transport
+            </label>
+            <div className="relative">
+              <select
+                id={`mcp-transport-${config.id}`}
+                value={config.transport}
+                onChange={(e) => {
+                  const transport = e.target.value as McpTransport;
+                  const preset = MCP_TRANSPORT_PRESETS.find((p) => p.transport === transport);
+                  if (preset) {
+                    onUpdate(config.id, {
+                      transport,
+                      name: config.name === "New MCP Server" ? preset.label : config.name,
+                    });
+                  } else {
+                    onUpdate(config.id, { transport });
+                  }
+                }}
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+                aria-label="MCP transport type"
+              >
+                {MCP_TRANSPORT_PRESETS.map((p) => (
+                  <option key={p.transport} value={p.transport}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+        </div>
+
+        {config.transport === "stdio" && (
+          <>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-command-${config.id}`}>
+                Command
+              </label>
+              <input
+                id={`mcp-command-${config.id}`}
+                type="text"
+                value={config.command || ""}
+                onChange={(e) => onUpdate(config.id, { command: e.target.value })}
+                placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem"
+                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-args-${config.id}`}>
+                Arguments (comma-separated)
+              </label>
+              <input
+                id={`mcp-args-${config.id}`}
+                type="text"
+                value={(config.args || []).join(", ")}
+                onChange={(e) =>
+                  onUpdate(config.id, {
+                    args: e.target.value
+                      .split(",")
+                      .map((a) => a.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="e.g. /path/to/dir, --verbose"
+                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+              />
+            </div>
+          </>
+        )}
+
+        {(config.transport === "sse" || config.transport === "streamable-http") && (
+          <>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-base-${config.id}`}>
+                Base URL
+              </label>
+              <input
+                id={`mcp-base-${config.id}`}
+                type="url"
+                value={config.baseUrl || ""}
+                onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
+                placeholder="http://localhost:3000/mcp"
+                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-key-${config.id}`}>
+                API Key (optional)
+              </label>
+              <div className="relative">
+                <input
+                  id={`mcp-key-${config.id}`}
+                  type={showKey ? "text" : "password"}
+                  value={config.apiKey || ""}
+                  onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
+                  placeholder="API Key"
+                  className="w-full px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors"
+                />
+                <button
+                  onClick={() => onToggleKey(config.id)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
+                  aria-label={showKey ? "Hide API key" : "Show API key"}
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center gap-2 pt-2">
+          {status === "connected" ? (
+            <button
+              onClick={() => onDisconnect(config.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 border border-border text-xs transition-colors min-h-[36px]"
+              aria-label="Disconnect MCP server"
+            >
+              <PlugZap size={14} />
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={() => onConnect(config.id)}
+              disabled={status === "connecting"}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/10 border border-accent/30 text-xs font-medium transition-colors min-h-[36px] disabled:opacity-50"
+              aria-label="Connect MCP server"
+            >
+              {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+              {status === "connecting" ? "Connecting\u2026" : "Connect"}
+            </button>
+          )}
+
+          {tools.length > 0 && (
+            <button
+              onClick={() => setToolsExpanded(!toolsExpanded)}
+              className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1"
+              aria-label={toolsExpanded ? "Hide tools" : "Show tools"}
+            >
+              <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
+              {tools.length} tool{tools.length !== 1 ? "s" : ""}
+            </button>
+          )}
+        </div>
+
+        {toolsExpanded && tools.length > 0 && (
+          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
+            {tools.map((tool, i) => (
+              <div key={i} className="py-1.5 border-b border-border/30 last:border-0">
+                <p className="text-xs font-medium text-text-primary font-mono">{tool.name}</p>
+                {tool.description && (
+                  <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{tool.description}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export default function Settings() {
   const models = useModelStore((s) => s.models);
   const selectedModel = useModelStore((s) => s.selectedModel);
@@ -488,6 +754,15 @@ export default function Settings() {
   const deleteSearchConfig = useSearchStore((s) => s.deleteSearchConfig);
   const addSearchConfig = useSearchStore((s) => s.addSearchConfig);
 
+  const mcpConfigs = useMcpStore((s) => s.mcpConfigs);
+  const serverStatuses = useMcpStore((s) => s.serverStatuses);
+  const availableTools = useMcpStore((s) => s.availableTools);
+  const addMcpConfig = useMcpStore((s) => s.addMcpConfig);
+  const updateMcpConfig = useMcpStore((s) => s.updateMcpConfig);
+  const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
+  const connectServer = useMcpStore((s) => s.connectServer);
+  const disconnectServer = useMcpStore((s) => s.disconnectServer);
+
   const theme = useUIStore((s) => s.theme);
   const loading = useUIStore((s) => s.loading);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -502,6 +777,7 @@ export default function Settings() {
   const [titleModelDropdownOpen, setTitleModelDropdownOpen] = useState(false);
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
+  const [showMcpKeys, setShowMcpKeys] = useState<Record<string, boolean>>({});
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentModel = models.find((m) => m.id === selectedModel);
@@ -547,6 +823,10 @@ export default function Settings() {
 
   const toggleSearchKeyVisibility = (id: string) => {
     setShowSearchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleMcpKeyVisibility = (id: string) => {
+    setShowMcpKeys((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleBack = () => setView("chat");
@@ -1023,6 +1303,58 @@ export default function Settings() {
                     className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
                   >
                     Add your first search API
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
+                  <Cpu size={16} className="text-accent" />
+                </div>
+                <h3 className="text-sm font-semibold text-text-primary">MCP Servers</h3>
+              </div>
+              <button
+                onClick={addMcpConfig}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
+                aria-label="Add MCP server"
+              >
+                <Plus size={14} />
+                <span>Add Server</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {mcpConfigs.map((mcpConfig) => (
+                <McpServerCard
+                  key={mcpConfig.id}
+                  config={mcpConfig}
+                  status={serverStatuses[mcpConfig.id] ?? "disconnected"}
+                  tools={availableTools
+                    .filter((t) => t.serverId === mcpConfig.id)
+                    .map((t) => ({ name: t.name, description: t.description }))}
+                  onUpdate={updateMcpConfig}
+                  onDelete={deleteMcpConfig}
+                  onConnect={connectServer}
+                  onDisconnect={disconnectServer}
+                  showKey={!!showMcpKeys[mcpConfig.id]}
+                  onToggleKey={toggleMcpKeyVisibility}
+                />
+              ))}
+              {mcpConfigs.length === 0 && (
+                <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
+                  <p className="text-text-muted text-sm">No MCP servers configured.</p>
+                  <p className="text-text-muted text-xs mt-1">
+                    Add an MCP server to extend AI capabilities with external tools.
+                  </p>
+                  <button
+                    onClick={addMcpConfig}
+                    className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
+                  >
+                    Add your first MCP server
                   </button>
                 </div>
               )}

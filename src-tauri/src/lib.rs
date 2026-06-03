@@ -1,3 +1,4 @@
+mod mcp;
 mod search;
 mod stream_parser;
 mod ws_handler;
@@ -5,7 +6,7 @@ mod ws_handler;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
@@ -114,6 +115,8 @@ enum AppError {
     UrlValidationError(String),
     #[error("Key not found: {0}")]
     KeyNotFound(String),
+    #[error("MCP error: {0}")]
+    McpError(String),
 }
 
 impl From<std::io::Error> for AppError {
@@ -147,6 +150,7 @@ const STORE_FILE: &str = "sythoria-store.json";
 const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
 const API_KEY_INDEX: &str = "sythoria-api-key-index";
 const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
+const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
 
 fn keychain_account(namespace: &str, id: &str) -> String {
     format!("{}:{}", namespace, id)
@@ -789,6 +793,185 @@ async fn generate_title(
     Ok(trimmed)
 }
 
+const MCP_CONFIG_FILE: &str = "mcp_config.json";
+
+#[tauri::command]
+async fn load_mcp_config(app: tauri::AppHandle) -> Result<String, AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let config_path = app_data_dir.join(MCP_CONFIG_FILE);
+    if config_path.exists() {
+        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[tauri::command]
+async fn save_mcp_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    let config_path = app_data_dir.join(MCP_CONFIG_FILE);
+    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    file.write_all(config.as_bytes())
+        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn load_mcp_env_secrets(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
+    let index = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
+    let mut result = serde_json::Map::new();
+
+    for server_id in index {
+        let server_keys = {
+            let server_index_key = format!("mcp-env:{}", server_id);
+            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
+                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
+            let env_index: Option<serde_json::Value> = store.get(&server_index_key);
+            env_index
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|v| v.as_str().map(ToString::to_string))
+                .collect::<Vec<_>>()
+        };
+
+        let mut server_map = serde_json::Map::new();
+        for env_key in server_keys {
+            match get_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key)) {
+                Ok(secret) if !secret.is_empty() => {
+                    server_map.insert(env_key, serde_json::Value::String(secret));
+                }
+                Ok(_) | Err(AppError::KeyNotFound(_)) => {}
+                Err(err) => return Err(err),
+            }
+        }
+
+        if !server_map.is_empty() {
+            result.insert(server_id, serde_json::Value::Object(server_map));
+        }
+    }
+
+    Ok(serde_json::Value::Object(result))
+}
+
+#[tauri::command]
+async fn save_mcp_env_secrets_cmd(
+    app: tauri::AppHandle,
+    secrets: serde_json::Value,
+) -> Result<(), AppError> {
+    let secrets_map = secrets
+        .as_object()
+        .ok_or_else(|| AppError::ParseError("MCP env secrets payload must be an object".to_string()))?;
+
+    let existing_server_ids = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
+
+    for server_id in &existing_server_ids {
+        if !secrets_map.contains_key(server_id) {
+            let server_index_key = format!("mcp-env:{}", server_id);
+            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
+                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
+            if let Some(env_index) = store.get(&server_index_key) {
+                if let Some(arr) = env_index.as_array() {
+                    for key in arr.iter().filter_map(|v| v.as_str()) {
+                        let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
+                    }
+                }
+            }
+            let _ = store.delete(&server_index_key);
+        }
+    }
+
+    let mut server_ids = Vec::new();
+    for (server_id, server_value) in secrets_map {
+        let env_map = server_value
+            .as_object()
+            .ok_or_else(|| AppError::ParseError("Server env must be an object".to_string()))?;
+
+        let server_index_key = format!("mcp-env:{}", server_id);
+        let mut env_keys = Vec::new();
+
+        for (env_key, env_value) in env_map {
+            let secret = env_value.as_str().unwrap_or_default();
+            if secret.is_empty() {
+                let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key));
+                continue;
+            }
+            set_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key), secret)?;
+            env_keys.push(env_key.clone());
+        }
+
+        let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
+            .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
+        store.set(&server_index_key, serde_json::json!(env_keys));
+
+        if !env_keys.is_empty() {
+            server_ids.push(server_id.clone());
+        }
+    }
+
+    save_secret_index(&app, MCP_ENV_KEY_INDEX, &server_ids)
+}
+
+#[tauri::command]
+async fn mcp_start_server(config: String, env_secrets: String) -> Result<String, AppError> {
+    let server_config: mcp::McpServerConfig = serde_json::from_str(&config)
+        .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
+    let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
+        .map_err(|e| AppError::ParseError(format!("Invalid MCP env secrets JSON: {}", e)))?;
+
+    let tools = mcp::client::connect_server(&server_config, env_map)
+        .await
+        .map_err(|e| {
+            log::error!("MCP server start failed: {}", e);
+            AppError::McpError(e)
+        })?;
+
+    Ok(serde_json::to_string(&tools).unwrap_or_default())
+}
+
+#[tauri::command]
+async fn mcp_stop_server(server_id: String) -> Result<(), AppError> {
+    mcp::client::disconnect_server(&server_id).map_err(|e| {
+        log::error!("MCP server stop failed: {}", e);
+        AppError::McpError(e)
+    })
+}
+
+#[tauri::command]
+async fn mcp_list_tools(server_id: String) -> Result<String, AppError> {
+    let manager = crate::mcp::MCP_SERVERS
+        .lock()
+        .map_err(|e| AppError::McpError(format!("Manager lock poisoned: {}", e)))?;
+    let tools = manager.get_tools(&server_id);
+    Ok(serde_json::to_string(&tools).unwrap_or_default())
+}
+
+#[tauri::command]
+async fn mcp_call_tool(
+    server_id: String,
+    tool_name: String,
+    arguments: String,
+) -> Result<String, AppError> {
+    let args: serde_json::Value = serde_json::from_str(&arguments)
+        .map_err(|e| AppError::ParseError(format!("Invalid tool arguments JSON: {}", e)))?;
+
+    let result = mcp::client::call_tool_on_server(&server_id, &tool_name, &args)
+        .await
+        .map_err(|e| {
+            log::error!("MCP tool call failed: {}", e);
+            AppError::McpError(e)
+        })?;
+
+    Ok(serde_json::to_string(&result).unwrap_or_default())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_keyring_store();
@@ -800,27 +983,35 @@ pub fn run() {
                 .level(log::LevelFilter::Warn)
                 .build(),
         )
-    .invoke_handler(tauri::generate_handler![
-        load_config,
-        save_config,
-        load_search_config,
-        save_search_config,
-        load_api_keys,
-        save_api_keys_cmd,
-        load_search_api_keys,
-        save_search_api_keys_cmd,
-        chat_completion,
-        chat_stream,
-        cancel_chat_stream,
-        chat_completion_tools,
-        chat_stream_tools,
-        generate_title,
-        check_api,
-        web_search,
-        fetch_url_content,
-        ws_authenticate,
-        ws_chat
-    ])
+        .invoke_handler(tauri::generate_handler![
+            load_config,
+            save_config,
+            load_search_config,
+            save_search_config,
+            load_api_keys,
+            save_api_keys_cmd,
+            load_search_api_keys,
+            save_search_api_keys_cmd,
+            chat_completion,
+            chat_stream,
+            cancel_chat_stream,
+            chat_completion_tools,
+            chat_stream_tools,
+            generate_title,
+            check_api,
+            web_search,
+            fetch_url_content,
+            ws_authenticate,
+            ws_chat,
+            load_mcp_config,
+            save_mcp_config,
+            load_mcp_env_secrets,
+            save_mcp_env_secrets_cmd,
+            mcp_start_server,
+            mcp_stop_server,
+            mcp_list_tools,
+            mcp_call_tool
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

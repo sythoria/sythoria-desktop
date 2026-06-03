@@ -7,6 +7,8 @@ import type {
   SearchResult,
   UrlContent,
   GenerationState,
+  McpTool,
+  McpToolResult,
 } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError } from "../utils/logger";
@@ -22,38 +24,67 @@ export interface ToolLoopSlice {
   generationLabel: string;
 }
 
-export const TOOL_DEFINITIONS = [
+interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
+  };
+}
+
+export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
-    type: "function" as const,
+    type: "function",
     function: {
       name: "search_query",
       description:
         "Search the web for information. Returns search results with titles, URLs, and snippets. Use this when you need current or factual information.",
       parameters: {
-        type: "object" as const,
-        properties: {
-          query: { type: "string" as const, description: "The search query string" },
-        },
+        type: "object",
+        properties: { query: { type: "string", description: "The search query string" } },
         required: ["query"],
       },
     },
   },
   {
-    type: "function" as const,
+    type: "function",
     function: {
       name: "fetch_url",
       description:
         "Fetch and extract the readable content of a web page. Use this when you want to read the full content of a URL found in search results.",
       parameters: {
-        type: "object" as const,
-        properties: {
-          url: { type: "string" as const, description: "The URL to fetch and read" },
-        },
+        type: "object",
+        properties: { url: { type: "string", description: "The URL to fetch and read" } },
         required: ["url"],
       },
     },
   },
 ];
+
+export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
+  const tools = includeSearch ? [...TOOL_DEFINITIONS] : [];
+  for (const mcpTool of mcpTools) {
+    const inputSchema = (mcpTool.inputSchema ?? { properties: {} }) as Record<string, unknown>;
+    tools.push({
+      type: "function",
+      function: {
+        name: mcpTool.namespacedName,
+        description: `[MCP: ${mcpTool.serverName}] ${mcpTool.description}`,
+        parameters: {
+          ...inputSchema,
+          type: "object",
+          properties: (inputSchema.properties as Record<string, unknown>) ?? {},
+        },
+      },
+    });
+  }
+  return tools;
+}
 
 export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 
@@ -61,6 +92,17 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 - fetch_url(url: string): Fetch and extract the content of a web page.
 
 When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.`;
+
+export function buildToolSystemPrompt(mcpTools: McpTool[] = []) {
+  let prompt = TOOL_SYSTEM_PROMPT;
+  if (mcpTools.length > 0) {
+    const mcpDescriptions = mcpTools
+      .map((t) => `- ${t.namespacedName}: [MCP: ${t.serverName}] ${t.description}`)
+      .join("\n");
+    prompt += `\n\nYou also have access to these MCP tools:\n${mcpDescriptions}`;
+  }
+  return prompt;
+}
 
 type KnownToolName = "search_query" | "fetch_url";
 const KNOWN_TOOLS: Set<string> = new Set(["search_query", "fetch_url"]);
@@ -115,8 +157,12 @@ export async function sendWithToolLoop(
   modelConfig: ModelConfig,
   temperature: number,
   apiKeys: Record<string, string>,
-  searchConfig: SearchApiConfig,
+  searchConfig: SearchApiConfig | undefined,
   searchApiKey: string,
+  mcpTools: McpTool[],
+  mcpCallTool:
+    | ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>)
+    | undefined,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
@@ -142,13 +188,18 @@ export async function sendWithToolLoop(
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
         .map((m) => ({ role: m.role, content: m.content })) ?? [];
 
+    const useSearch = !!searchConfig;
+    const useMcp = mcpTools.length > 0 && !!mcpCallTool;
+    const allTools = buildToolDefinitions(useMcp ? mcpTools : [], useSearch);
+    const systemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : []);
+
     const apiMessages: {
       role: string;
       content: string | null;
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;
-    }[] = [{ role: "system", content: TOOL_SYSTEM_PROMPT }, ...baseMessages];
+    }[] = [{ role: "system", content: systemPrompt }, ...baseMessages];
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       useUIStore.getState().setLoading("toolExecution", true);
@@ -164,7 +215,7 @@ export async function sendWithToolLoop(
         apiKey,
         model: modelConfig.modelId,
         messages: apiMessages,
-        tools: JSON.stringify(TOOL_DEFINITIONS),
+        tools: JSON.stringify(allTools),
         temperature,
       });
 
@@ -187,7 +238,102 @@ export async function sendWithToolLoop(
             fnArgs = {};
           }
 
-          if (fnName === "unknown") {
+          let resultContent = "";
+
+          if (fnName === "unknown" && rawName.includes("__") && useMcp) {
+            const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
+            if (mcpTool && mcpCallTool) {
+              const toolCallMsgId = generateId();
+              const toolCallMsg: Message = {
+                id: toolCallMsgId,
+                role: "tool",
+                content: `Running: ${mcpTool.name} via ${mcpTool.serverName}`,
+                timestamp: new Date(),
+                toolCall: {
+                  id: toolCall.id,
+                  name: rawName,
+                  arguments: fnArgs,
+                },
+              };
+
+              set((state) => ({
+                conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
+                  ...msgs,
+                  toolCallMsg,
+                ]),
+                generationState: "mcp_executing" as GenerationState,
+                generationLabel: `Running: ${mcpTool.name} via ${mcpTool.serverName}`,
+              }));
+
+              const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
+              resultContent = result.content;
+
+              const displayContent = result.isError
+                ? `Error: ${result.content.slice(0, 2000)}`
+                : result.content.slice(0, 2000);
+
+              set((state) => ({
+                conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
+                  msgs.map((m) =>
+                    m.id === toolCallMsgId
+                      ? {
+                          ...m,
+                          content: displayContent,
+                          toolResult: {
+                            id: toolCall.id,
+                            name: rawName,
+                            content: resultContent,
+                          },
+                        }
+                      : m,
+                  ),
+                ),
+                ...(result.isError
+                  ? {
+                      generationState: "error" as GenerationState,
+                      generationLabel: `MCP tool failed: ${mcpTool.name}`,
+                    }
+                  : {}),
+              }));
+
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                name: rawName,
+                content: resultContent,
+              });
+              continue;
+            } else {
+              const unknownMsg: Message = {
+                id: generateId(),
+                role: "tool",
+                content: `Unknown tool: ${rawName}`,
+                timestamp: new Date(),
+                toolCall: {
+                  id: toolCall.id,
+                  name: "fetch_url",
+                  arguments: { url: `unknown:${rawName}` },
+                },
+                toolResult: {
+                  id: toolCall.id,
+                  name: rawName,
+                  content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
+                },
+              };
+              set((state) => ({
+                conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
+                generationState: "error" as GenerationState,
+                generationLabel: `Unknown tool: ${rawName}`,
+              }));
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                name: rawName,
+                content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
+              });
+              continue;
+            }
+          } else if (fnName === "unknown") {
             const unknownMsg: Message = {
               id: generateId(),
               role: "tool",
@@ -238,9 +384,7 @@ export async function sendWithToolLoop(
             generationLabel: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
           }));
 
-          let resultContent = "";
-
-          if (fnName === "search_query") {
+          if (fnName === "search_query" && useSearch && searchConfig) {
             const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
             resultContent = JSON.stringify(results);
             results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
@@ -264,7 +408,7 @@ export async function sendWithToolLoop(
                 ),
               ),
             }));
-          } else if (fnName === "fetch_url") {
+          } else if (fnName === "fetch_url" && useSearch) {
             const urlContent = await fetchUrlContent(fnArgs.url!);
             resultContent = JSON.stringify(urlContent);
             if (urlContent.status === "ok") {
@@ -300,6 +444,25 @@ export async function sendWithToolLoop(
                     generationLabel: `Fetch failed: ${fnArgs.url} — ${urlContent.error || "Unknown error"}`,
                   }
                 : {}),
+            }));
+          } else if ((fnName === "search_query" && !useSearch) || (fnName === "fetch_url" && !useSearch)) {
+            resultContent = JSON.stringify({ error: `${fnName} is not available — web search is not configured` });
+            set((state) => ({
+              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
+                msgs.map((m) =>
+                  m.id === toolCallMsgId
+                    ? {
+                        ...m,
+                        content: `${fnName} is not available`,
+                        toolResult: {
+                          id: toolCall.id,
+                          name: fnName,
+                          content: resultContent,
+                        },
+                      }
+                    : m,
+                ),
+              ),
             }));
           }
 

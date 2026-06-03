@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { saveTheme } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 
-export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution";
+export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
 
 interface UIState {
   view: "chat" | "settings";
@@ -36,7 +36,14 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: false,
   hasStarted: false,
   isConfigLoaded: false,
-  loading: { init: true, sendMessage: false, checkConnection: false, saveConfig: false, toolExecution: false },
+  loading: {
+    init: true,
+    sendMessage: false,
+    checkConnection: false,
+    saveConfig: false,
+    toolExecution: false,
+    mcpConnect: false,
+  },
   toasts: [],
   showRenameModal: false,
   renameId: null,
