@@ -9,6 +9,7 @@ interface UIState {
   view: "chat" | "settings";
   theme: "light" | "dark";
   sidebarOpen: boolean;
+  sidebarCollapsed: boolean;
   hasStarted: boolean;
   isConfigLoaded: boolean;
   loading: Record<LoadingKey, boolean>;
@@ -23,6 +24,7 @@ interface UIState {
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: "light" | "dark") => void;
   setSidebarOpen: (open: boolean) => void;
+  toggleSidebarCollapsed: () => void;
   setHasStarted: (started: boolean) => void;
   setConfigLoaded: (loaded: boolean) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
@@ -41,6 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
   view: "chat",
   theme: "dark",
   sidebarOpen: false,
+  sidebarCollapsed: false,
   hasStarted: false,
   isConfigLoaded: false,
   loading: {
@@ -66,6 +69,7 @@ export const useUIStore = create<UIState>((set) => ({
     saveTheme(theme);
   },
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setHasStarted: (started) => set({ hasStarted: started }),
   setConfigLoaded: (loaded) => set({ isConfigLoaded: loaded }),
   setLoading: (key, value) => set((s) => ({ loading: { ...s.loading, [key]: value } })),

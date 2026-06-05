@@ -290,12 +290,22 @@
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .dark .glass-sidebar {
   background: rgba(5, 5, 5, 0.8);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-sidebar,
+  .glass-sidebar * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .markdown-body {

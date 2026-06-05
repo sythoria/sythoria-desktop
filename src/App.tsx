@@ -94,22 +94,41 @@ function App() {
     [enabledServerIds, toggleServerEnabled],
   );
 
-  const { sidebarOpen, hasStarted, isConfigLoaded, view, showRenameModal, renameCurrentTitle, loading, toasts } =
-    useUIStore(
-      useShallow((s) => ({
-        sidebarOpen: s.sidebarOpen,
-        hasStarted: s.hasStarted,
-        isConfigLoaded: s.isConfigLoaded,
-        view: s.view,
-        showRenameModal: s.showRenameModal,
-        renameCurrentTitle: s.renameCurrentTitle,
-        loading: s.loading,
-        toasts: s.toasts,
-      })),
-    );
-  const { setSidebarOpen, setView, setHasStarted, openRenameModal, closeRenameModal, dismissToast } = useUIStore(
+  const {
+    sidebarOpen,
+    sidebarCollapsed,
+    hasStarted,
+    isConfigLoaded,
+    view,
+    showRenameModal,
+    renameCurrentTitle,
+    loading,
+    toasts,
+  } = useUIStore(
+    useShallow((s) => ({
+      sidebarOpen: s.sidebarOpen,
+      sidebarCollapsed: s.sidebarCollapsed,
+      hasStarted: s.hasStarted,
+      isConfigLoaded: s.isConfigLoaded,
+      view: s.view,
+      showRenameModal: s.showRenameModal,
+      renameCurrentTitle: s.renameCurrentTitle,
+      loading: s.loading,
+      toasts: s.toasts,
+    })),
+  );
+  const {
+    setSidebarOpen,
+    toggleSidebarCollapsed,
+    setView,
+    setHasStarted,
+    openRenameModal,
+    closeRenameModal,
+    dismissToast,
+  } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
+      toggleSidebarCollapsed: s.toggleSidebarCollapsed,
       setView: s.setView,
       setHasStarted: s.setHasStarted,
       openRenameModal: s.openRenameModal,
@@ -154,10 +173,14 @@ function App() {
       if (e.key === "Escape" && isStreaming) {
         stopStreaming();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        toggleSidebarCollapsed();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isStreaming, stopStreaming]);
+  }, [isStreaming, stopStreaming, toggleSidebarCollapsed]);
 
   useEffect(() => {
     return () => {
@@ -236,6 +259,8 @@ function App() {
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         modelStatuses={modelStatuses}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapsed}
       />
 
       {view === "settings" ? (
