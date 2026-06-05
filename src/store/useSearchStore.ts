@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { SearchApiConfig, SearchResult, UrlContent } from "../types";
 import { saveSearchConfigs, saveSearchApiKeys } from "../utils/storage";
-import { logError } from "../utils/logger";
+import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { validateSearchConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
@@ -42,6 +42,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const validation = validateSearchConfig(newConfig);
     if (!validation.success) {
       const firstError = validation.error.issues[0]?.message ?? "Invalid search config";
+      logWarn("search", `Search config validation failed: ${firstError}`, {
+        action: "Fix the search provider configuration in Settings > Search.",
+      });
       useUIStore.getState().addToast(`Validation: ${firstError}`, "error");
       return;
     }
@@ -49,6 +52,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const updated = [...searchConfigs, newConfig];
     set({ searchConfigs: updated, activeSearchId: newConfig.id });
     saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
+    logInfo("search", `Search API added: "${newConfig.name}" (${newConfig.provider})`, {
+      details: `Provider: ${newConfig.provider}, Base URL: ${newConfig.baseUrl}`,
+    });
     useUIStore.getState().addToast("Search API added — configure its details", "info");
   },
 
@@ -66,6 +72,13 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const configsWithoutKeys = updatedConfigs.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig);
     saveSearchConfigs(configsWithoutKeys);
 
+    const updatedConfig = updatedConfigs.find((c) => c.id === id);
+    if (updatedConfig && Object.keys(updates).length > 0) {
+      logInfo("search", `Search config updated: "${updatedConfig.name}"`, {
+        details: `Updated fields: ${Object.keys(updates).join(", ")}`,
+      });
+    }
+
     if (!updatedConfigs.find((c) => c.id === get().activeSearchId) && updatedConfigs.length > 0) {
       set({ activeSearchId: updatedConfigs[0].id });
     }
@@ -73,6 +86,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   deleteSearchConfig: (id) => {
     const { searchConfigs, activeSearchId, searchApiKeys } = get();
+    const config = searchConfigs.find((c) => c.id === id);
     const updated = searchConfigs.filter((c) => c.id !== id);
     const newKeys = { ...searchApiKeys };
     delete newKeys[id];
@@ -83,6 +97,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     });
     saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
     saveSearchApiKeys(newKeys);
+    logInfo("search", `Search API deleted: "${config?.name ?? id}"`, {});
     useUIStore.getState().addToast("Search API deleted", "info");
   },
 
@@ -91,6 +106,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   performSearch: async (query, config, apiKey) => {
     try {
+      logInfo("search", `Searching: "${query}"`, {
+        details: `Provider: ${config.provider}, Config: "${config.name}"`,
+      });
       const configPayload = { ...config, apiKey };
       const raw = await invoke<string>("web_search", {
         provider: config.provider,
@@ -98,21 +116,47 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         config: JSON.stringify(configPayload),
         configId: config.id,
       });
-      return JSON.parse(raw) as SearchResult[];
+      const results = JSON.parse(raw) as SearchResult[];
+      logInfo("search", `Search completed: "${query}"`, {
+        details: `${results.length} result(s) from ${config.provider}`,
+      });
+      return results;
     } catch (err) {
-      logError("Search failed", err);
-      useUIStore.getState().addToast(parseApiError(err), "error");
+      const parsed = parseApiError(err);
+      logError("search", `Search failed for "${query}"`, {
+        error: err,
+        action: parsed.action,
+        details: `Provider: ${config.provider}, Config: "${config.name}". ${parsed.message}`,
+      });
+      useUIStore.getState().addToast(parsed.message, "error");
       return [];
     }
   },
 
   fetchUrlContent: async (url) => {
     try {
+      logInfo("search", `Fetching URL: ${url}`, {});
       const raw = await invoke<string>("fetch_url_content", { url });
-      return JSON.parse(raw) as UrlContent;
+      const content = JSON.parse(raw) as UrlContent;
+      if (content.status === "error") {
+        logWarn("search", `Fetch URL returned error: ${url}`, {
+          details: content.error || "Unknown error",
+          action: "Check that the URL is valid and publicly accessible.",
+        });
+      } else {
+        logInfo("search", `Fetched URL successfully: ${url}`, {
+          details: `Title: ${content.title || "(none)"}`,
+        });
+      }
+      return content;
     } catch (err) {
-      logError("Fetch URL failed", err);
-      return { url, title: "", content: `Error: ${parseApiError(err)}`, status: "error", error: parseApiError(err) };
+      const parsed = parseApiError(err);
+      logError("search", `Fetch URL failed: ${url}`, {
+        error: err,
+        action: parsed.action,
+        details: parsed.message,
+      });
+      return { url, title: "", content: `Error: ${parsed.message}`, status: "error", error: parsed.message };
     }
   },
 }));

@@ -19,8 +19,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    logError("Uncaught error in component", error);
-    logError("Component stack", info.componentStack);
+    logError("general", "Uncaught error in component", {
+      error,
+      details: info.componentStack ?? undefined,
+      action: "Try reloading the app. If the problem persists, report this issue.",
+    });
   }
 
   render() {

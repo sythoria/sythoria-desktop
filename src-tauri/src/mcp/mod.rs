@@ -28,6 +28,7 @@ pub struct McpToolInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpToolResult {
     pub content: String,
+    #[serde(rename = "isError")]
     pub is_error: bool,
 }
 

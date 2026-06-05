@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { saveTheme } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
+import type { LogEntry, LogSource } from "../types/log";
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
 
@@ -15,6 +16,9 @@ interface UIState {
   showRenameModal: boolean;
   renameId: string | null;
   renameCurrentTitle: string;
+  logBuffer: LogEntry[];
+  logFilterSource: LogSource | "all";
+  logFilterLevel: "all" | "info" | "warn" | "error";
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: "light" | "dark") => void;
@@ -26,6 +30,9 @@ interface UIState {
   dismissToast: (id: string) => void;
   openRenameModal: (id: string, currentTitle: string) => void;
   closeRenameModal: () => void;
+  setLogBuffer: (logs: LogEntry[]) => void;
+  setLogFilterSource: (source: LogSource | "all") => void;
+  setLogFilterLevel: (level: "all" | "info" | "warn" | "error") => void;
 }
 
 let toastCounter = 0;
@@ -48,6 +55,9 @@ export const useUIStore = create<UIState>((set) => ({
   showRenameModal: false,
   renameId: null,
   renameCurrentTitle: "",
+  logBuffer: [],
+  logFilterSource: "all",
+  logFilterLevel: "all",
 
   setView: (view) => set({ view }),
   setTheme: (theme) => {
@@ -72,4 +82,7 @@ export const useUIStore = create<UIState>((set) => ({
   closeRenameModal: () => {
     set({ showRenameModal: false, renameId: null, renameCurrentTitle: "" });
   },
+  setLogBuffer: (logs) => set({ logBuffer: logs }),
+  setLogFilterSource: (source) => set({ logFilterSource: source }),
+  setLogFilterLevel: (level) => set({ logFilterLevel: level }),
 }));

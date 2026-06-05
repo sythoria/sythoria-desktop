@@ -11,7 +11,7 @@ import type {
   McpToolResult,
 } from "../types";
 import { generateId } from "../utils/generateId";
-import { logError } from "../utils/logger";
+import { logError, logInfo, logWarn } from "../utils/logger";
 import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
@@ -133,17 +133,17 @@ function updateConversationMessages(
 }
 
 function setAssistantError(conversations: Conversation[], convId: string, err: unknown): Conversation[] {
-  const friendlyMessage = parseApiError(err);
+  const parsed = parseApiError(err);
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
     const last = updated[updated.length - 1];
     if (last && last.role === "assistant") {
-      updated[updated.length - 1] = { ...last, content: `**Error:** ${friendlyMessage}`, isStreaming: false };
+      updated[updated.length - 1] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
     } else {
       updated.push({
         id: generateId(),
         role: "assistant",
-        content: `**Error:** ${friendlyMessage}`,
+        content: `**Error:** ${parsed.message}`,
         timestamp: new Date(),
         isStreaming: false,
       });
@@ -203,10 +203,13 @@ export async function sendWithToolLoop(
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       useUIStore.getState().setLoading("toolExecution", true);
+      logInfo("chat", `Tool loop step ${step + 1}/${MAX_TOOL_STEPS}`, {
+        details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}`,
+      });
       if (step > 0) {
         set(() => ({
           generationState: "thinking" as GenerationState,
-          generationLabel: step === 0 ? "Thinking" : "Thinking (continued)",
+          generationLabel: "Thinking (continued)",
         }));
       }
 
@@ -243,6 +246,9 @@ export async function sendWithToolLoop(
           if (fnName === "unknown" && rawName.includes("__") && useMcp) {
             const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
             if (mcpTool && mcpCallTool) {
+              logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
+                details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
+              });
               const toolCallMsgId = generateId();
               const toolCallMsg: Message = {
                 id: toolCallMsgId,
@@ -320,6 +326,10 @@ export async function sendWithToolLoop(
                   content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
                 },
               };
+              logWarn("chat", `Unknown tool called in tool loop: ${rawName}`, {
+                details: `Available: ${allTools.map((t) => t.function.name).join(", ")}`,
+                action: "The model requested a tool that is not available. This may indicate a model hallucination.",
+              });
               set((state) => ({
                 conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
                 generationState: "error" as GenerationState,
@@ -385,6 +395,9 @@ export async function sendWithToolLoop(
           }));
 
           if (fnName === "search_query" && useSearch && searchConfig) {
+            logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
+              details: `Provider: ${searchConfig.provider}, Step ${step + 1}`,
+            });
             const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
             resultContent = JSON.stringify(results);
             results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
@@ -409,6 +422,9 @@ export async function sendWithToolLoop(
               ),
             }));
           } else if (fnName === "fetch_url" && useSearch) {
+            logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
+              details: `Step ${step + 1}`,
+            });
             const urlContent = await fetchUrlContent(fnArgs.url!);
             resultContent = JSON.stringify(urlContent);
             if (urlContent.status === "ok") {
@@ -519,16 +535,20 @@ export async function sendWithToolLoop(
 
     await useChatStore.getState().persistConversations();
   } catch (err) {
-    const friendlyMessage = parseApiError(err);
+    const parsed = parseApiError(err);
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
       generationState: "error" as GenerationState,
-      generationLabel: `Generation failed: ${friendlyMessage}`,
+      generationLabel: `Generation failed: ${parsed.message}`,
     }));
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
-    useUIStore.getState().addToast(friendlyMessage, "error");
-    logError("Tool loop failed", err);
+    useUIStore.getState().addToast(parsed.message, "error");
+    logError("chat", "Tool loop failed", {
+      error: err,
+      action: parsed.action,
+      details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
+    });
   }
 }

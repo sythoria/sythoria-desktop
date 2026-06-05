@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { Conversation, Message, ModelConfig, GenerationState, TitleGenerationConfig } from "../types";
-import { loadModelConfigs } from "../types";
 import {
+  loadModelConfigs,
   loadConversations,
   saveConversations,
   loadTheme,
@@ -74,12 +74,12 @@ function finalizeAssistantMessage(conversations: Conversation[], convId: string)
 }
 
 function setAssistantError(conversations: Conversation[], convId: string, err: unknown): Conversation[] {
-  const friendlyMessage = parseApiError(err);
+  const parsed = parseApiError(err);
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
     const last = updated[updated.length - 1];
     if (last && last.role === "assistant") {
-      updated[updated.length - 1] = { ...last, content: `**Error:** ${friendlyMessage}`, isStreaming: false };
+      updated[updated.length - 1] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
     }
     return updated;
   });
@@ -186,15 +186,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiTheme(loadedTheme);
 
       document.documentElement.classList.toggle("dark", loadedTheme === "dark");
-      logInfo("App state initialized");
+      logInfo("chat", "App state initialized", {
+        details: `Loaded ${modelsWithKeys.length} models, ${nonEmptyConvs.length} conversations, ${searchConfigs.length} search configs, ${mcpConfigs.length} MCP servers`,
+      });
 
       modelCheckConnections();
       modelStartHealthCheck();
 
       useMcpStore.getState().connectAllEnabled();
     } catch (err) {
-      logError("Failed to initialize app", err);
-      uiToast(parseApiError(err), "error");
+      const parsed = parseApiError(err);
+      logError("chat", "Failed to initialize app", { error: err, action: "Check your settings and restart the app." });
+      uiToast(parsed.message, "error");
       uiConfigLoaded(true);
     } finally {
       uiLoading("init", false);
@@ -307,7 +310,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
 
     if (!modelConfig) {
-      logError("No model configuration selected");
+      logError("model", "No model configuration selected — user tried to send message without any model configured", {
+        action: "Go to Settings > Models and add at least one model configuration.",
+      });
       uiToast("No model configured — add one in Settings", "error");
       return;
     }
@@ -406,7 +411,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
     if (!modelConfig) {
-      logError("No model configuration selected");
+      logError("model", "No model configuration selected — user tried to retry message without any model configured", {
+        action: "Go to Settings > Models and add at least one model configuration.",
+      });
       uiToast("No model configured — add one in Settings", "error");
       return;
     }
@@ -525,6 +532,10 @@ async function sendNormal(
   const modelStore = useModelStore.getState();
   modelStore.setActiveStreamId(streamId, convId);
 
+  logInfo("chat", `Sending message to ${modelConfig.name}`, {
+    details: `Model: ${modelConfig.modelId}, API: ${modelConfig.apiBase}, Stream ID: ${streamId}`,
+  });
+
   await modelStore.ensureStreamListeners(
     (cId, content) => {
       set((state) => {
@@ -548,6 +559,9 @@ async function sendNormal(
       });
     },
     (cId) => {
+      logInfo("stream", `Stream completed`, {
+        details: `Conversation: ${cId}`,
+      });
       set((state) => ({
         conversations: state.conversations.map((c) => {
           if (c.id !== cId) return c;
@@ -596,18 +610,22 @@ async function sendNormal(
 
     get().persistConversations();
   } catch (err) {
-    const friendlyMessage = parseApiError(err);
+    const parsed = parseApiError(err);
     modelSetActiveStream(null, null);
     modelReleaseListeners();
     set((state) => ({
       conversations: setAssistantError(state.conversations, convId, err),
       isStreaming: false,
       generationState: "error" as GenerationState,
-      generationLabel: `Generation failed: ${friendlyMessage}`,
+      generationLabel: `Generation failed: ${parsed.message}`,
     }));
     uiLoading("sendMessage", false);
-    uiToast(friendlyMessage, "error");
-    logError("Failed to send message", err);
+    uiToast(parsed.message, "error");
+    logError("chat", "Failed to send message or stream response", {
+      error: err,
+      action: parsed.action,
+      details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
+    });
   } finally {
     uiLoading("sendMessage", false);
   }
@@ -630,7 +648,9 @@ function generateConversationTitle(
   } else {
     const found = models.find((m) => m.id === titleConfig.modelId);
     if (!found) {
-      logError("Title generation model not found, falling back to chat model");
+      logError("model", "Title generation model not found, falling back to chat model", {
+        action: `Go to Settings > Models and make sure the model "${titleConfig.modelId}" is configured and enabled.`,
+      });
       titleModelConfig = chatModelConfig;
     } else {
       titleModelConfig = found;
@@ -659,6 +679,9 @@ function generateConversationTitle(
       }
     })
     .catch((err) => {
-      logError("Title generation failed, keeping fallback title", err);
+      logError("chat", "Title generation failed, keeping fallback title", {
+        error: err,
+        action: "Check that the title generation model in Settings is reachable and your API key is valid.",
+      });
     });
 }

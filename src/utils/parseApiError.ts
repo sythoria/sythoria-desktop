@@ -9,6 +9,28 @@ const ERROR_MESSAGES: Record<string, string> = {
   503: "Service unavailable — the provider is temporarily down.",
 };
 
+export type ErrorCategory = "network" | "auth" | "rate-limit" | "server" | "config" | "search" | "mcp" | "unknown";
+
+export interface ParsedError {
+  message: string;
+  action: string;
+  category: ErrorCategory;
+  retryable: boolean;
+  raw?: string;
+  rawDetail?: string;
+}
+
+const ERROR_ACTIONS: Record<string, string> = {
+  400: "Check that your model settings (like temperature or system prompt) are valid.",
+  401: "Go to Settings > Models and verify your API key is correct. Then click 'Check Connection'.",
+  403: "Your API key might be restricted or you may not have access to this model. Check your provider dashboard.",
+  404: "Verify the model ID in Settings > Models. It may have been renamed or deprecated.",
+  429: "Wait a minute and try again. If this keeps happening, check your provider's rate limits.",
+  500: "The API provider is experiencing issues. Wait a few minutes and try again.",
+  502: "The API provider's servers are temporarily down. Wait and try again, or switch to a different model.",
+  503: "The service is temporarily unavailable. Wait a few minutes and retry.",
+};
+
 interface StructuredAppError {
   ApiError?: { status: number; message: string };
   ConfigIo?: string;
@@ -20,60 +42,297 @@ interface StructuredAppError {
   SearchError?: string;
   UrlValidationError?: string;
   KeyNotFound?: string;
+  McpError?: string;
 }
 
-export function parseApiError(err: unknown): string {
-  if (err instanceof Error) {
-    const structured = tryParseStructuredError(err.message);
+export function parseApiError(err: unknown): ParsedError {
+  const raw = extractRaw(err);
+
+  if (err instanceof Error || typeof err === "string") {
+    const structured = tryParseStructuredError(raw);
     if (structured) return structured;
-    return userFriendlyMessage(err.message);
+    return userFriendlyMessage(raw);
   }
-  if (typeof err === "string") {
-    const structured = tryParseStructuredError(err);
-    if (structured) return structured;
-    return userFriendlyMessage(err);
-  }
-  return "An unexpected error occurred. Please try again.";
+
+  return {
+    message: "An unexpected error occurred. Please try again.",
+    action: "If the problem persists, try reloading the app or checking your settings.",
+    category: "unknown",
+    retryable: false,
+    raw,
+  };
 }
 
-function tryParseStructuredError(raw: string): string | null {
+function extractRaw(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function tryParseStructuredError(raw: string): ParsedError | null {
   try {
     const parsed: StructuredAppError = JSON.parse(raw);
     if (parsed.ApiError) {
       const code = String(parsed.ApiError.status);
-      return ERROR_MESSAGES[code] ?? `API error ${code}: ${parsed.ApiError.message}`;
+      return {
+        message: ERROR_MESSAGES[code] ?? `API error ${code}: ${parsed.ApiError.message}`,
+        action: ERROR_ACTIONS[code] ?? "Check your API settings and try again.",
+        category: getCategoryFromCode(code),
+        retryable: isRetryableCode(code),
+        raw,
+      };
     }
-    if (parsed.UrlValidationError) return `URL validation error: ${parsed.UrlValidationError}`;
-    if (parsed.KeyNotFound) return parsed.KeyNotFound;
-    if (parsed.AuthError) return `Authentication error: ${parsed.AuthError}`;
-    if (parsed.SearchError) return `Search error: ${parsed.SearchError}`;
-    if (parsed.ConfigIo) return "Configuration error — try restarting the app.";
-    if (parsed.StreamError) return "Stream error — the connection was interrupted.";
-    if (parsed.ParseError) return "Response parse error — the API returned unexpected data.";
+    if (parsed.UrlValidationError)
+      return {
+        message: `URL validation error: ${parsed.UrlValidationError}`,
+        action: "Check that the URL is valid and points to a public website.",
+        category: "search",
+        retryable: false,
+        raw,
+      };
+    if (parsed.KeyNotFound)
+      return {
+        message: parsed.KeyNotFound,
+        action: "Go to Settings and re-enter or verify your API key.",
+        category: "auth",
+        retryable: false,
+        raw,
+      };
+    if (parsed.AuthError)
+      return {
+        message: `Authentication error: ${parsed.AuthError}`,
+        action: "Check your API key and make sure it's valid for this provider.",
+        category: "auth",
+        retryable: false,
+        raw,
+      };
+    if (parsed.SearchError)
+      return {
+        message: `Search error: ${parsed.SearchError}`,
+        action: "Check your search provider settings and API credentials.",
+        category: "search",
+        retryable: true,
+        raw,
+      };
+    if (parsed.McpError) {
+      return userFriendlyMcpError(parsed.McpError, raw);
+    }
+    if (parsed.ConfigIo)
+      return {
+        message: "Configuration error — try restarting the app.",
+        action: "Restart the app. If the issue persists, check app permissions or reinstall.",
+        category: "config",
+        retryable: false,
+        raw,
+      };
+    if (parsed.StreamError)
+      return {
+        message: "Stream error — the connection was interrupted.",
+        action: "Check your internet connection and try sending the message again.",
+        category: "network",
+        retryable: true,
+        raw,
+      };
+    if (parsed.ParseError)
+      return {
+        message: "Response parse error — the API returned unexpected data.",
+        action: "The API response format might have changed. Check the model settings or try a different model.",
+        category: "server",
+        retryable: true,
+        raw,
+      };
     if (parsed.RequestFailed) return userFriendlyMessage(parsed.RequestFailed);
-    if (parsed.AppPath) return "App path error — try reinstalling.";
+    if (parsed.AppPath)
+      return {
+        message: "App path error — try reinstalling.",
+        action: "The app cannot access its data directory. Try reinstalling or checking permissions.",
+        category: "config",
+        retryable: false,
+        raw,
+      };
   } catch {
     // Not structured JSON, fall through.
   }
   return null;
 }
 
-function userFriendlyMessage(raw: string): string {
+function userFriendlyMessage(raw: string): ParsedError {
   const statusMatch = raw.match(/API error (\d{3})/);
   if (statusMatch) {
     const code = statusMatch[1];
-    return ERROR_MESSAGES[code] ?? `API error ${code}: ${raw.replace(/API error \d{3}:\s*/, "")}`;
+    return {
+      message: ERROR_MESSAGES[code] ?? `API error ${code}: ${raw.replace(/API error \d{3}:\s*/, "")}`,
+      action: ERROR_ACTIONS[code] ?? "Check your API settings and try again.",
+      category: getCategoryFromCode(code),
+      retryable: isRetryableCode(code),
+      raw,
+    };
   }
 
   if (raw.includes("Failed to fetch") || raw.includes("NetworkError") || raw.includes("error sending request")) {
-    return "Network error — check your internet connection and API base URL.";
+    return {
+      message: "Network error — check your internet connection and API base URL.",
+      action: "Verify your internet connection. If the issue persists, check the API base URL in Settings > Models.",
+      category: "network",
+      retryable: true,
+      raw,
+    };
   }
   if (raw.includes("timeout") || raw.includes("Timed out")) {
-    return "Request timed out — the provider took too long to respond.";
+    return {
+      message: "Request timed out — the provider took too long to respond.",
+      action: "The API server is slow or unresponsive. Wait a moment and try again, or switch models.",
+      category: "network",
+      retryable: true,
+      raw,
+    };
   }
   if (raw.includes("Invalid URL") || raw.includes("relative URL without a base")) {
-    return "Invalid API URL — check the base URL in Settings.";
+    return {
+      message: "Invalid API URL — check the base URL in Settings.",
+      action:
+        "Go to Settings > Models and verify the API base URL format (e.g., https://api.openai.com/v1/chat/completions).",
+      category: "config",
+      retryable: false,
+      raw,
+    };
+  }
+  if (raw.toLowerCase().includes("mcp") || raw.includes("McpError")) {
+    return userFriendlyMcpError(raw, raw);
   }
 
-  return raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
+  return {
+    message: raw.length > 200 ? raw.slice(0, 200) + "…" : raw,
+    action: "Check your settings and try again. If the problem continues, try reloading the app.",
+    category: "unknown",
+    retryable: false,
+    raw,
+  };
+}
+
+function userFriendlyMcpError(mcpMessage: string, raw: string): ParsedError {
+  const lower = mcpMessage.toLowerCase();
+
+  if (
+    lower.includes("auth required") ||
+    lower.includes("401") ||
+    lower.includes("403") ||
+    lower.includes("unauthorized")
+  ) {
+    return {
+      message: "MCP connection failed: Authentication required.",
+      action: "Go to Settings > MCP Servers and verify your API key or authentication credentials.",
+      category: "mcp",
+      retryable: false,
+      raw,
+      rawDetail: `MCP auth error: ${mcpMessage}`,
+    };
+  }
+  if (
+    lower.includes("failed to spawn") ||
+    lower.includes("no such file or directory") ||
+    lower.includes("command not found") ||
+    lower.includes("binary not found") ||
+    lower.includes("not recognized as an internal or external command")
+  ) {
+    return {
+      message: "MCP process failed to start: the command or executable was not found.",
+      action:
+        "Check the command path is correct and that any required runtimes (e.g., Node, Python) are installed and on your PATH.",
+      category: "mcp",
+      retryable: false,
+      raw,
+      rawDetail: `MCP spawn error: ${mcpMessage}`,
+    };
+  }
+  if (lower.includes("timed out") || lower.includes("timeout") || lower.includes("deadline has elapsed")) {
+    return {
+      message: "MCP connection timed out — the server did not respond in time.",
+      action: "Check your internet connection or that the MCP server is active and accessible, then retry.",
+      category: "mcp",
+      retryable: true,
+      raw,
+      rawDetail: `MCP timeout: ${mcpMessage}`,
+    };
+  }
+  if (
+    lower.includes("handshake failed") ||
+    lower.includes("transport") ||
+    lower.includes("send message error") ||
+    lower.includes("PeerPlugin") ||
+    lower.includes("not supported")
+  ) {
+    return {
+      message: `MCP handshake failed: ${mcpMessage}`,
+      action:
+        "Check that the MCP server is running correctly, its port/URL is reachable, and any command arguments are valid.",
+      category: "mcp",
+      retryable: true,
+      raw,
+      rawDetail: `MCP handshake/transport error: ${mcpMessage}`,
+    };
+  }
+  if (lower.includes("connection refused") || lower.includes("connect refused")) {
+    return {
+      message: "MCP connection refused — the server is not accepting connections.",
+      action: "Check that the MCP server is running and its port is correct.",
+      category: "mcp",
+      retryable: true,
+      raw,
+      rawDetail: `MCP connection refused: ${mcpMessage}`,
+    };
+  }
+  return {
+    message: mcpMessage.length > 200 ? mcpMessage.slice(0, 200) + "…" : mcpMessage,
+    action: "Check your MCP server configuration, command, and environment variables in Settings > MCP Servers.",
+    category: "mcp",
+    retryable: true,
+    raw,
+    rawDetail: `MCP error: ${mcpMessage}`,
+  };
+}
+
+function getCategoryFromCode(code: string): ErrorCategory {
+  switch (code) {
+    case "400":
+    case "404":
+      return "config";
+    case "401":
+    case "403":
+      return "auth";
+    case "429":
+      return "rate-limit";
+    case "500":
+    case "502":
+    case "503":
+      return "server";
+    default:
+      return "unknown";
+  }
+}
+
+function isRetryableCode(code: string): boolean {
+  switch (code) {
+    case "429":
+    case "500":
+    case "502":
+    case "503":
+      return true;
+    case "400":
+    case "401":
+    case "403":
+    case "404":
+      return false;
+    default:
+      return false;
+  }
+}
+
+/** Backward-compatible: returns just the user message string */
+export function parseApiErrorMessage(err: unknown): string {
+  return parseApiError(err).message;
 }

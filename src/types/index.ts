@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { logError } from "../utils/logger";
-
 export interface SearchResult {
   title: string;
   url: string;
@@ -114,26 +111,3 @@ export const MCP_STATUS_COLORS: Record<McpServerStatus, string> = {
 };
 
 export type ModelStatuses = Record<string, ConnectionStatus>;
-
-export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
-  try {
-    const raw = await invoke<string>("load_config");
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as ModelConfig[];
-      }
-    }
-  } catch (e) {
-    logError("Failed to load config from system", e);
-  }
-  return null;
-}
-
-export async function saveModelConfigs(configs: ModelConfig[]) {
-  try {
-    await invoke("save_config", { config: JSON.stringify(configs) });
-  } catch (e) {
-    logError("Failed to save config to system", e);
-  }
-}

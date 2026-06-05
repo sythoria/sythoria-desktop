@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
-import type { Conversation, TitleGenerationConfig } from "../types";
+import type { Conversation, TitleGenerationConfig, ModelConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { logError } from "./logger";
+import { logError, logWarn } from "./logger";
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -78,7 +78,9 @@ async function getStore(): Promise<Store> {
 
 function parseConversations(raw: unknown): Conversation[] {
   if (!Array.isArray(raw)) {
-    logError("Stored conversations failed validation: expected array, resetting");
+    logWarn("storage", "Stored conversations failed validation: expected array, resetting", {
+      action: "This is usually caused by corrupted data. Your conversations will start fresh.",
+    });
     return [];
   }
   const valid: Conversation[] = [];
@@ -87,7 +89,10 @@ function parseConversations(raw: unknown): Conversation[] {
     if (result.success) {
       valid.push(result.data as Conversation);
     } else {
-      logError("Skipping invalid conversation", result.error);
+      logWarn("storage", "Skipping invalid conversation", {
+        details: result.error.message,
+        action: "One conversation had invalid data and was skipped. The rest are intact.",
+      });
     }
   }
   return valid;
@@ -99,13 +104,19 @@ export async function loadConversations(): Promise<Conversation[]> {
     const raw = await store.get<unknown>(CONVERSATIONS_KEY);
     if (raw) return parseConversations(raw);
   } catch (e) {
-    logError("Failed to load conversations from secure store", e);
+    logError("storage", "Failed to load conversations from secure store", {
+      error: e,
+      action: "Falling back to localStorage. If conversations are missing, try restarting the app.",
+    });
     const fallback = localStorage.getItem(CONVERSATIONS_KEY);
     if (fallback) {
       try {
         return parseConversations(JSON.parse(fallback));
       } catch (e2) {
-        logError("Failed to parse conversations from localStorage", e2);
+        logError("storage", "Failed to parse conversations from localStorage", {
+          error: e2,
+          action: "Conversations data may be corrupted. Try clearing app data.",
+        });
       }
     }
   }
@@ -117,11 +128,17 @@ export async function saveConversations(conversations: Conversation[]): Promise<
     const store = await getStore();
     await store.set(CONVERSATIONS_KEY, conversations);
   } catch (e) {
-    logError("Failed to save conversations to secure store", e);
+    logError("storage", "Failed to save conversations to secure store", {
+      error: e,
+      action: "Falling back to localStorage. Data may not persist across sessions.",
+    });
     try {
       localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
     } catch (e2) {
-      logError("Failed to save conversations to localStorage", e2);
+      logError("storage", "Failed to save conversations to localStorage", {
+        error: e2,
+        action: "Storage is full or unavailable. Try clearing old conversations.",
+      });
     }
   }
 }
@@ -133,7 +150,10 @@ export async function loadTheme(): Promise<"light" | "dark"> {
     const result = ThemeSchema.safeParse(raw);
     if (result.success) return result.data;
   } catch (e) {
-    logError("Failed to load theme from secure store", e);
+    logError("storage", "Failed to load theme from secure store", {
+      error: e,
+      action: "Using system theme preference as fallback.",
+    });
   }
   const fallback = localStorage.getItem(THEME_KEY);
   const result = ThemeSchema.safeParse(fallback);
@@ -146,7 +166,10 @@ export async function saveTheme(theme: "light" | "dark"): Promise<void> {
     const store = await getStore();
     await store.set(THEME_KEY, theme);
   } catch (e) {
-    logError("Failed to save theme to secure store", e);
+    logError("storage", "Failed to save theme to secure store", {
+      error: e,
+      action: "Theme may not persist across sessions. Try restarting the app.",
+    });
     localStorage.setItem(THEME_KEY, theme);
   }
 }
@@ -157,7 +180,10 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
     const result = ApiKeysSchema.safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("Failed to load API keys from keychain", e);
+    logError("storage", "Failed to load API keys from keychain", {
+      error: e,
+      action: "Check that the app has keychain access. You may need to re-enter your API keys in Settings > Models.",
+    });
   }
 
   try {
@@ -170,11 +196,18 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
       return legacy.data;
     }
     if (legacyRaw) {
-      if (!legacy.success) logError("Stored API keys failed validation, resetting", legacy.error);
+      if (!legacy.success)
+        logWarn("storage", "Stored API keys failed validation, resetting", {
+          details: legacy.error?.message,
+          action: "API keys were corrupted. Please re-enter them in Settings > Models.",
+        });
       await store.delete(API_KEYS_KEY);
     }
   } catch (e) {
-    logError("Failed to migrate legacy API keys", e);
+    logError("storage", "Failed to migrate legacy API keys", {
+      error: e,
+      action: "Could not migrate old API keys from store. Re-enter them in Settings > Models.",
+    });
   }
   return {};
 }
@@ -183,7 +216,10 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
   try {
     await invoke("save_api_keys_cmd", { keys });
   } catch (e) {
-    logError("Failed to save API keys to keychain", e);
+    logError("storage", "Failed to save API keys to keychain", {
+      error: e,
+      action: "API keys may not persist. Try re-entering them in Settings > Models.",
+    });
   }
 }
 
@@ -194,10 +230,16 @@ export async function loadSearchConfigs(): Promise<import("../types").SearchApiC
     if (raw) {
       const result = SearchConfigsArraySchema.safeParse(raw);
       if (result.success) return result.data as import("../types").SearchApiConfig[];
-      logError("Stored search configs failed validation", result.error);
+      logWarn("storage", "Stored search configs failed validation", {
+        details: result.error?.message,
+        action: "Search provider configs were corrupted. Please re-configure them in Settings > Search.",
+      });
     }
   } catch (e) {
-    logError("Failed to load search configs from secure store", e);
+    logError("storage", "Failed to load search configs from secure store", {
+      error: e,
+      action: "Search configuration could not be loaded. Re-configure in Settings > Search.",
+    });
   }
   return null;
 }
@@ -207,7 +249,10 @@ export async function saveSearchConfigs(configs: import("../types").SearchApiCon
     const store = await getStore();
     await store.set(SEARCH_CONFIGS_KEY, configs);
   } catch (e) {
-    logError("Failed to save search configs to secure store", e);
+    logError("storage", "Failed to save search configs to secure store", {
+      error: e,
+      action: "Search configuration may not persist. Try re-entering in Settings > Search.",
+    });
   }
 }
 
@@ -216,7 +261,10 @@ export async function clearConversations(): Promise<void> {
     const store = await getStore();
     await store.delete(CONVERSATIONS_KEY);
   } catch (e) {
-    logError("Failed to clear conversations from secure store", e);
+    logError("storage", "Failed to clear conversations from secure store", {
+      error: e,
+      action: "Conversations may still be stored. Try restarting and clearing again.",
+    });
   }
   localStorage.removeItem(CONVERSATIONS_KEY);
 }
@@ -227,7 +275,10 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
     const result = ApiKeysSchema.safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("Failed to load search API keys from keychain", e);
+    logError("storage", "Failed to load search API keys from keychain", {
+      error: e,
+      action: "Re-enter your search API keys in Settings > Search.",
+    });
   }
 
   try {
@@ -240,11 +291,18 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
       return legacy.data;
     }
     if (legacyRaw) {
-      if (!legacy.success) logError("Stored search API keys failed validation, resetting", legacy.error);
+      if (!legacy.success)
+        logWarn("storage", "Stored search API keys failed validation, resetting", {
+          details: legacy.error?.message,
+          action: "Search API keys were corrupted. Please re-enter them in Settings > Search.",
+        });
       await store.delete(SEARCH_API_KEYS_KEY);
     }
   } catch (e) {
-    logError("Failed to migrate legacy search API keys", e);
+    logError("storage", "Failed to migrate legacy search API keys", {
+      error: e,
+      action: "Could not migrate old search API keys. Re-enter them in Settings > Search.",
+    });
   }
   return {};
 }
@@ -253,7 +311,10 @@ export async function saveSearchApiKeys(keys: Record<string, string>): Promise<v
   try {
     await invoke("save_search_api_keys_cmd", { keys });
   } catch (e) {
-    logError("Failed to save search API keys to keychain", e);
+    logError("storage", "Failed to save search API keys to keychain", {
+      error: e,
+      action: "Search API keys may not persist. Re-enter them in Settings > Search.",
+    });
   }
 }
 
@@ -276,10 +337,16 @@ export async function loadTitleConfig(): Promise<TitleGenerationConfig> {
     if (raw) {
       const result = TitleConfigSchema.safeParse(raw);
       if (result.success) return { ...DEFAULT_TITLE_CONFIG, ...result.data };
-      logError("Stored title config failed validation, resetting", result.error);
+      logWarn("storage", "Stored title config failed validation, resetting", {
+        details: result.error?.message,
+        action: "Title generation settings were reset to defaults. Re-configure in Settings.",
+      });
     }
   } catch (e) {
-    logError("Failed to load title config from secure store", e);
+    logError("storage", "Failed to load title config from secure store", {
+      error: e,
+      action: "Using default title generation settings.",
+    });
   }
   return { ...DEFAULT_TITLE_CONFIG };
 }
@@ -289,7 +356,10 @@ export async function saveTitleConfig(config: TitleGenerationConfig): Promise<vo
     const store = await getStore();
     await store.set(TITLE_CONFIG_KEY, config);
   } catch (e) {
-    logError("Failed to save title config to secure store", e);
+    logError("storage", "Failed to save title config to secure store", {
+      error: e,
+      action: "Title generation settings may not persist.",
+    });
   }
 }
 
@@ -313,10 +383,16 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
     if (raw) {
       const result = McpConfigsArraySchema.safeParse(raw);
       if (result.success) return result.data as import("../types").McpServerConfig[];
-      logError("Stored MCP configs failed validation", result.error);
+      logWarn("storage", "Stored MCP configs failed validation", {
+        details: result.error?.message,
+        action: "MCP server configs were corrupted. Re-configure in Settings > MCP Servers.",
+      });
     }
   } catch (e) {
-    logError("Failed to load MCP configs from secure store", e);
+    logError("storage", "Failed to load MCP configs from secure store", {
+      error: e,
+      action: "MCP server configuration could not be loaded. Re-configure in Settings > MCP Servers.",
+    });
   }
   return null;
 }
@@ -326,7 +402,10 @@ export async function saveMcpConfigs(configs: import("../types").McpServerConfig
     const store = await getStore();
     await store.set(MCP_CONFIGS_KEY, configs);
   } catch (e) {
-    logError("Failed to save MCP configs to secure store", e);
+    logError("storage", "Failed to save MCP configs to secure store", {
+      error: e,
+      action: "MCP server config may not persist. Re-configure in Settings > MCP Servers.",
+    });
   }
 }
 
@@ -336,7 +415,10 @@ export async function loadMcpEnvSecrets(): Promise<Record<string, Record<string,
     const result = z.record(z.string(), z.record(z.string(), z.string())).safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("Failed to load MCP env secrets from keychain", e);
+    logError("storage", "Failed to load MCP env secrets from keychain", {
+      error: e,
+      action: "MCP environment secrets could not be loaded. Re-enter them in Settings > MCP Servers.",
+    });
   }
   return {};
 }
@@ -345,6 +427,38 @@ export async function saveMcpEnvSecrets(secrets: Record<string, Record<string, s
   try {
     await invoke("save_mcp_env_secrets_cmd", { secrets });
   } catch (e) {
-    logError("Failed to save MCP env secrets to keychain", e);
+    logError("storage", "Failed to save MCP env secrets to keychain", {
+      error: e,
+      action: "MCP environment secrets may not persist. Re-enter them in Settings > MCP Servers.",
+    });
+  }
+}
+
+export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
+  try {
+    const raw = await invoke<string>("load_config");
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as ModelConfig[];
+      }
+    }
+  } catch (e) {
+    logError("storage", "Failed to load config from system", {
+      error: e,
+      action: "Model configuration could not be loaded. Re-configure in Settings > Models.",
+    });
+  }
+  return null;
+}
+
+export async function saveModelConfigs(configs: ModelConfig[]) {
+  try {
+    await invoke("save_config", { config: JSON.stringify(configs) });
+  } catch (e) {
+    logError("storage", "Failed to save config to system", {
+      error: e,
+      action: "Model configuration may not persist. Re-enter in Settings > Models.",
+    });
   }
 }

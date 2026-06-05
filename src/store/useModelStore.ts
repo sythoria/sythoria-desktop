@@ -3,9 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { saveModelConfigs } from "../types";
-import { saveApiKeys, saveTitleConfig } from "../utils/storage";
-import { logError } from "../utils/logger";
+import { saveModelConfigs, saveApiKeys, saveTitleConfig } from "../utils/storage";
+import { logError, logWarn, logInfo } from "../utils/logger";
+import { parseApiError } from "../utils/parseApiError";
 import { DEFAULT_TEMPERATURE } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
@@ -118,6 +118,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
       const errors = validationResults
         .filter((r) => !r.success)
         .flatMap((r) => (!r.success ? r.error.issues.map((i) => i.message) : []));
+      logWarn("model", `Model validation failed: ${errors[0]}`, {
+        details: errors.join("; "),
+        action: "Fix the model configuration fields highlighted in Settings > Models.",
+      });
       useUIStore.getState().addToast(`Validation: ${errors[0]}`, "error");
       return;
     }
@@ -129,6 +133,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     });
     set({ apiKeys: keys });
     saveApiKeys(keys);
+    logInfo("model", "Models updated successfully", { details: `${models.length} model(s) saved` });
     useUIStore.getState().addToast("Models updated", "success");
   },
 
@@ -166,6 +171,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
     } else if (enabledModels.length === 0 && updatedModels.length > 0) {
       set({ selectedModel: updatedModels[0].id });
     }
+
+    const updatedModel = updatedModels.find((m) => m.id === id);
+    if (updatedModel && Object.keys(updates).length > 0) {
+      logInfo("model", `Model config updated: "${updatedModel.name}"`, {
+        details: `Updated fields: ${Object.keys(updates).join(", ")}`,
+      });
+    }
   },
 
   deleteModel: (id) => {
@@ -182,6 +194,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       set({ selectedModel: updated[0].id });
     }
     useUIStore.getState().addToast("Model deleted", "info");
+    logInfo("model", `Model deleted`, { details: `Model ID: ${id}` });
   },
 
   addModel: () => {
@@ -198,6 +211,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const updated = [...models, newModel];
     set({ models: updated });
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
+    logInfo("model", `Model added: "${newModel.name}"`, {
+      details: `ID: ${newModel.id}, Provider: ${newModel.provider}, Model: ${newModel.modelId}`,
+    });
     useUIStore.getState().addToast("Model added — configure its details", "info");
   },
 
@@ -215,6 +231,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     if (toCheck.length === 0) return;
 
+    logInfo("model", `Checking connections for ${toCheck.length} model(s)`, {
+      details: toCheck.map((m) => `${m.name} (${m.apiBase})`).join(", "),
+    });
     useUIStore.getState().setLoading("checkConnection", true);
 
     const updating: ModelStatuses = { ...modelStatuses };
@@ -232,8 +251,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
             apiKey,
           });
           return { id: model.id, status: (ok ? "connected" : "error") as ConnectionStatus };
-        } catch {
-          return { id: model.id, status: "error" as ConnectionStatus };
+        } catch (err) {
+          const parsed = parseApiError(err);
+          return { id: model.id, status: "error" as ConnectionStatus, errorDetail: parsed.raw || parsed.message };
         }
       }),
     );
@@ -244,8 +264,24 @@ export const useModelStore = create<ModelState>((set, get) => ({
       const model = toCheck[i];
       if (result.status === "fulfilled") {
         newStatuses[model.id] = result.value.status;
+        if (result.value.status === "connected") {
+          logInfo("model", `Health check passed for "${model.name}"`, {
+            details: `API base: ${model.apiBase}`,
+          });
+        } else {
+          const detail = (result.value as { errorDetail?: string }).errorDetail;
+          logWarn("model", `Health check failed for "${model.name}"`, {
+            details: `API base: ${model.apiBase}, Model ID: ${model.modelId}${detail ? `. Raw: ${detail}` : ""}`,
+            action:
+              "Check your API key, base URL, and that the model is accessible. Click 'Check Connection' in Settings > Models.",
+          });
+        }
       } else {
         newStatuses[model.id] = "error";
+        logError("model", `Health check error for "${model.name}"`, {
+          error: result.reason,
+          action: "Check your internet connection and the API base URL in Settings > Models.",
+        });
       }
     }
 
@@ -281,6 +317,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
   getActiveStreamId: () => activeStreamId,
   setActiveStreamId: (id, convId = null) => {
+    if (id && id !== activeStreamId) {
+      logInfo("stream", `Stream started`, {
+        details: `Stream ID: ${id}, Conversation: ${convId || "(none)"}`,
+      });
+    }
     activeStreamId = id;
     activeStreamConversationId = convId;
   },
@@ -292,7 +333,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
     activeStreamConversationId = null;
     if (streamId) {
       void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
-        logError("Failed to cancel stream", err);
+        logError("stream", "Failed to cancel stream", {
+          error: err,
+          action: "The stream may have already ended. If the UI is stuck, try reloading the app.",
+        });
       });
     }
     releaseStreamListeners();
