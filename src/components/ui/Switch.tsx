@@ -1,3 +1,6 @@
+import { motion } from "motion/react";
+import { springs } from "../../lib/motion-tokens";
+
 interface SwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -30,10 +33,12 @@ export function Switch({ checked, onChange, label, description }: SwitchProps) {
           checked ? "bg-accent" : "bg-input-border"
         }`}
       >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 shadow-sm ${
-            checked ? "translate-x-6" : "translate-x-1"
-          }`}
+        <motion.span
+          className="inline-block h-4 w-4 rounded-full bg-white shadow-sm"
+          animate={{
+            x: checked ? 22 : 2,
+          }}
+          transition={springs.snappy}
           aria-hidden="true"
         />
       </button>

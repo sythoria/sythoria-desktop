@@ -19,6 +19,7 @@ import type { ModelStatuses, ConnectionStatus } from "../types";
 import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
 import { SIDEBAR_WIDTH, COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
+import { springs, motionTokens } from "../lib/motion-tokens";
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {
   disconnected: "Disconnected",
@@ -67,7 +68,6 @@ function groupConversations(conversations: Conversation[]) {
   return groups.filter((g) => g.items.length > 0);
 }
 
-// Tooltip component for icon-only mode
 function SidebarTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="group/sidebar-tooltip relative flex items-center justify-center w-full">
@@ -141,7 +141,6 @@ export default function Sidebar({
     return "disconnected";
   }, [modelStatuses]);
 
-  // Animations
   const sidebarVariants = {
     expanded: {
       width: SIDEBAR_WIDTH,
@@ -198,15 +197,18 @@ export default function Sidebar({
           </AnimatePresence>
 
           <div className="flex items-center gap-1 ml-auto">
-            <button
+            <motion.button
               onClick={onToggleCollapse}
               className="hidden md:flex p-1.5 rounded-md hover:bg-hover text-text-muted transition-colors min-w-[28px] min-h-[28px] items-center justify-center"
               aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!isCollapsed}
               title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
               {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-            </button>
+            </motion.button>
             <button
               onClick={onClose}
               className="md:hidden p-1.5 rounded-md hover:bg-hover text-text-muted transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center"
@@ -221,19 +223,25 @@ export default function Sidebar({
         <div className={`px-3 mb-2 ${isCollapsed ? "px-2" : "px-3"}`}>
           {isCollapsed ? (
             <SidebarTooltip label="New Chat">
-              <button
+              <motion.button
                 onClick={onNewChat}
                 className="w-10 h-10 flex items-center justify-center rounded-lg bg-accent hover:bg-accent-hover text-white transition-colors duration-150"
                 aria-label="Start new chat"
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
               >
                 <MessageSquarePlus size={18} />
-              </button>
+              </motion.button>
             </SidebarTooltip>
           ) : (
             <motion.button
               onClick={onNewChat}
               className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors duration-150 min-h-[44px]"
               aria-label="Start new chat"
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
               <MessageSquarePlus size={16} />
               New Chat
@@ -276,13 +284,16 @@ export default function Sidebar({
           ) : (
             <div className="px-2 mb-2">
               <SidebarTooltip label="Search conversations">
-                <button
+                <motion.button
                   onClick={() => {}}
                   className="w-10 h-10 flex items-center justify-center rounded-lg text-text-muted hover:bg-hover transition-colors"
                   aria-label="Search conversations"
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                 >
                   <Search size={18} />
-                </button>
+                </motion.button>
               </SidebarTooltip>
             </div>
           )}
@@ -343,10 +354,14 @@ export default function Sidebar({
                         </span>
                       </button>
                       {openMenuId === conv.id && (
-                        <div
+                        <motion.div
                           ref={menuRef}
                           className="absolute right-1 top-full mt-1 z-50 min-w-[160px] py-1 rounded-lg bg-surface border border-border shadow-lg"
                           role="menu"
+                          initial={{ opacity: 0, y: -4, scale: motionTokens.scale.subtle }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: motionTokens.scale.subtle }}
+                          transition={springs.snappy}
                         >
                           <button
                             onClick={(e) => {
@@ -384,7 +399,7 @@ export default function Sidebar({
                             <Trash2 size={14} />
                             Delete
                           </button>
-                        </div>
+                        </motion.div>
                       )}
                     </div>
                   ))}
@@ -399,7 +414,6 @@ export default function Sidebar({
 
         {/* Bottom Section */}
         <div className="px-3 py-3 border-t border-border flex flex-col gap-2 shrink-0">
-          {/* Status */}
           <AnimatePresence mode="popLayout">
             {!isCollapsed ? (
               <motion.div
@@ -429,13 +443,16 @@ export default function Sidebar({
           {isCollapsed ? (
             <div className="flex items-center justify-center">
               <SidebarTooltip label="Settings">
-                <button
+                <motion.button
                   onClick={onSettingsClick}
                   className="w-10 h-10 flex items-center justify-center rounded-lg text-text-secondary hover:bg-hover hover:text-text-primary transition-colors duration-100"
                   aria-label="Open settings"
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                 >
                   <Settings size={18} aria-hidden="true" />
-                </button>
+                </motion.button>
               </SidebarTooltip>
             </div>
           ) : (
@@ -443,6 +460,9 @@ export default function Sidebar({
               onClick={onSettingsClick}
               className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors duration-100 min-h-[44px]"
               aria-label="Open settings"
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
               <Settings size={14} aria-hidden="true" />
               Settings

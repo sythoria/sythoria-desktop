@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { Menu } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
@@ -16,6 +17,7 @@ import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
+import { springs, motionTokens } from "./lib/motion-tokens";
 
 import "./index.css";
 
@@ -149,6 +151,13 @@ function App() {
   const prevMessageCountRef = useRef(0);
 
   useEffect(() => {
+    if (activeId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHasNewMessages(false);
+    }
+  }, [activeId]);
+
+  useEffect(() => {
     if (messages.length > prevMessageCountRef.current && !isAtBottom && !isStreaming) {
       setHasNewMessages(true);
     }
@@ -162,11 +171,6 @@ function App() {
   useEffect(() => {
     init();
   }, [init]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setHasNewMessages(false);
-  }, [activeId]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -263,71 +267,111 @@ function App() {
         onToggleCollapse={toggleSidebarCollapsed}
       />
 
-      {view === "settings" ? (
-        <Settings />
-      ) : (
-        <main className="flex-1 flex flex-col min-w-0 relative bg-chat" aria-label="Chat area">
-          <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
-                aria-label="Open sidebar"
-              >
-                <Menu size={18} />
-              </button>
-              <h2 className="text-sm font-medium text-text-secondary truncate">
-                {activeConversation?.title ?? "Sythoria"}
-              </h2>
-            </div>
-
-            <div className="flex items-center gap-2" />
-          </header>
-
-          <ChatArea
-            messages={messages}
-            isAtBottom={isAtBottom}
-            setIsAtBottom={setIsAtBottom}
-            virtuosoRef={virtuosoRef}
-            onRetry={handleRetry}
-            generationState={generationState}
-            generationLabel={generationLabel}
-          />
-
-          <div
-            className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+      <AnimatePresence mode="wait">
+        {view === "settings" ? (
+          <motion.div
+            key="settings"
+            className="flex-1 flex flex-col min-w-0 overflow-hidden"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={springs.gentle}
           >
-            <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
-          </div>
+            <Settings />
+          </motion.div>
+        ) : (
+          <motion.main
+            key="chat"
+            className="flex-1 flex flex-col min-w-0 relative bg-chat"
+            aria-label="Chat area"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={springs.gentle}
+          >
+            <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <motion.button
+                  onClick={() => setSidebarOpen(true)}
+                  className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                  aria-label="Open sidebar"
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
+                >
+                  <Menu size={18} />
+                </motion.button>
+                <motion.h2
+                  className="text-sm font-medium text-text-secondary truncate"
+                  key={activeConversation?.id ?? "empty"}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={springs.gentle}
+                >
+                  {activeConversation?.title ?? "Sythoria"}
+                </motion.h2>
+              </div>
 
-          <InputBar
-            models={models}
-            onSend={sendMessage}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-            disabled={isStreaming}
-            modelStatuses={modelStatuses}
-            isSearchEnabled={isSearchEnabled}
-            onToggleSearch={toggleSearchEnabled}
-            mcpServers={mcpConfigs}
-            mcpServerStatuses={serverStatuses}
-            enabledMcpServerIds={enabledServerIds}
-            onToggleMcpServer={handleToggleMcpServer}
-            isStreaming={isStreaming}
-            onStop={stopStreaming}
-            centered={messages.length === 0}
-          />
-        </main>
-      )}
+              <div className="flex items-center gap-2" />
+            </header>
 
-      {showRenameModal && (
-        <RenameChatModal
-          isOpen={showRenameModal}
-          currentTitle={renameCurrentTitle}
-          onConfirm={confirmRename}
-          onCancel={closeRenameModal}
-        />
-      )}
+            <ChatArea
+              messages={messages}
+              isAtBottom={isAtBottom}
+              setIsAtBottom={setIsAtBottom}
+              virtuosoRef={virtuosoRef}
+              onRetry={handleRetry}
+              generationState={generationState}
+              generationLabel={generationLabel}
+            />
+
+            <motion.div
+              className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+              transition={{ duration: motionTokens.duration.fast }}
+              initial={false}
+            >
+              <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+            </motion.div>
+
+            <InputBar
+              models={models}
+              onSend={sendMessage}
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+              disabled={isStreaming}
+              modelStatuses={modelStatuses}
+              isSearchEnabled={isSearchEnabled}
+              onToggleSearch={toggleSearchEnabled}
+              mcpServers={mcpConfigs}
+              mcpServerStatuses={serverStatuses}
+              enabledMcpServerIds={enabledServerIds}
+              onToggleMcpServer={handleToggleMcpServer}
+              isStreaming={isStreaming}
+              onStop={stopStreaming}
+              centered={messages.length === 0}
+            />
+          </motion.main>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showRenameModal && (
+          <motion.div
+            key="rename-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: motionTokens.duration.fast }}
+          >
+            <RenameChatModal
+              isOpen={showRenameModal}
+              currentTitle={renameCurrentTitle}
+              onConfirm={confirmRename}
+              onCancel={closeRenameModal}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>

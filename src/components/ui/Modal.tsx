@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
+import { springs, motionTokens } from "../../lib/motion-tokens";
 
 interface ModalProps {
   isOpen: boolean;
@@ -62,33 +64,50 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
     };
   }, [isOpen, onClose, handleTabTrap]);
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={modalRef}
-        className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border shadow-xl"
-      >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-text-primary">{title}</h3>
-          <button
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: motionTokens.duration.fast }}
+        >
+          <motion.div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={onClose}
-            className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label="Close dialog"
+            aria-hidden="true"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            ref={modalRef}
+            className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border shadow-xl"
+            initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
+            transition={springs.gentle}
           >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <h3 className="text-sm font-medium text-text-primary">{title}</h3>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                aria-label="Close dialog"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5">{children}</div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

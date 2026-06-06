@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
+import { motion } from "motion/react";
 import { X } from "lucide-react";
+import { springs, motionTokens } from "../../lib/motion-tokens";
 
 export interface Toast {
   id: string;
@@ -29,10 +31,15 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   }, [toast.id, onDismiss]);
 
   return (
-    <div
-      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md animate-slide-up ${VARIANT_STYLES[toast.variant]}`}
+    <motion.div
+      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md ${VARIANT_STYLES[toast.variant]}`}
       role="alert"
       aria-live="assertive"
+      layout
+      initial={{ opacity: 0, x: motionTokens.distance.xl, scale: motionTokens.scale.subtle }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: motionTokens.distance.xl, scale: motionTokens.scale.subtle }}
+      transition={springs.snappy}
     >
       <p className="flex-1 text-sm leading-relaxed">{toast.message}</p>
       <button
@@ -42,7 +49,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       >
         <X size={14} />
       </button>
-    </div>
+    </motion.div>
   );
 }
 

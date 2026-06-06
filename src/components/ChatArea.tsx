@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, memo, useCallback, useDeferredValue } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -21,6 +22,7 @@ import {
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState } from "../types";
 import { highlightCode } from "../utils/highlighter";
+import { springs, motionTokens } from "../lib/motion-tokens";
 
 const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
@@ -32,6 +34,11 @@ const GENERATION_STATE_CONFIG: Record<
   responding: { icon: Bot, colorClass: "text-accent", label: "Responding" },
   mcp_executing: { icon: Wrench, colorClass: "text-orange-500", label: "Running MCP tool" },
   error: { icon: Loader2, colorClass: "text-red-500", label: "Error" },
+};
+
+const messageVariants = {
+  hidden: { opacity: 0, y: motionTokens.distance.sm },
+  visible: { opacity: 1, y: 0 },
 };
 
 interface ChatAreaProps {
@@ -52,7 +59,13 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
   const displayLabel = label || config.label;
 
   return (
-    <div className="flex items-center gap-2 py-1.5 animate-fade-in">
+    <motion.div
+      className="flex items-center gap-2 py-1.5"
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={springs.gentle}
+    >
       <div
         className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-accent/10"}`}
       >
@@ -74,7 +87,7 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
           <span />
         </span>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -113,14 +126,17 @@ function SyntaxCodeBlock({ code, language }: { code: string; language: string })
           <Terminal size={12} />
           {language}
         </span>
-        <button
+        <motion.button
           onClick={handleCopy}
           className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100"
           aria-label={copied ? "Copied" : "Copy code"}
+          whileHover={{ scale: motionTokens.scale.pop }}
+          whileTap={{ scale: motionTokens.scale.press }}
+          transition={springs.snappy}
         >
           {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
-        </button>
+        </motion.button>
       </div>
       {highlighted ? (
         <div ref={ref} className="code-block-content" dangerouslySetInnerHTML={{ __html: highlighted }} />
@@ -202,16 +218,19 @@ function ActionButton({
   onClick?: () => void;
 }) {
   return (
-    <button
+    <motion.button
       onClick={onClick}
       className={`p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors flex items-center justify-center ${
         active ? "text-accent" : ""
       }`}
       aria-label={label}
       title={label}
+      whileHover={{ scale: motionTokens.scale.pop }}
+      whileTap={{ scale: motionTokens.scale.press }}
+      transition={springs.snappy}
     >
       {active && activeIcon ? activeIcon : icon}
-    </button>
+    </motion.button>
   );
 }
 
@@ -253,16 +272,19 @@ function MessageActions({
       {sources && sources.length > 0 && (
         <>
           <span className="w-px h-3.5 bg-border/50 mx-1" />
-          <button
+          <motion.button
             onClick={onSourceClick}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] text-text-muted hover:text-accent hover:bg-accent-soft transition-colors"
             title={`${sources.length} source${sources.length !== 1 ? "s" : ""}`}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
           >
             <Globe size={12} />
             <span>
               {sources.length} source{sources.length !== 1 ? "s" : ""}
             </span>
-          </button>
+          </motion.button>
         </>
       )}
     </div>
@@ -271,23 +293,31 @@ function MessageActions({
 
 function SourcesList({ sources }: { sources: { title: string; url: string }[] }) {
   return (
-    <div className="mt-1.5 p-2 rounded-lg bg-surface/50 border border-border/40">
+    <motion.div
+      className="mt-1.5 p-2 rounded-lg bg-surface/50 border border-border/40"
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={springs.gentle}
+    >
       <div className="flex flex-wrap gap-1.5">
         {sources.map((s, i) => (
-          <a
+          <motion.a
             key={i}
             href={s.url}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-accent hover:bg-accent-soft border border-border/30 max-w-[200px] truncate transition-colors"
             title={s.title || s.url}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            transition={springs.snappy}
           >
             <ExternalLink size={10} className="shrink-0 text-text-muted" />
             <span className="truncate">{s.title || s.url}</span>
-          </a>
+          </motion.a>
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -303,7 +333,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const mcpServerName = mcpParts[0] ?? "";
 
   return (
-    <div className="flex items-start gap-2 animate-fade-in">
+    <motion.div
+      className="flex items-start gap-2"
+      variants={messageVariants}
+      initial="hidden"
+      animate="visible"
+      transition={springs.gentle}
+    >
       <div
         className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
           isCompleted ? "bg-green-500/10 border-green-500/20" : "bg-yellow-500/10 border-yellow-500/20"
@@ -357,7 +393,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
           </p>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -366,18 +402,26 @@ function ToolResultContent({ message }: { message: Message }) {
 
   return (
     <div>
-      <button
+      <motion.button
         onClick={() => setExpanded(!expanded)}
         className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1 mt-0.5"
         aria-label={expanded ? "Collapse" : "Expand"}
+        whileHover={{ x: 2 }}
+        transition={springs.snappy}
       >
         <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         {expanded ? "Hide details" : "Show details"}
-      </button>
+      </motion.button>
       {expanded && (
-        <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
+        <motion.div
+          className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={springs.gentle}
+        >
           <pre className="whitespace-pre-wrap break-words font-mono text-[10px]">{message.content.slice(0, 2000)}</pre>
-        </div>
+        </motion.div>
       )}
     </div>
   );
@@ -395,7 +439,13 @@ function LegacyToolResultDisplay({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="flex items-start gap-2 animate-fade-in">
+    <motion.div
+      className="flex items-start gap-2"
+      variants={messageVariants}
+      initial="hidden"
+      animate="visible"
+      transition={springs.gentle}
+    >
       <div
         className="shrink-0 w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
@@ -423,7 +473,7 @@ function LegacyToolResultDisplay({ message }: { message: Message }) {
           <p className="text-[10px] text-text-muted mt-0.5 truncate">{message.content.slice(0, 120)}...</p>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -432,7 +482,13 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
   const hasContent = content.length > 0;
 
   return (
-    <div className="flex items-start gap-2 animate-fade-in mb-2">
+    <motion.div
+      className="flex items-start gap-2 mb-2"
+      variants={messageVariants}
+      initial="hidden"
+      animate="visible"
+      transition={springs.gentle}
+    >
       <div
         className="shrink-0 w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
@@ -444,20 +500,27 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <button
+        <motion.button
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
           aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
+          whileHover={{ x: 2 }}
+          transition={springs.snappy}
         >
           <span>Thinking</span>
           <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-        </button>
+        </motion.button>
         {expanded ? (
-          <div className="mt-1.5 p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/15 text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+          <motion.div
+            className="mt-1.5 p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/15 text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            transition={springs.gentle}
+          >
             <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
               {content || "Thinking..."}
             </p>
-          </div>
+          </motion.div>
         ) : isStreaming && !hasContent ? (
           <span className="generating-dots mt-0.5">
             <span />
@@ -471,7 +534,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
           </p>
         ) : null}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -503,10 +566,14 @@ const MessageBubble = memo(function MessageBubble({
 
   if (isUser) {
     return (
-      <div
-        className="flex justify-end animate-fade-in group"
+      <motion.div
+        className="flex justify-end group"
         role="article"
         aria-label={`User message: ${message.content.slice(0, 80)}`}
+        variants={messageVariants}
+        initial="hidden"
+        animate="visible"
+        transition={springs.gentle}
       >
         <div className="max-w-[75%]">
           <div className="glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm whitespace-pre-wrap break-words">
@@ -516,11 +583,10 @@ const MessageBubble = memo(function MessageBubble({
             <MessageActions content={message.content} isUser />
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
-  // Parse reasoning content (supports <reasoning>, <thinking>, <thought> tags from different LLMs)
   let reasoningContent = "";
   let displayContent = message.content;
   if (hasOpenReasoning) {
@@ -534,7 +600,6 @@ const MessageBubble = memo(function MessageBubble({
         .replace(/<(?:reasoning|thinking|thought)>[\s\S]*?<\/(?:reasoning|thinking|thought)>/, "")
         .trim();
     } else {
-      // Stream in progress — extract content between opening tag and end of string
       const openMatch =
         message.content.match(/<reasoning>([\s\S]*)/) ||
         message.content.match(/<thinking>([\s\S]*)/) ||
@@ -550,10 +615,14 @@ const MessageBubble = memo(function MessageBubble({
   const showGenerationIndicator = isLastAssistant && isStreaming && generationState && generationState !== "idle";
 
   return (
-    <div
-      className="flex justify-start gap-3 animate-fade-in group"
+    <motion.div
+      className="flex justify-start gap-3 group"
       role="article"
       aria-label={`Assistant message${isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
+      variants={messageVariants}
+      initial="hidden"
+      animate="visible"
+      transition={springs.gentle}
     >
       <div
         className="shrink-0 w-7 h-7 rounded-lg border bg-accent/10 border-accent/20 flex items-center justify-center mt-0.5"
@@ -564,7 +633,12 @@ const MessageBubble = memo(function MessageBubble({
       <div className="max-w-[80%] text-sm text-text-primary leading-relaxed">
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
-          <div className="flex items-center gap-2 py-1">
+          <motion.div
+            className="flex items-center gap-2 py-1"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={springs.gentle}
+          >
             <Loader2 size={14} className="text-accent animate-spin" />
             <span className="text-xs text-text-muted font-medium">Thinking</span>
             <span className="generating-dots">
@@ -572,7 +646,7 @@ const MessageBubble = memo(function MessageBubble({
               <span />
               <span />
             </span>
-          </div>
+          </motion.div>
         )}
         {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (
           <GenerationIndicator state={generationState!} label={generationLabel!} />
@@ -591,9 +665,13 @@ const MessageBubble = memo(function MessageBubble({
             onRetry={onRetry}
           />
         )}
-        {sourcesExpanded && message.sources && message.sources.length > 0 && <SourcesList sources={message.sources} />}
+        <AnimatePresence>
+          {sourcesExpanded && message.sources && message.sources.length > 0 && (
+            <SourcesList sources={message.sources} />
+          )}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 });
 
@@ -610,24 +688,35 @@ export default function ChatArea({
 }: ChatAreaProps) {
   if (messages.length === 0) {
     return (
-      <div
+      <motion.div
         className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
         role="region"
         aria-label="Empty chat — type a message to begin"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: motionTokens.duration.slow }}
       >
-        <div className="flex flex-col items-center gap-4 px-4 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]">
-          <div
+        <div className="flex flex-col items-center gap-4 px-4">
+          <motion.div
             className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center"
             aria-hidden="true"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ ...springs.bouncy, delay: 0.1 }}
           >
             <Bot size={28} className="text-accent" />
-          </div>
-          <div className="text-center">
+          </motion.div>
+          <motion.div
+            className="text-center"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.2 }}
+          >
             <h1 className="text-2xl font-bold tracking-tight text-text-primary">Sythoria</h1>
             <p className="text-text-muted text-sm mt-1">Your intelligent AI assistant</p>
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 

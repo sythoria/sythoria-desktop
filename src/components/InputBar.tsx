@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { Send, Plus, Paperclip, ChevronDown, Check, Search, Square, Loader2, Cpu } from "lucide-react";
 import { STATUS_COLORS, ModelConfig, McpServerConfig, McpServerStatus } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
+import { springs, motionTokens } from "../lib/motion-tokens";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -165,11 +167,13 @@ export default function InputBar({
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
-        <div
+        <motion.div
           className={`flex items-center gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""} ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""}`}
+          whileHover={{ scale: 1.005 }}
+          transition={springs.snappy}
         >
           <div ref={plusDropdownRef} className="relative shrink-0">
-            <button
+            <motion.button
               onClick={() => setPlusOpen(!plusOpen)}
               className={`p-1.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
                 anyToolActive
@@ -179,74 +183,87 @@ export default function InputBar({
               aria-label="Attach or search"
               aria-expanded={plusOpen}
               aria-haspopup="menu"
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
               <Plus size={18} />
-            </button>
+            </motion.button>
 
-            {plusOpen && (
-              <div
-                className="absolute bottom-full left-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in"
-                role="menu"
-                aria-label="Attachment and search options"
-              >
-                <button
-                  onClick={() => {
-                    setPlusOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors min-h-[44px]"
-                  role="menuitem"
-                  disabled
+            <AnimatePresence>
+              {plusOpen && (
+                <motion.div
+                  className="absolute bottom-full left-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50"
+                  role="menu"
+                  aria-label="Attachment and search options"
+                  initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                  transition={springs.gentle}
                 >
-                  <Paperclip size={16} className="text-text-muted" />
-                  <span>Add File</span>
-                  <span className="ml-auto text-[10px] text-text-muted">Soon</span>
-                </button>
-                <button
-                  onClick={() => {
-                    onToggleSearch(!isSearchEnabled);
-                    setPlusOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                    isSearchEnabled
-                      ? "text-accent bg-accent/5 hover:bg-accent/10"
-                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                  }`}
-                  role="menuitemcheckbox"
-                  aria-checked={isSearchEnabled}
-                >
-                  <Search size={16} className={isSearchEnabled ? "text-accent" : "text-text-muted"} />
-                  <span>Web Search</span>
-                  {isSearchEnabled && <Check size={14} className="text-accent ml-auto" />}
-                </button>
-                {connectedMcpServers.length > 0 && (
-                  <>
-                    <div className="border-t border-border my-1" />
-                    {connectedMcpServers.map((server) => {
-                      const isEnabled = enabledMcpServerIds.has(server.id);
-                      return (
-                        <button
-                          key={server.id}
-                          onClick={() => {
-                            onToggleMcpServer(server.id);
-                          }}
-                          className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                            isEnabled
-                              ? "text-accent bg-accent/5 hover:bg-accent/10"
-                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                          }`}
-                          role="menuitemcheckbox"
-                          aria-checked={isEnabled}
-                        >
-                          <Cpu size={16} className={isEnabled ? "text-accent" : "text-text-muted"} />
-                          <span className="truncate">{server.name}</span>
-                          {isEnabled && <Check size={14} className="text-accent ml-auto" />}
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            )}
+                  <motion.button
+                    onClick={() => {
+                      setPlusOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors min-h-[44px]"
+                    role="menuitem"
+                    disabled
+                  >
+                    <Paperclip size={16} className="text-text-muted" />
+                    <span>Add File</span>
+                    <span className="ml-auto text-[10px] text-text-muted">Soon</span>
+                  </motion.button>
+                  <motion.button
+                    onClick={() => {
+                      onToggleSearch(!isSearchEnabled);
+                      setPlusOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                      isSearchEnabled
+                        ? "text-accent bg-accent/5 hover:bg-accent/10"
+                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                    }`}
+                    role="menuitemcheckbox"
+                    aria-checked={isSearchEnabled}
+                    whileHover={{ x: 2 }}
+                    transition={springs.snappy}
+                  >
+                    <Search size={16} className={isSearchEnabled ? "text-accent" : "text-text-muted"} />
+                    <span>Web Search</span>
+                    {isSearchEnabled && <Check size={14} className="text-accent ml-auto" />}
+                  </motion.button>
+                  {connectedMcpServers.length > 0 && (
+                    <>
+                      <div className="border-t border-border my-1" />
+                      {connectedMcpServers.map((server) => {
+                        const isEnabled = enabledMcpServerIds.has(server.id);
+                        return (
+                          <motion.button
+                            key={server.id}
+                            onClick={() => {
+                              onToggleMcpServer(server.id);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                              isEnabled
+                                ? "text-accent bg-accent/5 hover:bg-accent/10"
+                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                            }`}
+                            role="menuitemcheckbox"
+                            aria-checked={isEnabled}
+                            whileHover={{ x: 2 }}
+                            transition={springs.snappy}
+                          >
+                            <Cpu size={16} className={isEnabled ? "text-accent" : "text-text-muted"} />
+                            <span className="truncate">{server.name}</span>
+                            {isEnabled && <Check size={14} className="text-accent ml-auto" />}
+                          </motion.button>
+                        );
+                      })}
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <textarea
@@ -264,7 +281,7 @@ export default function InputBar({
           />
 
           <div ref={dropdownRef} className="relative shrink-0">
-            <button
+            <motion.button
               onClick={() => {
                 setModelOpen(!modelOpen);
                 setFocusedIndex(-1);
@@ -273,6 +290,9 @@ export default function InputBar({
               aria-label={`Select model: currently ${currentModel?.name ?? "None"}`}
               aria-expanded={modelOpen}
               aria-haspopup="listbox"
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
               <div
                 className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[currentStatus]}`}
@@ -285,73 +305,84 @@ export default function InputBar({
                 className={`transition-transform ${modelOpen ? "rotate-180" : ""}`}
                 aria-hidden="true"
               />
-            </button>
+            </motion.button>
 
-            {modelOpen && (
-              <div
-                className="absolute bottom-full right-0 mb-2 w-56 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 animate-fade-in max-h-64 overflow-y-auto"
-                role="listbox"
-                aria-label="Available models"
-              >
-                {enabledModels.map((model, idx) => {
-                  const status = modelStatuses[model.id] ?? "disconnected";
-                  return (
-                    <button
-                      key={model.id}
-                      ref={(el) => {
-                        itemRefs.current[idx] = el;
-                      }}
-                      onClick={() => {
-                        onModelChange(model.id);
-                        setModelOpen(false);
-                        setFocusedIndex(-1);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                        focusedIndex === idx
-                          ? "bg-hover text-text-primary"
-                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                      } ${selectedModel === model.id ? "bg-accent-soft" : ""}`}
-                      role="option"
-                      aria-selected={selectedModel === model.id}
-                    >
-                      <div className="flex flex-col items-start">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <div
-                            className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[status]}`}
-                            title={STATUS_LABELS[status] ?? status}
-                            aria-label={STATUS_LABELS[status] ?? status}
-                          />
-                          {model.name}
-                        </span>
-                        <span
-                          className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
-                          style={{ maxWidth: "150px" }}
-                          title={model.apiBase}
-                        >
-                          {model.modelId}
-                        </span>
-                      </div>
-                      {selectedModel === model.id && (
-                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <AnimatePresence>
+              {modelOpen && (
+                <motion.div
+                  className="absolute bottom-full right-0 mb-2 w-56 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 max-h-64 overflow-y-auto"
+                  role="listbox"
+                  aria-label="Available models"
+                  initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                  transition={springs.gentle}
+                >
+                  {enabledModels.map((model, idx) => {
+                    const status = modelStatuses[model.id] ?? "disconnected";
+                    return (
+                      <motion.button
+                        key={model.id}
+                        ref={(el) => {
+                          itemRefs.current[idx] = el;
+                        }}
+                        onClick={() => {
+                          onModelChange(model.id);
+                          setModelOpen(false);
+                          setFocusedIndex(-1);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                          focusedIndex === idx
+                            ? "bg-hover text-text-primary"
+                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                        } ${selectedModel === model.id ? "bg-accent-soft" : ""}`}
+                        role="option"
+                        aria-selected={selectedModel === model.id}
+                        whileHover={{ x: 2 }}
+                        transition={springs.snappy}
+                      >
+                        <div className="flex flex-col items-start">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <div
+                              className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[status]}`}
+                              title={STATUS_LABELS[status] ?? status}
+                              aria-label={STATUS_LABELS[status] ?? status}
+                            />
+                            {model.name}
+                          </span>
+                          <span
+                            className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
+                            style={{ maxWidth: "150px" }}
+                            title={model.apiBase}
+                          >
+                            {model.modelId}
+                          </span>
+                        </div>
+                        {selectedModel === model.id && (
+                          <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                        )}
+                      </motion.button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          <button
+          <motion.button
             onClick={isStreaming ? onStop : handleSubmit}
             disabled={!isStreaming && !canSend}
             className={`shrink-0 p-2 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg min-w-[44px] min-h-[44px] flex items-center justify-center ${
               isStreaming ? "bg-red-500/90 hover:bg-red-600 text-white" : "bg-accent hover:bg-accent-hover text-white"
             }`}
             aria-label={isStreaming ? "Stop generating" : "Send message"}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
           >
             {isStreaming ? <Square size={16} className="fill-current" /> : <Send size={16} />}
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
 
         <p
           id={isOverLimit ? "input-limit-error" : "input-hint"}

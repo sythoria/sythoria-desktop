@@ -1,4 +1,5 @@
 import { useState, useEffect, memo, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Settings as SettingsIcon,
   Moon,
@@ -41,6 +42,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { validateApiUrl, validateApiKey, validateSearchApiKey } from "../utils/validation";
 import type { LogEntry, LogSource } from "../types/log";
 import { clearLogs } from "../utils/logger";
+import { springs, motionTokens } from "../lib/motion-tokens";
 
 interface ModelCardProps {
   model: ModelConfig;
@@ -63,7 +65,10 @@ const ModelCard = memo(function ModelCard({
   const keyValidation = validateApiKey(model.apiKey, model.provider);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springs.gentle}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${model.enabled !== false ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -95,13 +100,16 @@ const ModelCard = memo(function ModelCard({
               aria-hidden="true"
             />
           </button>
-          <button
+          <motion.button
             onClick={() => onDelete(model.id)}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label={`Delete model ${model.name}`}
           >
             <Trash2 size={16} />
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -261,7 +269,7 @@ const ModelCard = memo(function ModelCard({
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 });
 
@@ -283,7 +291,10 @@ const SearchApiCard = memo(function SearchApiCard({
   const keyValidation = validateSearchApiKey(config.apiKey, config.provider);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springs.gentle}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -315,13 +326,16 @@ const SearchApiCard = memo(function SearchApiCard({
               aria-hidden="true"
             />
           </button>
-          <button
+          <motion.button
             onClick={() => onDelete(config.id)}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label={`Delete search API ${config.name}`}
           >
             <Trash2 size={16} />
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -475,7 +489,7 @@ const SearchApiCard = memo(function SearchApiCard({
           />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 });
 
@@ -512,7 +526,10 @@ const McpServerCard = memo(function McpServerCard({
   const [toolsExpanded, setToolsExpanded] = useState(false);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springs.gentle}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -540,13 +557,16 @@ const McpServerCard = memo(function McpServerCard({
               aria-hidden="true"
             />
           </button>
-          <button
+          <motion.button
             onClick={() => onDelete(config.id)}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label={`Delete MCP server ${config.name}`}
           >
             <Trash2 size={16} />
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -690,52 +710,71 @@ const McpServerCard = memo(function McpServerCard({
 
         <div className="flex items-center gap-2 pt-2">
           {status === "connected" ? (
-            <button
+            <motion.button
               onClick={() => onDisconnect(config.id)}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 border border-border text-xs transition-colors min-h-[36px]"
               aria-label="Disconnect MCP server"
             >
               <PlugZap size={14} />
               Disconnect
-            </button>
+            </motion.button>
           ) : (
-            <button
+            <motion.button
               onClick={() => onConnect(config.id)}
               disabled={status === "connecting"}
+              whileHover={status === "connecting" ? undefined : { scale: motionTokens.scale.pop }}
+              whileTap={status === "connecting" ? undefined : { scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/10 border border-accent/30 text-xs font-medium transition-colors min-h-[36px] disabled:opacity-50"
               aria-label="Connect MCP server"
             >
               {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
               {status === "connecting" ? "Connecting\u2026" : "Connect"}
-            </button>
+            </motion.button>
           )}
 
           {tools.length > 0 && (
-            <button
+            <motion.button
               onClick={() => setToolsExpanded(!toolsExpanded)}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1"
               aria-label={toolsExpanded ? "Hide tools" : "Show tools"}
             >
               <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
               {tools.length} tool{tools.length !== 1 ? "s" : ""}
-            </button>
+            </motion.button>
           )}
         </div>
 
-        {toolsExpanded && tools.length > 0 && (
-          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
-            {tools.map((tool, i) => (
-              <div key={i} className="py-1.5 border-b border-border/30 last:border-0">
-                <p className="text-xs font-medium text-text-primary font-mono">{tool.name}</p>
-                {tool.description && (
-                  <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{tool.description}</p>
-                )}
+        <AnimatePresence>
+          {toolsExpanded && tools.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={springs.gentle}
+              className="overflow-hidden"
+            >
+              <div className="mt-1 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
+                {tools.map((tool, i) => (
+                  <div key={i} className="py-1.5 border-b border-border/30 last:border-0">
+                    <p className="text-xs font-medium text-text-primary font-mono">{tool.name}</p>
+                    {tool.description && (
+                      <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{tool.description}</p>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 });
 
@@ -922,32 +961,43 @@ export default function Settings() {
   const tempPercent = ((temperature - MIN_TEMPERATURE) / (MAX_TEMPERATURE - MIN_TEMPERATURE)) * 100;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden animate-slide-up" role="region" aria-label="Settings">
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden" role="region" aria-label="Settings">
       <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50">
         <div className="flex items-center gap-3">
-          <button
+          <motion.button
             onClick={handleBack}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Back to Chat"
           >
             <ArrowLeft size={18} />
-          </button>
+          </motion.button>
           <SettingsIcon size={18} className="text-text-muted" aria-hidden="true" />
           <h2 className="text-sm font-medium text-text-secondary">Settings</h2>
         </div>
-        <button
+        <motion.button
           onClick={handleCreateChat}
+          whileHover={{ scale: motionTokens.scale.pop }}
+          whileTap={{ scale: motionTokens.scale.press }}
+          transition={springs.snappy}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 border border-accent/30 text-sm font-medium transition-all min-h-[44px]"
           aria-label="Create New Chat"
         >
           <Plus size={16} />
           <span className="hidden sm:inline">New Chat</span>
-        </button>
+        </motion.button>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0 }}
+            className="space-y-4"
+          >
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
                 {theme === "dark" ? (
@@ -966,9 +1016,14 @@ export default function Settings() {
                 description="Toggle between light and dark themes"
               />
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.05 }}
+            className="space-y-4"
+          >
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
                 <Sliders size={16} className="text-accent" />
@@ -1003,8 +1058,12 @@ export default function Settings() {
                         onClick={() => setModelDropdownOpen(false)}
                         aria-hidden="true"
                       />
-                      <div
-                        className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in max-h-64 overflow-y-auto"
+                      <motion.div
+                        initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                        transition={springs.snappy}
+                        className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto"
                         role="listbox"
                         aria-label="Available models"
                       >
@@ -1032,7 +1091,7 @@ export default function Settings() {
                             )}
                           </button>
                         ))}
-                      </div>
+                      </motion.div>
                     </>
                   )}
                 </div>
@@ -1069,8 +1128,12 @@ export default function Settings() {
                         onClick={() => setSearchProviderDropdownOpen(false)}
                         aria-hidden="true"
                       />
-                      <div
-                        className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in max-h-64 overflow-y-auto"
+                      <motion.div
+                        initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                        transition={springs.snappy}
+                        className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto"
                         role="listbox"
                         aria-label="Available search providers"
                       >
@@ -1098,7 +1161,7 @@ export default function Settings() {
                             )}
                           </button>
                         ))}
-                      </div>
+                      </motion.div>
                     </>
                   )}
                 </div>
@@ -1149,9 +1212,14 @@ export default function Settings() {
                 </div>
               </div>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.1 }}
+            className="space-y-4"
+          >
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
                 <MessageSquareText size={16} className="text-accent" />
@@ -1166,129 +1234,146 @@ export default function Settings() {
                 description="Automatically generate conversation titles using AI"
               />
 
-              {titleConfig.enabled && (
-                <>
-                  <div className="space-y-2">
-                    <label htmlFor="title-model-select" className="text-sm font-medium text-text-primary block">
-                      Title Model
-                    </label>
-                    <p className="text-xs text-text-muted mb-2">
-                      Choose the model used to generate titles, or use the same model as the conversation
-                    </p>
-                    <div className="relative">
-                      <button
-                        id="title-model-select"
-                        onClick={() => setTitleModelDropdownOpen(!titleModelDropdownOpen)}
-                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px]"
-                        aria-expanded={titleModelDropdownOpen}
-                        aria-haspopup="listbox"
-                      >
-                        <span>
-                          {titleConfig.modelId === "__same__"
-                            ? "Same as selected model"
-                            : (models.find((m) => m.id === titleConfig.modelId)?.name ?? "Same as selected model")}
-                        </span>
-                        <ChevronDown
-                          size={16}
-                          className={`text-text-muted transition-transform ${titleModelDropdownOpen ? "rotate-180" : ""}`}
-                          aria-hidden="true"
-                        />
-                      </button>
-                      {titleModelDropdownOpen && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setTitleModelDropdownOpen(false)}
+              <AnimatePresence>
+                {titleConfig.enabled && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={springs.gentle}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-2">
+                      <label htmlFor="title-model-select" className="text-sm font-medium text-text-primary block">
+                        Title Model
+                      </label>
+                      <p className="text-xs text-text-muted mb-2">
+                        Choose the model used to generate titles, or use the same model as the conversation
+                      </p>
+                      <div className="relative">
+                        <button
+                          id="title-model-select"
+                          onClick={() => setTitleModelDropdownOpen(!titleModelDropdownOpen)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px]"
+                          aria-expanded={titleModelDropdownOpen}
+                          aria-haspopup="listbox"
+                        >
+                          <span>
+                            {titleConfig.modelId === "__same__"
+                              ? "Same as selected model"
+                              : (models.find((m) => m.id === titleConfig.modelId)?.name ?? "Same as selected model")}
+                          </span>
+                          <ChevronDown
+                            size={16}
+                            className={`text-text-muted transition-transform ${titleModelDropdownOpen ? "rotate-180" : ""}`}
                             aria-hidden="true"
                           />
-                          <div
-                            className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden animate-fade-in max-h-64 overflow-y-auto"
-                            role="listbox"
-                            aria-label="Title generation models"
-                          >
-                            <button
-                              onClick={() => {
-                                setTitleConfig({ modelId: "__same__" });
-                                setTitleModelDropdownOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                                titleConfig.modelId === "__same__"
-                                  ? "bg-accent-soft text-accent"
-                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                              }`}
-                              role="option"
-                              aria-selected={titleConfig.modelId === "__same__"}
+                        </button>
+                        {titleModelDropdownOpen && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setTitleModelDropdownOpen(false)}
+                              aria-hidden="true"
+                            />
+                            <motion.div
+                              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                              transition={springs.snappy}
+                              className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto"
+                              role="listbox"
+                              aria-label="Title generation models"
                             >
-                              <div className="flex flex-col items-start">
-                                <span className="font-medium">Same as selected model</span>
-                                <span className="text-[10px] text-text-muted">Uses the active chat model</span>
-                              </div>
-                              {titleConfig.modelId === "__same__" && (
-                                <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                              )}
-                            </button>
-                            {enabledModels.map((model) => (
                               <button
-                                key={model.id}
                                 onClick={() => {
-                                  setTitleConfig({ modelId: model.id });
+                                  setTitleConfig({ modelId: "__same__" });
                                   setTitleModelDropdownOpen(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                                  titleConfig.modelId === model.id
+                                  titleConfig.modelId === "__same__"
                                     ? "bg-accent-soft text-accent"
                                     : "text-text-secondary hover:bg-hover hover:text-text-primary"
                                 }`}
                                 role="option"
-                                aria-selected={titleConfig.modelId === model.id}
+                                aria-selected={titleConfig.modelId === "__same__"}
                               >
                                 <div className="flex flex-col items-start">
-                                  <span className="font-medium">{model.name}</span>
-                                  <span className="text-[10px] text-text-muted">{model.modelId}</span>
+                                  <span className="font-medium">Same as selected model</span>
+                                  <span className="text-[10px] text-text-muted">Uses the active chat model</span>
                                 </div>
-                                {titleConfig.modelId === model.id && (
+                                {titleConfig.modelId === "__same__" && (
                                   <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
                                 )}
                               </button>
-                            ))}
-                          </div>
-                        </>
+                              {enabledModels.map((model) => (
+                                <button
+                                  key={model.id}
+                                  onClick={() => {
+                                    setTitleConfig({ modelId: model.id });
+                                    setTitleModelDropdownOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                                    titleConfig.modelId === model.id
+                                      ? "bg-accent-soft text-accent"
+                                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                  }`}
+                                  role="option"
+                                  aria-selected={titleConfig.modelId === model.id}
+                                >
+                                  <div className="flex flex-col items-start">
+                                    <span className="font-medium">{model.name}</span>
+                                    <span className="text-[10px] text-text-muted">{model.modelId}</span>
+                                  </div>
+                                  {titleConfig.modelId === model.id && (
+                                    <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                                  )}
+                                </button>
+                              ))}
+                            </motion.div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="title-system-prompt" className="text-sm font-medium text-text-primary block">
+                        System Prompt
+                      </label>
+                      <p className="text-xs text-text-muted mb-2">
+                        Customize the prompt used for title generation. Use{" "}
+                        <code className="text-accent text-[11px]">{"{{userMessage}}"}</code> as a placeholder for the
+                        user&apos;s message
+                      </p>
+                      <textarea
+                        id="title-system-prompt"
+                        value={titleConfig.systemPrompt}
+                        onChange={(e) => setTitleConfig({ systemPrompt: e.target.value })}
+                        rows={4}
+                        placeholder={DEFAULT_TITLE_SYSTEM_PROMPT}
+                        className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
+                      />
+                      {titleConfig.systemPrompt !== DEFAULT_TITLE_SYSTEM_PROMPT && (
+                        <button
+                          onClick={() => setTitleConfig({ systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT })}
+                          className="text-xs text-accent hover:text-accent-hover transition-colors"
+                        >
+                          Reset to default
+                        </button>
                       )}
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label htmlFor="title-system-prompt" className="text-sm font-medium text-text-primary block">
-                      System Prompt
-                    </label>
-                    <p className="text-xs text-text-muted mb-2">
-                      Customize the prompt used for title generation. Use{" "}
-                      <code className="text-accent text-[11px]">{"{{userMessage}}"}</code> as a placeholder for the
-                      user&apos;s message
-                    </p>
-                    <textarea
-                      id="title-system-prompt"
-                      value={titleConfig.systemPrompt}
-                      onChange={(e) => setTitleConfig({ systemPrompt: e.target.value })}
-                      rows={4}
-                      placeholder={DEFAULT_TITLE_SYSTEM_PROMPT}
-                      className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
-                    />
-                    {titleConfig.systemPrompt !== DEFAULT_TITLE_SYSTEM_PROMPT && (
-                      <button
-                        onClick={() => setTitleConfig({ systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT })}
-                        className="text-xs text-accent hover:text-accent-hover transition-colors"
-                      >
-                        Reset to default
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.15 }}
+            className="space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
@@ -1297,23 +1382,29 @@ export default function Settings() {
                 <h3 className="text-sm font-semibold text-text-primary">Model Endpoints</h3>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <motion.button
                   onClick={handleRefreshConnections}
                   disabled={loading.checkConnection}
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover border border-border text-xs transition-colors min-h-[44px]"
                   aria-label="Refresh connection status"
                 >
                   {loading.checkConnection ? <Loader2 size={14} className="animate-spin" /> : null}
                   Refresh
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   onClick={addModel}
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
                   aria-label="Add new model"
                 >
                   <Plus size={14} />
                   <span>Add Model</span>
-                </button>
+                </motion.button>
               </div>
             </div>
 
@@ -1341,9 +1432,14 @@ export default function Settings() {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.2 }}
+            className="space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
@@ -1351,14 +1447,17 @@ export default function Settings() {
                 </div>
                 <h3 className="text-sm font-semibold text-text-primary">Web Search APIs</h3>
               </div>
-              <button
+              <motion.button
                 onClick={addSearchConfig}
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
                 aria-label="Add new search API"
               >
                 <Plus size={14} />
                 <span>Add Search API</span>
-              </button>
+              </motion.button>
             </div>
 
             <div className="space-y-4">
@@ -1385,9 +1484,14 @@ export default function Settings() {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.25 }}
+            className="space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
@@ -1395,14 +1499,17 @@ export default function Settings() {
                 </div>
                 <h3 className="text-sm font-semibold text-text-primary">MCP Servers</h3>
               </div>
-              <button
+              <motion.button
                 onClick={addMcpConfig}
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
                 aria-label="Add MCP server"
               >
                 <Plus size={14} />
                 <span>Add Server</span>
-              </button>
+              </motion.button>
             </div>
 
             <div className="space-y-4">
@@ -1437,9 +1544,14 @@ export default function Settings() {
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.3 }}
+            className="space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-md bg-accent-soft" aria-hidden="true">
@@ -1448,24 +1560,30 @@ export default function Settings() {
                 <h3 className="text-sm font-semibold text-text-primary">Activity Log</h3>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <motion.button
                   onClick={handleCopyLogs}
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
                   aria-label="Copy logs"
                 >
                   {copiedLogs ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                   <span>{copiedLogs ? "Copied" : "Copy"}</span>
-                </button>
-                <button
+                </motion.button>
+                <motion.button
                   onClick={() => {
                     clearLogs();
                   }}
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
                   aria-label="Clear logs"
                 >
                   <X size={14} />
                   <span>Clear</span>
-                </button>
+                </motion.button>
               </div>
             </div>
 
@@ -1562,19 +1680,24 @@ export default function Settings() {
                 {filteredLogs.length} of {logBuffer.length} log entries
               </div>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springs.gentle, delay: 0.35 }}
+            className="bg-surface border border-border rounded-xl p-4 shadow-sm"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-text-primary">Sythoria</p>
-                <p className="text-xs text-text-muted mt-0.5">Version {appVersion || "…"}</p>
+                <p className="text-xs text-text-muted mt-0.5">Version {appVersion || "\u2026"}</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted">{effectiveModel?.name || "N/A"}</span>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>
