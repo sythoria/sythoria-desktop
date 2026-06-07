@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, Message, ModelConfig, GenerationState, TitleGenerationConfig } from "../types";
+import type {
+  Conversation,
+  Message,
+  ModelConfig,
+  GenerationState,
+  TitleGenerationConfig,
+  SearchApiConfig,
+  McpTool,
+  McpToolResult,
+} from "../types";
 import {
   loadModelConfigs,
   loadConversations,
@@ -84,6 +93,39 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
     }
     return updated;
   });
+}
+
+interface EnabledToolLoopConfig {
+  shouldUseTools: boolean;
+  searchConfig: SearchApiConfig | undefined;
+  searchApiKey: string;
+  mcpTools: McpTool[];
+  mcpCallTool:
+    | ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>)
+    | undefined;
+}
+
+function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
+  const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
+  const searchConfig =
+    isSearchEnabled && activeSearchId ? searchConfigs.find((config) => config.id === activeSearchId) : undefined;
+  const searchApiKey = searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
+
+  const { enabledServerIds, availableTools } = useMcpStore.getState();
+  const mcpTools = availableTools.filter((tool) => enabledServerIds.has(tool.serverId));
+  const mcpCallTool =
+    mcpTools.length > 0
+      ? (serverId: string, toolName: string, args: Record<string, string>) =>
+          useMcpStore.getState().callTool(serverId, toolName, args)
+      : undefined;
+
+  return {
+    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0,
+    searchConfig,
+    searchApiKey,
+    mcpTools,
+    mcpCallTool,
+  };
 }
 
 interface ChatState {
@@ -271,7 +313,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: async (text) => {
     const { isStreaming, activeId, conversations } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
-    const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
 
     if (isStreaming) return;
 
@@ -333,29 +374,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       generateConversationTitle(finalId, text, modelConfig, apiKeys, titleConfig, set, get);
     }
 
-    const useTools = isSearchEnabled && activeSearchId;
-    const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
-    const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
-
-    const { enabledServerIds, availableTools } = useMcpStore.getState();
-    const enabledMcpTools = availableTools.filter((t) => enabledServerIds.has(t.serverId));
-    const hasMcp = enabledMcpTools.length > 0;
-
-    if ((useTools && searchConfig) || hasMcp) {
-      const mcpCallTool = hasMcp
-        ? (serverId: string, toolName: string, args: Record<string, string>) =>
-            useMcpStore.getState().callTool(serverId, toolName, args)
-        : undefined;
-
+    const toolLoop = getEnabledToolLoopConfig();
+    if (toolLoop.shouldUseTools) {
       await sendWithToolLoop(
         finalId,
         modelConfig,
         temperature,
         apiKeys,
-        searchConfig,
-        searchApiKey,
-        enabledMcpTools,
-        mcpCallTool,
+        toolLoop.searchConfig,
+        toolLoop.searchApiKey,
+        toolLoop.mcpTools,
+        toolLoop.mcpCallTool,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
         searchPerformSearch,
@@ -387,7 +416,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   retryLastMessage: async (convId) => {
     const { isStreaming, conversations } = get();
     const { selectedModel, models, temperature, apiKeys } = useModelStore.getState();
-    const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
 
     if (isStreaming) return;
 
@@ -420,29 +448,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    const useTools = isSearchEnabled && activeSearchId;
-    const searchConfig = useTools ? searchConfigs.find((c) => c.id === activeSearchId) : undefined;
-    const searchApiKey = useTools && searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
-
-    const { enabledServerIds: retryEnabledIds, availableTools: retryAvailableTools } = useMcpStore.getState();
-    const retryMcpTools = retryAvailableTools.filter((t) => retryEnabledIds.has(t.serverId));
-    const retryHasMcp = retryMcpTools.length > 0;
-
-    if ((useTools && searchConfig) || retryHasMcp) {
-      const mcpCallTool = retryHasMcp
-        ? (serverId: string, toolName: string, args: Record<string, string>) =>
-            useMcpStore.getState().callTool(serverId, toolName, args)
-        : undefined;
-
+    const toolLoop = getEnabledToolLoopConfig();
+    if (toolLoop.shouldUseTools) {
       await sendWithToolLoop(
         convId,
         modelConfig,
         temperature,
         apiKeys,
-        searchConfig,
-        searchApiKey,
-        retryMcpTools,
-        mcpCallTool,
+        toolLoop.searchConfig,
+        toolLoop.searchApiKey,
+        toolLoop.mcpTools,
+        toolLoop.mcpCallTool,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
         searchPerformSearch,

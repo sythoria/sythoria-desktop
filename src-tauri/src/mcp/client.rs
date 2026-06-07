@@ -1,4 +1,6 @@
-use crate::mcp::{McpServerConfig, McpServerHandle, McpServerStatus, McpToolInfo, McpToolRequest, McpToolResult, MCP_SERVERS};
+use crate::mcp::{
+    McpServerConfig, McpServerHandle, McpToolInfo, McpToolRequest, McpToolResult, MCP_SERVERS,
+};
 use rmcp::model::ClientInfo;
 use rmcp::service::ServiceExt;
 use rmcp::transport::child_process::TokioChildProcess;
@@ -99,8 +101,6 @@ pub async fn connect_server(
             });
 
             let handle = McpServerHandle {
-                config: config.clone(),
-                status: McpServerStatus::Connected,
                 tools: tools.clone(),
                 cancel_token,
                 tool_tx: Some(tool_tx),
@@ -172,8 +172,6 @@ pub async fn connect_server(
             });
 
             let handle = McpServerHandle {
-                config: config.clone(),
-                status: McpServerStatus::Connected,
                 tools: tools.clone(),
                 cancel_token,
                 tool_tx: Some(tool_tx),
@@ -197,13 +195,11 @@ async fn call_tool_via_peer(
     tool_name: &str,
     arguments: &serde_json::Value,
 ) -> Result<McpToolResult, String> {
-    let args_map: serde_json::Map<String, serde_json::Value> = arguments
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let args_map: serde_json::Map<String, serde_json::Value> =
+        arguments.as_object().cloned().unwrap_or_default();
 
-    let params = rmcp::model::CallToolRequestParams::new(tool_name.to_string())
-        .with_arguments(args_map);
+    let params =
+        rmcp::model::CallToolRequestParams::new(tool_name.to_string()).with_arguments(args_map);
 
     match peer.call_tool(params).await {
         Ok(result) => {
@@ -213,7 +209,9 @@ async fn call_tool_via_peer(
                 .map(|c| match c.raw {
                     rmcp::model::RawContent::Text(text) => text.text.to_string(),
                     rmcp::model::RawContent::Image(img) => format!("[Image: {}]", img.mime_type),
-                    rmcp::model::RawContent::Audio(audio) => format!("[Audio: {}]", audio.mime_type),
+                    rmcp::model::RawContent::Audio(audio) => {
+                        format!("[Audio: {}]", audio.mime_type)
+                    }
                     rmcp::model::RawContent::Resource(resource) => {
                         format!("[Resource: {:?}]", resource.resource)
                     }
@@ -261,7 +259,9 @@ pub async fn call_tool_on_server(
         .await
         .map_err(|e| format!("Failed to send tool request: {}", e))?;
 
-    reply_rx.await.map_err(|e| format!("Tool call cancelled: {}", e))?
+    reply_rx
+        .await
+        .map_err(|e| format!("Tool call cancelled: {}", e))?
 }
 
 pub fn disconnect_server(server_id: &str) -> Result<(), String> {

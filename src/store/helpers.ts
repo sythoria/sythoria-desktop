@@ -34,10 +34,6 @@ export function uiView(view: "chat" | "settings") {
   useUIStore.getState().setView(view);
 }
 
-export function uiOpenRenameModal(id: string, title: string) {
-  useUIStore.getState().openRenameModal(id, title);
-}
-
 export function uiCloseRenameModal() {
   useUIStore.getState().closeRenameModal();
 }
@@ -92,20 +88,4 @@ export function searchFetchUrlContent(...args: Parameters<SearchState["fetchUrlC
 
 export function mcpSetState(partial: Partial<McpState>) {
   useMcpStore.setState(partial);
-}
-
-export function mcpConnectServer(id: string) {
-  return useMcpStore.getState().connectServer(id);
-}
-
-export function mcpDisconnectServer(id: string) {
-  return useMcpStore.getState().disconnectServer(id);
-}
-
-export function mcpCallTool(serverId: string, toolName: string, args: Record<string, string>) {
-  return useMcpStore.getState().callTool(serverId, toolName, args);
-}
-
-export function mcpGetEnabledTools() {
-  return useMcpStore.getState().getEnabledTools();
 }

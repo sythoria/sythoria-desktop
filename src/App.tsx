@@ -317,7 +317,6 @@ function App() {
 
             <ChatArea
               messages={messages}
-              isAtBottom={isAtBottom}
               setIsAtBottom={setIsAtBottom}
               virtuosoRef={virtuosoRef}
               onRetry={handleRetry}

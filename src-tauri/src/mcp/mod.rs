@@ -32,18 +32,8 @@ pub struct McpToolResult {
     pub is_error: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum McpServerStatus {
-    Disconnected,
-    Connecting,
-    Connected,
-    Error,
-}
-
 #[derive(Debug, Clone)]
 pub struct McpServerHandle {
-    pub config: McpServerConfig,
-    pub status: McpServerStatus,
     pub tools: Vec<McpToolInfo>,
     pub cancel_token: tokio_util::sync::CancellationToken,
     pub tool_tx: Option<tokio::sync::mpsc::Sender<McpToolRequest>>,

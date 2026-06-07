@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, useCallback, useDeferredValue } from "react";
+import { useState, useEffect, useRef, memo, useCallback, useDeferredValue, isValidElement } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -43,7 +43,6 @@ const messageVariants = {
 
 interface ChatAreaProps {
   messages: Message[];
-  isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
   onRetry: () => void;
@@ -173,8 +172,8 @@ function extractText(children: React.ReactNode): string {
   if (typeof children === "string") return children;
   if (typeof children === "number") return String(children);
   if (Array.isArray(children)) return children.map(extractText).join("");
-  if (children && typeof children === "object" && "props" in children) {
-    return extractText((children as any).props?.children);
+  if (isValidElement<{ children?: React.ReactNode }>(children)) {
+    return extractText(children.props.children);
   }
   return "";
 }
@@ -679,7 +678,6 @@ const VIRTUALIZED_THRESHOLD = 50;
 
 export default function ChatArea({
   messages,
-  isAtBottom,
   setIsAtBottom,
   virtuosoRef,
   onRetry,
@@ -752,7 +750,6 @@ export default function ChatArea({
   return (
     <NonVirtualizedChatArea
       messages={messages}
-      isAtBottom={isAtBottom}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
       generationState={generationState}
@@ -771,7 +768,6 @@ function NonVirtualizedChatArea({
   lastAssistantMessageId,
 }: {
   messages: Message[];
-  isAtBottom: boolean;
   setIsAtBottom: (v: boolean) => void;
   onRetry?: () => void;
   generationState: GenerationState;

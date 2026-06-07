@@ -1,10 +1,23 @@
 import { createLowlight } from "lowlight";
+import type { LanguageFn } from "highlight.js";
 
 type LowlightInstance = ReturnType<typeof createLowlight>;
+type LanguageModule = { default?: LanguageFn } | LanguageFn;
+type HastNode =
+  | { type: "text"; value: string }
+  | { type: "root"; children?: HastNode[] }
+  | {
+      type: "element";
+      tagName?: string;
+      properties?: {
+        className?: string | string[];
+      };
+      children?: HastNode[];
+    };
 
 let lowlightInstance: LowlightInstance | null = null;
 
-const LANG_MODULES: Record<string, () => Promise<any>> = {
+const LANG_MODULES: Record<string, () => Promise<LanguageModule>> = {
   javascript: () => import("highlight.js/lib/languages/javascript"),
   typescript: () => import("highlight.js/lib/languages/typescript"),
   python: () => import("highlight.js/lib/languages/python"),
@@ -99,7 +112,7 @@ async function loadLanguage(lang: string): Promise<boolean> {
 
   try {
     const mod = await importer();
-    const langFn = mod.default || mod;
+    const langFn = typeof mod === "function" ? mod : mod.default;
     if (typeof langFn !== "function") return false;
     getLowlight().register({ [lang]: langFn });
     return true;
@@ -116,22 +129,6 @@ function preloadLanguages(): Promise<void> {
   return preloadPromise;
 }
 
-export function highlightToHtml(code: string, lang: string): string | null {
-  const lowlight = getLowlight();
-  const resolvedLang = ALIAS_MAP[lang.toLowerCase()] || lang.toLowerCase();
-
-  if (!lowlight.registered(resolvedLang)) {
-    return null;
-  }
-
-  try {
-    const tree = lowlight.highlight(resolvedLang, code);
-    return serializeHast(tree);
-  } catch {
-    return null;
-  }
-}
-
 export async function highlightCode(code: string, lang: string): Promise<string | null> {
   await preloadLanguages();
 
@@ -145,13 +142,13 @@ export async function highlightCode(code: string, lang: string): Promise<string 
 
   try {
     const tree = lowlight.highlight(resolvedLang, code);
-    return serializeHast(tree);
+    return serializeHast(tree as HastNode);
   } catch {
     return null;
   }
 }
 
-function serializeHast(tree: any): string {
+function serializeHast(tree: HastNode): string {
   if (tree.type === "text") return escapeHtml(tree.value);
   if (tree.type === "root") return (tree.children || []).map(serializeHast).join("");
   if (tree.type === "element") {
