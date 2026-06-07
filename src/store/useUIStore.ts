@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { saveTheme } from "../utils/storage";
+import { loadHasStarted, saveHasStarted, saveTheme } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
 
@@ -26,6 +26,7 @@ interface UIState {
   setSidebarOpen: (open: boolean) => void;
   toggleSidebarCollapsed: () => void;
   setHasStarted: (started: boolean) => void;
+  initHasStarted: () => Promise<void>;
   setConfigLoaded: (loaded: boolean) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
   addToast: (message: string, variant?: Toast["variant"]) => void;
@@ -70,7 +71,14 @@ export const useUIStore = create<UIState>((set) => ({
   },
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  setHasStarted: (started) => set({ hasStarted: started }),
+  setHasStarted: (started) => {
+    set({ hasStarted: started });
+    saveHasStarted(started);
+  },
+  initHasStarted: async () => {
+    const stored = await loadHasStarted();
+    if (stored) set({ hasStarted: true });
+  },
   setConfigLoaded: (loaded) => set({ isConfigLoaded: loaded }),
   setLoading: (key, value) => set((s) => ({ loading: { ...s.loading, [key]: value } })),
   addToast: (message, variant = "info") => {

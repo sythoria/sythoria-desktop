@@ -13,6 +13,7 @@ import {
   loadTitleConfig,
   loadMcpConfigs,
   loadMcpEnvSecrets,
+  loadHasStarted,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
@@ -181,7 +182,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
       });
 
-      uiHasStarted(modelsWithKeys.length > 0);
+      const storedHasStarted = await loadHasStarted();
+      uiHasStarted(storedHasStarted || modelsWithKeys.length > 0);
       uiConfigLoaded(true);
       uiTheme(loadedTheme);
 

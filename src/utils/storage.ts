@@ -65,6 +65,7 @@ const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
+const HAS_STARTED_KEY = "sythoria-has-started";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -360,6 +361,26 @@ export async function saveTitleConfig(config: TitleGenerationConfig): Promise<vo
       error: e,
       action: "Title generation settings may not persist.",
     });
+  }
+}
+
+export async function loadHasStarted(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<boolean>(HAS_STARTED_KEY);
+    if (raw === true) return true;
+  } catch (e) {
+    logError("storage", "Failed to load hasStarted from store", { error: e });
+  }
+  return false;
+}
+
+export async function saveHasStarted(started: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(HAS_STARTED_KEY, started);
+  } catch (e) {
+    logError("storage", "Failed to save hasStarted to store", { error: e });
   }
 }
 
