@@ -243,7 +243,7 @@ export default function Sidebar({
               whileTap={{ scale: motionTokens.scale.press }}
               transition={springs.snappy}
             >
-              <MessageSquarePlus size={16} />
+              <MessageSquarePlus size={18} />
               New Chat
             </motion.button>
           )}
@@ -263,7 +263,7 @@ export default function Sidebar({
             >
               <div className="relative">
                 <Search
-                  size={14}
+                  size={18}
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
                   aria-hidden="true"
                 />
@@ -414,18 +414,35 @@ export default function Sidebar({
 
         {/* Bottom Section */}
         <div className="px-3 py-3 border-t border-border flex flex-col gap-1 shrink-0">
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-text-muted"
-            role="status"
-            aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
-          >
-            <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
-            <span>{STATUS_LABELS[aggregateStatus]}</span>
-          </div>
+          {/* Connection Status */}
+          {isCollapsed ? (
+            <div className="px-2">
+              <SidebarTooltip label={STATUS_LABELS[aggregateStatus]}>
+                <div
+                  className="w-10 h-10 flex items-center justify-center rounded-lg"
+                  role="status"
+                  aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+                >
+                  <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
+                </div>
+              </SidebarTooltip>
+            </div>
+          ) : (
+            <div
+              className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-muted h-9"
+              role="status"
+              aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+            >
+              <div className="w-[14px] h-[14px] flex items-center justify-center shrink-0" aria-hidden="true">
+                <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} />
+              </div>
+              <span>{STATUS_LABELS[aggregateStatus]}</span>
+            </div>
+          )}
 
           {/* Settings */}
           {isCollapsed ? (
-            <div className="flex items-center justify-center">
+            <div className="px-2">
               <SidebarTooltip label="Settings">
                 <motion.button
                   onClick={onSettingsClick}
@@ -435,14 +452,14 @@ export default function Sidebar({
                   whileTap={{ scale: motionTokens.scale.press }}
                   transition={springs.snappy}
                 >
-                  <Settings size={18} aria-hidden="true" />
+                  <Settings size={18} />
                 </motion.button>
               </SidebarTooltip>
             </div>
           ) : (
             <motion.button
               onClick={onSettingsClick}
-              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors duration-100 min-h-[44px]"
+              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors duration-100 h-9"
               aria-label="Open settings"
               whileHover={{ scale: motionTokens.scale.pop }}
               whileTap={{ scale: motionTokens.scale.press }}
