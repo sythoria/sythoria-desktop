@@ -153,8 +153,8 @@ export default function Sidebar({
   };
 
   const contentVariants = {
-    expanded: { opacity: 1, x: 0, display: "flex" as const },
-    collapsed: { opacity: 0, x: -8, display: "none" as const },
+    expanded: { opacity: 1, x: 0, display: "flex" as const, flexDirection: "column" as const },
+    collapsed: { opacity: 0, x: -8, display: "none" as const, flexDirection: "column" as const },
   };
 
   const fadeInVariants = {
@@ -413,31 +413,15 @@ export default function Sidebar({
         </nav>
 
         {/* Bottom Section */}
-        <div className="px-3 py-3 border-t border-border flex flex-col gap-2 shrink-0">
-          <AnimatePresence mode="popLayout">
-            {!isCollapsed ? (
-              <motion.div
-                key="status-expanded"
-                className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-text-muted"
-                variants={contentVariants}
-                initial="collapsed"
-                animate="expanded"
-                exit="collapsed"
-                transition={{ duration: 0.15 }}
-                role="status"
-                aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
-              >
-                <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
-                <span>{STATUS_LABELS[aggregateStatus]}</span>
-              </motion.div>
-            ) : (
-              <div className="flex items-center justify-center py-2" key="status-collapsed">
-                <SidebarTooltip label={STATUS_LABELS[aggregateStatus]}>
-                  <div className="w-2 h-2 rounded-full bg-current" style={{ color: STATUS_COLORS[aggregateStatus] }} />
-                </SidebarTooltip>
-              </div>
-            )}
-          </AnimatePresence>
+        <div className="px-3 py-3 border-t border-border flex flex-col gap-1 shrink-0">
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-text-muted"
+            role="status"
+            aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+          >
+            <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
+            <span>{STATUS_LABELS[aggregateStatus]}</span>
+          </div>
 
           {/* Settings */}
           {isCollapsed ? (
