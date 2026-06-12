@@ -141,6 +141,9 @@ const ModelCard = memo(function ModelCard({
               value={model.name}
               onChange={(e) => onUpdate(model.id, { name: e.target.value })}
               placeholder="e.g. My Llama 3"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
             />
           </div>
@@ -194,6 +197,9 @@ const ModelCard = memo(function ModelCard({
             value={model.apiBase}
             onChange={(e) => onUpdate(model.id, { apiBase: e.target.value })}
             placeholder="https://api.openai.com/v1/chat/completions"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
             aria-invalid={!urlValidation.valid}
             aria-describedby={!urlValidation.valid ? `url-error-${model.id}` : undefined}
             className={`w-full px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
@@ -225,6 +231,9 @@ const ModelCard = memo(function ModelCard({
               value={model.modelId}
               onChange={(e) => onUpdate(model.id, { modelId: e.target.value })}
               placeholder="e.g. gpt-4o or meta/llama-3.3-70b-instruct"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
             />
           </div>
@@ -240,6 +249,9 @@ const ModelCard = memo(function ModelCard({
                 value={model.apiKey}
                 onChange={(e) => onUpdate(model.id, { apiKey: e.target.value })}
                 placeholder="API key (optional for local)"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
                 aria-invalid={!keyValidation.valid}
                 aria-describedby={!keyValidation.valid ? `key-warning-${model.id}` : undefined}
                 className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
@@ -351,6 +363,9 @@ const SearchApiCard = memo(function SearchApiCard({
               value={config.name}
               onChange={(e) => onUpdate(config.id, { name: e.target.value })}
               placeholder="e.g. Google Search"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
             />
           </div>
@@ -413,6 +428,9 @@ const SearchApiCard = memo(function SearchApiCard({
                     ? "https://api.firecrawl.dev/v1"
                     : "https://example.com/search"
             }
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
             className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
           />
         </div>
@@ -435,6 +453,9 @@ const SearchApiCard = memo(function SearchApiCard({
                       ? "API Key (optional)"
                       : "API Key"
                 }
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
                 className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
                   !keyValidation.valid
                     ? "border-yellow-500/50 focus:border-yellow-500"
@@ -469,6 +490,9 @@ const SearchApiCard = memo(function SearchApiCard({
               value={config.cx || ""}
               onChange={(e) => onUpdate(config.id, { cx: e.target.value })}
               placeholder="e.g. a1b2c3d4e5f6g7h8i"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
             />
           </div>
@@ -588,6 +612,9 @@ const McpServerCard = memo(function McpServerCard({
               value={config.name}
               onChange={(e) => onUpdate(config.id, { name: e.target.value })}
               placeholder="e.g. Filesystem"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
               className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
             />
           </div>
@@ -680,6 +707,9 @@ const McpServerCard = memo(function McpServerCard({
                 value={config.baseUrl || ""}
                 onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
                 placeholder="http://localhost:3000/mcp"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
                 className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
               />
             </div>
@@ -694,6 +724,9 @@ const McpServerCard = memo(function McpServerCard({
                   value={config.apiKey || ""}
                   onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
                   placeholder="API Key"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
                   className="w-full px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors"
                 />
                 <button
