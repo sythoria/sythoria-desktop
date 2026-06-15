@@ -38,7 +38,7 @@
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "lowlight": "^3.3.0",
-    "lucide-react": "^1.17.0",
+    "lucide-react": "^1.18.0",
     "motion": "^12.40.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
