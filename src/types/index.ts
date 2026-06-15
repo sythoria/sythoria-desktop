@@ -12,6 +12,20 @@ export interface UrlContent {
   error?: string;
 }
 
+export type AttachmentKind = "image" | "text";
+
+export interface Attachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: AttachmentKind;
+  /** Images: `data:image/...;base64,...` — used for both preview and API image_url parts. */
+  dataUrl?: string;
+  /** Text files: decoded content injected into the prompt. */
+  textContent?: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -21,6 +35,7 @@ export interface Message {
   toolCall?: { id: string; name: string; arguments: Record<string, string> };
   toolResult?: { id: string; name: string; content: string };
   sources?: { title: string; url: string }[];
+  attachments?: Attachment[];
 }
 
 export interface Conversation {

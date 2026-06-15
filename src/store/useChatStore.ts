@@ -9,6 +9,7 @@ import type {
   SearchApiConfig,
   McpTool,
   McpToolResult,
+  Attachment,
 } from "../types";
 import {
   loadModelConfigs,
@@ -29,6 +30,7 @@ import { logError, logInfo } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { sendWithToolLoop } from "../services/toolLoop";
+import { buildUserApiContent } from "../utils/attachments";
 import {
   uiToast,
   uiLoading,
@@ -142,7 +144,7 @@ interface ChatState {
   deleteChat: (id: string) => void;
   renameChat: (id: string, newTitle: string) => void;
   confirmRename: (newTitle: string) => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: () => void;
   exportChat: (id: string) => void;
@@ -310,7 +312,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiCloseRenameModal();
   },
 
-  sendMessage: async (text) => {
+  sendMessage: async (text, attachments) => {
     const { isStreaming, activeId, conversations } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
 
@@ -319,12 +321,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     let convId = activeId;
     let isFirstMessage = false;
 
+    const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
+    const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
+
     if (!convId) {
       const id = generateId();
       const modelConfig = models.find((m) => m.id === selectedModel);
       const conv: Conversation = {
         id,
-        title: truncateTitle(text),
+        title: initialTitle,
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
@@ -347,6 +352,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       role: "user",
       content: text,
       timestamp: new Date(),
+      attachments,
     };
 
     const finalId = convId;
@@ -360,7 +366,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    const fallbackTitle = truncateTitle(text);
+    const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
 
     set((state) => ({
       generationState: "idle" as GenerationState,
@@ -371,7 +377,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     if (isFirstMessage && titleConfig.enabled) {
-      generateConversationTitle(finalId, text, modelConfig, apiKeys, titleConfig, set, get);
+      generateConversationTitle(finalId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
     }
 
     const toolLoop = getEnabledToolLoopConfig();
@@ -605,7 +611,10 @@ async function sendNormal(
     const apiMessages =
       conv?.messages
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
-        .map((m) => ({ role: m.role, content: m.content })) ?? [];
+        .map((m) => ({
+          role: m.role,
+          content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
+        })) ?? [];
 
     await invoke("chat_stream", {
       apiUrl,

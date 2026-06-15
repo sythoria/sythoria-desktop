@@ -15,13 +15,43 @@ use tauri::Manager;
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
     role: String,
-    content: Option<String>,
+    // Either a plain string or an OpenAI multipart content array
+    // (e.g. text + image_url parts). `serde_json::Value` round-trips both
+    // transparently when re-serialized into the upstream request body.
+    #[serde(default, with = "json_or_none")]
+    content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<ToolCallData>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+}
+
+/// Serializes `None` as a missing field and otherwise emits the JSON value as-is.
+/// On deserialize, an absent field or explicit `null` becomes `None`; a string
+/// becomes `Value::String`; any other JSON value passes through.
+mod json_or_none {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use serde_json::Value;
+
+    pub fn serialize<S>(value: &Option<Value>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(v) => serializer.serialize_some(v),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt = Option::<Value>::deserialize(deserializer)?;
+        Ok(opt.filter(|v| !v.is_null()))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -741,14 +771,14 @@ async fn generate_title(
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: Some(system_prompt),
+                content: Some(serde_json::Value::String(system_prompt)),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: Some(user_message),
+                content: Some(serde_json::Value::String(user_message)),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,

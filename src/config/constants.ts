@@ -10,3 +10,7 @@ export const TEMPERATURE_STEP = 0.1;
 export const SIDEBAR_WIDTH = 260;
 export const COLLAPSED_SIDEBAR_WIDTH = 60;
 export const MAX_TOOL_STEPS = 5;
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 6;
+export const FILE_INPUT_ACCEPT =
+  "image/png,image/jpeg,image/gif,image/webp,.txt,.md,.markdown,.json,.csv,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.php,.swift,.kt,.scala,.sh,.bash,.zsh,.sql,.html,.css,.scss,.toml,.ini,.cfg,.log,.env";

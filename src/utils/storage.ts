@@ -22,6 +22,16 @@ const SourceSchema = z.object({
   url: z.string(),
 });
 
+const AttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+  kind: z.enum(["image", "text"]),
+  dataUrl: z.string().optional(),
+  textContent: z.string().optional(),
+});
+
 const MessageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant", "tool"]),
@@ -31,6 +41,7 @@ const MessageSchema = z.object({
   toolCall: ToolCallSchema.optional(),
   toolResult: ToolCallResultSchema.optional(),
   sources: z.array(SourceSchema).optional(),
+  attachments: z.array(AttachmentSchema).optional(),
 });
 
 const ConversationSchema = z.object({

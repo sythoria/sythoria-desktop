@@ -18,11 +18,14 @@ import {
   Sparkles,
   RotateCw,
   Terminal,
+  FileText as FileTextIcon,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message, GenerationState } from "../types";
+import type { Message, GenerationState, Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
+import { formatFileSize } from "../utils/attachments";
+import { Modal } from "./ui/Modal";
 
 const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
@@ -541,6 +544,48 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
   );
 }
 
+function AttachmentList({
+  attachments,
+  onImageClick,
+}: {
+  attachments: Attachment[];
+  onImageClick: (url: string, name: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 mb-2 justify-end">
+      {attachments.map((a) => {
+        if (a.kind === "image" && a.dataUrl) {
+          return (
+            <div
+              key={a.id}
+              onClick={() => onImageClick(a.dataUrl!, a.name)}
+              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-all group shrink-0"
+              title={`View ${a.name}`}
+            >
+              <img
+                src={a.dataUrl}
+                alt={a.name}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 select-none"
+              />
+            </div>
+          );
+        } else {
+          return (
+            <div
+              key={a.id}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-surface text-text-secondary text-xs shrink-0 max-w-[200px]"
+              title={`${a.name} (${formatFileSize(a.size)})`}
+            >
+              <FileTextIcon size={14} className="text-text-muted shrink-0" />
+              <span className="truncate select-none font-medium">{a.name}</span>
+            </div>
+          );
+        }
+      })}
+    </div>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
@@ -562,12 +607,14 @@ const MessageBubble = memo(function MessageBubble({
       message.content.includes("<thinking>") ||
       message.content.includes("<thought>"));
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
   if (isTool) {
     return <ToolCallBubble message={message} />;
   }
 
   if (isUser) {
+    const hasAttachments = message.attachments && message.attachments.length > 0;
     return (
       <motion.div
         className="flex justify-end group"
@@ -578,13 +625,32 @@ const MessageBubble = memo(function MessageBubble({
         animate="visible"
         transition={springs.gentle}
       >
-        <div className="max-w-[75%]">
-          <div className="glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm whitespace-pre-wrap break-words">
-            {message.content}
-          </div>
+        <div className="max-w-[75%] flex flex-col items-end">
+          {hasAttachments && (
+            <AttachmentList
+              attachments={message.attachments!}
+              onImageClick={(url, name) => setPreviewImage({ url, name })}
+            />
+          )}
+          {message.content.trim().length > 0 && (
+            <div className="glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm whitespace-pre-wrap break-words w-full">
+              {message.content}
+            </div>
+          )}
           <div className="flex justify-end">
             <MessageActions content={message.content} isUser />
           </div>
+          {previewImage && (
+            <Modal isOpen={!!previewImage} onClose={() => setPreviewImage(null)} title={previewImage.name}>
+              <div className="flex justify-center items-center max-h-[80vh] p-2 overflow-auto">
+                <img
+                  src={previewImage.url}
+                  alt={previewImage.name}
+                  className="max-w-full max-h-[70vh] object-contain rounded-md select-none"
+                />
+              </div>
+            </Modal>
+          )}
         </div>
       </motion.div>
     );

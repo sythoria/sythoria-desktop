@@ -16,6 +16,7 @@ import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
+import { buildUserApiContent } from "../utils/attachments";
 
 export interface ToolLoopSlice {
   conversations: Conversation[];
@@ -186,7 +187,10 @@ export async function sendWithToolLoop(
     const baseMessages =
       conv?.messages
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
-        .map((m) => ({ role: m.role, content: m.content })) ?? [];
+        .map((m) => ({
+          role: m.role,
+          content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
+        })) ?? [];
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
