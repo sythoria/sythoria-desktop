@@ -237,16 +237,31 @@ function userFriendlyMcpError(mcpMessage: string, raw: string): ParsedError {
     lower.includes("no such file or directory") ||
     lower.includes("command not found") ||
     lower.includes("binary not found") ||
-    lower.includes("not recognized as an internal or external command")
+    lower.includes("not recognized as an internal or external command") ||
+    lower.includes("was not found on path") ||
+    lower.includes("was not found") ||
+    (lower.includes("could not start") && lower.includes("not found"))
   ) {
+    const program = extractProgramName(mcpMessage);
+    const installHint = installHintFor(program);
     return {
-      message: "MCP process failed to start: the command or executable was not found.",
-      action:
-        "Check the command path is correct and that any required runtimes (e.g., Node, Python) are installed and on your PATH.",
+      message: `MCP process failed to start: the command${program ? ` "${program}"` : ""} was not found.`,
+      action: `The Command field must be the program name only (e.g. "npx", not "npx -y ..."). ${installHint} You can also set the full path (e.g. /usr/local/bin/npx).`,
       category: "mcp",
       retryable: false,
       raw,
       rawDetail: `MCP spawn error: ${mcpMessage}`,
+    };
+  }
+  if (lower.includes("permission denied") && lower.includes("could not start")) {
+    const program = extractProgramName(mcpMessage);
+    return {
+      message: `MCP process failed to start: permission denied${program ? ` for "${program}"` : ""}.`,
+      action: "Make the file executable (chmod +x) or choose a different path in the Command field.",
+      category: "mcp",
+      retryable: false,
+      raw,
+      rawDetail: `MCP permission error: ${mcpMessage}`,
     };
   }
   if (lower.includes("timed out") || lower.includes("timeout") || lower.includes("deadline has elapsed")) {
@@ -335,4 +350,35 @@ function isRetryableCode(code: string): boolean {
 /** Backward-compatible: returns just the user message string */
 export function parseApiErrorMessage(err: unknown): string {
   return parseApiError(err).message;
+}
+
+/** Pulls the first quoted token out of an MCP spawn error like `Could not start "npx": ...`. */
+function extractProgramName(msg: string): string | null {
+  const match = msg.match(/"([^"]+)"/);
+  if (match) {
+    // Only keep the program name (first token), in case a full command leaked in.
+    return match[1].split(/\s+/)[0];
+  }
+  return null;
+}
+
+/** Returns an install instruction keyed by the program name. */
+function installHintFor(program: string | null): string {
+  switch (program) {
+    case "npx":
+    case "node":
+      return "Install Node.js (adds npx to PATH) from https://nodejs.org.";
+    case "uvx":
+    case "uv":
+      return "Install Astral uv from https://docs.astral.sh/uv/.";
+    case "python":
+    case "python3":
+      return "Install Python from https://www.python.org/downloads/.";
+    case "pipx":
+      return "Install pipx via `python -m pip install --user pipx`.";
+    case "docker":
+      return "Install Docker from https://docs.docker.com/get-docker/.";
+    default:
+      return "Install the runtime it belongs to.";
+  }
 }

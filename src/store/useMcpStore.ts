@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus } from "../types";
+import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../types";
 import { generateId } from "../utils/generateId";
 import { saveMcpConfigs, saveMcpEnvSecrets } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
+import type { McpServerPreset } from "../config/mcpPresets";
 import { useUIStore } from "./useUIStore";
 
 function sanitizeName(name: string): string {
@@ -24,6 +25,7 @@ interface McpState {
   enabledServerIds: Set<string>;
 
   addMcpConfig: () => void;
+  addMcpConfigFromPreset: (preset: McpServerPreset) => void;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => void;
   deleteMcpConfig: (id: string) => void;
   connectServer: (id: string) => Promise<void>;
@@ -33,6 +35,7 @@ interface McpState {
   toggleServerEnabled: (serverId: string, enabled: boolean) => void;
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
+  checkCommand: (command: string) => Promise<ExecutableCheck>;
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
@@ -71,6 +74,55 @@ export const useMcpStore = create<McpState>((set, get) => ({
       details: `Transport: ${newConfig.transport}, Command: ${newConfig.command || "(not set)"}`,
     });
     useUIStore.getState().addToast("MCP server added — configure its details", "info");
+  },
+
+  addMcpConfigFromPreset: (preset) => {
+    const newConfig: McpServerConfig = {
+      id: generateId(),
+      name: preset.name,
+      transport: "stdio",
+      command: preset.command,
+      args: [...preset.args],
+      enabled: true,
+    };
+    const validation = validateMcpServerConfig(newConfig);
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]?.message ?? "Invalid MCP config";
+      logWarn("mcp", `MCP preset "${preset.name}" failed validation`, {
+        action: firstError,
+      });
+      useUIStore.getState().addToast(`Validation: ${firstError}`, "error");
+      return;
+    }
+    const { mcpConfigs, envSecrets } = get();
+    const updated = [...mcpConfigs, newConfig];
+
+    // Pre-seed env keys (with empty values) so the user sees them to fill in.
+    let updatedEnvSecrets = envSecrets;
+    if (preset.envKeys && preset.envKeys.length > 0) {
+      const seed = Object.fromEntries(preset.envKeys.map((k) => [k, ""]));
+      updatedEnvSecrets = { ...envSecrets, [newConfig.id]: seed };
+    }
+
+    set({
+      mcpConfigs: updated,
+      envSecrets: updatedEnvSecrets,
+      serverStatuses: { ...get().serverStatuses, [newConfig.id]: "disconnected" },
+    });
+    saveMcpConfigs(updated);
+    saveMcpEnvSecrets(updatedEnvSecrets);
+    const needsEnv = preset.envKeys?.length ?? 0;
+    logInfo("mcp", `MCP server added from "${preset.name}" preset`, {
+      details: `Command: ${newConfig.command}, Args: ${newConfig.args?.join(" ") ?? "(none)"}`,
+    });
+    useUIStore
+      .getState()
+      .addToast(
+        needsEnv > 0
+          ? `Added ${preset.name} — fill in ${needsEnv} env var${needsEnv > 1 ? "s" : ""}`
+          : `Added ${preset.name} preset`,
+        "info",
+      );
   },
 
   updateMcpConfig: (id, updates) => {
@@ -246,5 +298,22 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const updated = { ...envSecrets, [serverId]: secrets };
     set({ envSecrets: updated });
     saveMcpEnvSecrets(updated);
+  },
+
+  checkCommand: async (command) => {
+    const trimmed = command.trim();
+    if (!trimmed) {
+      return { found: false, message: "Enter a command to check" };
+    }
+    try {
+      const raw = await invoke<string>("mcp_check_command", { command: trimmed });
+      return JSON.parse(raw) as ExecutableCheck;
+    } catch (err) {
+      const parsed = parseApiError(err);
+      logWarn("mcp", `Executable check failed for "${trimmed}"`, {
+        details: parsed.message,
+      });
+      return { found: false, message: parsed.message };
+    }
   },
 }));

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation, TitleGenerationConfig, ModelConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { logError, logWarn } from "./logger";
+import { logError, logInfo, logWarn } from "./logger";
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -397,13 +397,65 @@ const McpServerConfigSchema = z.object({
 
 const McpConfigsArraySchema = z.array(McpServerConfigSchema);
 
+/**
+ * Migrates legacy stdio MCP configs to the program-only `command` + `args[]`
+ * format. Older versions stored the entire command line in `command` (e.g.
+ * `"npx -y @modelcontextprotocol/server-filesystem"`); the new contract keeps
+ * the executable in `command` and every argument in `args`.
+ *
+ * Idempotent: configs whose `command` is already a single token are returned
+ * unchanged. Only stdio configs with a multi-token `command` are rewritten.
+ */
+export function migrateMcpConfigs(configs: import("../types").McpServerConfig[]): import("../types").McpServerConfig[] {
+  return configs.map((c) => {
+    if (c.transport !== "stdio") return c;
+    const raw = (c.command ?? "").trim();
+    if (!raw) return c;
+
+    // Single token — already in the new format (or a bare executable name).
+    const tokens = raw.split(/\s+/);
+    if (tokens.length <= 1) return c;
+
+    const [program, ...commandArgs] = tokens;
+    const existingArgs = c.args ?? [];
+    // Merge the args extracted from the command line with any explicitly-set
+    // args. Drop duplicate `-y`/`--yes` that the old npx heuristic auto-added.
+    const merged = [...commandArgs, ...existingArgs];
+    const dedupedYes = dedupAutoYes(merged);
+
+    return { ...c, command: program, args: dedupedYes };
+  });
+}
+
+/** Keeps the first `-y`/`--yes` and drops subsequent duplicates. */
+function dedupAutoYes(args: string[]): string[] {
+  let seenYes = false;
+  return args.filter((a) => {
+    if (a === "-y" || a === "--yes") {
+      if (seenYes) return false;
+      seenYes = true;
+    }
+    return true;
+  });
+}
+
 export async function loadMcpConfigs(): Promise<import("../types").McpServerConfig[] | null> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(MCP_CONFIGS_KEY);
     if (raw) {
       const result = McpConfigsArraySchema.safeParse(raw);
-      if (result.success) return result.data as import("../types").McpServerConfig[];
+      if (result.success) {
+        const migrated = migrateMcpConfigs(result.data as import("../types").McpServerConfig[]);
+        // Persist the migrated form so subsequent loads are clean.
+        if (JSON.stringify(migrated) !== JSON.stringify(result.data)) {
+          await store.set(MCP_CONFIGS_KEY, migrated);
+          logInfo("storage", "Migrated MCP configs to program + args format", {
+            details: `${migrated.length} server(s) processed`,
+          });
+        }
+        return migrated;
+      }
       logWarn("storage", "Stored MCP configs failed validation", {
         details: result.error?.message,
         action: "MCP server configs were corrupted. Re-configure in Settings > MCP Servers.",

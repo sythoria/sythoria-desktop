@@ -195,7 +195,7 @@ export async function sendWithToolLoop(
 
     const apiMessages: {
       role: string;
-      content: string | null;
+      content: string | null | unknown[];
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;
@@ -302,12 +302,38 @@ export async function sendWithToolLoop(
                   : {}),
               }));
 
-              apiMessages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                name: rawName,
-                content: resultContent,
-              });
+              if (result.images && result.images.length > 0) {
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  name: rawName,
+                  content: resultContent || "(tool returned images)",
+                });
+
+                const imageContentParts: unknown[] = [
+                  {
+                    type: "text",
+                    text: `[Images from MCP tool "${mcpTool.name}" — analyze these images:]`,
+                  },
+                ];
+                for (const img of result.images) {
+                  imageContentParts.push({
+                    type: "image_url",
+                    image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+                  });
+                }
+                apiMessages.push({
+                  role: "user",
+                  content: imageContentParts,
+                });
+              } else {
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  name: rawName,
+                  content: resultContent,
+                });
+              }
               continue;
             } else {
               const unknownMsg: Message = {

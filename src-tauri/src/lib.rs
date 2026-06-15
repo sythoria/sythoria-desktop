@@ -937,6 +937,12 @@ async fn mcp_start_server(config: String, env_secrets: String) -> Result<String,
 }
 
 #[tauri::command]
+async fn mcp_check_command(command: String) -> Result<String, AppError> {
+    let info = mcp::client::check_executable(&command).await;
+    Ok(serde_json::to_string(&info).unwrap_or_default())
+}
+
+#[tauri::command]
 async fn mcp_stop_server(server_id: String) -> Result<(), AppError> {
     mcp::client::disconnect_server(&server_id).map_err(|e| {
         log::error!("MCP server stop failed: {}", e);
@@ -1008,6 +1014,7 @@ pub fn run() {
             load_mcp_env_secrets,
             save_mcp_env_secrets_cmd,
             mcp_start_server,
+            mcp_check_command,
             mcp_stop_server,
             mcp_list_tools,
             mcp_call_tool

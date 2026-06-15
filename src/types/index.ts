@@ -60,6 +60,21 @@ export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "
 
 export type McpTransport = "stdio" | "sse" | "streamable-http";
 
+/**
+ * MCP server configuration.
+ *
+ * For `stdio` transport:
+ *   - `command` is the **program/executable only** (e.g. `npx`, `uvx`,
+ *     `/usr/local/bin/python`). Do NOT include arguments here — put them in
+ *     `args`. The UI validates that the executable resolves on PATH.
+ *   - `args` is the **full ordered argument list** (e.g.
+ *     `["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/project"]`).
+ *     Each entry is passed to the process verbatim, so paths with spaces are
+ *     safe as a single array element (no shell quoting needed).
+ *
+ * Legacy configs stored a full command line in `command`; those are migrated
+ * to program + args on load by `migrateMcpConfigs`.
+ */
 export interface McpServerConfig {
   id: string;
   name: string;
@@ -71,6 +86,17 @@ export interface McpServerConfig {
   enabled: boolean;
 }
 
+/** Result of probing whether a stdio command resolves to an executable. */
+export interface ExecutableCheck {
+  found: boolean;
+  /** Resolved absolute path, if found. */
+  path?: string;
+  /** Best-effort `--version` output (first line), if available. */
+  version?: string;
+  /** Human-readable status suitable for showing inline in the UI. */
+  message: string;
+}
+
 export interface McpTool {
   name: string;
   namespacedName: string;
@@ -80,9 +106,15 @@ export interface McpTool {
   serverName: string;
 }
 
+export interface McpImageContent {
+  mimeType: string;
+  data: string;
+}
+
 export interface McpToolResult {
   content: string;
   isError: boolean;
+  images?: McpImageContent[];
 }
 
 export type McpServerStatus = "disconnected" | "connecting" | "connected" | "error";

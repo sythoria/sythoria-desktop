@@ -102,12 +102,40 @@ describe("parseApiError", () => {
 
   it("handles structured McpError from Rust backend", () => {
     const structuredError = JSON.stringify({
-      McpError: "server command not found",
+      McpError: 'Could not start "npx": the executable was not found',
     });
     const result = parseApiError(structuredError);
-    expect(result.message).toContain("command or executable was not found");
+    expect(result.message).toContain("was not found");
+    expect(result.message).toContain('"npx"');
     expect(result.category).toBe("mcp");
     expect(result.rawDetail).toBeTruthy();
+  });
+
+  it("includes a runtime-specific install hint for MCP spawn errors", () => {
+    const structuredError = JSON.stringify({
+      McpError: 'Could not start "npx": not found on PATH',
+    });
+    const result = parseApiError(structuredError);
+    expect(result.action).toContain("Node.js");
+    expect(result.category).toBe("mcp");
+    expect(result.retryable).toBe(false);
+  });
+
+  it("includes a uv install hint for uvx spawn errors", () => {
+    const structuredError = JSON.stringify({
+      McpError: 'Could not start "uvx": was not found',
+    });
+    const result = parseApiError(structuredError);
+    expect(result.action).toContain("uv");
+  });
+
+  it("surfaces MCP permission errors distinctly", () => {
+    const structuredError = JSON.stringify({
+      McpError: 'Could not start "/usr/local/bin/foo": permission denied',
+    });
+    const result = parseApiError(structuredError);
+    expect(result.message).toContain("permission denied");
+    expect(result.action).toContain("executable");
   });
 
   it("handles MCP handshake/transport error with full detail", () => {

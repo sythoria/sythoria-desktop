@@ -30,6 +30,194 @@ fn convert_tool(t: &rmcp::model::Tool) -> McpToolInfo {
     }
 }
 
+/// Returns the trimmed executable name from a command string.
+///
+/// As of the stdio UX redesign, `command` holds the program/executable only
+/// (e.g. `npx`, `uvx`, `/usr/local/bin/python`) — never a full command line.
+/// All arguments are supplied separately via `McpServerConfig::args`.
+///
+/// Returns `Err` for an empty/whitespace command so callers can produce a clear
+/// "command is required" message rather than a confusing spawn failure later.
+fn resolve_executable_name(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Command is required for stdio transport".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutableInfo {
+    pub found: bool,
+    pub path: Option<String>,
+    pub version: Option<String>,
+    pub message: String,
+}
+
+async fn find_executable(name: &str) -> String {
+    if which::which(name).is_ok() {
+        return name.to_string();
+    }
+
+    let common_paths = [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+
+    for dir in &common_paths {
+        let path = std::path::Path::new(dir).join(name);
+        if path.exists() {
+            return path.to_string_lossy().to_string();
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let npm_paths = [
+            format!("{}/.npm-global/bin", home),
+            format!("{}/.local/bin", home),
+            format!("{}/n/bin", home),
+        ];
+        for dir in &npm_paths {
+            let path = std::path::Path::new(dir).join(name);
+            if path.exists() {
+                return path.to_string_lossy().to_string();
+            }
+        }
+
+        if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
+            let nvm_bin = std::path::Path::new(&nvm_dir)
+                .join("versions")
+                .join("node");
+            if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
+                let mut versions: Vec<_> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .collect();
+                versions.sort_by(|a, b| {
+                    let a_name = a.file_name().to_string_lossy().to_string();
+                    let b_name = b.file_name().to_string_lossy().to_string();
+                    b_name.cmp(&a_name)
+                });
+                for version_dir in versions {
+                    let bin_path = version_dir.path().join("bin").join(name);
+                    if bin_path.exists() {
+                        return bin_path.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    name.to_string()
+}
+
+/// Probes whether the given program is resolvable to an executable.
+///
+/// Returns an [`ExecutableInfo`] describing whether it was found, the resolved
+/// path, and a best-effort `--version` string. Used by the settings UI to show
+/// a green/red status *before* the user clicks Connect.
+pub async fn check_executable(program: &str) -> ExecutableInfo {
+    let program = program.trim();
+    if program.is_empty() {
+        return ExecutableInfo {
+            found: false,
+            path: None,
+            version: None,
+            message: "Enter a command to check".to_string(),
+        };
+    }
+
+    let resolved = find_executable(program).await;
+
+    // find_executable returns the original name unchanged when nothing matched,
+    // so distinguish a real hit from a fallthrough by checking it actually exists.
+    let found_exists = std::path::Path::new(&resolved).exists() || which::which(&resolved).is_ok();
+    if !found_exists {
+        return ExecutableInfo {
+            found: false,
+            path: None,
+            version: None,
+            message: format!(
+                "\"{}\" was not found on PATH or in common install locations. \
+                 Check the spelling, install the runtime it belongs to, \
+                 or enter the full path (e.g. /usr/local/bin/{}).",
+                program, program
+            ),
+        };
+    }
+
+    let version = probe_version(&resolved).await;
+
+    let message = match &version {
+        Some(v) => format!("{} found{} — {}", program, at_path_note(&resolved, program), v),
+        None => format!("{} found{}", program, at_path_note(&resolved, program)),
+    };
+
+    ExecutableInfo {
+        found: true,
+        path: Some(resolved),
+        version,
+        message,
+    }
+}
+
+fn at_path_note(resolved: &str, program: &str) -> String {
+    if resolved == program {
+        String::new()
+    } else {
+        format!(" at {}", resolved)
+    }
+}
+
+/// Runs `<program> --version` with a short timeout and returns the first line
+/// of output trimmed. Returns `None` on any failure — it's only a hint.
+async fn probe_version(resolved: &str) -> Option<String> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        tokio::process::Command::new(resolved).arg("--version").output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+
+    let text = if !output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        String::from_utf8_lossy(&output.stderr).to_string()
+    };
+
+    text.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+}
+
+/// Produces a user-friendly error string when spawning the MCP process fails.
+/// Distinguishes "not found" (PATH/install issue) from permission errors so the
+/// frontend can surface an actionable install hint.
+fn friendly_spawn_error(program: &str, resolved: &str, err: &std::io::Error) -> String {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "Could not start \"{}\": the executable was not found \
+             (resolved to \"{}\"). Install the runtime it belongs to \
+             (e.g. Node.js for npx, uv for uvx, Python for python) \
+             or set the full path in the Command field.",
+            program, resolved
+        ),
+        std::io::ErrorKind::PermissionDenied => format!(
+            "Could not start \"{}\" at \"{}\": permission denied. \
+             Check that the file is executable (chmod +x) or pick a different path.",
+            program, resolved
+        ),
+        _ => format!(
+            "Could not start \"{}\" ({}): {}",
+            program, resolved, err
+        ),
+    }
+}
+
 pub async fn connect_server(
     config: &McpServerConfig,
     env_secrets: HashMap<String, String>,
@@ -43,14 +231,16 @@ pub async fn connect_server(
 
     match config.transport.as_str() {
         "stdio" => {
-            let command = config.command.as_deref().unwrap_or("").to_string();
-            if command.is_empty() {
-                return Err("Command is required for stdio transport".to_string());
-            }
+            let command_raw = config.command.as_deref().unwrap_or("").to_string();
+            let program = resolve_executable_name(&command_raw)?;
 
-            let args = config.args.as_deref().unwrap_or(&[]);
-            let mut cmd = Command::new(&command);
-            cmd.args(args)
+            let extra_args = config.args.as_deref().unwrap_or(&[]);
+            let resolved_args: Vec<String> = extra_args.iter().cloned().collect();
+
+            let resolved_program = find_executable(&program).await;
+
+            let mut cmd = Command::new(&resolved_program);
+            cmd.args(&resolved_args)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
@@ -59,13 +249,24 @@ pub async fn connect_server(
                 cmd.env(key, value);
             }
 
-            let transport = TokioChildProcess::new(cmd)
-                .map_err(|e| format!("Failed to spawn MCP server process: {}", e))?;
+            // Build the child process, translating NotFound/permission into a
+            // friendly, actionable error before it becomes an opaque OS message.
+            let transport = TokioChildProcess::new(cmd).map_err(|e| {
+                // TokioChildProcess wraps the underlying io::Error in its own Display.
+                // Pull the raw kind by attempting a downcast-style inspection via string.
+                let raw_err = std::io::Error::other(e.to_string());
+                let kind = io_error_kind_from_display(&e.to_string());
+                let synthetic = match kind {
+                    Some(k) => std::io::Error::new(k, e.to_string()),
+                    None => raw_err,
+                };
+                friendly_spawn_error(&program, &resolved_program, &synthetic)
+            })?;
 
             let mut running = client
                 .serve_with_ct(transport, ct)
                 .await
-                .map_err(|e| format!("MCP handshake failed: {}", e))?;
+                .map_err(|e| format!("MCP handshake failed for '{}': {}", resolved_program, e))?;
 
             let tools_result = running
                 .peer()
@@ -203,31 +404,42 @@ async fn call_tool_via_peer(
 
     match peer.call_tool(params).await {
         Ok(result) => {
-            let content_str = result
-                .content
-                .into_iter()
-                .map(|c| match c.raw {
-                    rmcp::model::RawContent::Text(text) => text.text.to_string(),
-                    rmcp::model::RawContent::Image(img) => format!("[Image: {}]", img.mime_type),
+            let mut text_parts: Vec<String> = Vec::new();
+            let mut images: Vec<crate::mcp::McpImageContent> = Vec::new();
+
+            for c in result.content {
+                match c.raw {
+                    rmcp::model::RawContent::Text(text) => {
+                        text_parts.push(text.text.to_string());
+                    }
+                    rmcp::model::RawContent::Image(img) => {
+                        images.push(crate::mcp::McpImageContent {
+                            mime_type: img.mime_type.clone(),
+                            data: img.data.clone(),
+                        });
+                    }
                     rmcp::model::RawContent::Audio(audio) => {
-                        format!("[Audio: {}]", audio.mime_type)
+                        text_parts.push(format!("[Audio: {}]", audio.mime_type));
                     }
                     rmcp::model::RawContent::Resource(resource) => {
-                        format!("[Resource: {:?}]", resource.resource)
+                        text_parts.push(format!("[Resource: {:?}]", resource.resource));
                     }
-                    _ => "[Unknown content]".to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+                    _ => {
+                        text_parts.push("[Unknown content]".to_string());
+                    }
+                }
+            }
 
             Ok(McpToolResult {
-                content: content_str,
+                content: text_parts.join("\n"),
                 is_error: result.is_error.unwrap_or(false),
+                images,
             })
         }
         Err(e) => Ok(McpToolResult {
             content: format!("MCP tool call error: {}", e),
             is_error: true,
+            images: vec![],
         }),
     }
 }
@@ -270,4 +482,79 @@ pub fn disconnect_server(server_id: &str) -> Result<(), String> {
         .map_err(|e| format!("Manager lock poisoned: {}", e))?;
     manager.remove_server(server_id);
     Ok(())
+}
+
+/// Best-effort classification of a `TokioChildProcess` error string into an
+/// `io::ErrorKind`, so [`friendly_spawn_error`] can pick the right message.
+/// Tokio surfaces the OS error verbatim in the Display, so we sniff keywords.
+fn io_error_kind_from_display(msg: &str) -> Option<std::io::ErrorKind> {
+    let lower = msg.to_ascii_lowercase();
+    if lower.contains("no such file or directory")
+        || lower.contains("not found")
+        || lower.contains("cannot find")
+        || lower.contains("program not found")
+    {
+        Some(std::io::ErrorKind::NotFound)
+    } else if lower.contains("permission denied") || lower.contains("not executable") {
+        Some(std::io::ErrorKind::PermissionDenied)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_executable_name_trims_whitespace() {
+        assert_eq!(resolve_executable_name("  npx  ").unwrap(), "npx");
+        assert_eq!(resolve_executable_name("npx").unwrap(), "npx");
+        assert_eq!(
+            resolve_executable_name("/usr/local/bin/node").unwrap(),
+            "/usr/local/bin/node"
+        );
+    }
+
+    #[test]
+    fn resolve_executable_name_rejects_empty() {
+        assert!(resolve_executable_name("").is_err());
+        assert!(resolve_executable_name("   ").is_err());
+        assert!(resolve_executable_name("\t\n").is_err());
+    }
+
+    #[test]
+    fn resolve_executable_name_keeps_full_command_unchanged() {
+        // Legacy behaviour split a full command line; the new contract is
+        // program-only, so a value that happens to contain spaces is kept as-is
+        // (the frontend migration guarantees single-token input).
+        assert_eq!(
+            resolve_executable_name("some/path with space").unwrap(),
+            "some/path with space"
+        );
+    }
+
+    #[test]
+    fn io_error_kind_classifies_messages() {
+        assert_eq!(
+            io_error_kind_from_display("No such file or directory (os error 2)"),
+            Some(std::io::ErrorKind::NotFound)
+        );
+        assert_eq!(
+            io_error_kind_from_display("Permission denied (os error 13)"),
+            Some(std::io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(io_error_kind_from_display("something else"), None);
+    }
+
+    #[test]
+    fn friendly_spawn_error_not_found_mentions_install() {
+        let msg = friendly_spawn_error(
+            "npx",
+            "/usr/bin/npx",
+            &std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
+        );
+        assert!(msg.contains("not found"));
+        assert!(msg.contains("Install"));
+    }
 }

@@ -23,9 +23,13 @@ import {
   Copy,
   X,
   Filter,
+  Terminal,
+  Variable,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { ModelConfig, SearchApiConfig, McpServerConfig } from "../types";
-import type { SearchProvider, McpTransport, McpServerStatus } from "../types";
+import type { SearchProvider, McpTransport, McpServerStatus, ExecutableCheck } from "../types";
 import { MCP_STATUS_COLORS } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { useModelStore } from "../store/useModelStore";
@@ -35,7 +39,8 @@ import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { PROVIDER_PRESETS } from "../config/providerPresets";
 import { SEARCH_PROVIDER_PRESETS } from "../config/searchPresets";
-import { MCP_TRANSPORT_PRESETS } from "../config/mcpPresets";
+import { MCP_TRANSPORT_PRESETS, MCP_SERVER_PRESETS } from "../config/mcpPresets";
+import type { McpServerPreset } from "../config/mcpPresets";
 import { MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_STEP } from "../config/constants";
 import { Switch } from "./ui/Switch";
 import { getVersion } from "@tauri-apps/api/app";
@@ -521,10 +526,14 @@ interface McpServerCardProps {
   config: McpServerConfig;
   status: McpServerStatus;
   tools: { name: string; description: string }[];
+  envVars: Record<string, string>;
   onUpdate: (id: string, updates: Partial<McpServerConfig>) => void;
   onDelete: (id: string) => void;
   onConnect: (id: string) => void;
   onDisconnect: (id: string) => void;
+  onSetEnvVars: (id: string, vars: Record<string, string>) => void;
+  onCheckCommand: (command: string) => Promise<ExecutableCheck>;
+  onApplyPreset: (preset: McpServerPreset, currentConfig: McpServerConfig) => void;
   showKey: boolean;
   onToggleKey: (id: string) => void;
 }
@@ -536,18 +545,205 @@ const MCP_STATUS_LABELS: Record<McpServerStatus, string> = {
   error: "Error",
 };
 
+interface EnvVarsEditorProps {
+  envVars: Record<string, string>;
+  onChange: (vars: Record<string, string>) => void;
+}
+
+/** Reusable key/value editor for MCP environment variables. Shared by all transports. */
+const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: EnvVarsEditorProps) {
+  const [envExpanded, setEnvExpanded] = useState(false);
+  const [newEnvKey, setNewEnvKey] = useState("");
+  const [newEnvValue, setNewEnvValue] = useState("");
+  const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
+
+  const addEnvVar = () => {
+    const key = newEnvKey.trim();
+    if (!key) return;
+    onChange({ ...envVars, [key]: newEnvValue });
+    setNewEnvKey("");
+    setNewEnvValue("");
+  };
+
+  const removeEnvVar = (key: string) => {
+    const updated = { ...envVars };
+    delete updated[key];
+    onChange(updated);
+  };
+
+  const updateEnvValue = (key: string, value: string) => {
+    onChange({ ...envVars, [key]: value });
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setEnvExpanded(!envExpanded)}
+        className="flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text-secondary transition-colors"
+        aria-expanded={envExpanded}
+        aria-label="Toggle environment variables"
+      >
+        <Variable size={12} />
+        Environment Variables
+        {Object.keys(envVars).length > 0 && (
+          <span className="px-1.5 py-0.5 rounded-full bg-accent/10 text-accent text-[10px] font-medium">
+            {Object.keys(envVars).length}
+          </span>
+        )}
+        <ChevronDown size={12} className={`transition-transform ${envExpanded ? "rotate-180" : ""}`} />
+      </button>
+      <AnimatePresence>
+        {envExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={springs.gentle}
+            className="overflow-hidden"
+          >
+            <div className="p-2.5 rounded-lg bg-input border border-input-border space-y-2">
+              {Object.entries(envVars).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-1.5">
+                  <span className="text-xs font-mono font-medium text-text-primary bg-surface px-2 py-1 rounded border border-border min-w-[80px] truncate">
+                    {key}
+                  </span>
+                  <div className="flex-1 relative">
+                    <input
+                      type={showEnvValues[key] ? "text" : "password"}
+                      value={value}
+                      onChange={(e) => updateEnvValue(key, e.target.value)}
+                      className="w-full px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                      aria-label={`Value for ${key}`}
+                    />
+                    <button
+                      onClick={() => setShowEnvValues((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted/50 hover:text-text-muted transition-colors"
+                      aria-label={showEnvValues[key] ? "Hide value" : "Show value"}
+                    >
+                      {showEnvValues[key] ? <EyeOff size={11} /> : <Eye size={11} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => removeEnvVar(key)}
+                    className="p-1 rounded text-text-muted/50 hover:text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+                    aria-label={`Remove ${key}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+
+              <div className="flex items-center gap-1.5 pt-1 border-t border-border/30">
+                <input
+                  type="text"
+                  value={newEnvKey}
+                  onChange={(e) => setNewEnvKey(e.target.value)}
+                  placeholder="KEY"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  className="flex-1 min-w-[80px] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                  aria-label="New env var key"
+                />
+                <input
+                  type="text"
+                  value={newEnvValue}
+                  onChange={(e) => setNewEnvValue(e.target.value)}
+                  placeholder="value"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck="false"
+                  className="flex-[2] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                  aria-label="New env var value"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addEnvVar();
+                  }}
+                />
+                <button
+                  onClick={addEnvVar}
+                  disabled={!newEnvKey.trim()}
+                  className="p-1 rounded text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                  aria-label="Add environment variable"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
 const McpServerCard = memo(function McpServerCard({
   config,
   status,
   tools,
+  envVars,
   onUpdate,
   onDelete,
   onConnect,
   onDisconnect,
+  onSetEnvVars,
+  onCheckCommand,
+  onApplyPreset,
   showKey,
   onToggleKey,
 }: McpServerCardProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const [exeCheck, setExeCheck] = useState<ExecutableCheck | null>(null);
+  const [exeChecking, setExeChecking] = useState(false);
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const commandValue = config.command || "";
+  const args = config.args ?? [];
+
+  // Debounced executable check whenever the command changes.
+  useEffect(() => {
+    if (config.transport !== "stdio") return;
+    const trimmed = commandValue.trim();
+
+    if (checkTimer.current) clearTimeout(checkTimer.current);
+
+    if (!trimmed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale status when the command field empties is intentional render-sync.
+      setExeCheck(null);
+      setExeChecking(false);
+      return;
+    }
+
+    setExeChecking(true);
+    checkTimer.current = setTimeout(async () => {
+      const result = await onCheckCommand(trimmed);
+      setExeCheck(result);
+      setExeChecking(false);
+    }, 450);
+
+    return () => {
+      if (checkTimer.current) clearTimeout(checkTimer.current);
+    };
+  }, [commandValue, config.transport, onCheckCommand]);
+
+  const updateArg = (index: number, value: string) => {
+    const next = [...args];
+    next[index] = value;
+    onUpdate(config.id, { args: next });
+  };
+  const addArg = () => {
+    onUpdate(config.id, { args: [...args, ""] });
+  };
+  const removeArg = (index: number) => {
+    const next = args.filter((_, i) => i !== index);
+    onUpdate(config.id, { args: next });
+  };
+  const commitArgAndAdvance = (index: number, value: string) => {
+    updateArg(index, value);
+    if (index === args.length - 1 && value.trim()) addArg();
+  };
+
+  const commandHasSpace = commandValue.trim().includes(" ");
 
   return (
     <motion.div
@@ -600,6 +796,40 @@ const McpServerCard = memo(function McpServerCard({
           <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
           {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
         </div>
+
+        {config.transport === "stdio" && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted flex items-center gap-1.5">
+              <Terminal size={11} />
+              Template
+            </label>
+            <div className="relative">
+              <select
+                value=""
+                onChange={(e) => {
+                  const presetId = e.target.value;
+                  const preset = MCP_SERVER_PRESETS.find((p) => p.id === presetId);
+                  if (preset) onApplyPreset(preset, config);
+                  e.target.value = "";
+                }}
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                aria-label="Apply MCP server template"
+              >
+                <option value="">Choose a template to pre-fill…</option>
+                {MCP_SERVER_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {p.description}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -660,38 +890,124 @@ const McpServerCard = memo(function McpServerCard({
         {config.transport === "stdio" && (
           <>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-command-${config.id}`}>
+              <label
+                className="text-xs font-medium text-text-muted flex items-center gap-1"
+                htmlFor={`mcp-command-${config.id}`}
+              >
                 Command
+                <span className="text-text-muted/50 font-normal">(program only, e.g. npx)</span>
               </label>
               <input
                 id={`mcp-command-${config.id}`}
                 type="text"
-                value={config.command || ""}
+                value={commandValue}
                 onChange={(e) => onUpdate(config.id, { command: e.target.value })}
-                placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem"
-                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+                placeholder="e.g. npx"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                className={`w-full px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
+                  commandHasSpace
+                    ? "border-yellow-500/50 focus:border-yellow-500"
+                    : "border-input-border focus:border-accent/50"
+                }`}
               />
+              {commandHasSpace && (
+                <p className="flex items-center gap-1 text-[11px] text-yellow-500 mt-0.5" role="alert">
+                  <AlertCircle size={11} />
+                  Put the program name here and move the arguments below.
+                </p>
+              )}
+              {exeChecking && (
+                <p className="flex items-center gap-1 text-[11px] text-text-muted mt-0.5">
+                  <Loader2 size={11} className="animate-spin" />
+                  Checking command…
+                </p>
+              )}
+              {!exeChecking && exeCheck && (
+                <p
+                  className={`flex items-start gap-1 text-[11px] mt-0.5 ${exeCheck.found ? "text-green-500" : "text-red-400"}`}
+                  role="status"
+                >
+                  {exeCheck.found ? (
+                    <CheckCircle2 size={11} className="mt-0.5 shrink-0" />
+                  ) : (
+                    <XCircle size={11} className="mt-0.5 shrink-0" />
+                  )}
+                  <span className="break-words">{exeCheck.message}</span>
+                </p>
+              )}
             </div>
+
             <div className="space-y-1">
-              <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-args-${config.id}`}>
-                Arguments (comma-separated)
+              <label
+                className="text-xs font-medium text-text-muted flex items-center gap-1"
+                htmlFor={`mcp-args-${config.id}`}
+              >
+                Arguments
+                <span className="text-text-muted/50 font-normal">(one per chip — paths with spaces are safe)</span>
               </label>
-              <input
+              <div
                 id={`mcp-args-${config.id}`}
-                type="text"
-                value={(config.args || []).join(", ")}
-                onChange={(e) =>
-                  onUpdate(config.id, {
-                    args: e.target.value
-                      .split(",")
-                      .map((a) => a.trim())
-                      .filter(Boolean),
-                  })
-                }
-                placeholder="e.g. /path/to/dir, --verbose"
-                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
-              />
+                className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-input-border bg-input min-h-[44px]"
+              >
+                {args.map((arg, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-0.5 rounded-md border bg-surface pl-2 pr-0.5 py-0.5 ${
+                      arg.startsWith("<") && arg.endsWith(">") ? "border-accent/50" : "border-input-border"
+                    }`}
+                  >
+                    <input
+                      type="text"
+                      value={arg}
+                      onChange={(e) => updateArg(i, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitArgAndAdvance(i, (e.target as HTMLInputElement).value);
+                        }
+                        if (e.key === "Backspace" && arg === "" && args.length > 1) {
+                          e.preventDefault();
+                          removeArg(i);
+                        }
+                      }}
+                      placeholder="<value>"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck="false"
+                      className="w-auto min-w-[60px] max-w-[260px] bg-transparent text-xs text-text-primary placeholder-text-muted/40 font-mono focus:outline-none"
+                      aria-label={`Argument ${i + 1}`}
+                      size={Math.max(arg.length, 6)}
+                    />
+                    <button
+                      onClick={() => removeArg(i)}
+                      className="p-0.5 rounded text-text-muted/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                      aria-label={`Remove argument ${i + 1}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={addArg}
+                  className="flex items-center gap-0.5 px-2 py-0.5 rounded-md border border-dashed border-input-border text-text-muted hover:text-accent hover:border-accent/50 text-[11px] transition-colors"
+                  aria-label="Add argument"
+                >
+                  <Plus size={11} />
+                  Add argument
+                </button>
+              </div>
+              {args.some((a) => a.startsWith("<") && a.endsWith(">")) && (
+                <p className="flex items-center gap-1 text-[11px] text-accent/70 mt-0.5">
+                  <AlertCircle size={11} />
+                  Replace the highlighted placeholders (e.g. <span className="font-mono">&lt;PATH&gt;</span>) with real
+                  values.
+                </p>
+              )}
             </div>
+
+            <EnvVarsEditor envVars={envVars} onChange={(vars) => onSetEnvVars(config.id, vars)} />
           </>
         )}
 
@@ -706,12 +1022,19 @@ const McpServerCard = memo(function McpServerCard({
                 type="url"
                 value={config.baseUrl || ""}
                 onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
-                placeholder="http://localhost:3000/mcp"
+                placeholder={
+                  config.transport === "sse" ? "e.g. http://localhost:3001/sse" : "e.g. http://localhost:3001/mcp"
+                }
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
                 className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
               />
+              <p className="text-[11px] text-text-muted/60 mt-0.5">
+                {config.transport === "sse"
+                  ? "SSE endpoint URL (usually ends with /sse)"
+                  : "Streamable HTTP endpoint URL (usually ends with /mcp)"}
+              </p>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-key-${config.id}`}>
@@ -723,7 +1046,7 @@ const McpServerCard = memo(function McpServerCard({
                   type={showKey ? "text" : "password"}
                   value={config.apiKey || ""}
                   onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
-                  placeholder="API Key"
+                  placeholder="Bearer token or API key"
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
@@ -738,10 +1061,12 @@ const McpServerCard = memo(function McpServerCard({
                 </button>
               </div>
             </div>
+
+            <EnvVarsEditor envVars={envVars} onChange={(vars) => onSetEnvVars(config.id, vars)} />
           </>
         )}
 
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex items-center gap-2 pt-2 flex-wrap">
           {status === "connected" ? (
             <motion.button
               onClick={() => onDisconnect(config.id)}
@@ -757,7 +1082,11 @@ const McpServerCard = memo(function McpServerCard({
           ) : (
             <motion.button
               onClick={() => onConnect(config.id)}
-              disabled={status === "connecting"}
+              disabled={
+                status === "connecting" ||
+                (config.transport === "stdio" && !config.command?.trim()) ||
+                ((config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim())
+              }
               whileHover={status === "connecting" ? undefined : { scale: motionTokens.scale.pop }}
               whileTap={status === "connecting" ? undefined : { scale: motionTokens.scale.press }}
               transition={springs.snappy}
@@ -767,6 +1096,19 @@ const McpServerCard = memo(function McpServerCard({
               {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
               {status === "connecting" ? "Connecting\u2026" : "Connect"}
             </motion.button>
+          )}
+
+          {config.transport === "stdio" && !config.command?.trim() && (
+            <p className="flex items-center gap-1 text-[11px] text-yellow-500">
+              <AlertCircle size={11} />
+              Command is required to connect
+            </p>
+          )}
+          {(config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim() && (
+            <p className="flex items-center gap-1 text-[11px] text-yellow-500">
+              <AlertCircle size={11} />
+              Base URL is required to connect
+            </p>
           )}
 
           {tools.length > 0 && (
@@ -835,11 +1177,46 @@ export default function Settings() {
   const mcpConfigs = useMcpStore((s) => s.mcpConfigs);
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
   const availableTools = useMcpStore((s) => s.availableTools);
+  const envSecrets = useMcpStore((s) => s.envSecrets);
   const addMcpConfig = useMcpStore((s) => s.addMcpConfig);
   const updateMcpConfig = useMcpStore((s) => s.updateMcpConfig);
   const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
   const connectServer = useMcpStore((s) => s.connectServer);
   const disconnectServer = useMcpStore((s) => s.disconnectServer);
+  const setEnvSecrets = useMcpStore((s) => s.setEnvSecrets);
+  const checkCommand = useMcpStore((s) => s.checkCommand);
+
+  const handleApplyPreset = useCallback(
+    (preset: McpServerPreset, currentConfig: McpServerConfig) => {
+      const isPristine =
+        (currentConfig.command ?? "").trim() === "" &&
+        (currentConfig.args ?? []).length === 0 &&
+        currentConfig.name === "New MCP Server";
+      if (!isPristine) {
+        const ok = window.confirm(
+          `Apply the "${preset.name}" template? This will replace the current command, arguments, and environment variables.`,
+        );
+        if (!ok) return;
+      }
+      // Apply preset fields to the existing config in place.
+      updateMcpConfig(currentConfig.id, {
+        name: preset.name,
+        transport: "stdio",
+        command: preset.command,
+        args: [...preset.args],
+      });
+      if (preset.envKeys && preset.envKeys.length > 0) {
+        const existing = envSecrets[currentConfig.id] ?? {};
+        const merged = { ...existing };
+        for (const k of preset.envKeys) {
+          if (!(k in merged)) merged[k] = "";
+        }
+        setEnvSecrets(currentConfig.id, merged);
+      }
+      useUIStore.getState().addToast(`Applied "${preset.name}" template`, "info");
+    },
+    [envSecrets, updateMcpConfig, setEnvSecrets],
+  );
 
   const theme = useUIStore((s) => s.theme);
   const loading = useUIStore((s) => s.loading);
@@ -1554,10 +1931,14 @@ export default function Settings() {
                   tools={availableTools
                     .filter((t) => t.serverId === mcpConfig.id)
                     .map((t) => ({ name: t.name, description: t.description }))}
+                  envVars={envSecrets[mcpConfig.id] ?? {}}
                   onUpdate={updateMcpConfig}
                   onDelete={deleteMcpConfig}
                   onConnect={connectServer}
                   onDisconnect={disconnectServer}
+                  onSetEnvVars={setEnvSecrets}
+                  onCheckCommand={checkCommand}
+                  onApplyPreset={handleApplyPreset}
                   showKey={!!showMcpKeys[mcpConfig.id]}
                   onToggleKey={toggleMcpKeyVisibility}
                 />
