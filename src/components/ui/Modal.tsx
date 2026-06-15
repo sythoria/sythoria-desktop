@@ -78,7 +78,8 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
           transition={{ duration: motionTokens.duration.fast }}
         >
           <motion.div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 backdrop-blur-sm"
+            style={{ backgroundColor: "var(--theme-overlay)" }}
             onClick={onClose}
             aria-hidden="true"
             initial={{ opacity: 0 }}
@@ -87,17 +88,18 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
           />
           <motion.div
             ref={modalRef}
-            className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border shadow-xl"
+            className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border"
+            style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             transition={springs.gentle}
           >
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-              <h3 className="text-sm font-medium text-text-primary">{title}</h3>
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+              <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
               <button
                 onClick={onClose}
-                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
                 aria-label="Close dialog"
               >
                 <X size={16} />
@@ -166,28 +168,34 @@ export function ConfirmModal({
       aria-modal="true"
       aria-label={title}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} aria-hidden="true" />
+      <div
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ backgroundColor: "var(--theme-overlay)" }}
+        onClick={onCancel}
+        aria-hidden="true"
+      />
       <div
         ref={modalRef}
-        className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl"
+        className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border"
+        style={{ boxShadow: "var(--shadow-xl)" }}
       >
         <div className="px-5 pt-5 pb-1">
           <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-          <p className="mt-1.5 text-xs text-text-muted leading-relaxed">{message}</p>
+          <p className="mt-1.5 text-sm text-text-secondary leading-relaxed">{message}</p>
         </div>
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide text-text-secondary hover:bg-hover transition-all duration-200 min-h-[44px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px]"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 min-h-[44px] ${
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[40px] ${
               variant === "danger"
-                ? "bg-red-500/15 text-red-400 hover:bg-red-500/25 hover:shadow-[0_0_12px_rgba(239,68,68,0.15)]"
-                : "bg-accent/15 text-accent hover:bg-accent/25 hover:shadow-[0_0_12px_rgba(var(--color-accent-rgb,99,102,241),0.15)]"
+                ? "bg-red-500 text-white hover:bg-red-600"
+                : "bg-accent text-accent-foreground hover:bg-accent-hover"
             }`}
           >
             {confirmText}
@@ -250,8 +258,16 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
       aria-modal="true"
       aria-label="Rename Chat"
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} aria-hidden="true" />
-      <div className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border shadow-xl">
+      <div
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ backgroundColor: "var(--theme-overlay)" }}
+        onClick={onCancel}
+        aria-hidden="true"
+      />
+      <div
+        className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border"
+        style={{ boxShadow: "var(--shadow-xl)" }}
+      >
         <div className="px-5 pt-5 pb-1">
           <h3 className="text-sm font-semibold text-text-primary">Rename Chat</h3>
           <label htmlFor="rename-input" className="sr-only">
@@ -263,7 +279,7 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-input border border-input-border text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+            className="mt-3 w-full px-3 py-2 rounded-lg text-sm bg-input border border-input-border text-text-primary placeholder-text-muted focus:border-text-muted focus:outline-none transition-colors"
             placeholder="Enter new title"
             onKeyDown={(e) => {
               if (e.key === "Enter") handleConfirm();
@@ -274,18 +290,14 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide text-text-secondary hover:bg-hover transition-all duration-200 min-h-[44px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px]"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={isEmpty}
-            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold tracking-wide transition-all duration-200 min-h-[44px] ${
-              isEmpty
-                ? "bg-accent/10 text-accent/40 cursor-not-allowed"
-                : "bg-accent/15 text-accent hover:bg-accent/25 hover:shadow-[0_0_12px_rgba(var(--color-accent-rgb,99,102,241),0.15)]"
-            }`}
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[40px] bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Rename
           </button>

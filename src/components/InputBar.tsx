@@ -167,33 +167,30 @@ export default function InputBar({
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
-        <motion.div
-          className={`flex items-center gap-2 glass-panel rounded-2xl px-4 py-3 transition-all focus-within:border-accent/40 focus-within:shadow-lg focus-within:shadow-accent/5 ${isOverLimit ? "border-red-500/50" : ""} ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""}`}
-          whileHover={{ scale: 1.005 }}
-          transition={springs.snappy}
+        <div
+          className={`flex items-center gap-2 glass-panel rounded-2xl px-3 py-2.5 transition-colors focus-within:border-text-muted ${isOverLimit ? "border-red-500/50" : ""} ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""}`}
         >
+          {/* Plus / tools button */}
           <div ref={plusDropdownRef} className="relative shrink-0">
-            <motion.button
+            <button
               onClick={() => setPlusOpen(!plusOpen)}
-              className={`p-1.5 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${
+              className={`p-2 rounded-lg transition-colors flex items-center justify-center ${
                 anyToolActive
-                  ? "text-accent hover:bg-accent/10"
+                  ? "text-text-primary bg-active"
                   : "text-text-muted hover:text-text-secondary hover:bg-hover"
               }`}
               aria-label="Attach or search"
               aria-expanded={plusOpen}
               aria-haspopup="menu"
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
             >
               <Plus size={18} />
-            </motion.button>
+            </button>
 
             <AnimatePresence>
               {plusOpen && (
                 <motion.div
-                  className="absolute bottom-full left-0 mb-2 w-52 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50"
+                  className="absolute bottom-full left-0 mb-2 w-56 bg-surface border border-border rounded-xl py-1 z-50"
+                  style={{ boxShadow: "var(--shadow-xl)" }}
                   role="menu"
                   aria-label="Attachment and search options"
                   initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
@@ -201,62 +198,58 @@ export default function InputBar({
                   exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                   transition={springs.gentle}
                 >
-                  <motion.button
+                  <button
                     onClick={() => {
                       setPlusOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors min-h-[44px]"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-muted hover:bg-hover hover:text-text-secondary transition-colors cursor-not-allowed"
                     role="menuitem"
                     disabled
                   >
-                    <Paperclip size={16} className="text-text-muted" />
+                    <Paperclip size={15} />
                     <span>Add File</span>
-                    <span className="ml-auto text-[10px] text-text-muted">Soon</span>
-                  </motion.button>
-                  <motion.button
+                    <span className="ml-auto text-[10px] text-text-muted/60">Soon</span>
+                  </button>
+                  <button
                     onClick={() => {
                       onToggleSearch(!isSearchEnabled);
                       setPlusOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
                       isSearchEnabled
-                        ? "text-accent bg-accent/5 hover:bg-accent/10"
+                        ? "text-text-primary bg-active"
                         : "text-text-secondary hover:bg-hover hover:text-text-primary"
                     }`}
                     role="menuitemcheckbox"
                     aria-checked={isSearchEnabled}
-                    whileHover={{ x: 2 }}
-                    transition={springs.snappy}
                   >
-                    <Search size={16} className={isSearchEnabled ? "text-accent" : "text-text-muted"} />
+                    <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
                     <span>Web Search</span>
-                    {isSearchEnabled && <Check size={14} className="text-accent ml-auto" />}
-                  </motion.button>
+                    {isSearchEnabled && <Check size={14} className="text-text-primary ml-auto" />}
+                  </button>
                   {connectedMcpServers.length > 0 && (
                     <>
                       <div className="border-t border-border my-1" />
                       {connectedMcpServers.map((server) => {
                         const isEnabled = enabledMcpServerIds.has(server.id);
                         return (
-                          <motion.button
+                          <button
                             key={server.id}
                             onClick={() => {
                               onToggleMcpServer(server.id);
                             }}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
                               isEnabled
-                                ? "text-accent bg-accent/5 hover:bg-accent/10"
+                                ? "text-text-primary bg-active"
                                 : "text-text-secondary hover:bg-hover hover:text-text-primary"
                             }`}
                             role="menuitemcheckbox"
                             aria-checked={isEnabled}
-                            whileHover={{ x: 2 }}
-                            transition={springs.snappy}
                           >
-                            <Cpu size={16} className={isEnabled ? "text-accent" : "text-text-muted"} />
+                            <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
                             <span className="truncate">{server.name}</span>
-                            {isEnabled && <Check size={14} className="text-accent ml-auto" />}
-                          </motion.button>
+                            {isEnabled && <Check size={14} className="text-text-primary ml-auto" />}
+                          </button>
                         );
                       })}
                     </>
@@ -272,45 +265,44 @@ export default function InputBar({
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${currentModel?.name ?? "Sythoria"}...`}
+            placeholder={`Message ${currentModel?.name ?? "Sythoria"}…`}
             rows={1}
             disabled={disabled}
             aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
             aria-invalid={isOverLimit}
-            className={`flex-1 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed max-h-[${MAX_TEXTAREA_HEIGHT}px] overflow-y-hidden ${isOverLimit ? "text-red-400" : ""}`}
+            className={`flex-1 min-w-0 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-400" : ""}`}
           />
 
+          {/* Model selector */}
           <div ref={dropdownRef} className="relative shrink-0">
-            <motion.button
+            <button
               onClick={() => {
                 setModelOpen(!modelOpen);
                 setFocusedIndex(-1);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-secondary hover:bg-hover transition-colors whitespace-nowrap min-h-[44px]"
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-hover transition-colors max-w-[140px]"
               aria-label={`Select model: currently ${currentModel?.name ?? "None"}`}
               aria-expanded={modelOpen}
               aria-haspopup="listbox"
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
             >
               <div
-                className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[currentStatus]}`}
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
                 title={STATUS_LABELS[currentStatus] ?? currentStatus}
                 aria-hidden="true"
               />
-              <span>{currentModel?.name || "No Model"}</span>
+              <span className="truncate">{currentModel?.name || "No Model"}</span>
               <ChevronDown
-                size={12}
-                className={`transition-transform ${modelOpen ? "rotate-180" : ""}`}
+                size={13}
+                className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
                 aria-hidden="true"
               />
-            </motion.button>
+            </button>
 
             <AnimatePresence>
               {modelOpen && (
                 <motion.div
-                  className="absolute bottom-full right-0 mb-2 w-56 bg-surface border border-border rounded-xl shadow-2xl py-1 z-50 max-h-64 overflow-y-auto"
+                  className="absolute bottom-full right-0 mb-2 w-64 bg-surface border border-border rounded-xl py-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
+                  style={{ boxShadow: "var(--shadow-xl)" }}
                   role="listbox"
                   aria-label="Available models"
                   initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
@@ -320,8 +312,9 @@ export default function InputBar({
                 >
                   {enabledModels.map((model, idx) => {
                     const status = modelStatuses[model.id] ?? "disconnected";
+                    const isSelected = selectedModel === model.id;
                     return (
-                      <motion.button
+                      <button
                         key={model.id}
                         ref={(el) => {
                           itemRefs.current[idx] = el;
@@ -331,37 +324,27 @@ export default function InputBar({
                           setModelOpen(false);
                           setFocusedIndex(-1);
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                          focusedIndex === idx
-                            ? "bg-hover text-text-primary"
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-sm transition-colors text-left ${
+                          isSelected
+                            ? "bg-active text-text-primary"
                             : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                        } ${selectedModel === model.id ? "bg-accent-soft" : ""}`}
+                        }`}
                         role="option"
-                        aria-selected={selectedModel === model.id}
-                        whileHover={{ x: 2 }}
-                        transition={springs.snappy}
+                        aria-selected={isSelected}
                       >
-                        <div className="flex flex-col items-start">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            <div
-                              className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[status]}`}
-                              title={STATUS_LABELS[status] ?? status}
-                              aria-label={STATUS_LABELS[status] ?? status}
-                            />
-                            {model.name}
-                          </span>
-                          <span
-                            className="text-[10px] text-text-muted max-w-full truncate overflow-hidden text-ellipsis whitespace-nowrap"
-                            style={{ maxWidth: "150px" }}
-                            title={model.apiBase}
-                          >
+                        <div
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
+                          title={STATUS_LABELS[status] ?? status}
+                          aria-label={STATUS_LABELS[status] ?? status}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="block font-medium truncate">{model.name}</span>
+                          <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
                             {model.modelId}
                           </span>
                         </div>
-                        {selectedModel === model.id && (
-                          <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                        )}
-                      </motion.button>
+                        {isSelected && <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />}
+                      </button>
                     );
                   })}
                 </motion.div>
@@ -369,20 +352,20 @@ export default function InputBar({
             </AnimatePresence>
           </div>
 
-          <motion.button
+          {/* Send / Stop button */}
+          <button
             onClick={isStreaming ? onStop : handleSubmit}
             disabled={!isStreaming && !canSend}
-            className={`shrink-0 p-2 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:shadow-lg min-w-[44px] min-h-[44px] flex items-center justify-center ${
-              isStreaming ? "bg-red-500/90 hover:bg-red-600 text-white" : "bg-accent hover:bg-accent-hover text-white"
+            className={`shrink-0 p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
+              isStreaming
+                ? "bg-red-500/90 hover:bg-red-600 text-white"
+                : "bg-accent hover:bg-accent-hover text-accent-foreground disabled:bg-input disabled:text-text-muted"
             }`}
             aria-label={isStreaming ? "Stop generating" : "Send message"}
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            transition={springs.snappy}
           >
-            {isStreaming ? <Square size={16} className="fill-current" /> : <Send size={16} />}
-          </motion.button>
-        </motion.div>
+            {isStreaming ? <Square size={15} className="fill-current" /> : <Send size={15} />}
+          </button>
+        </div>
 
         <p
           id={isOverLimit ? "input-limit-error" : "input-hint"}
@@ -393,7 +376,7 @@ export default function InputBar({
               Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
             </span>
           ) : isStreaming ? (
-            <span className="flex items-center justify-center gap-2 text-accent font-medium animate-generating-pulse">
+            <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
               <Loader2 size={13} className="animate-spin" />
               <span>Generating response</span>
               <span className="generating-dots">
@@ -404,12 +387,12 @@ export default function InputBar({
             </span>
           ) : isSearchEnabled ? (
             <span className="flex items-center justify-center gap-1.5">
-              <Search size={11} className="text-accent" />
+              <Search size={11} className="text-text-secondary" />
               Web Search enabled
             </span>
           ) : enabledMcpServerIds.size > 0 ? (
             <span className="flex items-center justify-center gap-1.5">
-              <Cpu size={11} className="text-accent" />
+              <Cpu size={11} className="text-text-secondary" />
               {enabledMcpServerIds.size} MCP server{enabledMcpServerIds.size !== 1 ? "s" : ""} enabled
             </span>
           ) : (

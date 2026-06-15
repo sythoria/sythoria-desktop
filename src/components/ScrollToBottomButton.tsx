@@ -21,23 +21,24 @@ const ScrollToBottomButton = forwardRef<HTMLButtonElement, ScrollToBottomButtonP
       onClick={onClick}
       className={`
           relative flex items-center justify-center
-          w-10 h-10 rounded-full
-          bg-accent text-white shadow-lg
-          hover:bg-accent-hover hover:shadow-xl
+          w-9 h-9 rounded-full
+          bg-surface border border-border text-text-secondary
+          hover:text-text-primary hover:border-text-muted
           transition-colors duration-200
-          focus:outline-none focus:ring-2 focus:ring-accent/50 focus:ring-offset-2 focus:ring-offset-chat
+          focus:outline-none focus:ring-2 focus:ring-text-muted/50 focus:ring-offset-2 focus:ring-offset-chat
           z-30
           ${className}
         `}
+      style={{ boxShadow: "var(--shadow-md)" }}
       aria-label={label}
       title={label}
       whileHover={{ scale: motionTokens.scale.pop }}
       whileTap={{ scale: motionTokens.scale.press }}
       transition={springs.snappy}
     >
-      <ArrowDown size={18} className="shrink-0" />
+      <ArrowDown size={16} className="shrink-0" />
       {hasNewMessages && (
-        <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full border-2 border-chat animate-pulse" />
+        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-chat animate-pulse" />
       )}
     </motion.button>
   );

@@ -289,7 +289,7 @@ function App() {
             exit={{ opacity: 0, x: 20 }}
             transition={{ ...springs.snappy, duration: 0.2 }}
           >
-            <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border/50 bg-chat/80 backdrop-blur-md">
+            <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border bg-chat/80 backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <motion.button
                   onClick={() => setSidebarOpen(true)}

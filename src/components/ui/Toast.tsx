@@ -15,9 +15,9 @@ interface ToastContainerProps {
 }
 
 const VARIANT_STYLES: Record<Toast["variant"], string> = {
-  error: "border-red-500/30 bg-red-500/10 text-red-400",
-  success: "border-green-500/30 bg-green-500/10 text-green-400",
-  info: "border-accent/30 bg-accent-soft text-text-secondary",
+  error: "border-red-500/25 bg-red-500/10 text-red-400",
+  success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
+  info: "border-border bg-surface text-text-primary",
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
@@ -44,7 +44,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       <p className="flex-1 text-sm leading-relaxed">{toast.message}</p>
       <button
         onClick={() => onDismiss(toast.id)}
-        className="shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors"
+        className="shrink-0 p-0.5 rounded hover:bg-hover transition-colors text-text-muted hover:text-text-primary"
         aria-label="Dismiss notification"
       >
         <X size={14} />

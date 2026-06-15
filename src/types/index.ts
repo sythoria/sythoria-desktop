@@ -129,16 +129,16 @@ export interface TitleGenerationConfig {
 }
 
 export const STATUS_COLORS: Record<ConnectionStatus, string> = {
-  disconnected: "bg-gray-400",
-  connecting: "bg-yellow-400 animate-pulse",
-  connected: "bg-green-500",
+  disconnected: "bg-zinc-500",
+  connecting: "bg-amber-400 animate-pulse",
+  connected: "bg-emerald-500",
   error: "bg-red-500",
 };
 
 export const MCP_STATUS_COLORS: Record<McpServerStatus, string> = {
-  disconnected: "bg-gray-400",
-  connecting: "bg-yellow-400 animate-pulse",
-  connected: "bg-green-500",
+  disconnected: "bg-zinc-500",
+  connecting: "bg-amber-400 animate-pulse",
+  connected: "bg-emerald-500",
   error: "bg-red-500",
 };
 

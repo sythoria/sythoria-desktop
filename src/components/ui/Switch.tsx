@@ -29,12 +29,13 @@ export function Switch({ checked, onChange, label, description }: SwitchProps) {
             onChange(!checked);
           }
         }}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-text-muted/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
           checked ? "bg-accent" : "bg-input-border"
         }`}
       >
         <motion.span
-          className="inline-block h-4 w-4 rounded-full bg-white shadow-sm"
+          className="inline-block h-4 w-4 rounded-full shadow-sm"
+          style={{ backgroundColor: checked ? "var(--theme-accent-foreground)" : "var(--theme-text-secondary)" }}
           animate={{
             x: checked ? 22 : 2,
           }}

@@ -28,11 +28,11 @@ const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
   { icon: React.ElementType; colorClass: string; label: string }
 > = {
-  thinking: { icon: Sparkles, colorClass: "text-purple-500", label: "Thinking" },
-  searching: { icon: Search, colorClass: "text-blue-500", label: "Searching" },
-  fetching: { icon: Globe, colorClass: "text-cyan-500", label: "Fetching" },
-  responding: { icon: Bot, colorClass: "text-accent", label: "Responding" },
-  mcp_executing: { icon: Wrench, colorClass: "text-orange-500", label: "Running MCP tool" },
+  thinking: { icon: Sparkles, colorClass: "text-text-muted", label: "Thinking" },
+  searching: { icon: Search, colorClass: "text-text-muted", label: "Searching" },
+  fetching: { icon: Globe, colorClass: "text-text-muted", label: "Fetching" },
+  responding: { icon: Bot, colorClass: "text-text-muted", label: "Responding" },
+  mcp_executing: { icon: Wrench, colorClass: "text-text-muted", label: "Running MCP tool" },
   error: { icon: Loader2, colorClass: "text-red-500", label: "Error" },
 };
 
@@ -66,7 +66,7 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
       transition={springs.gentle}
     >
       <div
-        className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-accent/10"}`}
+        className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-active"}`}
       >
         {state !== "error" ? (
           <Loader2 size={12} className={`animate-spin ${config.colorClass}`} />
@@ -133,7 +133,7 @@ function SyntaxCodeBlock({ code, language }: { code: string; language: string })
           whileTap={{ scale: motionTokens.scale.press }}
           transition={springs.snappy}
         >
-          {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+          {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
         </motion.button>
       </div>
@@ -220,7 +220,7 @@ function ActionButton({
     <motion.button
       onClick={onClick}
       className={`p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors flex items-center justify-center ${
-        active ? "text-accent" : ""
+        active ? "text-text-primary" : ""
       }`}
       aria-label={label}
       title={label}
@@ -262,7 +262,7 @@ function MessageActions({
     <div className="flex items-center gap-0.5 mt-1 -ml-1">
       <ActionButton
         icon={<Copy size={14} />}
-        activeIcon={<Check size={14} className="text-green-500" />}
+        activeIcon={<Check size={14} className="text-emerald-500" />}
         active={copied}
         label={copied ? "Copied" : "Copy"}
         onClick={handleCopy}
@@ -273,7 +273,7 @@ function MessageActions({
           <span className="w-px h-3.5 bg-border/50 mx-1" />
           <motion.button
             onClick={onSourceClick}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] text-text-muted hover:text-accent hover:bg-accent-soft transition-colors"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
             title={`${sources.length} source${sources.length !== 1 ? "s" : ""}`}
             whileHover={{ scale: motionTokens.scale.pop }}
             whileTap={{ scale: motionTokens.scale.press }}
@@ -293,7 +293,7 @@ function MessageActions({
 function SourcesList({ sources }: { sources: { title: string; url: string }[] }) {
   return (
     <motion.div
-      className="mt-1.5 p-2 rounded-lg bg-surface/50 border border-border/40"
+      className="mt-1.5 p-2 rounded-lg bg-surface border border-border"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4 }}
@@ -306,7 +306,7 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
             href={s.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-accent hover:bg-accent-soft border border-border/30 max-w-[200px] truncate transition-colors"
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-text-primary hover:bg-hover border border-border max-w-[200px] truncate transition-colors"
             title={s.title || s.url}
             whileHover={{ scale: motionTokens.scale.pop }}
             transition={springs.snappy}
@@ -341,22 +341,22 @@ function ToolCallDisplay({ message }: { message: Message }) {
     >
       <div
         className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
-          isCompleted ? "bg-green-500/10 border-green-500/20" : "bg-yellow-500/10 border-yellow-500/20"
+          isCompleted ? "bg-emerald-500/10 border-emerald-500/20" : "bg-amber-500/10 border-amber-500/20"
         }`}
         aria-hidden="true"
       >
         {isSearch ? (
-          <Search size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+          <Search size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
         ) : isFetch ? (
-          <Globe size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+          <Globe size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
         ) : (
-          <Wrench size={14} className={isCompleted ? "text-green-500" : "text-yellow-500"} />
+          <Wrench size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
         )}
       </div>
       <div className="flex-1 min-w-0">
         <div
           className={`flex items-center gap-1.5 text-xs font-medium ${
-            isCompleted ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"
+            isCompleted ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
           }`}
         >
           <span>
@@ -446,13 +446,17 @@ function LegacyToolResultDisplay({ message }: { message: Message }) {
       transition={springs.gentle}
     >
       <div
-        className="shrink-0 w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center mt-0.5"
+        className="shrink-0 w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
-        {isSearch ? <Search size={14} className="text-green-500" /> : <Globe size={14} className="text-green-500" />}
+        {isSearch ? (
+          <Search size={14} className="text-emerald-500" />
+        ) : (
+          <Globe size={14} className="text-emerald-500" />
+        )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
           <span>{isSearch ? "Search results" : "Page content"}</span>
           <button
             onClick={() => setExpanded(!expanded)}
@@ -489,19 +493,19 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
       transition={springs.gentle}
     >
       <div
-        className="shrink-0 w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mt-0.5"
+        className="shrink-0 w-7 h-7 rounded-lg bg-active border border-border flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
         {isStreaming ? (
-          <Loader2 size={14} className="animate-spin text-purple-500" />
+          <Loader2 size={14} className="animate-spin text-text-secondary" />
         ) : (
-          <Sparkles size={14} className="text-purple-500" />
+          <Sparkles size={14} className="text-text-secondary" />
         )}
       </div>
       <div className="flex-1 min-w-0">
         <motion.button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
           aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
           whileHover={{ x: 2 }}
           transition={springs.snappy}
@@ -511,7 +515,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
         </motion.button>
         {expanded ? (
           <motion.div
-            className="mt-1.5 p-2.5 rounded-lg bg-purple-500/5 border border-purple-500/15 text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
+            className="mt-1.5 p-2.5 rounded-lg bg-active border border-border text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             transition={springs.gentle}
@@ -624,10 +628,10 @@ const MessageBubble = memo(function MessageBubble({
       transition={springs.gentle}
     >
       <div
-        className="shrink-0 w-7 h-7 rounded-lg border bg-accent/10 border-accent/20 flex items-center justify-center mt-0.5"
+        className="shrink-0 w-7 h-7 rounded-lg border bg-active border-border flex items-center justify-center mt-0.5"
         aria-hidden="true"
       >
-        <Bot size={14} className="text-accent" />
+        <Bot size={14} className="text-text-secondary" />
       </div>
       <div className="max-w-[80%] text-sm text-text-primary leading-relaxed">
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
@@ -638,7 +642,7 @@ const MessageBubble = memo(function MessageBubble({
             animate={{ opacity: 1 }}
             transition={springs.gentle}
           >
-            <Loader2 size={14} className="text-accent animate-spin" />
+            <Loader2 size={14} className="text-text-secondary animate-spin" />
             <span className="text-xs text-text-muted font-medium">Thinking</span>
             <span className="generating-dots">
               <span />
@@ -696,13 +700,13 @@ export default function ChatArea({
       >
         <div className="flex flex-col items-center gap-4 px-4">
           <motion.div
-            className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center"
+            className="w-14 h-14 rounded-2xl bg-active border border-border flex items-center justify-center"
             aria-hidden="true"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ ...springs.bouncy, delay: 0.1 }}
           >
-            <Bot size={28} className="text-accent" />
+            <Bot size={28} className="text-text-secondary" />
           </motion.div>
           <motion.div
             className="text-center"
