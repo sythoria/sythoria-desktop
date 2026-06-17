@@ -1,8 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { ColorPickerInput } from "../components/ColorPickerInput";
 import { LIGHT_PRESETS, DARK_PRESETS, CustomThemeConfig, ThemeConfig } from "../../../config/themePresets";
+import { useUIStore } from "../../../store/useUIStore";
 
 interface AppearanceSectionProps {
   theme: ThemeConfig;
@@ -29,10 +30,14 @@ export const AppearanceSection = ({
   animationsDisabled,
   setAnimationsDisabled,
 }: AppearanceSectionProps) => {
+  const downloadedThemes = useUIStore((s) => s.downloadedThemes);
+  const mergedLightPresets = useMemo(() => ({ ...LIGHT_PRESETS, ...downloadedThemes.light }), [downloadedThemes.light]);
+  const mergedDarkPresets = useMemo(() => ({ ...DARK_PRESETS, ...downloadedThemes.dark }), [downloadedThemes.dark]);
+
   const handlePresetChange = useCallback(
     (themeType: "light" | "dark", presetName: string) => {
       if (presetName === "Custom") return;
-      const presets = themeType === "light" ? LIGHT_PRESETS : DARK_PRESETS;
+      const presets = themeType === "light" ? mergedLightPresets : mergedDarkPresets;
       const presetColors = presets[presetName];
       if (!presetColors) return;
 
@@ -44,7 +49,7 @@ export const AppearanceSection = ({
       };
       setTheme(newTheme);
     },
-    [theme, setTheme],
+    [theme, setTheme, mergedLightPresets, mergedDarkPresets],
   );
 
   const handleColorChange = useCallback(
@@ -55,7 +60,7 @@ export const AppearanceSection = ({
         [colorKey]: colorValue,
       };
 
-      const presets = themeType === "light" ? LIGHT_PRESETS : DARK_PRESETS;
+      const presets = themeType === "light" ? mergedLightPresets : mergedDarkPresets;
       const matchedPreset = Object.entries(presets).find(([_, p]) => {
         return (
           p.background.toLowerCase() === updatedThemeColors.background.toLowerCase() &&
@@ -72,7 +77,7 @@ export const AppearanceSection = ({
       };
       setTheme(newTheme);
     },
-    [theme, setTheme],
+    [theme, setTheme, mergedLightPresets, mergedDarkPresets],
   );
 
   return (
@@ -126,17 +131,17 @@ export const AppearanceSection = ({
           <span className="text-sm font-medium text-text-primary">Preset</span>
           <div className="relative w-[150px]">
             <select
-              value={getSelectedPreset(theme.lightTheme, LIGHT_PRESETS)}
+              value={getSelectedPreset(theme.lightTheme, mergedLightPresets)}
               onChange={(e) => handlePresetChange("light", e.target.value)}
               className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
               aria-label="Light Theme Preset"
             >
-              {Object.keys(LIGHT_PRESETS).map((pName) => (
+              {Object.keys(mergedLightPresets).map((pName) => (
                 <option key={pName} value={pName}>
                   {pName}
                 </option>
               ))}
-              {getSelectedPreset(theme.lightTheme, LIGHT_PRESETS) === "Custom" && (
+              {getSelectedPreset(theme.lightTheme, mergedLightPresets) === "Custom" && (
                 <option value="Custom">Custom</option>
               )}
             </select>
@@ -173,17 +178,19 @@ export const AppearanceSection = ({
           <span className="text-sm font-medium text-text-primary">Preset</span>
           <div className="relative w-[150px]">
             <select
-              value={getSelectedPreset(theme.darkTheme, DARK_PRESETS)}
+              value={getSelectedPreset(theme.darkTheme, mergedDarkPresets)}
               onChange={(e) => handlePresetChange("dark", e.target.value)}
               className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
               aria-label="Dark Theme Preset"
             >
-              {Object.keys(DARK_PRESETS).map((pName) => (
+              {Object.keys(mergedDarkPresets).map((pName) => (
                 <option key={pName} value={pName}>
                   {pName}
                 </option>
               ))}
-              {getSelectedPreset(theme.darkTheme, DARK_PRESETS) === "Custom" && <option value="Custom">Custom</option>}
+              {getSelectedPreset(theme.darkTheme, mergedDarkPresets) === "Custom" && (
+                <option value="Custom">Custom</option>
+              )}
             </select>
             <ChevronDown
               size={14}
