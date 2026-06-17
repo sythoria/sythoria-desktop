@@ -10,13 +10,16 @@ import { McpServerConfig } from "../../types";
 import { McpServerPreset } from "../../config/mcpPresets";
 import { springs, motionTokens } from "../../lib/motion-tokens";
 
+import { GeneralSection } from "./sections/GeneralSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
+import { MarketplaceSection } from "./sections/MarketplaceSection";
 import { ConfigurationSection } from "./sections/ConfigurationSection";
 import { PersonalizationSection } from "./sections/PersonalizationSection";
 import { ModelsSection } from "./sections/ModelsSection";
 import { BrowserSection } from "./sections/BrowserSection";
 import { McpSection } from "./sections/McpSection";
 import { LogsSection } from "./sections/LogsSection";
+import { KeybindsSection } from "./sections/KeybindsSection";
 import { SectionId } from "./types";
 
 export default function Settings() {
@@ -151,6 +154,8 @@ export default function Settings() {
             animate={{ opacity: 1, y: 0 }}
             transition={springs.gentle}
           >
+            {activeSection === "general" && <GeneralSection />}
+
             {activeSection === "appearance" && (
               <AppearanceSection
                 theme={theme}
@@ -159,6 +164,10 @@ export default function Settings() {
                 setAnimationsDisabled={setAnimationsDisabled}
               />
             )}
+
+            {activeSection === "marketplace" && <MarketplaceSection />}
+
+            {activeSection === "keybinds" && <KeybindsSection />}
 
             {activeSection === "configuration" && (
               <ConfigurationSection

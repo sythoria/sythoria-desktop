@@ -301,19 +301,19 @@
   color: var(--color-text-primary);
 }
 .markdown-body h1 {
-  font-size: 1.375rem;
+  font-size: 1.5em;
 }
 .markdown-body h2 {
-  font-size: 1.125rem;
+  font-size: 1.25em;
 }
 .markdown-body h3 {
-  font-size: 1rem;
+  font-size: 1.1em;
 }
 .markdown-body code {
   background: var(--theme-active);
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+  font-size: 0.9em;
   font-family: var(--font-mono);
   color: var(--color-text-primary);
 }
@@ -334,7 +334,7 @@
   border-radius: 0;
   color: var(--color-text-primary);
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: 0.85em;
   line-height: 1.6;
   overflow-x: auto;
 }
@@ -344,7 +344,7 @@
 .markdown-body .code-block-content {
   padding: 1rem;
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: 0.85em;
   line-height: 1.6;
   overflow-x: auto;
   white-space: pre;

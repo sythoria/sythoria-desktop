@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, memo, useCallback, useDeferredValue, isValidElement } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
+import { useUIStore } from "../store/useUIStore";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -479,6 +480,15 @@ const MessageBubble = memo(function MessageBubble({
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
+  const baseTextSize = useUIStore((s) => s.baseTextSize);
+  const textSizeClass =
+    {
+      small: "text-xs",
+      medium: "text-sm",
+      large: "text-base",
+      xlarge: "text-lg",
+    }[baseTextSize] || "text-sm";
+
   if (isTool) {
     return <ToolCallBubble message={message} />;
   }
@@ -503,7 +513,9 @@ const MessageBubble = memo(function MessageBubble({
             />
           )}
           {message.content.trim().length > 0 && (
-            <div className="bg-input rounded-[28px] rounded-br-md px-5 py-3 text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full">
+            <div
+              className={`bg-input rounded-[28px] rounded-br-md px-5 py-3 ${textSizeClass} text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full`}
+            >
               {message.content}
             </div>
           )}
@@ -539,7 +551,7 @@ const MessageBubble = memo(function MessageBubble({
       animate="visible"
       transition={springs.gentle}
     >
-      <div className="max-w-[85%] text-sm text-text-primary leading-relaxed w-full">
+      <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full`}>
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
           <motion.div
@@ -560,7 +572,7 @@ const MessageBubble = memo(function MessageBubble({
         {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (
           <GenerationIndicator state={generationState!} label={generationLabel!} />
         )}
-        <div className="markdown-body">
+        <div className={`markdown-body ${textSizeClass}`}>
           {displayContent.length > 0 ? <MessageContent content={displayContent} isStreaming={isStreaming} /> : null}
         </div>
         {!isStreaming && displayContent.length > 0 && (

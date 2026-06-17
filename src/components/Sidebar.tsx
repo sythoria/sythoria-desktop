@@ -21,6 +21,7 @@ import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
 import { SIDEBAR_WIDTH, COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
 import { useUIStore } from "../store/useUIStore";
+import { useKeybindStore } from "../store/useKeybindStore";
 import { SECTION_GROUPS, SectionId } from "./settings/types";
 import { springs, motionTokens } from "../lib/motion-tokens";
 
@@ -88,6 +89,21 @@ export default function Sidebar({
   const setView = useUIStore((s) => s.setView);
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
   const setActiveSection = useUIStore((s) => s.setActiveSection);
+
+  const zoomLevel = useKeybindStore((s) => s.zoomLevel);
+  const [showZoom, setShowZoom] = useState(false);
+  const prevZoom = useRef(zoomLevel);
+
+  useEffect(() => {
+    if (zoomLevel !== prevZoom.current) {
+      prevZoom.current = zoomLevel;
+      setShowZoom(true);
+      const timer = setTimeout(() => {
+        setShowZoom(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [zoomLevel]);
 
   const [isMobile, setIsMobile] = useState(false);
 
@@ -459,6 +475,20 @@ export default function Sidebar({
             </div>
           </>
         )}
+        <AnimatePresence>
+          {showZoom && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, scale: 0.95 }}
+              animate={{ opacity: 1, height: "auto", scale: 1 }}
+              exit={{ opacity: 0, height: 0, scale: 0.95 }}
+              transition={springs.snappy}
+              className="px-6 py-3 border-t border-border bg-accent-soft text-accent flex items-center justify-between text-xs font-semibold shrink-0"
+            >
+              <span>Scale / Zoom</span>
+              <span>{Math.round(zoomLevel * 100)}%</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.aside>
 
       <ConfirmModal

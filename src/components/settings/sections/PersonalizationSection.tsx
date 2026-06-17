@@ -4,6 +4,7 @@ import { ChevronDown, Check } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { springs } from "../../../lib/motion-tokens";
 import { DEFAULT_TITLE_SYSTEM_PROMPT, TitleGenerationConfig, ModelConfig } from "../../../types";
+import { useModelStore } from "../../../store/useModelStore";
 
 interface PersonalizationSectionProps {
   titleConfig: TitleGenerationConfig;
@@ -19,6 +20,8 @@ export const PersonalizationSection = ({
   enabledModels,
 }: PersonalizationSectionProps) => {
   const [titleModelDropdownOpen, setTitleModelDropdownOpen] = useState(false);
+  const systemPrompt = useModelStore((s) => s.systemPrompt);
+  const setSystemPrompt = useModelStore((s) => s.setSystemPrompt);
 
   return (
     <>
@@ -165,6 +168,36 @@ export const PersonalizationSection = ({
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">AI Behavior</h3>
+        <p className="text-xs text-text-muted">Configure the global instructions for the AI</p>
+      </div>
+      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+        <div className="space-y-2">
+          <label htmlFor="global-system-prompt" className="text-sm font-medium text-text-primary block">
+            System Prompt
+          </label>
+          <p className="text-xs text-text-muted mb-2">
+            Customize the instructions used to define the AI assistant&apos;s persona, tone, and constraints.
+          </p>
+          <textarea
+            id="global-system-prompt"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            rows={4}
+            placeholder="Customize the global instructions for the AI..."
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
+          />
+          {systemPrompt !== "" && (
+            <button
+              onClick={() => setSystemPrompt("")}
+              className="text-xs text-accent hover:text-accent-hover transition-colors"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
       </div>
     </>
   );

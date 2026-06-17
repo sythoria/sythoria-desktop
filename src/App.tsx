@@ -14,6 +14,7 @@ import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
+import { useKeybindStore, matchKeybind } from "./store/useKeybindStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
@@ -139,21 +140,119 @@ function App() {
 
   useEffect(() => {
     init();
+    useUIStore.getState().initDownloadedThemes();
+    useKeybindStore.getState().initKeybinds();
   }, [init]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && isStreaming) {
         stopStreaming();
+        return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+
+      const recording = useKeybindStore.getState().isRecording;
+      if (recording) return;
+
+      const active = document.activeElement;
+      let isInputActive = false;
+      if (active) {
+        const tag = active.tagName.toLowerCase();
+        isInputActive = tag === "input" || tag === "textarea" || active.hasAttribute("contenteditable");
+      }
+
+      const keys = useKeybindStore.getState().keybinds;
+
+      if (matchKeybind(e, keys.zoomIn.currentCombo)) {
+        e.preventDefault();
+        useKeybindStore.getState().zoomIn();
+      } else if (matchKeybind(e, keys.zoomOut.currentCombo)) {
+        e.preventDefault();
+        useKeybindStore.getState().zoomOut();
+      } else if (matchKeybind(e, keys.zoomReset.currentCombo)) {
+        e.preventDefault();
+        useKeybindStore.getState().zoomReset();
+      } else if (matchKeybind(e, keys.toggleSidebar.currentCombo)) {
         e.preventDefault();
         toggleSidebarCollapsed();
+      } else if (matchKeybind(e, keys.focusInput.currentCombo)) {
+        e.preventDefault();
+        document.getElementById("chat-input")?.focus();
+      } else if (matchKeybind(e, keys.openSearch.currentCombo)) {
+        e.preventDefault();
+        if (sidebarCollapsed) toggleSidebarCollapsed();
+        setView("chat");
+        setTimeout(() => {
+          document.getElementById("sidebar-search")?.focus();
+        }, 50);
+      } else if (matchKeybind(e, keys.newChat.currentCombo)) {
+        e.preventDefault();
+        newChat();
+        setView("chat");
+        setTimeout(() => {
+          document.getElementById("chat-input")?.focus();
+        }, 50);
+      } else if (matchKeybind(e, keys.goBack.currentCombo)) {
+        if (useChatStore.getState().navigationIndex > 0) {
+          e.preventDefault();
+          navigateBack();
+        }
+      } else if (matchKeybind(e, keys.goForward.currentCombo)) {
+        const chatState = useChatStore.getState();
+        if (
+          chatState.navigationIndex < chatState.navigationHistory.length - 1 &&
+          chatState.navigationHistory.length > 0
+        ) {
+          e.preventDefault();
+          navigateForward();
+        }
+      } else if (matchKeybind(e, keys.openFilePicker.currentCombo)) {
+        e.preventDefault();
+        document.getElementById("file-input-element")?.click();
+      } else if (matchKeybind(e, keys.prevChat.currentCombo)) {
+        if (isInputActive) {
+          if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
+        }
+        const currentConversations = useChatStore.getState().conversations;
+        const currentActiveId = useChatStore.getState().activeId;
+        const idx = currentConversations.findIndex((c) => c.id === currentActiveId);
+        if (idx > 0) {
+          e.preventDefault();
+          setActiveId(currentConversations[idx - 1].id);
+        }
+      } else if (matchKeybind(e, keys.nextChat.currentCombo)) {
+        if (isInputActive) {
+          if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
+        }
+        const currentConversations = useChatStore.getState().conversations;
+        const currentActiveId = useChatStore.getState().activeId;
+        const idx = currentConversations.findIndex((c) => c.id === currentActiveId);
+        if (idx >= 0 && idx < currentConversations.length - 1) {
+          e.preventDefault();
+          setActiveId(currentConversations[idx + 1].id);
+        }
+      } else if (matchKeybind(e, keys.openSettings.currentCombo)) {
+        e.preventDefault();
+        setView("settings");
+      } else if (matchKeybind(e, keys.toggleModel.currentCombo)) {
+        e.preventDefault();
+        document.getElementById("model-selector-button")?.click();
       }
     }
+
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isStreaming, stopStreaming, toggleSidebarCollapsed]);
+  }, [
+    isStreaming,
+    stopStreaming,
+    toggleSidebarCollapsed,
+    sidebarCollapsed,
+    setView,
+    newChat,
+    navigateBack,
+    navigateForward,
+    setActiveId,
+  ]);
 
   useEffect(() => {
     return () => {

@@ -3,13 +3,14 @@ import {
   Sun,
   Sliders,
   MessageSquareText,
-  Terminal,
+  Keyboard,
   Image,
   Cpu,
   Search,
   Plug,
   GitBranch,
   FileText,
+  Store,
 } from "lucide-react";
 
 export type SectionId =
@@ -17,7 +18,7 @@ export type SectionId =
   | "appearance"
   | "configuration"
   | "personalization"
-  | "shortcuts"
+  | "keybinds"
   | "appshots"
   | "mcp"
   | "browser"
@@ -28,6 +29,7 @@ export type SectionId =
   | "environments"
   | "worktrees"
   | "search"
+  | "marketplace"
   | "logs";
 
 export const SECTION_GROUPS = [
@@ -38,7 +40,8 @@ export const SECTION_GROUPS = [
       { id: "appearance", label: "Appearance", icon: Sun },
       { id: "configuration", label: "Configuration", icon: Sliders },
       { id: "personalization", label: "Personalization", icon: MessageSquareText },
-      { id: "shortcuts", label: "Keyboard shortcuts", icon: Terminal },
+      { id: "marketplace", label: "Theme Marketplace", icon: Store },
+      { id: "keybinds", label: "Keybinds", icon: Keyboard },
     ],
   },
   {

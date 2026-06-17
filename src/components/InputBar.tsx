@@ -21,6 +21,7 @@ import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
 import { formatFileSize } from "../utils/attachments";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { useAttachments } from "../hooks/useAttachments";
+import { useUIStore } from "../store/useUIStore";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -75,6 +76,9 @@ export default function InputBar({
 
   const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
     useAttachments();
+
+  const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
+  const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
 
   const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
@@ -152,12 +156,35 @@ export default function InputBar({
         return;
       }
 
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit();
+      if (clearInputOnEscape && e.key === "Escape") {
+        setValue("");
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (sendMessageShortcut === "ctrl-enter") {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            handleSubmit();
+          }
+        } else {
+          if (!e.shiftKey) {
+            e.preventDefault();
+            handleSubmit();
+          }
+        }
       }
     },
-    [modelOpen, plusOpen, focusedIndex, enabledModels, onModelChange, handleSubmit],
+    [
+      modelOpen,
+      plusOpen,
+      focusedIndex,
+      enabledModels,
+      onModelChange,
+      handleSubmit,
+      sendMessageShortcut,
+      clearInputOnEscape,
+    ],
   );
 
   useEffect(() => {
@@ -217,6 +244,7 @@ export default function InputBar({
         >
           {/* Hidden input element */}
           <input
+            id="file-input-element"
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
@@ -371,6 +399,7 @@ export default function InputBar({
             {/* Model selector */}
             <div ref={dropdownRef} className="relative shrink-0">
               <button
+                id="model-selector-button"
                 onClick={() => {
                   setModelOpen(!modelOpen);
                   setFocusedIndex(-1);
