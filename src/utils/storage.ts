@@ -4,6 +4,7 @@ import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation, TitleGenerationConfig, ModelConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
+import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -52,7 +53,20 @@ const ConversationSchema = z.object({
   model: z.string().default(""),
 });
 
-const ThemeSchema = z.enum(["light", "dark"]);
+const CustomThemeConfigSchema = z.object({
+  preset: z.string(),
+  background: z.string(),
+  foreground: z.string(),
+  accent: z.string(),
+});
+
+const ThemeConfigSchema = z.object({
+  mode: z.enum(["light", "dark", "system"]),
+  lightTheme: CustomThemeConfigSchema,
+  darkTheme: CustomThemeConfigSchema,
+});
+
+const ThemeSchema = z.union([z.enum(["light", "dark", "system"]), ThemeConfigSchema]);
 
 const ApiKeysSchema = z.record(z.string(), z.string());
 
@@ -77,6 +91,7 @@ const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
 const HAS_STARTED_KEY = "sythoria-has-started";
+const ANIMATIONS_DISABLED_KEY = "sythoria-animations-disabled";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -155,12 +170,21 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   }
 }
 
-export async function loadTheme(): Promise<"light" | "dark"> {
+export async function loadTheme(): Promise<ThemeConfig> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(THEME_KEY);
     const result = ThemeSchema.safeParse(raw);
-    if (result.success) return result.data;
+    if (result.success) {
+      const data = result.data;
+      if (typeof data === "string") {
+        return {
+          ...DEFAULT_THEME_CONFIG,
+          mode: data as "light" | "dark" | "system",
+        };
+      }
+      return data;
+    }
   } catch (e) {
     logError("storage", "Failed to load theme from secure store", {
       error: e,
@@ -168,12 +192,29 @@ export async function loadTheme(): Promise<"light" | "dark"> {
     });
   }
   const fallback = localStorage.getItem(THEME_KEY);
-  const result = ThemeSchema.safeParse(fallback);
-  if (result.success) return result.data;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  let parsedFallback: unknown = fallback;
+  if (fallback && (fallback.startsWith("{") || fallback.startsWith("["))) {
+    try {
+      parsedFallback = JSON.parse(fallback);
+    } catch {
+      // ignore
+    }
+  }
+  const result = ThemeSchema.safeParse(parsedFallback);
+  if (result.success) {
+    const data = result.data;
+    if (typeof data === "string") {
+      return {
+        ...DEFAULT_THEME_CONFIG,
+        mode: data as "light" | "dark" | "system",
+      };
+    }
+    return data;
+  }
+  return DEFAULT_THEME_CONFIG;
 }
 
-export async function saveTheme(theme: "light" | "dark"): Promise<void> {
+export async function saveTheme(theme: ThemeConfig): Promise<void> {
   try {
     const store = await getStore();
     await store.set(THEME_KEY, theme);
@@ -182,7 +223,7 @@ export async function saveTheme(theme: "light" | "dark"): Promise<void> {
       error: e,
       action: "Theme may not persist across sessions. Try restarting the app.",
     });
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(THEME_KEY, JSON.stringify(theme));
   }
 }
 
@@ -392,6 +433,26 @@ export async function saveHasStarted(started: boolean): Promise<void> {
     await store.set(HAS_STARTED_KEY, started);
   } catch (e) {
     logError("storage", "Failed to save hasStarted to store", { error: e });
+  }
+}
+
+export async function loadAnimationsDisabled(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<boolean>(ANIMATIONS_DISABLED_KEY);
+    if (raw === true) return true;
+  } catch (e) {
+    logError("storage", "Failed to load animationsDisabled from store", { error: e });
+  }
+  return false;
+}
+
+export async function saveAnimationsDisabled(disabled: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(ANIMATIONS_DISABLED_KEY, disabled);
+  } catch (e) {
+    logError("storage", "Failed to save animationsDisabled to store", { error: e });
   }
 }
 

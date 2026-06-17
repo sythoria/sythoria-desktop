@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { motion } from "motion/react";
 import { springs, motionTokens } from "../../lib/motion-tokens";
+import { useUIStore } from "../../store/useUIStore";
 
 interface MotionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "accent" | "ghost" | "danger";
@@ -11,12 +12,15 @@ const MotionButton = forwardRef<HTMLButtonElement, MotionButtonProps>(function M
   { children, className = "", variant: _variant, size: _size, disabled, ...props },
   ref,
 ) {
+  const disabledAnimations = useUIStore((s) => s.animationsDisabled);
+  const shouldAnimate = !disabled && !disabledAnimations;
+
   return (
     <motion.button
       ref={ref}
       disabled={disabled}
-      whileHover={disabled ? undefined : { scale: motionTokens.scale.pop }}
-      whileTap={disabled ? undefined : { scale: motionTokens.scale.press }}
+      whileHover={shouldAnimate ? { scale: motionTokens.scale.pop } : undefined}
+      whileTap={shouldAnimate ? { scale: motionTokens.scale.press } : undefined}
       transition={springs.snappy}
       className={className}
       {...(props as Record<string, unknown>)}

@@ -1,0 +1,242 @@
+import { memo } from "react";
+import { motion } from "motion/react";
+import { Trash2, ChevronDown, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { SearchApiConfig, SearchProvider } from "../../../types";
+import { SEARCH_PROVIDER_PRESETS } from "../../../config/searchPresets";
+import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { validateSearchApiKey } from "../../../utils/validation";
+
+interface SearchApiCardProps {
+  config: SearchApiConfig;
+  onUpdate: (id: string, updates: Partial<SearchApiConfig>) => void;
+  onDelete: (id: string) => void;
+  showKey: boolean;
+  onToggleKey: (id: string) => void;
+}
+
+export const SearchApiCard = memo(function SearchApiCard({
+  config,
+  onUpdate,
+  onDelete,
+  showKey,
+  onToggleKey,
+}: SearchApiCardProps) {
+  const keyValidation = validateSearchApiKey(config.apiKey, config.provider);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springs.gentle}
+      className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">Enabled</p>
+          <p className="text-xs text-text-muted mt-0.5">Show in search API selector</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enabled}
+            aria-label="Toggle search API enabled"
+            onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
+            onKeyDown={(e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onUpdate(config.id, { enabled: !config.enabled });
+              }
+            }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
+              config.enabled ? "bg-accent" : "bg-input-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full transition duration-200 shadow-sm ${
+                config.enabled ? "translate-x-6" : "translate-x-1"
+              }`}
+              style={{
+                backgroundColor: config.enabled ? "var(--theme-accent-foreground)" : "#ffffff",
+              }}
+              aria-hidden="true"
+            />
+          </button>
+          <motion.button
+            onClick={() => onDelete(config.id)}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
+            className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            aria-label={`Delete search API ${config.name}`}
+          >
+            <Trash2 size={16} />
+          </motion.button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`search-name-${config.id}`}>
+              Name
+            </label>
+            <input
+              id={`search-name-${config.id}`}
+              type="text"
+              value={config.name}
+              onChange={(e) => onUpdate(config.id, { name: e.target.value })}
+              placeholder="e.g. Google Search"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`search-provider-${config.id}`}>
+              Provider
+            </label>
+            <div className="relative">
+              <select
+                id={`search-provider-${config.id}`}
+                value={config.provider}
+                onChange={(e) => {
+                  const provider = e.target.value as SearchProvider;
+                  const preset = SEARCH_PROVIDER_PRESETS.find((p) => p.provider === provider);
+                  if (preset) {
+                    onUpdate(config.id, {
+                      provider,
+                      baseUrl: preset.baseUrl || config.baseUrl,
+                      name: config.name === "New Search API" ? preset.label : config.name,
+                      maxResults: preset.defaultMaxResults,
+                    });
+                  } else {
+                    onUpdate(config.id, { provider });
+                  }
+                }}
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+                aria-label="Search provider"
+              >
+                {SEARCH_PROVIDER_PRESETS.map((p) => (
+                  <option key={p.provider} value={p.provider}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={14}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-text-muted" htmlFor={`search-base-${config.id}`}>
+            Base URL
+          </label>
+          <input
+            id={`search-base-${config.id}`}
+            type="url"
+            value={config.baseUrl}
+            onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
+            placeholder={
+              config.provider === "google"
+                ? "https://www.googleapis.com/customsearch/v1"
+                : config.provider === "searxng"
+                  ? "http://localhost:8080"
+                  : config.provider === "firecrawl"
+                    ? "https://api.firecrawl.dev/v1"
+                    : "https://example.com/search"
+            }
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+          />
+        </div>
+
+        {(config.provider === "google" || config.provider === "firecrawl" || config.provider === "custom") && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`search-key-${config.id}`}>
+              API Key{config.provider === "custom" ? " (optional)" : ""}
+            </label>
+            <div className="relative">
+              <input
+                id={`search-key-${config.id}`}
+                type={showKey ? "text" : "password"}
+                value={config.apiKey || ""}
+                onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
+                placeholder={
+                  config.provider === "google"
+                    ? "Google API Key"
+                    : config.provider === "custom"
+                      ? "API Key (optional)"
+                      : "API Key"
+                }
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
+                  !keyValidation.valid
+                    ? "border-yellow-500/50 focus:border-yellow-500"
+                    : "border-input-border focus:border-accent/50"
+                }`}
+              />
+              <button
+                onClick={() => onToggleKey(config.id)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
+                aria-label={showKey ? "Hide API key" : "Show API key"}
+              >
+                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            {!keyValidation.valid && (
+              <p className="flex items-center gap-1 text-[11px] text-yellow-500 mt-0.5" role="alert">
+                <AlertCircle size={11} />
+                {keyValidation.warning}
+              </p>
+            )}
+          </div>
+        )}
+
+        {config.provider === "google" && (
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`search-cx-${config.id}`}>
+              Custom Search Engine ID (CX)
+            </label>
+            <input
+              id={`search-cx-${config.id}`}
+              type="text"
+              value={config.cx || ""}
+              onChange={(e) => onUpdate(config.id, { cx: e.target.value })}
+              placeholder="e.g. a1b2c3d4e5f6g7h8i"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+            />
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-text-muted" htmlFor={`search-results-${config.id}`}>
+            Max Results
+          </label>
+          <input
+            id={`search-results-${config.id}`}
+            type="number"
+            min={1}
+            max={20}
+            value={config.maxResults}
+            onChange={(e) => onUpdate(config.id, { maxResults: parseInt(e.target.value) || 5 })}
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+          />
+        </div>
+      </div>
+    </motion.div>
+  );
+});

@@ -19,12 +19,14 @@ import {
   RotateCw,
   Terminal,
   FileText as FileTextIcon,
+  AtSign,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState, Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
+import { parseReasoning } from "../utils/messageParser";
 import { Modal } from "./ui/Modal";
 
 const GENERATION_STATE_CONFIG: Record<
@@ -324,7 +326,7 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
 }
 
 function ToolCallDisplay({ message }: { message: Message }) {
-  const { name, arguments: args } = message.toolCall!;
+  const { name } = message.toolCall!;
   const isSearch = name === "search_query";
   const isFetch = name === "fetch_url";
   const isMcp = name.includes("__");
@@ -332,155 +334,41 @@ function ToolCallDisplay({ message }: { message: Message }) {
 
   const mcpParts = isMcp ? name.split("__") : [];
   const mcpToolName = mcpParts.length > 1 ? mcpParts.slice(1).join("__") : name;
-  const mcpServerName = mcpParts[0] ?? "";
 
   return (
     <motion.div
-      className="flex items-start gap-2"
+      className="flex items-center gap-2 mb-1.5 text-text-muted"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
       transition={springs.gentle}
     >
-      <div
-        className={`shrink-0 w-7 h-7 rounded-lg border flex items-center justify-center mt-0.5 ${
-          isCompleted ? "bg-emerald-500/10 border-emerald-500/20" : "bg-amber-500/10 border-amber-500/20"
-        }`}
-        aria-hidden="true"
-      >
-        {isSearch ? (
-          <Search size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
-        ) : isFetch ? (
-          <Globe size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
-        ) : (
-          <Wrench size={14} className={isCompleted ? "text-emerald-500" : "text-amber-500"} />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div
-          className={`flex items-center gap-1.5 text-xs font-medium ${
-            isCompleted ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
-          }`}
-        >
-          <span>
-            {isCompleted
-              ? isSearch
-                ? "Search results"
-                : isFetch
-                  ? "Page content"
-                  : isMcp
-                    ? `Tool result: ${mcpToolName}`
-                    : "Tool result"
-              : isSearch
-                ? "Searching"
-                : isFetch
-                  ? "Fetching"
-                  : isMcp
-                    ? `Running: ${mcpToolName} via ${mcpServerName}`
-                    : "Calling tool"}
-          </span>
-          {!isCompleted && <Loader2 size={12} className="animate-spin" />}
-        </div>
-        {isCompleted ? (
-          <ToolResultContent message={message} />
-        ) : (
-          <p className="text-xs text-text-muted mt-0.5 font-mono truncate">
-            {isSearch && args.query
-              ? `"${args.query}"`
-              : isFetch && args.url
-                ? args.url
-                : isMcp
-                  ? `${mcpToolName}(${Object.values(args).join(", ")})`
-                  : JSON.stringify(args)}
-          </p>
-        )}
-      </div>
+      <AtSign size={14} className="shrink-0" aria-hidden="true" />
+      <span className="text-sm">
+        {isCompleted
+          ? isSearch
+            ? "Search results"
+            : isFetch
+              ? "Page content"
+              : isMcp
+                ? `Run: ${mcpToolName}`
+                : "Tool result"
+          : isSearch
+            ? "Searching..."
+            : isFetch
+              ? "Fetching..."
+              : isMcp
+                ? `Running: ${mcpToolName}...`
+                : "Calling tool..."}
+      </span>
+      {!isCompleted && <Loader2 size={12} className="animate-spin ml-1" />}
     </motion.div>
-  );
-}
-
-function ToolResultContent({ message }: { message: Message }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div>
-      <motion.button
-        onClick={() => setExpanded(!expanded)}
-        className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1 mt-0.5"
-        aria-label={expanded ? "Collapse" : "Expand"}
-        whileHover={{ x: 2 }}
-        transition={springs.snappy}
-      >
-        <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-        {expanded ? "Hide details" : "Show details"}
-      </motion.button>
-      {expanded && (
-        <motion.div
-          className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto"
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          transition={springs.gentle}
-        >
-          <pre className="whitespace-pre-wrap break-words font-mono text-[10px]">{message.content.slice(0, 2000)}</pre>
-        </motion.div>
-      )}
-    </div>
   );
 }
 
 function ToolCallBubble({ message }: { message: Message }) {
   if (message.toolCall) return <ToolCallDisplay message={message} />;
-  if (message.toolResult) return <LegacyToolResultDisplay message={message} />;
   return null;
-}
-
-function LegacyToolResultDisplay({ message }: { message: Message }) {
-  const { name } = message.toolResult!;
-  const isSearch = name === "search_query";
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <motion.div
-      className="flex items-start gap-2"
-      variants={messageVariants}
-      initial="hidden"
-      animate="visible"
-      transition={springs.gentle}
-    >
-      <div
-        className="shrink-0 w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mt-0.5"
-        aria-hidden="true"
-      >
-        {isSearch ? (
-          <Search size={14} className="text-emerald-500" />
-        ) : (
-          <Globe size={14} className="text-emerald-500" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-          <span>{isSearch ? "Search results" : "Page content"}</span>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-text-muted hover:text-text-secondary"
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
-            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </button>
-        </div>
-        {expanded ? (
-          <div className="mt-1 p-2 rounded-lg bg-input border border-input-border text-xs text-text-muted overflow-x-auto max-h-48 overflow-y-auto">
-            <pre className="whitespace-pre-wrap break-words font-mono text-[10px]">
-              {message.content.slice(0, 2000)}
-            </pre>
-          </div>
-        ) : (
-          <p className="text-[10px] text-text-muted mt-0.5 truncate">{message.content.slice(0, 120)}...</p>
-        )}
-      </div>
-    </motion.div>
-  );
 }
 
 function ReasoningBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
@@ -489,26 +377,17 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
 
   return (
     <motion.div
-      className="flex items-start gap-2 mb-2"
+      className="flex items-start gap-2 mb-2 text-text-muted"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
       transition={springs.gentle}
     >
-      <div
-        className="shrink-0 w-7 h-7 rounded-lg bg-active border border-border flex items-center justify-center mt-0.5"
-        aria-hidden="true"
-      >
-        {isStreaming ? (
-          <Loader2 size={14} className="animate-spin text-text-secondary" />
-        ) : (
-          <Sparkles size={14} className="text-text-secondary" />
-        )}
-      </div>
+      <Sparkles size={14} className="mt-1 shrink-0" aria-hidden="true" />
       <div className="flex-1 min-w-0">
         <motion.button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors"
+          className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
           aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
           whileHover={{ x: 2 }}
           transition={springs.snappy}
@@ -518,12 +397,12 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
         </motion.button>
         {expanded ? (
           <motion.div
-            className="mt-1.5 p-2.5 rounded-lg bg-active border border-border text-xs text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
+            className="mt-1.5 p-2.5 rounded-xl bg-input text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             transition={springs.gentle}
           >
-            <p className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+            <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
               {content || "Thinking..."}
             </p>
           </motion.div>
@@ -533,11 +412,6 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
             <span />
             <span />
           </span>
-        ) : hasContent ? (
-          <p className="text-[10px] text-text-muted mt-0.5 truncate italic">
-            {content.slice(0, 120)}
-            {content.length > 120 && "..."}
-          </p>
         ) : null}
       </div>
     </motion.div>
@@ -601,11 +475,7 @@ const MessageBubble = memo(function MessageBubble({
 }) {
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
-  const hasOpenReasoning =
-    message.role === "assistant" &&
-    (message.content.includes("<reasoning>") ||
-      message.content.includes("<thinking>") ||
-      message.content.includes("<thought>"));
+  const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(message.content, message.role);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
 
@@ -633,7 +503,7 @@ const MessageBubble = memo(function MessageBubble({
             />
           )}
           {message.content.trim().length > 0 && (
-            <div className="glass-panel rounded-2xl rounded-br-md px-4 py-3 text-sm text-text-primary leading-relaxed shadow-sm whitespace-pre-wrap break-words w-full">
+            <div className="bg-input rounded-[28px] rounded-br-md px-5 py-3 text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full">
               {message.content}
             </div>
           )}
@@ -656,36 +526,12 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  let reasoningContent = "";
-  let displayContent = message.content;
-  if (hasOpenReasoning) {
-    const reasoningMatch =
-      message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/) ||
-      message.content.match(/<thinking>([\s\S]*?)<\/thinking>/) ||
-      message.content.match(/<thought>([\s\S]*?)<\/thought>/);
-    if (reasoningMatch) {
-      reasoningContent = reasoningMatch[1].trim();
-      displayContent = message.content
-        .replace(/<(?:reasoning|thinking|thought)>[\s\S]*?<\/(?:reasoning|thinking|thought)>/, "")
-        .trim();
-    } else {
-      const openMatch =
-        message.content.match(/<reasoning>([\s\S]*)/) ||
-        message.content.match(/<thinking>([\s\S]*)/) ||
-        message.content.match(/<thought>([\s\S]*)/);
-      if (openMatch) {
-        reasoningContent = openMatch[1].trim();
-        displayContent = message.content.replace(/<(?:reasoning|thinking|thought)>[\s\S]*/, "").trim();
-      }
-    }
-  }
-
   const isStreaming = !!message.isStreaming;
   const showGenerationIndicator = isLastAssistant && isStreaming && generationState && generationState !== "idle";
 
   return (
     <motion.div
-      className="flex justify-start gap-3 group"
+      className="flex justify-start group"
       role="article"
       aria-label={`Assistant message${isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
       variants={messageVariants}
@@ -693,13 +539,7 @@ const MessageBubble = memo(function MessageBubble({
       animate="visible"
       transition={springs.gentle}
     >
-      <div
-        className="shrink-0 w-7 h-7 rounded-lg border bg-active border-border flex items-center justify-center mt-0.5"
-        aria-hidden="true"
-      >
-        <Bot size={14} className="text-text-secondary" />
-      </div>
-      <div className="max-w-[80%] text-sm text-text-primary leading-relaxed">
+      <div className="max-w-[85%] text-sm text-text-primary leading-relaxed w-full">
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
           <motion.div
@@ -766,22 +606,12 @@ export default function ChatArea({
       >
         <div className="flex flex-col items-center gap-4 px-4">
           <motion.div
-            className="w-14 h-14 rounded-2xl bg-active border border-border flex items-center justify-center"
-            aria-hidden="true"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ ...springs.bouncy, delay: 0.1 }}
-          >
-            <Bot size={28} className="text-text-secondary" />
-          </motion.div>
-          <motion.div
             className="text-center"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springs.gentle, delay: 0.2 }}
           >
-            <h1 className="text-2xl font-bold tracking-tight text-text-primary">Sythoria</h1>
-            <p className="text-text-muted text-sm mt-1">Your intelligent AI assistant</p>
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">What should we work on?</h1>
           </motion.div>
         </div>
       </motion.div>
@@ -865,12 +695,12 @@ function NonVirtualizedChatArea({
     <div
       ref={scrollContainerRef}
       data-chat-scroll
-      className="flex-1 overflow-y-auto px-4 md:px-0 relative"
+      className="flex-1 overflow-y-auto px-8 md:px-12 relative"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div className="max-w-3xl mx-auto py-8 space-y-6">
+      <div className="max-w-4xl mx-auto w-full px-8 md:px-12 py-8 space-y-6">
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}

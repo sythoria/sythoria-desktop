@@ -24,6 +24,7 @@ import {
   loadMcpConfigs,
   loadMcpEnvSecrets,
   loadHasStarted,
+  loadAnimationsDisabled,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
@@ -136,10 +137,14 @@ interface ChatState {
   isStreaming: boolean;
   generationState: GenerationState;
   generationLabel: string;
+  navigationHistory: string[];
+  navigationIndex: number;
 
   init: () => Promise<void>;
   cleanupEmptyConversations: () => void;
-  setActiveId: (id: string | null) => void;
+  setActiveId: (id: string | null, isHistoryMove?: boolean) => void;
+  navigateBack: () => void;
+  navigateForward: () => void;
   newChat: () => string;
   deleteChat: (id: string) => void;
   renameChat: (id: string, newTitle: string) => void;
@@ -162,6 +167,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   generationState: "idle" as GenerationState,
   generationLabel: "",
+  navigationHistory: [],
+  navigationIndex: -1,
 
   init: async () => {
     if (initInProgress) return;
@@ -178,6 +185,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedTitleCfg,
         loadedMcpConfigs,
         loadedMcpEnvSecrets,
+        loadedAnimationsDisabled,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -188,6 +196,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadTitleConfig(),
         loadMcpConfigs(),
         loadMcpEnvSecrets(),
+        loadAnimationsDisabled(),
       ]);
 
       const models = loadedModels || [];
@@ -221,9 +230,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
       });
 
+      const initialActiveId = nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null;
       set({
         conversations: nonEmptyConvs,
-        activeId: nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null,
+        activeId: initialActiveId,
+        navigationHistory: initialActiveId ? [initialActiveId] : [],
+        navigationIndex: initialActiveId ? 0 : -1,
       });
 
       const storedHasStarted = await loadHasStarted();
@@ -231,7 +243,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiConfigLoaded(true);
       uiTheme(loadedTheme);
 
-      document.documentElement.classList.toggle("dark", loadedTheme === "dark");
+      useUIStore.setState({ animationsDisabled: loadedAnimationsDisabled });
+      document.documentElement.classList.toggle("animations-disabled", loadedAnimationsDisabled);
       logInfo("chat", "App state initialized", {
         details: `Loaded ${modelsWithKeys.length} models, ${nonEmptyConvs.length} conversations, ${searchConfigs.length} search configs, ${mcpConfigs.length} MCP servers`,
       });
@@ -262,11 +275,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  setActiveId: (id) => {
-    const { activeId } = get();
+  setActiveId: (id, isHistoryMove = false) => {
+    const { activeId, navigationHistory, navigationIndex } = get();
     if (activeId === id) return;
     get().cleanupEmptyConversations();
-    set({ activeId: id });
+
+    if (!isHistoryMove) {
+      const newHistory = navigationHistory.slice(0, navigationIndex + 1);
+      if (id !== null) {
+        newHistory.push(id);
+      }
+      set({
+        activeId: id,
+        navigationHistory: newHistory,
+        navigationIndex: newHistory.length - 1,
+      });
+    } else {
+      set({ activeId: id });
+    }
+  },
+
+  navigateBack: () => {
+    const { navigationHistory, navigationIndex } = get();
+    if (navigationIndex > 0) {
+      const newIndex = navigationIndex - 1;
+      const id = navigationHistory[newIndex];
+      set({ navigationIndex: newIndex });
+      get().setActiveId(id, true);
+      uiView("chat");
+      uiSidebarOpen(false);
+    }
+  },
+
+  navigateForward: () => {
+    const { navigationHistory, navigationIndex } = get();
+    if (navigationIndex < navigationHistory.length - 1) {
+      const newIndex = navigationIndex + 1;
+      const id = navigationHistory[newIndex];
+      set({ navigationIndex: newIndex });
+      get().setActiveId(id, true);
+      uiView("chat");
+      uiSidebarOpen(false);
+    }
   },
 
   newChat: () => {
@@ -280,20 +330,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       model: modelConfig?.id || selectedModel,
     };
-    set((state) => ({
-      conversations: [conv, ...state.conversations],
-      activeId: id,
-    }));
+    set((state) => {
+      const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
+      newHistory.push(id);
+      return {
+        conversations: [conv, ...state.conversations],
+        activeId: id,
+        navigationHistory: newHistory,
+        navigationIndex: newHistory.length - 1,
+      };
+    });
     uiSidebarOpen(false);
     uiView("chat");
     return id;
   },
 
   deleteChat: (id) => {
-    set((state) => ({
-      conversations: state.conversations.filter((c) => c.id !== id),
-      activeId: state.activeId === id ? null : state.activeId,
-    }));
+    set((state) => {
+      const newHistory = state.navigationHistory.filter((x) => x !== id);
+      let newIndex = state.navigationIndex;
+      const oldActiveIndex = state.navigationHistory.indexOf(id);
+      if (oldActiveIndex !== -1) {
+        if (newIndex >= oldActiveIndex) {
+          newIndex = Math.max(0, newIndex - 1);
+        }
+      }
+      if (newIndex >= newHistory.length) {
+        newIndex = newHistory.length - 1;
+      }
+      const nextActiveId = state.activeId === id ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
+
+      return {
+        conversations: state.conversations.filter((c) => c.id !== id),
+        activeId: nextActiveId,
+        navigationHistory: newHistory,
+        navigationIndex: newIndex,
+      };
+    });
     get().persistConversations();
   },
 

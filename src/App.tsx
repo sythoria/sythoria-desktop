@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeft, MessageSquarePlus, ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
-import Settings from "./components/Settings";
-import StartScreen from "./components/StartScreen";
+import Settings from "./components/settings";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
@@ -17,20 +16,24 @@ import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
+import { useScrollTracking } from "./hooks/useScrollTracking";
 import { springs, motionTokens } from "./lib/motion-tokens";
 
 import "./index.css";
 
 function App() {
-  const { conversations, activeId, isStreaming, generationState, generationLabel } = useChatStore(
-    useShallow((s) => ({
-      conversations: s.conversations,
-      activeId: s.activeId,
-      isStreaming: s.isStreaming,
-      generationState: s.generationState,
-      generationLabel: s.generationLabel,
-    })),
-  );
+  const { conversations, activeId, isStreaming, generationState, generationLabel, navigationHistory, navigationIndex } =
+    useChatStore(
+      useShallow((s) => ({
+        conversations: s.conversations,
+        activeId: s.activeId,
+        isStreaming: s.isStreaming,
+        generationState: s.generationState,
+        generationLabel: s.generationLabel,
+        navigationHistory: s.navigationHistory,
+        navigationIndex: s.navigationIndex,
+      })),
+    );
   const {
     init,
     setActiveId,
@@ -41,6 +44,8 @@ function App() {
     retryLastMessage,
     exportChat,
     confirmRename,
+    navigateBack,
+    navigateForward,
   } = useChatStore(
     useShallow((s) => ({
       init: s.init,
@@ -52,6 +57,8 @@ function App() {
       retryLastMessage: s.retryLastMessage,
       exportChat: s.exportChat,
       confirmRename: s.confirmRename,
+      navigateBack: s.navigateBack,
+      navigateForward: s.navigateForward,
     })),
   );
 
@@ -96,48 +103,30 @@ function App() {
     [enabledServerIds, toggleServerEnabled],
   );
 
-  const {
-    sidebarOpen,
-    sidebarCollapsed,
-    hasStarted,
-    isConfigLoaded,
-    view,
-    showRenameModal,
-    renameCurrentTitle,
-    loading,
-    toasts,
-  } = useUIStore(
-    useShallow((s) => ({
-      sidebarOpen: s.sidebarOpen,
-      sidebarCollapsed: s.sidebarCollapsed,
-      hasStarted: s.hasStarted,
-      isConfigLoaded: s.isConfigLoaded,
-      view: s.view,
-      showRenameModal: s.showRenameModal,
-      renameCurrentTitle: s.renameCurrentTitle,
-      loading: s.loading,
-      toasts: s.toasts,
-    })),
-  );
-  const {
-    setSidebarOpen,
-    toggleSidebarCollapsed,
-    setView,
-    setHasStarted,
-    openRenameModal,
-    closeRenameModal,
-    dismissToast,
-  } = useUIStore(
-    useShallow((s) => ({
-      setSidebarOpen: s.setSidebarOpen,
-      toggleSidebarCollapsed: s.toggleSidebarCollapsed,
-      setView: s.setView,
-      setHasStarted: s.setHasStarted,
-      openRenameModal: s.openRenameModal,
-      closeRenameModal: s.closeRenameModal,
-      dismissToast: s.dismissToast,
-    })),
-  );
+  const { sidebarOpen, sidebarCollapsed, isConfigLoaded, view, showRenameModal, renameCurrentTitle, loading, toasts } =
+    useUIStore(
+      useShallow((s) => ({
+        sidebarOpen: s.sidebarOpen,
+        sidebarCollapsed: s.sidebarCollapsed,
+        isConfigLoaded: s.isConfigLoaded,
+        view: s.view,
+        showRenameModal: s.showRenameModal,
+        renameCurrentTitle: s.renameCurrentTitle,
+        loading: s.loading,
+        toasts: s.toasts,
+      })),
+    );
+  const { setSidebarOpen, toggleSidebarCollapsed, setView, openRenameModal, closeRenameModal, dismissToast } =
+    useUIStore(
+      useShallow((s) => ({
+        setSidebarOpen: s.setSidebarOpen,
+        toggleSidebarCollapsed: s.toggleSidebarCollapsed,
+        setView: s.setView,
+        openRenameModal: s.openRenameModal,
+        closeRenameModal: s.closeRenameModal,
+        dismissToast: s.dismissToast,
+      })),
+    );
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -146,27 +135,7 @@ function App() {
   const messages = activeConversation?.messages ?? [];
 
   const { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef } = useScrollButton();
-
-  const [hasNewMessages, setHasNewMessages] = useState(false);
-  const prevMessageCountRef = useRef(0);
-
-  useEffect(() => {
-    if (activeId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHasNewMessages(false);
-    }
-  }, [activeId]);
-
-  useEffect(() => {
-    if (messages.length > prevMessageCountRef.current && !isAtBottom && !isStreaming) {
-      setHasNewMessages(true);
-    }
-    if (isAtBottom) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHasNewMessages(false);
-    }
-    prevMessageCountRef.current = messages.length;
-  }, [messages.length, isAtBottom, isStreaming]);
+  const { hasNewMessages, setHasNewMessages } = useScrollTracking(activeId, messages.length, isAtBottom, isStreaming);
 
   useEffect(() => {
     init();
@@ -191,10 +160,6 @@ function App() {
       useChatStore.getState().cleanup();
     };
   }, []);
-
-  const handleStart = useCallback(() => {
-    setHasStarted(true);
-  }, [setHasStarted]);
 
   const handleNewChat = useCallback(() => {
     return newChat();
@@ -224,7 +189,7 @@ function App() {
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();
     setHasNewMessages(false);
-  }, [scrollToBottom]);
+  }, [scrollToBottom, setHasNewMessages]);
 
   const handleRetry = useCallback(() => {
     if (activeId) retryLastMessage(activeId);
@@ -245,113 +210,178 @@ function App() {
     );
   }
 
-  if (!hasStarted) {
-    return <StartScreen onStart={handleStart} />;
-  }
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-chat">
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={handleSelectConversation}
-        onNewChat={handleNewChat}
-        onSettingsClick={handleSettingsClick}
-        onDeleteChat={handleDeleteChat}
-        onRenameChat={openRenameModal}
-        onExportChat={exportChat}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        modelStatuses={modelStatuses}
-        isCollapsed={sidebarCollapsed}
-        onToggleCollapse={toggleSidebarCollapsed}
-      />
+    <div className="flex h-screen w-screen overflow-hidden bg-transparent">
+      <div className="flex flex-1 overflow-hidden rounded-[18px] border-[12px] border-white/5 relative glass-app-container">
+        {!(view === "settings" && !sidebarCollapsed) && (
+          <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-[80px]" data-tauri-drag-region>
+            <div className="flex items-center gap-1 h-full">
+              <button
+                onClick={toggleSidebarCollapsed}
+                className="hidden md:flex p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                <PanelLeft size={16} />
+              </button>
 
-      <AnimatePresence mode="wait">
-        {view === "settings" ? (
-          <motion.div
-            key="settings"
-            className="flex-1 flex flex-col min-w-0 overflow-hidden"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ ...springs.snappy, duration: 0.2 }}
-          >
-            <Settings />
-          </motion.div>
-        ) : (
-          <motion.main
-            key="chat"
-            className="flex-1 flex flex-col min-w-0 relative bg-chat"
-            aria-label="Chat area"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ ...springs.snappy, duration: 0.2 }}
-          >
-            <header className="shrink-0 flex items-center justify-between px-4 py-3 md:px-6 border-b border-border bg-chat/80 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <motion.button
+              {!sidebarOpen && (
+                <button
                   onClick={() => setSidebarOpen(true)}
-                  className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                  className="flex md:hidden p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
                   aria-label="Open sidebar"
-                  whileHover={{ scale: motionTokens.scale.pop }}
-                  whileTap={{ scale: motionTokens.scale.press }}
-                  transition={springs.snappy}
+                  title="Open sidebar"
                 >
-                  <Menu size={18} />
-                </motion.button>
-                <motion.h2
-                  className="text-sm font-medium text-text-secondary truncate"
-                  key={activeConversation?.id ?? "empty"}
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={springs.gentle}
+                  <Menu size={16} />
+                </button>
+              )}
+
+              {/* History navigation arrows */}
+              <div className="hidden md:flex items-center gap-0.5 mx-1">
+                <button
+                  onClick={navigateBack}
+                  disabled={!(navigationIndex > 0)}
+                  className={`p-1 rounded-md transition-colors ${
+                    navigationIndex > 0
+                      ? "text-text-secondary hover:bg-hover cursor-pointer"
+                      : "text-text-muted/30 cursor-not-allowed"
+                  }`}
+                  aria-label="Navigate back"
+                  title="Back"
                 >
-                  {activeConversation?.title ?? "Sythoria"}
-                </motion.h2>
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  onClick={navigateForward}
+                  disabled={!(navigationIndex < navigationHistory.length - 1 && navigationHistory.length > 0)}
+                  className={`p-1 rounded-md transition-colors ${
+                    navigationIndex < navigationHistory.length - 1 && navigationHistory.length > 0
+                      ? "text-text-secondary hover:bg-hover cursor-pointer"
+                      : "text-text-muted/30 cursor-not-allowed"
+                  }`}
+                  aria-label="Navigate forward"
+                  title="Forward"
+                >
+                  <ChevronRight size={16} />
+                </button>
               </div>
 
-              <div className="flex items-center gap-2" />
-            </header>
-
-            <ChatArea
-              messages={messages}
-              setIsAtBottom={setIsAtBottom}
-              virtuosoRef={virtuosoRef}
-              onRetry={handleRetry}
-              generationState={generationState}
-              generationLabel={generationLabel}
-            />
-
-            <motion.div
-              className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
-              transition={{ duration: motionTokens.duration.fast }}
-              initial={false}
-            >
-              <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
-            </motion.div>
-
-            <InputBar
-              models={models}
-              onSend={sendMessage}
-              selectedModel={selectedModel}
-              onModelChange={setSelectedModel}
-              disabled={isStreaming}
-              modelStatuses={modelStatuses}
-              isSearchEnabled={isSearchEnabled}
-              onToggleSearch={toggleSearchEnabled}
-              mcpServers={mcpConfigs}
-              mcpServerStatuses={serverStatuses}
-              enabledMcpServerIds={enabledServerIds}
-              onToggleMcpServer={handleToggleMcpServer}
-              isStreaming={isStreaming}
-              onStop={stopStreaming}
-              centered={messages.length === 0}
-            />
-          </motion.main>
+              <AnimatePresence>
+                {sidebarCollapsed && (
+                  <motion.button
+                    key="new-chat-btn"
+                    initial={{ opacity: 0, scale: 0.8, x: -10 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.8, x: -10 }}
+                    transition={{ duration: motionTokens.duration.fast }}
+                    onClick={handleNewChat}
+                    className="hidden md:flex p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
+                    aria-label="Start new chat"
+                    title="New Chat"
+                  >
+                    <MessageSquarePlus size={16} />
+                  </motion.button>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+
+        <Sidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={handleSelectConversation}
+          onNewChat={handleNewChat}
+          onSettingsClick={handleSettingsClick}
+          onDeleteChat={handleDeleteChat}
+          onRenameChat={openRenameModal}
+          onExportChat={exportChat}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          modelStatuses={modelStatuses}
+          isCollapsed={sidebarCollapsed}
+        />
+
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-chat">
+          <AnimatePresence mode="wait">
+            {view === "settings" ? (
+              <motion.div
+                key="settings"
+                className="flex-1 flex flex-col min-w-0 overflow-hidden"
+                initial={{ opacity: 0, y: 6, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
+              >
+                <Settings />
+              </motion.div>
+            ) : (
+              <motion.main
+                key="chat"
+                className="flex-1 flex flex-col min-w-0 relative"
+                aria-label="Chat area"
+                initial={{ opacity: 0, y: -6, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 6, scale: 0.99 }}
+                transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
+              >
+                <header
+                  className="shrink-0 flex items-center justify-between px-4 py-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-10 pt-6"
+                  data-tauri-drag-region
+                >
+                  <div className="absolute left-1/2 -translate-x-1/2">
+                    <motion.h2
+                      className="text-sm font-medium text-text-secondary"
+                      key={activeConversation?.id ?? "empty"}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={springs.gentle}
+                    >
+                      {activeConversation?.title ?? "what is on my screen"}
+                    </motion.h2>
+                  </div>
+                  <div className="flex items-center gap-2"></div>
+                </header>
+
+                <ChatArea
+                  messages={messages}
+                  setIsAtBottom={setIsAtBottom}
+                  virtuosoRef={virtuosoRef}
+                  onRetry={handleRetry}
+                  generationState={generationState}
+                  generationLabel={generationLabel}
+                />
+
+                <motion.div
+                  className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+                  transition={{ duration: motionTokens.duration.fast }}
+                  initial={false}
+                >
+                  <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+                </motion.div>
+
+                <InputBar
+                  models={models}
+                  onSend={sendMessage}
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
+                  disabled={isStreaming}
+                  modelStatuses={modelStatuses}
+                  isSearchEnabled={isSearchEnabled}
+                  onToggleSearch={toggleSearchEnabled}
+                  mcpServers={mcpConfigs}
+                  mcpServerStatuses={serverStatuses}
+                  enabledMcpServerIds={enabledServerIds}
+                  onToggleMcpServer={handleToggleMcpServer}
+                  isStreaming={isStreaming}
+                  onStop={stopStreaming}
+                  centered={messages.length === 0}
+                />
+              </motion.main>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
       <AnimatePresence>
         {showRenameModal && (

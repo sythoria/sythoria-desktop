@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Send,
   Plus,
   Paperclip,
   ChevronDown,
@@ -13,13 +12,15 @@ import {
   X,
   Image as ImageIcon,
   FileText as FileTextIcon,
+  ArrowUp,
 } from "lucide-react";
 import { STATUS_COLORS, ModelConfig, McpServerConfig, McpServerStatus, Attachment } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
-import { useUIStore } from "../store/useUIStore";
-import { validateFile, readFileAsAttachment, formatFileSize } from "../utils/attachments";
+
+import { formatFileSize } from "../utils/attachments";
 import { springs, motionTokens } from "../lib/motion-tokens";
+import { useAttachments } from "../hooks/useAttachments";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -72,49 +73,8 @@ export default function InputBar({
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAddFiles = useCallback(
-    async (files: File[]) => {
-      const newAttachments = [...attachments];
-      const addToast = useUIStore.getState().addToast;
-
-      for (const file of files) {
-        // Check for duplicate by name and size
-        const isDuplicate = newAttachments.some((a) => a.name === file.name && a.size === file.size);
-        if (isDuplicate) {
-          continue;
-        }
-
-        const valResult = validateFile(file, newAttachments.length);
-        if (!valResult.ok) {
-          addToast(valResult.reason || "Invalid file", "error");
-          continue;
-        }
-
-        try {
-          const attachment = await readFileAsAttachment(file);
-          newAttachments.push(attachment);
-        } catch {
-          addToast(`Failed to read "${file.name}"`, "error");
-        }
-      }
-      setAttachments(newAttachments);
-    },
-    [attachments],
-  );
-
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const files = Array.from(e.target.files);
-      await handleAddFiles(files);
-      e.target.value = ""; // reset input so the same file can be selected again
-    },
-    [handleAddFiles],
-  );
+  const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
+    useAttachments();
 
   const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
@@ -165,7 +125,7 @@ export default function InputBar({
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [canSend, trimmed, attachments, onSend]);
+  }, [canSend, trimmed, attachments, onSend, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -227,7 +187,7 @@ export default function InputBar({
           : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
       }`}
     >
-      <div className="max-w-3xl mx-auto w-full px-4 md:px-0">
+      <div className={`w-full max-w-4xl mx-auto px-8 md:px-12 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
@@ -249,10 +209,10 @@ export default function InputBar({
               await handleAddFiles(Array.from(e.dataTransfer.files));
             }
           }}
-          className={`flex flex-col items-stretch glass-panel rounded-2xl px-3 py-2.5 transition-all focus-within:border-text-muted ${
-            isOverLimit ? "border-red-500/50" : ""
+          className={`flex flex-col items-stretch bg-input rounded-3xl px-4 py-3 transition-all focus-within:ring-1 focus-within:ring-border ${
+            isOverLimit ? "ring-red-500/50" : ""
           } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
-            isDragging ? "border-accent bg-active/40 scale-[1.01]" : ""
+            isDragging ? "ring-accent bg-active/40 scale-[1.01]" : ""
           }`}
         >
           {/* Hidden input element */}
@@ -310,7 +270,7 @@ export default function InputBar({
             <div ref={plusDropdownRef} className="relative shrink-0">
               <button
                 onClick={() => setPlusOpen(!plusOpen)}
-                className={`p-2 rounded-lg transition-colors flex items-center justify-center ${
+                className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
                   anyToolActive
                     ? "text-text-primary bg-active"
                     : "text-text-muted hover:text-text-secondary hover:bg-hover"
@@ -319,7 +279,7 @@ export default function InputBar({
                 aria-expanded={plusOpen}
                 aria-haspopup="menu"
               >
-                <Plus size={18} />
+                <Plus size={20} />
               </button>
 
               <AnimatePresence>
@@ -400,12 +360,12 @@ export default function InputBar({
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder={`Message ${currentModel?.name ?? "Sythoria"}…`}
+              placeholder="Ask for follow-up changes..."
               rows={1}
               disabled={disabled}
               aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
               aria-invalid={isOverLimit}
-              className={`flex-1 min-w-0 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-400" : ""}`}
+              className={`flex-1 min-w-0 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""}`}
             />
 
             {/* Model selector */}
@@ -425,9 +385,9 @@ export default function InputBar({
                   title={STATUS_LABELS[currentStatus] ?? currentStatus}
                   aria-hidden="true"
                 />
-                <span className="truncate">{currentModel?.name || "No Model"}</span>
+                <span className="truncate">{currentModel?.name || "5.4-Mini High"}</span>
                 <ChevronDown
-                  size={13}
+                  size={14}
                   className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
                   aria-hidden="true"
                 />
@@ -491,14 +451,14 @@ export default function InputBar({
             <button
               onClick={isStreaming ? onStop : handleSubmit}
               disabled={!isStreaming && !canSend}
-              className={`shrink-0 p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
+              className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
                 isStreaming
                   ? "bg-red-500/90 hover:bg-red-600 text-white"
-                  : "bg-accent hover:bg-accent-hover text-accent-foreground disabled:bg-input disabled:text-text-muted"
+                  : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
               }`}
               aria-label={isStreaming ? "Stop generating" : "Send message"}
             >
-              {isStreaming ? <Square size={15} className="fill-current" /> : <Send size={15} />}
+              {isStreaming ? <Square size={16} className="fill-current" /> : <ArrowUp size={16} strokeWidth={2.5} />}
             </button>
           </div>
         </div>
@@ -508,7 +468,7 @@ export default function InputBar({
           className="mt-2 text-center text-[11px] text-text-muted"
         >
           {isOverLimit ? (
-            <span className="text-red-400" role="alert">
+            <span className="text-red-600 dark:text-red-400" role="alert">
               Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
             </span>
           ) : isStreaming ? (

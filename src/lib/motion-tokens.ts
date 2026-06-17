@@ -1,10 +1,15 @@
+import { useUIStore } from "../store/useUIStore";
+
 export const motionTokens = {
-  duration: {
-    instant: 0.08,
-    fast: 0.18,
-    normal: 0.35,
-    slow: 0.6,
-    crawl: 1.0,
+  get duration() {
+    const disabled = useUIStore.getState().animationsDisabled;
+    return {
+      instant: disabled ? 0 : 0.08,
+      fast: disabled ? 0 : 0.18,
+      normal: disabled ? 0 : 0.35,
+      slow: disabled ? 0 : 0.6,
+      crawl: disabled ? 0 : 1.0,
+    };
   },
   easing: {
     smooth: [0.22, 1, 0.36, 1] as [number, number, number, number],
@@ -19,19 +24,42 @@ export const motionTokens = {
     lg: 24,
     xl: 48,
   },
-  scale: {
-    subtle: 0.98,
-    press: 0.95,
-    pop: 1.04,
+  get scale() {
+    const disabled = useUIStore.getState().animationsDisabled;
+    return {
+      subtle: disabled ? 1 : 0.98,
+      press: disabled ? 1 : 0.95,
+      pop: disabled ? 1 : 1.04,
+    };
   },
 };
 
 export const springs = {
-  snappy: { type: "spring" as const, stiffness: 300, damping: 30 },
-  gentle: { type: "spring" as const, stiffness: 120, damping: 14 },
-  bouncy: { type: "spring" as const, stiffness: 400, damping: 10 },
-  instant: { type: "spring" as const, stiffness: 600, damping: 35 },
-  release: { type: "spring" as const, stiffness: 200, damping: 20, restDelta: 0.001 },
+  get snappy() {
+    return useUIStore.getState().animationsDisabled
+      ? { type: "tween" as const, duration: 0 }
+      : { type: "spring" as const, stiffness: 300, damping: 30 };
+  },
+  get gentle() {
+    return useUIStore.getState().animationsDisabled
+      ? { type: "tween" as const, duration: 0 }
+      : { type: "spring" as const, stiffness: 120, damping: 14 };
+  },
+  get bouncy() {
+    return useUIStore.getState().animationsDisabled
+      ? { type: "tween" as const, duration: 0 }
+      : { type: "spring" as const, stiffness: 400, damping: 10 };
+  },
+  get instant() {
+    return useUIStore.getState().animationsDisabled
+      ? { type: "tween" as const, duration: 0 }
+      : { type: "spring" as const, stiffness: 600, damping: 35 };
+  },
+  get release() {
+    return useUIStore.getState().animationsDisabled
+      ? { type: "tween" as const, duration: 0 }
+      : { type: "spring" as const, stiffness: 200, damping: 20, restDelta: 0.001 };
+  },
 };
 
 export const motionConfig = {
@@ -42,11 +70,14 @@ export const motionConfig = {
     return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   },
   shouldAnimate({ essential = false } = {}) {
+    if (useUIStore.getState().animationsDisabled) return false;
     if (this.prefersReduced()) return false;
     if (!essential && this.isLowEnd()) return false;
     return true;
   },
   duration() {
-    return this.isLowEnd() || this.prefersReduced() ? motionTokens.duration.instant : motionTokens.duration.normal;
+    return useUIStore.getState().animationsDisabled || this.isLowEnd() || this.prefersReduced()
+      ? 0
+      : motionTokens.duration.normal;
   },
 };

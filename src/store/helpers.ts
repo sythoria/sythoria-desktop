@@ -1,4 +1,4 @@
-import { useUIStore } from "./useUIStore";
+import { useUIStore, ThemeConfig } from "./useUIStore";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
 import { useMcpStore } from "./useMcpStore";
@@ -22,7 +22,7 @@ export function uiHasStarted(started: boolean) {
   useUIStore.getState().setHasStarted(started);
 }
 
-export function uiTheme(theme: "light" | "dark") {
+export function uiTheme(theme: ThemeConfig) {
   useUIStore.getState().setTheme(theme);
 }
 

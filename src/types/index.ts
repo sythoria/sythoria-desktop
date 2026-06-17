@@ -157,4 +157,11 @@ export const MCP_STATUS_COLORS: Record<McpServerStatus, string> = {
   error: "bg-red-500",
 };
 
+export const MCP_STATUS_LABELS: Record<McpServerStatus, string> = {
+  disconnected: "Disconnected",
+  connecting: "Connecting\u2026",
+  connected: "Connected",
+  error: "Error",
+};
+
 export type ModelStatuses = Record<string, ConnectionStatus>;

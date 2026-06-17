@@ -1012,6 +1012,17 @@ async fn mcp_call_tool(
 pub fn run() {
     init_keyring_store();
     tauri::Builder::default()
+        .setup(|app| {
+            let window = app.get_webview_window("main").unwrap();
+
+            #[cfg(target_os = "macos")]
+            let _ = window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, Some(16.0));
+
+            #[cfg(target_os = "windows")]
+            let _ = window_vibrancy::apply_blur(&window, Some((18, 18, 18, 125)));
+
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(

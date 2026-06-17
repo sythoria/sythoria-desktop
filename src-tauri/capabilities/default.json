@@ -18,6 +18,7 @@
     },
     "opener:default",
     "store:default",
-    "log:default"
+    "log:default",
+    "core:window:allow-start-dragging"
   ]
 }

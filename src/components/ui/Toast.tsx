@@ -15,8 +15,8 @@ interface ToastContainerProps {
 }
 
 const VARIANT_STYLES: Record<Toast["variant"], string> = {
-  error: "border-red-500/25 bg-red-500/10 text-red-400",
-  success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
+  error: "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
+  success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   info: "border-border bg-surface text-text-primary",
 };
 
