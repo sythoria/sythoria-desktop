@@ -1,9 +1,32 @@
 import { create } from "zustand";
-import { loadHasStarted, saveHasStarted, saveTheme, saveAnimationsDisabled } from "../utils/storage";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  loadHasStarted,
+  saveHasStarted,
+  saveTheme,
+  saveAnimationsDisabled,
+  loadDownloadedThemes,
+  saveDownloadedThemes,
+  DownloadedThemes,
+  saveAlwaysOnTop,
+  saveCloseToTray,
+  saveLaunchOnStartup,
+  saveSendMessageShortcut,
+  saveClearInputOnEscape,
+  saveBaseTextSize,
+  saveAutoUpdateChecking,
+} from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
-import { ThemeConfig, DEFAULT_THEME_CONFIG, applyTheme } from "../config/themePresets";
-export type { ThemeConfig };
+import {
+  ThemeConfig,
+  DEFAULT_THEME_CONFIG,
+  applyTheme,
+  CustomThemeConfig,
+  LIGHT_PRESETS,
+  DARK_PRESETS,
+} from "../config/themePresets";
+export type { ThemeConfig, CustomThemeConfig };
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
 
@@ -24,6 +47,14 @@ interface UIState {
   logFilterSource: LogSource | "all";
   logFilterLevel: "all" | "info" | "warn" | "error";
   animationsDisabled: boolean;
+  downloadedThemes: DownloadedThemes;
+  alwaysOnTop: boolean;
+  closeToTray: boolean;
+  launchOnStartup: boolean;
+  sendMessageShortcut: "enter" | "ctrl-enter";
+  clearInputOnEscape: boolean;
+  baseTextSize: "small" | "medium" | "large" | "xlarge";
+  autoUpdateChecking: boolean;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -42,6 +73,16 @@ interface UIState {
   setLogFilterSource: (source: LogSource | "all") => void;
   setLogFilterLevel: (level: "all" | "info" | "warn" | "error") => void;
   setAnimationsDisabled: (disabled: boolean) => void;
+  downloadTheme: (type: "light" | "dark", name: string, config: CustomThemeConfig) => void;
+  deleteTheme: (type: "light" | "dark", name: string) => void;
+  initDownloadedThemes: () => Promise<void>;
+  setAlwaysOnTop: (value: boolean) => void;
+  setCloseToTray: (value: boolean) => void;
+  setLaunchOnStartup: (value: boolean) => void;
+  setSendMessageShortcut: (value: "enter" | "ctrl-enter") => void;
+  setClearInputOnEscape: (value: boolean) => void;
+  setBaseTextSize: (value: "small" | "medium" | "large" | "xlarge") => void;
+  setAutoUpdateChecking: (value: boolean) => void;
 }
 
 let toastCounter = 0;
@@ -70,6 +111,14 @@ export const useUIStore = create<UIState>((set) => ({
   logFilterSource: "all",
   logFilterLevel: "all",
   animationsDisabled: false,
+  downloadedThemes: { light: {}, dark: {} },
+  alwaysOnTop: false,
+  closeToTray: false,
+  launchOnStartup: false,
+  sendMessageShortcut: "enter",
+  clearInputOnEscape: false,
+  baseTextSize: "medium",
+  autoUpdateChecking: true,
 
   setView: (view) => set({ view }),
   setTheme: (theme) => {
@@ -110,6 +159,91 @@ export const useUIStore = create<UIState>((set) => ({
     set({ animationsDisabled: disabled });
     document.documentElement.classList.toggle("animations-disabled", disabled);
     saveAnimationsDisabled(disabled);
+  },
+  downloadTheme: (type, name, config) => {
+    set((s) => {
+      const updated = {
+        ...s.downloadedThemes,
+        [type]: {
+          ...s.downloadedThemes[type],
+          [name]: config,
+        },
+      };
+      saveDownloadedThemes(updated);
+      return { downloadedThemes: updated };
+    });
+  },
+  deleteTheme: (type, name) => {
+    set((s) => {
+      const updatedThemes = { ...s.downloadedThemes[type] };
+      delete updatedThemes[name];
+
+      const updated = {
+        ...s.downloadedThemes,
+        [type]: updatedThemes,
+      };
+      saveDownloadedThemes(updated);
+
+      // If currently active, reset to default theme preset
+      const currentTheme = s.theme;
+      const isCurrentlyApplied =
+        (type === "light" && currentTheme.lightTheme.preset === name) ||
+        (type === "dark" && currentTheme.darkTheme.preset === name);
+
+      if (isCurrentlyApplied) {
+        const defaultPreset = type === "light" ? LIGHT_PRESETS["Default Light"] : DARK_PRESETS["Default Dark"];
+        const newTheme = {
+          ...currentTheme,
+          [type === "light" ? "lightTheme" : "darkTheme"]: {
+            ...defaultPreset,
+          },
+        };
+        applyTheme(newTheme);
+        saveTheme(newTheme);
+        return { downloadedThemes: updated, theme: newTheme };
+      }
+
+      return { downloadedThemes: updated };
+    });
+  },
+  initDownloadedThemes: async () => {
+    const stored = await loadDownloadedThemes();
+    set({ downloadedThemes: stored });
+  },
+  setAlwaysOnTop: (value) => {
+    set({ alwaysOnTop: value });
+    try {
+      getCurrentWindow()
+        .setAlwaysOnTop(value)
+        .catch(() => {});
+    } catch (e) {
+      console.warn("Could not set always-on-top:", e);
+    }
+    saveAlwaysOnTop(value);
+  },
+  setCloseToTray: (value) => {
+    set({ closeToTray: value });
+    saveCloseToTray(value);
+  },
+  setLaunchOnStartup: (value) => {
+    set({ launchOnStartup: value });
+    saveLaunchOnStartup(value);
+  },
+  setSendMessageShortcut: (value) => {
+    set({ sendMessageShortcut: value });
+    saveSendMessageShortcut(value);
+  },
+  setClearInputOnEscape: (value) => {
+    set({ clearInputOnEscape: value });
+    saveClearInputOnEscape(value);
+  },
+  setBaseTextSize: (value) => {
+    set({ baseTextSize: value });
+    saveBaseTextSize(value);
+  },
+  setAutoUpdateChecking: (value) => {
+    set({ autoUpdateChecking: value });
+    saveAutoUpdateChecking(value);
   },
 }));
 

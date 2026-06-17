@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { saveModelConfigs, saveApiKeys, saveTitleConfig } from "../utils/storage";
+import { saveModelConfigs, saveApiKeys, saveTitleConfig, saveSystemPrompt } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { DEFAULT_TEMPERATURE } from "../config/constants";
@@ -69,6 +69,7 @@ interface ModelState {
   apiKeys: Record<string, string>;
   modelStatuses: ModelStatuses;
   titleConfig: TitleGenerationConfig;
+  systemPrompt: string;
 
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
@@ -81,6 +82,7 @@ interface ModelState {
   stopHealthCheck: () => void;
   persistApiKeys: () => Promise<void>;
   setTitleConfig: (updates: Partial<TitleGenerationConfig>) => void;
+  setSystemPrompt: (prompt: string) => void;
 
   getActiveStreamId: () => string | null;
   setActiveStreamId: (id: string | null, convId?: string | null) => void;
@@ -99,6 +101,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   apiKeys: {},
   modelStatuses: {},
   titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
+  systemPrompt: "",
 
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
@@ -313,6 +316,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const newConfig = { ...titleConfig, ...updates };
     set({ titleConfig: newConfig });
     saveTitleConfig(newConfig);
+  },
+
+  setSystemPrompt: (prompt) => {
+    set({ systemPrompt: prompt });
+    saveSystemPrompt(prompt);
   },
 
   getActiveStreamId: () => activeStreamId,

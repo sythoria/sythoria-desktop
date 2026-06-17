@@ -66,6 +66,13 @@ const ThemeConfigSchema = z.object({
   darkTheme: CustomThemeConfigSchema,
 });
 
+export const DownloadedThemesSchema = z.object({
+  light: z.record(z.string(), CustomThemeConfigSchema),
+  dark: z.record(z.string(), CustomThemeConfigSchema),
+});
+
+export type DownloadedThemes = z.infer<typeof DownloadedThemesSchema>;
+
 const ThemeSchema = z.union([z.enum(["light", "dark", "system"]), ThemeConfigSchema]);
 
 const ApiKeysSchema = z.record(z.string(), z.string());
@@ -83,6 +90,17 @@ const SearchConfigSchema = z.object({
 
 const SearchConfigsArraySchema = z.array(SearchConfigSchema);
 
+const KeybindActionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  defaultCombo: z.string(),
+  currentCombo: z.string(),
+});
+
+export const KeybindsSchema = z.record(z.string(), KeybindActionSchema);
+export type KeybindsData = z.infer<typeof KeybindsSchema>;
+
 const CONVERSATIONS_KEY = "sythoria-conversations";
 const THEME_KEY = "sythoria-theme";
 const API_KEYS_KEY = "sythoria-api-keys";
@@ -92,6 +110,17 @@ const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
 const HAS_STARTED_KEY = "sythoria-has-started";
 const ANIMATIONS_DISABLED_KEY = "sythoria-animations-disabled";
+const DOWNLOADED_THEMES_KEY = "sythoria-downloaded-themes";
+const KEYBINDS_KEY = "sythoria-keybinds";
+const ZOOM_LEVEL_KEY = "sythoria-zoom-level";
+const ALWAYS_ON_TOP_KEY = "sythoria-always-on-top";
+const CLOSE_TO_TRAY_KEY = "sythoria-close-to-tray";
+const LAUNCH_ON_STARTUP_KEY = "sythoria-launch-on-startup";
+const SEND_MESSAGE_SHORTCUT_KEY = "sythoria-send-message-shortcut";
+const CLEAR_INPUT_ON_ESCAPE_KEY = "sythoria-clear-input-on-escape";
+const BASE_TEXT_SIZE_KEY = "sythoria-base-text-size";
+const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
+const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -225,6 +254,101 @@ export async function saveTheme(theme: ThemeConfig): Promise<void> {
     });
     localStorage.setItem(THEME_KEY, JSON.stringify(theme));
   }
+}
+
+export async function loadDownloadedThemes(): Promise<DownloadedThemes> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(DOWNLOADED_THEMES_KEY);
+    const result = DownloadedThemesSchema.safeParse(raw);
+    if (result.success) return result.data;
+  } catch (e) {
+    logError("storage", "Failed to load downloaded themes from secure store", { error: e });
+  }
+  const fallback = localStorage.getItem(DOWNLOADED_THEMES_KEY);
+  if (fallback) {
+    try {
+      const parsed = JSON.parse(fallback);
+      const result = DownloadedThemesSchema.safeParse(parsed);
+      if (result.success) return result.data;
+    } catch {
+      // Ignore parsing errors and fall back to empty theme sets
+    }
+  }
+  return { light: {}, dark: {} };
+}
+
+export async function saveDownloadedThemes(themes: DownloadedThemes): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(DOWNLOADED_THEMES_KEY, themes);
+  } catch (e) {
+    logError("storage", "Failed to save downloaded themes to secure store", { error: e });
+    localStorage.setItem(DOWNLOADED_THEMES_KEY, JSON.stringify(themes));
+  }
+}
+
+export async function loadKeybinds(): Promise<KeybindsData | null> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(KEYBINDS_KEY);
+    const result = KeybindsSchema.safeParse(raw);
+    if (result.success) return result.data;
+  } catch (e) {
+    logError("storage", "Failed to load keybinds from secure store", { error: e });
+  }
+  const fallback = localStorage.getItem(KEYBINDS_KEY);
+  if (fallback) {
+    try {
+      const parsed = JSON.parse(fallback);
+      const result = KeybindsSchema.safeParse(parsed);
+      if (result.success) return result.data;
+    } catch {
+      // Ignore parsing errors and fall back
+    }
+  }
+  return null;
+}
+
+export async function saveKeybinds(keybinds: KeybindsData): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(KEYBINDS_KEY, keybinds);
+  } catch (e) {
+    logError("storage", "Failed to save keybinds to secure store", { error: e });
+    localStorage.setItem(KEYBINDS_KEY, JSON.stringify(keybinds));
+  }
+}
+
+export async function loadZoomLevel(): Promise<number> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(ZOOM_LEVEL_KEY);
+    if (typeof raw === "number") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load zoom level from secure store", { error: e });
+  }
+  const fallback = localStorage.getItem(ZOOM_LEVEL_KEY);
+  if (fallback) {
+    const num = parseFloat(fallback);
+    if (!isNaN(num)) return num;
+  }
+  return 1.0;
+}
+
+export async function saveZoomLevel(level: number): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(ZOOM_LEVEL_KEY, level);
+  } catch (e) {
+    logError("storage", "Failed to save zoom level to secure store", { error: e });
+    localStorage.setItem(ZOOM_LEVEL_KEY, level.toString());
+  }
+}
+
+export function applyZoom(level: number) {
+  if (typeof document === "undefined") return;
+  (document.body.style as CSSStyleDeclaration & { zoom?: string }).zoom = level.toString();
 }
 
 export async function loadApiKeys(): Promise<Record<string, string>> {
@@ -606,4 +730,188 @@ export async function saveModelConfigs(configs: ModelConfig[]) {
       action: "Model configuration may not persist. Re-enter in Settings > Models.",
     });
   }
+}
+
+export async function loadAlwaysOnTop(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(ALWAYS_ON_TOP_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load always on top setting", { error: e });
+  }
+  const fallback = localStorage.getItem(ALWAYS_ON_TOP_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveAlwaysOnTop(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(ALWAYS_ON_TOP_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save always on top setting", { error: e });
+  }
+  localStorage.setItem(ALWAYS_ON_TOP_KEY, String(value));
+}
+
+export async function loadCloseToTray(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(CLOSE_TO_TRAY_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load close to tray setting", { error: e });
+  }
+  const fallback = localStorage.getItem(CLOSE_TO_TRAY_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveCloseToTray(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(CLOSE_TO_TRAY_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save close to tray setting", { error: e });
+  }
+  localStorage.setItem(CLOSE_TO_TRAY_KEY, String(value));
+}
+
+export async function loadLaunchOnStartup(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(LAUNCH_ON_STARTUP_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load launch on startup setting", { error: e });
+  }
+  const fallback = localStorage.getItem(LAUNCH_ON_STARTUP_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveLaunchOnStartup(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(LAUNCH_ON_STARTUP_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save launch on startup setting", { error: e });
+  }
+  localStorage.setItem(LAUNCH_ON_STARTUP_KEY, String(value));
+}
+
+export async function loadSendMessageShortcut(): Promise<"enter" | "ctrl-enter"> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SEND_MESSAGE_SHORTCUT_KEY);
+    if (raw === "enter" || raw === "ctrl-enter") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load send message shortcut setting", { error: e });
+  }
+  const fallback = localStorage.getItem(SEND_MESSAGE_SHORTCUT_KEY);
+  if (fallback === "enter" || fallback === "ctrl-enter") return fallback;
+  return "enter";
+}
+
+export async function saveSendMessageShortcut(value: "enter" | "ctrl-enter"): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SEND_MESSAGE_SHORTCUT_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save send message shortcut setting", { error: e });
+  }
+  localStorage.setItem(SEND_MESSAGE_SHORTCUT_KEY, value);
+}
+
+export async function loadClearInputOnEscape(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(CLEAR_INPUT_ON_ESCAPE_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load clear input on escape setting", { error: e });
+  }
+  const fallback = localStorage.getItem(CLEAR_INPUT_ON_ESCAPE_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveClearInputOnEscape(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(CLEAR_INPUT_ON_ESCAPE_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save clear input on escape setting", { error: e });
+  }
+  localStorage.setItem(CLEAR_INPUT_ON_ESCAPE_KEY, String(value));
+}
+
+export async function loadBaseTextSize(): Promise<"small" | "medium" | "large" | "xlarge"> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(BASE_TEXT_SIZE_KEY);
+    if (raw === "small" || raw === "medium" || raw === "large" || raw === "xlarge") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load base text size setting", { error: e });
+  }
+  const fallback = localStorage.getItem(BASE_TEXT_SIZE_KEY);
+  if (fallback === "small" || fallback === "medium" || fallback === "large" || fallback === "xlarge") return fallback;
+  return "medium";
+}
+
+export async function saveBaseTextSize(value: "small" | "medium" | "large" | "xlarge"): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(BASE_TEXT_SIZE_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save base text size setting", { error: e });
+  }
+  localStorage.setItem(BASE_TEXT_SIZE_KEY, value);
+}
+
+export async function loadAutoUpdateChecking(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(AUTO_UPDATE_CHECKING_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load auto update checking setting", { error: e });
+  }
+  const fallback = localStorage.getItem(AUTO_UPDATE_CHECKING_KEY);
+  if (fallback !== null) return fallback === "true";
+  return true;
+}
+
+export async function saveAutoUpdateChecking(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(AUTO_UPDATE_CHECKING_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save auto update checking setting", { error: e });
+  }
+  localStorage.setItem(AUTO_UPDATE_CHECKING_KEY, String(value));
+}
+
+export async function loadSystemPrompt(): Promise<string> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SYSTEM_PROMPT_KEY);
+    if (typeof raw === "string") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load system prompt", { error: e });
+  }
+  const fallback = localStorage.getItem(SYSTEM_PROMPT_KEY);
+  if (fallback !== null) return fallback;
+  return "";
+}
+
+export async function saveSystemPrompt(value: string): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SYSTEM_PROMPT_KEY, value);
+  } catch (e) {
+    logError("storage", "Failed to save system prompt", { error: e });
+  }
+  localStorage.setItem(SYSTEM_PROMPT_KEY, value);
 }

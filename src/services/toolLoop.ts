@@ -16,6 +16,7 @@ import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
+import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
 
 export interface ToolLoopSlice {
@@ -195,7 +196,12 @@ export async function sendWithToolLoop(
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
     const allTools = buildToolDefinitions(useMcp ? mcpTools : [], useSearch);
-    const systemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : []);
+
+    const userSystemPrompt = useModelStore.getState().systemPrompt || "";
+    const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : []);
+    const combinedSystemPrompt = userSystemPrompt.trim()
+      ? `${userSystemPrompt}\n\n${toolSystemPrompt}`
+      : toolSystemPrompt;
 
     const apiMessages: {
       role: string;
@@ -203,7 +209,7 @@ export async function sendWithToolLoop(
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;
-    }[] = [{ role: "system", content: systemPrompt }, ...baseMessages];
+    }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       useUIStore.getState().setLoading("toolExecution", true);

@@ -3,4 +3,5 @@ export { useModelStore } from "./useModelStore";
 export { useSearchStore } from "./useSearchStore";
 export { useMcpStore } from "./useMcpStore";
 export { useUIStore } from "./useUIStore";
+export { useKeybindStore } from "./useKeybindStore";
 export * from "./helpers";

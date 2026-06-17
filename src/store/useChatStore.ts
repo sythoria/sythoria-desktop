@@ -25,9 +25,17 @@ import {
   loadMcpEnvSecrets,
   loadHasStarted,
   loadAnimationsDisabled,
+  loadAlwaysOnTop,
+  loadCloseToTray,
+  loadLaunchOnStartup,
+  loadSendMessageShortcut,
+  loadClearInputOnEscape,
+  loadBaseTextSize,
+  loadAutoUpdateChecking,
+  loadSystemPrompt,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
-import { logError, logInfo } from "../utils/logger";
+import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { sendWithToolLoop } from "../services/toolLoop";
@@ -186,6 +194,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedMcpConfigs,
         loadedMcpEnvSecrets,
         loadedAnimationsDisabled,
+        loadedAlwaysOnTop,
+        loadedCloseToTray,
+        loadedLaunchOnStartup,
+        loadedSendMessageShortcut,
+        loadedClearInputOnEscape,
+        loadedBaseTextSize,
+        loadedAutoUpdateChecking,
+        loadedSystemPrompt,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -197,6 +213,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadMcpConfigs(),
         loadMcpEnvSecrets(),
         loadAnimationsDisabled(),
+        loadAlwaysOnTop(),
+        loadCloseToTray(),
+        loadLaunchOnStartup(),
+        loadSendMessageShortcut(),
+        loadClearInputOnEscape(),
+        loadBaseTextSize(),
+        loadAutoUpdateChecking(),
+        loadSystemPrompt(),
       ]);
 
       const models = loadedModels || [];
@@ -215,6 +239,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKeys: loadedKeys,
         modelStatuses: {},
         titleConfig: loadedTitleCfg,
+        systemPrompt: loadedSystemPrompt,
       });
 
       searchSetState({
@@ -243,8 +268,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiConfigLoaded(true);
       uiTheme(loadedTheme);
 
-      useUIStore.setState({ animationsDisabled: loadedAnimationsDisabled });
+      useUIStore.setState({
+        animationsDisabled: loadedAnimationsDisabled,
+        alwaysOnTop: loadedAlwaysOnTop,
+        closeToTray: loadedCloseToTray,
+        launchOnStartup: loadedLaunchOnStartup,
+        sendMessageShortcut: loadedSendMessageShortcut,
+        clearInputOnEscape: loadedClearInputOnEscape,
+        baseTextSize: loadedBaseTextSize,
+        autoUpdateChecking: loadedAutoUpdateChecking,
+      });
       document.documentElement.classList.toggle("animations-disabled", loadedAnimationsDisabled);
+
+      if (loadedAlwaysOnTop) {
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          getCurrentWindow()
+            .setAlwaysOnTop(true)
+            .catch(() => {});
+        } catch (e) {
+          logWarn("general", "Could not apply always-on-top on startup", { details: String(e) });
+        }
+      }
+
       logInfo("chat", "App state initialized", {
         details: `Loaded ${modelsWithKeys.length} models, ${nonEmptyConvs.length} conversations, ${searchConfigs.length} search configs, ${mcpConfigs.length} MCP servers`,
       });
@@ -681,13 +727,18 @@ async function sendNormal(
     const apiKey = apiKeys[modelConfig.id] ?? modelConfig.apiKey ?? "";
 
     const conv = get().conversations.find((c) => c.id === convId);
-    const apiMessages =
+    const apiMessages: { role: string; content: string | unknown[] }[] =
       conv?.messages
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
         .map((m) => ({
           role: m.role,
           content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
         })) ?? [];
+
+    const systemPrompt = useModelStore.getState().systemPrompt;
+    if (systemPrompt && systemPrompt.trim()) {
+      apiMessages.unshift({ role: "system", content: systemPrompt });
+    }
 
     await invoke("chat_stream", {
       apiUrl,
