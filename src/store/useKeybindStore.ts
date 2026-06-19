@@ -123,6 +123,22 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     defaultCombo: "Ctrl+0",
     currentCombo: "Ctrl+0",
   },
+  prevImage: {
+    id: "prevImage",
+    label: "Previous Image",
+    category: "Navigation",
+    description: "Navigate to the previous image in the preview viewer",
+    defaultCombo: "ArrowLeft",
+    currentCombo: "ArrowLeft",
+  },
+  nextImage: {
+    id: "nextImage",
+    label: "Next Image",
+    category: "Navigation",
+    description: "Navigate to the next image in the preview viewer",
+    defaultCombo: "ArrowRight",
+    currentCombo: "ArrowRight",
+  },
 };
 
 interface KeybindsState {

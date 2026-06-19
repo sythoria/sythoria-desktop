@@ -28,7 +28,7 @@ import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
-import { Modal } from "./ui/Modal";
+import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 
 const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
@@ -424,16 +424,19 @@ function AttachmentList({
   onImageClick,
 }: {
   attachments: Attachment[];
-  onImageClick: (url: string, name: string) => void;
+  onImageClick: (index: number) => void;
 }) {
+  const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
+
   return (
     <div className="flex flex-wrap gap-2 mb-2 justify-end">
       {attachments.map((a) => {
         if (a.kind === "image" && a.dataUrl) {
+          const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
           return (
             <div
               key={a.id}
-              onClick={() => onImageClick(a.dataUrl!, a.name)}
+              onClick={() => onImageClick(imgIdx)}
               className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-all group shrink-0"
               title={`View ${a.name}`}
             >
@@ -478,7 +481,8 @@ const MessageBubble = memo(function MessageBubble({
   const isTool = message.role === "tool";
   const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(message.content, message.role);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
-  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const imageAttachments = message.attachments?.filter((a) => a.kind === "image" && a.dataUrl) || [];
+  const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
 
   const baseTextSize = useUIStore((s) => s.baseTextSize);
   const textSizeClass =
@@ -507,10 +511,7 @@ const MessageBubble = memo(function MessageBubble({
       >
         <div className="max-w-[75%] flex flex-col items-end">
           {hasAttachments && (
-            <AttachmentList
-              attachments={message.attachments!}
-              onImageClick={(url, name) => setPreviewImage({ url, name })}
-            />
+            <AttachmentList attachments={message.attachments!} onImageClick={(idx) => setPreviewImageIndex(idx)} />
           )}
           {message.content.trim().length > 0 && (
             <div
@@ -522,16 +523,14 @@ const MessageBubble = memo(function MessageBubble({
           <div className="flex justify-end">
             <MessageActions content={message.content} isUser />
           </div>
-          {previewImage && (
-            <Modal isOpen={!!previewImage} onClose={() => setPreviewImage(null)} title={previewImage.name}>
-              <div className="flex justify-center items-center max-h-[80vh] p-2 overflow-auto">
-                <img
-                  src={previewImage.url}
-                  alt={previewImage.name}
-                  className="max-w-full max-h-[70vh] object-contain rounded-md select-none"
-                />
-              </div>
-            </Modal>
+          {previewImageIndex !== null && imageAttachments.length > 0 && (
+            <ImagePreviewModal
+              isOpen={previewImageIndex !== null}
+              onClose={() => setPreviewImageIndex(null)}
+              images={imageAttachments.map((a) => ({ url: a.dataUrl!, name: a.name, size: a.size }))}
+              activeIndex={previewImageIndex}
+              onChangeActiveIndex={(idx) => setPreviewImageIndex(idx)}
+            />
           )}
         </div>
       </motion.div>
