@@ -215,7 +215,9 @@ export const useUIStore = create<UIState>((set) => ({
     try {
       getCurrentWindow()
         .setAlwaysOnTop(value)
-        .catch(() => {});
+        .catch((e) => {
+          console.warn("Could not set always-on-top (promise rejected):", e);
+        });
     } catch (e) {
       console.warn("Could not set always-on-top:", e);
     }
@@ -225,8 +227,14 @@ export const useUIStore = create<UIState>((set) => ({
     set({ closeToTray: value });
     saveCloseToTray(value);
   },
-  setLaunchOnStartup: (value) => {
+  setLaunchOnStartup: async (value) => {
     set({ launchOnStartup: value });
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_autostart_enabled", { enabled: value });
+    } catch (e) {
+      console.warn("Could not set launch on startup:", e);
+    }
     saveLaunchOnStartup(value);
   },
   setSendMessageShortcut: (value) => {

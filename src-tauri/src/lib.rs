@@ -1008,6 +1008,76 @@ async fn mcp_call_tool(
     Ok(serde_json::to_string(&result).unwrap_or_default())
 }
 
+#[tauri::command]
+async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+
+    let files = vec!["config.json", "search_config.json", "mcp_config.json", "sythoria-store.json"];
+    for file_name in files {
+        let path = app_data_dir.join(file_name);
+        if path.exists() {
+            let _ = fs::remove_file(path);
+        }
+    }
+    Ok(())
+}
+
+fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
+    if let Ok(store) = tauri_plugin_store::StoreExt::store(app, STORE_FILE) {
+        if let Some(val) = store.get("sythoria-close-to-tray") {
+            return val.as_bool().unwrap_or(false);
+        }
+    }
+    false
+}
+
+#[tauri::command]
+async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        use smappservice_rs::{AppService, ServiceType};
+        let service = AppService::new(ServiceType::MainApp);
+        if enabled {
+            service.register().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        } else {
+            service.unregister().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app.autostart();
+        if enabled {
+            manager.enable().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        } else {
+            manager.disable().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        use smappservice_rs::{AppService, ServiceType, ServiceStatus};
+        let service = AppService::new(ServiceType::MainApp);
+        Ok(service.status() == ServiceStatus::Enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = app.autostart();
+        manager.is_enabled().map_err(|e| AppError::ConfigIo(e.to_string()))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_keyring_store();
@@ -1021,10 +1091,60 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             let _ = window_vibrancy::apply_blur(&window, Some((18, 18, 18, 125)));
 
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                let quit_i = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+                let show_i = tauri::menu::MenuItemBuilder::with_id("show", "Show Sythoria").build(app)?;
+                let menu = tauri::menu::MenuBuilder::new(app).items(&[&show_i, &quit_i]).build()?;
+
+                let _tray = tauri::tray::TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .on_menu_event(|app, event| {
+                        match event.id().as_ref() {
+                            "quit" => {
+                                app.exit(0);
+                            }
+                            "show" => {
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let tauri::tray::TrayIconEvent::Click { button, button_state, .. } = event {
+                            if button == tauri::tray::MouseButton::Left && button_state == tauri::tray::MouseButtonState::Up {
+                                let app = tray.app_handle();
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(not(any(target_os = "ios", target_os = "android")))]
+            {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let app = window.app_handle();
+                    if should_close_to_tray(app) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+            }
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::AppleScript, None))
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Warn)
@@ -1058,7 +1178,10 @@ pub fn run() {
             mcp_check_command,
             mcp_stop_server,
             mcp_list_tools,
-            mcp_call_tool
+            mcp_call_tool,
+            wipe_config_files,
+            set_autostart_enabled,
+            is_autostart_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

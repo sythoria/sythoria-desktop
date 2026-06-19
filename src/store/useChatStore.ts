@@ -280,15 +280,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       document.documentElement.classList.toggle("animations-disabled", loadedAnimationsDisabled);
 
-      if (loadedAlwaysOnTop) {
-        try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          getCurrentWindow()
-            .setAlwaysOnTop(true)
-            .catch(() => {});
-        } catch (e) {
-          logWarn("general", "Could not apply always-on-top on startup", { details: String(e) });
+      // Apply always-on-top setting
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        getCurrentWindow()
+          .setAlwaysOnTop(loadedAlwaysOnTop)
+          .catch((e) => {
+            logWarn("general", "Could not apply always-on-top on startup (promise rejected)", { details: String(e) });
+          });
+      } catch (e) {
+        logWarn("general", "Could not apply always-on-top on startup", { details: String(e) });
+      }
+
+      // Synchronize launch on startup with the OS autostart setting
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const currentlyEnabled = await invoke<boolean>("is_autostart_enabled");
+        if (loadedLaunchOnStartup !== currentlyEnabled) {
+          await invoke("set_autostart_enabled", { enabled: loadedLaunchOnStartup });
         }
+      } catch (e) {
+        logWarn("general", "Could not synchronize launch on startup with OS", { details: String(e) });
       }
 
       logInfo("chat", "App state initialized", {

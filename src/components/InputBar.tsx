@@ -79,6 +79,15 @@ export default function InputBar({
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
+  const baseTextSize = useUIStore((s) => s.baseTextSize);
+
+  const textSizeClass =
+    {
+      small: "text-xs",
+      medium: "text-sm",
+      large: "text-base",
+      xlarge: "text-lg",
+    }[baseTextSize] || "text-sm";
 
   const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
@@ -393,7 +402,7 @@ export default function InputBar({
               disabled={disabled}
               aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
               aria-invalid={isOverLimit}
-              className={`flex-1 min-w-0 bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""}`}
+              className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""}`}
             />
 
             {/* Model selector */}

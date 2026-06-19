@@ -8,6 +8,7 @@ import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
 import { invoke } from "@tauri-apps/api/core";
 import { springs } from "../../../lib/motion-tokens";
+import { clearStoreData } from "../../../utils/storage";
 
 const textSizes = [
   { value: "small", label: "Small" },
@@ -68,7 +69,8 @@ export function GeneralSection() {
 
   const handleWipeData = async () => {
     setIsConfirmOpen2(false);
-    localStorage.clear();
+
+    // 1. Wipe keyring secrets first (depends on active store server list/indices)
     try {
       await invoke("save_api_keys_cmd", { keys: {} });
     } catch (e) {
@@ -84,6 +86,24 @@ export function GeneralSection() {
     } catch (e) {
       console.error("Failed to clear MCP env secrets keyring:", e);
     }
+
+    // 2. Wipe the Tauri plugin store (conversations, theme, config keys, etc.)
+    try {
+      await clearStoreData();
+    } catch (e) {
+      console.error("Failed to clear Tauri store data:", e);
+    }
+
+    // 3. Delete config files in AppData (config.json, search_config.json, mcp_config.json, sythoria-store.json)
+    try {
+      await invoke("wipe_config_files");
+    } catch (e) {
+      console.error("Failed to wipe config files:", e);
+    }
+
+    // 4. Wipe localStorage
+    localStorage.clear();
+
     useUIStore.getState().setHasStarted(false);
     window.location.reload();
   };

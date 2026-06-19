@@ -915,3 +915,13 @@ export async function saveSystemPrompt(value: string): Promise<void> {
   }
   localStorage.setItem(SYSTEM_PROMPT_KEY, value);
 }
+
+export async function clearStoreData(): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.clear();
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to clear store data", { error: e });
+  }
+}
