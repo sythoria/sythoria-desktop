@@ -241,3 +241,117 @@ mod tests {
         assert_eq!(result, "<reasoning>already tagged</reasoning>content");
     }
 }
+
+pub(crate) struct AnthropicSseParser {
+    full_content: String,
+    buffer: String,
+    tool_calls: Vec<serde_json::Value>,
+    current_tool_id: Option<String>,
+    current_tool_name: Option<String>,
+    current_tool_input: String,
+}
+
+impl AnthropicSseParser {
+    pub(crate) fn new() -> Self {
+        Self {
+            full_content: String::new(),
+            buffer: String::new(),
+            tool_calls: Vec::new(),
+            current_tool_id: None,
+            current_tool_name: None,
+            current_tool_input: String::new(),
+        }
+    }
+
+    pub(crate) fn push_bytes(&mut self, bytes: &[u8]) {
+        let incoming = String::from_utf8_lossy(bytes);
+        self.buffer.push_str(&incoming);
+    }
+
+    pub(crate) fn process_lines<F>(&mut self, app: &tauri::AppHandle, stream_id: &str, mut _on_chunk: F)
+    where
+        F: FnMut(&str),
+    {
+        while let Some(line_end) = self.buffer.find('\n') {
+            let line = self.buffer[..line_end].trim().to_string();
+            self.buffer = self.buffer[line_end + 1..].to_string();
+
+            if line.is_empty() {
+                continue;
+            }
+
+            if line.starts_with("event: ") {
+                // Handle events if needed
+                continue;
+            }
+
+            if let Some(data) = line.strip_prefix("data: ") {
+                if data == "[DONE]" {
+                    continue;
+                }
+                
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(type_str) = parsed.get("type").and_then(|v| v.as_str()) {
+                        match type_str {
+                            "content_block_start" => {
+                                if let Some(cb) = parsed.get("content_block") {
+                                    if cb.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                                        self.current_tool_id = cb.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                        self.current_tool_name = cb.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                        self.current_tool_input.clear();
+                                    }
+                                }
+                            }
+                            "content_block_delta" => {
+                                if let Some(delta) = parsed.get("delta") {
+                                    if delta.get("type").and_then(|v| v.as_str()) == Some("text_delta") {
+                                        if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
+                                            self.full_content.push_str(text);
+                                            emit_stream_chunk(app, stream_id, text);
+                                        }
+                                    } else if delta.get("type").and_then(|v| v.as_str()) == Some("input_json_delta") {
+                                        if let Some(partial_json) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                            self.current_tool_input.push_str(partial_json);
+                                        }
+                                    }
+                                }
+                            }
+                            "content_block_stop" => {
+                                if let (Some(id), Some(name)) = (&self.current_tool_id, &self.current_tool_name) {
+                                    self.tool_calls.push(serde_json::json!({
+                                        "id": id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": name,
+                                            "arguments": self.current_tool_input.clone()
+                                        }
+                                    }));
+                                    self.current_tool_id = None;
+                                    self.current_tool_name = None;
+                                    self.current_tool_input.clear();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn finalize(self) -> String {
+        self.full_content
+    }
+
+    pub(crate) fn finalize_tools(self) -> String {
+        let openai_response = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": if self.full_content.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(self.full_content) },
+                    "tool_calls": if self.tool_calls.is_empty() { serde_json::Value::Null } else { serde_json::Value::Array(self.tool_calls) }
+                }
+            }]
+        });
+        openai_response.to_string()
+    }
+}

@@ -120,12 +120,12 @@ export const ModelCard = memo(function ModelCard({
             <div className="relative">
               <select
                 id={`model-provider-${model.id}`}
-                value={model.provider || "Custom"}
+                value={model.provider || "custom"}
                 onChange={(e) => {
-                  const preset = PROVIDER_PRESETS.find((p) => p.label === e.target.value);
+                  const preset = PROVIDER_PRESETS.find((p) => p.providerId === e.target.value);
                   if (preset) {
                     onUpdate(model.id, {
-                      provider: preset.label,
+                      provider: preset.providerId,
                       apiBase: preset.apiBase || model.apiBase,
                       modelId: preset.defaultModel || model.modelId,
                       name: model.name === "New Model" ? preset.label : model.name,
@@ -138,7 +138,7 @@ export const ModelCard = memo(function ModelCard({
                 aria-label="Provider preset"
               >
                 {PROVIDER_PRESETS.map((p) => (
-                  <option key={p.label} value={p.label}>
+                  <option key={p.providerId} value={p.providerId}>
                     {p.label}
                   </option>
                 ))}

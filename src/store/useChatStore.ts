@@ -762,6 +762,7 @@ async function sendNormal(
       apiUrl,
       apiKey,
       model: modelConfig.modelId,
+      provider: modelConfig.provider,
       messages: apiMessages,
       temperature,
       streamId,
@@ -835,6 +836,7 @@ function generateConversationTitle(
     apiUrl,
     apiKey,
     model,
+    provider: titleModelConfig.provider,
     userMessage: userText,
     systemPrompt,
   })

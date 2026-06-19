@@ -233,6 +233,7 @@ export async function sendWithToolLoop(
         apiUrl,
         apiKey,
         model: modelConfig.modelId,
+        provider: modelConfig.provider,
         messages: apiMessages,
         tools: JSON.stringify(allTools),
         temperature,

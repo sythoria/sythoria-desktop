@@ -2,6 +2,7 @@ mod mcp;
 mod search;
 mod stream_parser;
 mod ws_handler;
+mod anthropic;
 
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -407,9 +408,15 @@ async fn chat_completion(
     api_url: String,
     api_key: String,
     model: String,
+    provider: Option<String>,
     messages: Vec<ChatMessage>,
     temperature: f64,
 ) -> Result<String, AppError> {
+    if let Some(p) = provider.as_deref() {
+        if p.to_lowercase() == "anthropic" {
+            return anthropic::chat_completion_anthropic(api_url, api_key, model, messages, temperature).await;
+        }
+    }
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
@@ -464,11 +471,17 @@ async fn chat_stream(
     api_url: String,
     api_key: String,
     model: String,
+    provider: Option<String>,
     messages: Vec<ChatMessage>,
     temperature: f64,
     stream_id: String,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    if let Some(p) = provider.as_deref() {
+        if p.to_lowercase() == "anthropic" {
+            return anthropic::chat_stream_anthropic(api_url, api_key, model, messages, temperature, stream_id, app).await;
+        }
+    }
     clear_stream_cancelled(&stream_id);
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -521,12 +534,21 @@ async fn chat_stream_tools(
     api_url: String,
     api_key: String,
     model: String,
+    provider: Option<String>,
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
     stream_id: String,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    if let Some(p) = provider.as_deref() {
+        if p.to_lowercase() == "anthropic" {
+            let parsed_messages: Vec<ChatMessage> = messages.into_iter()
+                .filter_map(|v| serde_json::from_value(v).ok())
+                .collect();
+            return anthropic::chat_stream_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, stream_id, app).await;
+        }
+    }
     clear_stream_cancelled(&stream_id);
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
@@ -587,10 +609,20 @@ async fn chat_completion_tools(
     api_url: String,
     api_key: String,
     model: String,
+    provider: Option<String>,
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
 ) -> Result<String, AppError> {
+    if let Some(p) = provider.as_deref() {
+        if p.to_lowercase() == "anthropic" {
+            // Need to parse serde_json::Value back to ChatMessage for anthropic
+            let parsed_messages: Vec<ChatMessage> = messages.into_iter()
+                .filter_map(|v| serde_json::from_value(v).ok())
+                .collect();
+            return anthropic::chat_completion_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature).await;
+        }
+    }
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
@@ -632,7 +664,12 @@ async fn chat_completion_tools(
 }
 
 #[tauri::command]
-async fn check_api(api_url: String, api_key: String) -> Result<bool, AppError> {
+async fn check_api(api_url: String, api_key: String, provider: Option<String>) -> Result<bool, AppError> {
+    if let Some(p) = provider.as_deref() {
+        if p.to_lowercase() == "anthropic" {
+            return anthropic::check_api_anthropic(api_url, api_key).await;
+        }
+    }
     let client = Client::new();
 
     let base_url = api_url

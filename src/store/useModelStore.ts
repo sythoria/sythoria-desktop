@@ -252,6 +252,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
           const ok = await invoke<boolean>("check_api", {
             apiUrl: model.apiBase,
             apiKey,
+            provider: model.provider,
           });
           return { id: model.id, status: (ok ? "connected" : "error") as ConnectionStatus };
         } catch (err) {
