@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Menu, PanelLeft, MessageSquarePlus, ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "./components/Sidebar";
@@ -23,6 +23,17 @@ import { springs, motionTokens } from "./lib/motion-tokens";
 import "./index.css";
 
 function App() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
   const { conversations, activeId, isStreaming, generationState, generationLabel, navigationHistory, navigationIndex } =
     useChatStore(
       useShallow((s) => ({
@@ -312,7 +323,7 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-transparent">
       <div className="flex flex-1 overflow-hidden rounded-[18px] border-[12px] border-white/5 relative glass-app-container">
-        {!(view === "settings" && !sidebarCollapsed) && (
+        {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
           <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-[80px]" data-tauri-drag-region>
             <div className="flex items-center gap-1 h-full">
               <button

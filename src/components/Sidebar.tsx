@@ -116,7 +116,7 @@ export default function Sidebar({
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const isSidebarCollapsed = isMobile ? false : isCollapsed;
+  const isSidebarCollapsed = isMobile && isOpen ? false : isCollapsed;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
