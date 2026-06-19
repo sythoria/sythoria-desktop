@@ -470,7 +470,7 @@ function App() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={springs.gentle}
                     >
-                      {activeConversation?.title ?? "what is on my screen"}
+                      {activeConversation?.title ?? "New chat"}
                     </motion.h2>
                   </div>
                   <div className="flex items-center gap-2"></div>
