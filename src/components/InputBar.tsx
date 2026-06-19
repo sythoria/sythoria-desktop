@@ -423,7 +423,7 @@ export default function InputBar({
                   title={STATUS_LABELS[currentStatus] ?? currentStatus}
                   aria-hidden="true"
                 />
-                <span className="truncate">{currentModel?.name || "5.4-Mini High"}</span>
+                <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
                 <ChevronDown
                   size={14}
                   className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
@@ -443,43 +443,51 @@ export default function InputBar({
                     exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                     transition={springs.gentle}
                   >
-                    {enabledModels.map((model, idx) => {
-                      const status = modelStatuses[model.id] ?? "disconnected";
-                      const isSelected = selectedModel === model.id;
-                      return (
-                        <button
-                          key={model.id}
-                          ref={(el) => {
-                            itemRefs.current[idx] = el;
-                          }}
-                          onClick={() => {
-                            onModelChange(model.id);
-                            setModelOpen(false);
-                            setFocusedIndex(-1);
-                          }}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left ${
-                            isSelected
-                              ? "bg-active text-text-primary"
-                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                          }`}
-                          role="option"
-                          aria-selected={isSelected}
-                        >
-                          <div
-                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                            title={STATUS_LABELS[status] ?? status}
-                            aria-label={STATUS_LABELS[status] ?? status}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <span className="block font-medium truncate">{model.name}</span>
-                            <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
-                              {model.modelId}
-                            </span>
-                          </div>
-                          {isSelected && <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />}
-                        </button>
-                      );
-                    })}
+                    {enabledModels.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-text-muted">
+                        No models configured. Go to Settings &gt; Models to configure one.
+                      </div>
+                    ) : (
+                      enabledModels.map((model, idx) => {
+                        const status = modelStatuses[model.id] ?? "disconnected";
+                        const isSelected = selectedModel === model.id;
+                        return (
+                          <button
+                            key={model.id}
+                            ref={(el) => {
+                              itemRefs.current[idx] = el;
+                            }}
+                            onClick={() => {
+                              onModelChange(model.id);
+                              setModelOpen(false);
+                              setFocusedIndex(-1);
+                            }}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left ${
+                              isSelected
+                                ? "bg-active text-text-primary"
+                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                            }`}
+                            role="option"
+                            aria-selected={isSelected}
+                          >
+                            <div
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
+                              title={STATUS_LABELS[status] ?? status}
+                              aria-label={STATUS_LABELS[status] ?? status}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className="block font-medium truncate">{model.name}</span>
+                              <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
+                                {model.modelId}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>

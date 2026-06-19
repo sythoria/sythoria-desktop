@@ -9,6 +9,7 @@ import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
+import StartScreen from "./components/StartScreen";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
@@ -115,30 +116,48 @@ function App() {
     [enabledServerIds, toggleServerEnabled],
   );
 
-  const { sidebarOpen, sidebarCollapsed, isConfigLoaded, view, showRenameModal, renameCurrentTitle, loading, toasts } =
-    useUIStore(
-      useShallow((s) => ({
-        sidebarOpen: s.sidebarOpen,
-        sidebarCollapsed: s.sidebarCollapsed,
-        isConfigLoaded: s.isConfigLoaded,
-        view: s.view,
-        showRenameModal: s.showRenameModal,
-        renameCurrentTitle: s.renameCurrentTitle,
-        loading: s.loading,
-        toasts: s.toasts,
-      })),
-    );
-  const { setSidebarOpen, toggleSidebarCollapsed, setView, openRenameModal, closeRenameModal, dismissToast } =
-    useUIStore(
-      useShallow((s) => ({
-        setSidebarOpen: s.setSidebarOpen,
-        toggleSidebarCollapsed: s.toggleSidebarCollapsed,
-        setView: s.setView,
-        openRenameModal: s.openRenameModal,
-        closeRenameModal: s.closeRenameModal,
-        dismissToast: s.dismissToast,
-      })),
-    );
+  const {
+    sidebarOpen,
+    sidebarCollapsed,
+    isConfigLoaded,
+    view,
+    showRenameModal,
+    renameCurrentTitle,
+    loading,
+    toasts,
+    hasStarted,
+  } = useUIStore(
+    useShallow((s) => ({
+      sidebarOpen: s.sidebarOpen,
+      sidebarCollapsed: s.sidebarCollapsed,
+      isConfigLoaded: s.isConfigLoaded,
+      view: s.view,
+      showRenameModal: s.showRenameModal,
+      renameCurrentTitle: s.renameCurrentTitle,
+      loading: s.loading,
+      toasts: s.toasts,
+      hasStarted: s.hasStarted,
+    })),
+  );
+  const {
+    setSidebarOpen,
+    toggleSidebarCollapsed,
+    setView,
+    openRenameModal,
+    closeRenameModal,
+    dismissToast,
+    setHasStarted,
+  } = useUIStore(
+    useShallow((s) => ({
+      setSidebarOpen: s.setSidebarOpen,
+      toggleSidebarCollapsed: s.toggleSidebarCollapsed,
+      setView: s.setView,
+      openRenameModal: s.openRenameModal,
+      closeRenameModal: s.closeRenameModal,
+      dismissToast: s.dismissToast,
+      setHasStarted: s.setHasStarted,
+    })),
+  );
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -318,6 +337,10 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  if (!hasStarted) {
+    return <StartScreen onStart={() => setHasStarted(true)} />;
   }
 
   return (

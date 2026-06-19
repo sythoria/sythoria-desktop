@@ -183,6 +183,7 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   try {
     const store = await getStore();
     await store.set(CONVERSATIONS_KEY, conversations);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save conversations to secure store", {
       error: e,
@@ -247,6 +248,7 @@ export async function saveTheme(theme: ThemeConfig): Promise<void> {
   try {
     const store = await getStore();
     await store.set(THEME_KEY, theme);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save theme to secure store", {
       error: e,
@@ -282,6 +284,7 @@ export async function saveDownloadedThemes(themes: DownloadedThemes): Promise<vo
   try {
     const store = await getStore();
     await store.set(DOWNLOADED_THEMES_KEY, themes);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save downloaded themes to secure store", { error: e });
     localStorage.setItem(DOWNLOADED_THEMES_KEY, JSON.stringify(themes));
@@ -314,6 +317,7 @@ export async function saveKeybinds(keybinds: KeybindsData): Promise<void> {
   try {
     const store = await getStore();
     await store.set(KEYBINDS_KEY, keybinds);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save keybinds to secure store", { error: e });
     localStorage.setItem(KEYBINDS_KEY, JSON.stringify(keybinds));
@@ -340,6 +344,7 @@ export async function saveZoomLevel(level: number): Promise<void> {
   try {
     const store = await getStore();
     await store.set(ZOOM_LEVEL_KEY, level);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save zoom level to secure store", { error: e });
     localStorage.setItem(ZOOM_LEVEL_KEY, level.toString());
@@ -425,6 +430,7 @@ export async function saveSearchConfigs(configs: import("../types").SearchApiCon
   try {
     const store = await getStore();
     await store.set(SEARCH_CONFIGS_KEY, configs);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save search configs to secure store", {
       error: e,
@@ -532,6 +538,7 @@ export async function saveTitleConfig(config: TitleGenerationConfig): Promise<vo
   try {
     const store = await getStore();
     await store.set(TITLE_CONFIG_KEY, config);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save title config to secure store", {
       error: e,
@@ -555,6 +562,7 @@ export async function saveHasStarted(started: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(HAS_STARTED_KEY, started);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save hasStarted to store", { error: e });
   }
@@ -575,6 +583,7 @@ export async function saveAnimationsDisabled(disabled: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(ANIMATIONS_DISABLED_KEY, disabled);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save animationsDisabled to store", { error: e });
   }
@@ -646,6 +655,7 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
         // Persist the migrated form so subsequent loads are clean.
         if (JSON.stringify(migrated) !== JSON.stringify(result.data)) {
           await store.set(MCP_CONFIGS_KEY, migrated);
+          await store.save();
           logInfo("storage", "Migrated MCP configs to program + args format", {
             details: `${migrated.length} server(s) processed`,
           });
@@ -670,6 +680,7 @@ export async function saveMcpConfigs(configs: import("../types").McpServerConfig
   try {
     const store = await getStore();
     await store.set(MCP_CONFIGS_KEY, configs);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save MCP configs to secure store", {
       error: e,
@@ -749,6 +760,7 @@ export async function saveAlwaysOnTop(value: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(ALWAYS_ON_TOP_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save always on top setting", { error: e });
   }
@@ -772,6 +784,7 @@ export async function saveCloseToTray(value: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(CLOSE_TO_TRAY_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save close to tray setting", { error: e });
   }
@@ -795,6 +808,7 @@ export async function saveLaunchOnStartup(value: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(LAUNCH_ON_STARTUP_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save launch on startup setting", { error: e });
   }
@@ -818,6 +832,7 @@ export async function saveSendMessageShortcut(value: "enter" | "ctrl-enter"): Pr
   try {
     const store = await getStore();
     await store.set(SEND_MESSAGE_SHORTCUT_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save send message shortcut setting", { error: e });
   }
@@ -841,6 +856,7 @@ export async function saveClearInputOnEscape(value: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(CLEAR_INPUT_ON_ESCAPE_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save clear input on escape setting", { error: e });
   }
@@ -864,6 +880,7 @@ export async function saveBaseTextSize(value: "small" | "medium" | "large" | "xl
   try {
     const store = await getStore();
     await store.set(BASE_TEXT_SIZE_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save base text size setting", { error: e });
   }
@@ -887,6 +904,7 @@ export async function saveAutoUpdateChecking(value: boolean): Promise<void> {
   try {
     const store = await getStore();
     await store.set(AUTO_UPDATE_CHECKING_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save auto update checking setting", { error: e });
   }
@@ -910,6 +928,7 @@ export async function saveSystemPrompt(value: string): Promise<void> {
   try {
     const store = await getStore();
     await store.set(SYSTEM_PROMPT_KEY, value);
+    await store.save();
   } catch (e) {
     logError("storage", "Failed to save system prompt", { error: e });
   }

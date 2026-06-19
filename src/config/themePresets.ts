@@ -78,8 +78,8 @@ export const DARK_PRESETS: Record<string, CustomThemeConfig> = {
 };
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {
-  mode: "dark",
-  lightTheme: { ...LIGHT_PRESETS["Default Light"] },
+  mode: "light",
+  lightTheme: { ...LIGHT_PRESETS["Solarized Light"] },
   darkTheme: { ...DARK_PRESETS["Default Dark"] },
 };
 

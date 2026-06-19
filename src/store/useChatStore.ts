@@ -66,6 +66,7 @@ import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
 import { useMcpStore } from "./useMcpStore";
 import { useUIStore } from "./useUIStore";
+import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
 
 function truncateTitle(text: string): string {
   return text.length > TITLE_MAX_LENGTH ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026" : text;
@@ -229,8 +230,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKey: loadedKeys[m.id] ?? m.apiKey,
       }));
 
-      const nonEmptyConvs = loadedConvs.filter((c) => c.messages.length > 0);
+      const storedHasStarted = await loadHasStarted();
+      const hasOnboarded = storedHasStarted || modelsWithKeys.length > 0;
 
+      if (!hasOnboarded) {
+        localStorage.clear();
+      }
+
+      const nonEmptyConvs = hasOnboarded ? (loadedConvs || []).filter((c) => c.messages.length > 0) : [];
       const searchConfigs = loadedSearchConfigs || [];
 
       modelSetState({
@@ -263,28 +270,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         navigationIndex: initialActiveId ? 0 : -1,
       });
 
-      const storedHasStarted = await loadHasStarted();
-      uiHasStarted(storedHasStarted || modelsWithKeys.length > 0);
+      uiHasStarted(hasOnboarded);
       uiConfigLoaded(true);
-      uiTheme(loadedTheme);
+      uiTheme(hasOnboarded ? loadedTheme : DEFAULT_THEME_CONFIG);
 
       useUIStore.setState({
-        animationsDisabled: loadedAnimationsDisabled,
-        alwaysOnTop: loadedAlwaysOnTop,
-        closeToTray: loadedCloseToTray,
-        launchOnStartup: loadedLaunchOnStartup,
-        sendMessageShortcut: loadedSendMessageShortcut,
-        clearInputOnEscape: loadedClearInputOnEscape,
-        baseTextSize: loadedBaseTextSize,
-        autoUpdateChecking: loadedAutoUpdateChecking,
+        animationsDisabled: hasOnboarded ? loadedAnimationsDisabled : false,
+        alwaysOnTop: hasOnboarded ? loadedAlwaysOnTop : false,
+        closeToTray: hasOnboarded ? loadedCloseToTray : false,
+        launchOnStartup: hasOnboarded ? loadedLaunchOnStartup : false,
+        sendMessageShortcut: hasOnboarded ? loadedSendMessageShortcut : "enter",
+        clearInputOnEscape: hasOnboarded ? loadedClearInputOnEscape : false,
+        baseTextSize: hasOnboarded ? loadedBaseTextSize : "medium",
+        autoUpdateChecking: hasOnboarded ? loadedAutoUpdateChecking : true,
       });
-      document.documentElement.classList.toggle("animations-disabled", loadedAnimationsDisabled);
+      document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
 
       // Apply always-on-top setting
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         getCurrentWindow()
-          .setAlwaysOnTop(loadedAlwaysOnTop)
+          .setAlwaysOnTop(hasOnboarded ? loadedAlwaysOnTop : false)
           .catch((e) => {
             logWarn("general", "Could not apply always-on-top on startup (promise rejected)", { details: String(e) });
           });
