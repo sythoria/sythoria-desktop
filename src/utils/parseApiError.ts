@@ -48,9 +48,10 @@ interface StructuredAppError {
 export function parseApiError(err: unknown): ParsedError {
   const raw = extractRaw(err);
 
+  const structured = tryParseStructuredError(raw);
+  if (structured) return structured;
+
   if (err instanceof Error || typeof err === "string") {
-    const structured = tryParseStructuredError(raw);
-    if (structured) return structured;
     return userFriendlyMessage(raw);
   }
 
@@ -78,8 +79,16 @@ function tryParseStructuredError(raw: string): ParsedError | null {
     const parsed: StructuredAppError = JSON.parse(raw);
     if (parsed.ApiError) {
       const code = String(parsed.ApiError.status);
+      const baseMsg = ERROR_MESSAGES[code];
+      const customMsg = cleanApiMessage(parsed.ApiError.message);
+
+      let message = baseMsg ? `${baseMsg}` : `API error ${code}`;
+      if (customMsg) {
+        message = `${message} (${customMsg})`;
+      }
+
       return {
-        message: ERROR_MESSAGES[code] ?? `API error ${code}: ${parsed.ApiError.message}`,
+        message,
         action: ERROR_ACTIONS[code] ?? "Check your API settings and try again.",
         category: getCategoryFromCode(code),
         retryable: isRetryableCode(code),
@@ -139,7 +148,9 @@ function tryParseStructuredError(raw: string): ParsedError | null {
       };
     if (parsed.ParseError)
       return {
-        message: "Response parse error — the API returned unexpected data.",
+        message: parsed.ParseError
+          ? `Response parse error — the API returned unexpected data. (${parsed.ParseError})`
+          : "Response parse error — the API returned unexpected data.",
         action: "The API response format might have changed. Check the model settings or try a different model.",
         category: "server",
         retryable: true,
@@ -164,8 +175,17 @@ function userFriendlyMessage(raw: string): ParsedError {
   const statusMatch = raw.match(/API error (\d{3})/);
   if (statusMatch) {
     const code = statusMatch[1];
+    const baseMsg = ERROR_MESSAGES[code];
+    const rest = raw.replace(/API error \d{3}:\s*/, "");
+    const cleanedRest = cleanApiMessage(rest);
+
+    let message = baseMsg ? `${baseMsg}` : `API error ${code}`;
+    if (cleanedRest) {
+      message = `${message} (${cleanedRest})`;
+    }
+
     return {
-      message: ERROR_MESSAGES[code] ?? `API error ${code}: ${raw.replace(/API error \d{3}:\s*/, "")}`,
+      message,
       action: ERROR_ACTIONS[code] ?? "Check your API settings and try again.",
       category: getCategoryFromCode(code),
       retryable: isRetryableCode(code),
@@ -381,4 +401,55 @@ function installHintFor(program: string | null): string {
     default:
       return "Install the runtime it belongs to.";
   }
+}
+
+/**
+ * Extracts and cleans API error messages, particularly unpacking JSON error objects
+ * commonly returned by LLM providers.
+ */
+function cleanApiMessage(msg: string): string {
+  const prefix = "Request failed: ";
+  const authPrefix = "Authentication failed: ";
+  const titlePrefix = "Title generation failed: ";
+
+  let body = msg;
+  let currentPrefix = "";
+
+  if (msg.startsWith(prefix)) {
+    body = msg.slice(prefix.length);
+    currentPrefix = prefix;
+  } else if (msg.startsWith(authPrefix)) {
+    body = msg.slice(authPrefix.length);
+    currentPrefix = authPrefix;
+  } else if (msg.startsWith(titlePrefix)) {
+    body = msg.slice(titlePrefix.length);
+    currentPrefix = titlePrefix;
+  }
+
+  body = body.trim();
+  if (!body) return msg;
+
+  try {
+    const parsed = JSON.parse(body);
+    // Handle OpenAI/Gemini/etc: parsed.error.message
+    if (parsed.error && typeof parsed.error === "object" && typeof parsed.error.message === "string") {
+      return `${currentPrefix}${parsed.error.message}`;
+    }
+    // Handle Ollama/generic: parsed.message
+    if (typeof parsed.message === "string") {
+      return `${currentPrefix}${parsed.message}`;
+    }
+    // Handle FastAPI/generic: parsed.detail
+    if (typeof parsed.detail === "string") {
+      return `${currentPrefix}${parsed.detail}`;
+    }
+    // Handle FastAPI list of errors: parsed.detail[0].msg
+    if (Array.isArray(parsed.detail) && parsed.detail[0] && typeof parsed.detail[0].msg === "string") {
+      return `${currentPrefix}${parsed.detail[0].msg}`;
+    }
+  } catch {
+    // Not valid JSON, return original msg
+  }
+
+  return msg;
 }

@@ -50,11 +50,11 @@ pub async fn search(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("Firecrawl API error {}: [response body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("Firecrawl API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
-            "Firecrawl API error {} (response body omitted for security)",
-            status
+            "Firecrawl API error {}: {}",
+            status, body
         )));
     }
 

@@ -156,6 +156,28 @@ describe("parseApiError", () => {
     expect(result.message).toBe("some plain text error");
   });
 
+  it("handles structured AppError as a raw object (Tauri rejection style)", () => {
+    const structuredObject = {
+      ApiError: { status: 401, message: "Unauthorized" },
+    };
+    const result = parseApiError(structuredObject);
+    expect(result.message).toContain("Invalid API key");
+    expect(result.category).toBe("auth");
+  });
+
+  it("extracts and formats JSON error bodies from LLM providers", () => {
+    const structuredError = JSON.stringify({
+      ApiError: {
+        status: 500,
+        message: 'Request failed: {"error":{"message":"Model context window exceeded","type":"invalid_request_error"}}',
+      },
+    });
+    const result = parseApiError(structuredError);
+    expect(result.message).toContain("Server error");
+    expect(result.message).toContain("Request failed: Model context window exceeded");
+    expect(result.category).toBe("server");
+  });
+
   it("parseApiErrorMessage returns just the message string", () => {
     const msg = parseApiErrorMessage(new Error("API error 401: Unauthorized"));
     expect(typeof msg).toBe("string");

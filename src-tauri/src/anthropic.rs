@@ -214,11 +214,11 @@ pub async fn chat_completion_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("chat_completion API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("chat_completion API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Request failed (response body omitted for security)".to_string(),
+            message: format!("Request failed: {}", body),
         });
     }
 

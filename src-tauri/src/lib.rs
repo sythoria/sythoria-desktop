@@ -437,11 +437,11 @@ async fn chat_completion(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("chat_completion API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("chat_completion API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Request failed (response body omitted for security)".to_string(),
+            message: format!("Request failed: {}", body),
         });
     }
 
@@ -503,11 +503,11 @@ async fn chat_stream(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("chat_stream API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("chat_stream API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Request failed (response body omitted for security)".to_string(),
+            message: format!("Request failed: {}", body),
         });
     }
 
@@ -575,11 +575,11 @@ async fn chat_stream_tools(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("chat_stream_tools API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("chat_stream_tools API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Request failed (response body omitted for security)".to_string(),
+            message: format!("Request failed: {}", body),
         });
     }
 
@@ -648,14 +648,11 @@ async fn chat_completion_tools(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!(
-            "chat_completion_tools API error {}: [body sanitized]",
-            status
-        );
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("chat_completion_tools API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Request failed (response body omitted for security)".to_string(),
+            message: format!("Request failed: {}", body),
         });
     }
 
@@ -781,11 +778,11 @@ async fn ws_authenticate(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("ws_authenticate API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("ws_authenticate API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Authentication failed (response body omitted for security)".to_string(),
+            message: format!("Authentication failed: {}", body),
         });
     }
 
@@ -843,11 +840,11 @@ async fn generate_title(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("generate_title API error {}: [body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("generate_title API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
-            message: "Title generation failed (response body omitted for security)".to_string(),
+            message: format!("Title generation failed: {}", body),
         });
     }
 

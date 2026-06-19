@@ -26,6 +26,7 @@ pub struct McpToolInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpImageContent {
     pub mime_type: String,
     pub data: String,

@@ -49,11 +49,11 @@ pub async fn search(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let _body = resp.text().await.unwrap_or_default();
-        log::error!("SearXNG API error {}: [response body sanitized]", status);
+        let body = resp.text().await.unwrap_or_default();
+        log::error!("SearXNG API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
-            "SearXNG API error {} (response body omitted for security)",
-            status
+            "SearXNG API error {}: {}",
+            status, body
         )));
     }
 
