@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useKeybindStore, KeybindAction } from "../../../store/useKeybindStore";
 import { RotateCcw, Keyboard, Edit3, X } from "lucide-react";
+import { motion } from "motion/react";
+import { springs, motionTokens } from "../../../lib/motion-tokens";
 
 export const KeybindsSection = () => {
   const keybinds = useKeybindStore((s) => s.keybinds);
@@ -89,13 +91,16 @@ export const KeybindsSection = () => {
           <h3 className="text-sm font-semibold text-text-primary mb-1">Keyboard Keybinds</h3>
           <p className="text-xs text-text-muted">View and customize hotkeys to control Sythoria</p>
         </div>
-        <button
+        <motion.button
           onClick={resetAllKeybinds}
+          whileHover={{ scale: motionTokens.scale.pop }}
+          whileTap={{ scale: motionTokens.scale.press }}
+          transition={springs.snappy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-xs font-medium text-text-secondary hover:text-text-primary transition-colors shadow-sm"
         >
           <RotateCcw size={14} />
           <span>Reset All</span>
-        </button>
+        </motion.button>
       </div>
 
       <div className="space-y-6 pb-8">
@@ -144,22 +149,28 @@ export const KeybindsSection = () => {
                           <>
                             {renderCombo(action.currentCombo)}
 
-                            <button
+                            <motion.button
                               onClick={() => startRecording(action.id)}
+                              whileHover={{ scale: motionTokens.scale.pop }}
+                              whileTap={{ scale: motionTokens.scale.press }}
+                              transition={springs.snappy}
                               className="p-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shadow-sm"
                               title="Edit keybind"
                             >
                               <Edit3 size={14} />
-                            </button>
+                            </motion.button>
 
                             {isModified && (
-                              <button
+                              <motion.button
                                 onClick={() => resetKeycombo(action.id)}
+                                whileHover={{ scale: motionTokens.scale.pop }}
+                                whileTap={{ scale: motionTokens.scale.press }}
+                                transition={springs.snappy}
                                 className="p-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shadow-sm"
                                 title="Reset to default"
                               >
                                 <RotateCcw size={14} />
-                              </button>
+                              </motion.button>
                             )}
                           </>
                         )}

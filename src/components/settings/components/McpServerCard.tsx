@@ -495,7 +495,11 @@ export const McpServerCard = memo(function McpServerCard({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              transition={springs.gentle}
+              transition={{
+                type: "tween",
+                ease: motionTokens.easing.smooth,
+                duration: motionTokens.duration.normal,
+              }}
               className="overflow-hidden"
             >
               <div className="mt-1 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">

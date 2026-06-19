@@ -7,7 +7,7 @@ import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
 import { invoke } from "@tauri-apps/api/core";
-import { springs } from "../../../lib/motion-tokens";
+import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { clearStoreData } from "../../../utils/storage";
 
 const textSizes = [
@@ -169,63 +169,60 @@ export function GeneralSection() {
                   aria-hidden="true"
                 />
               </button>
+              {shortcutDropdownOpen && (
+                <div className="fixed inset-0 z-10" onClick={() => setShortcutDropdownOpen(false)} aria-hidden="true" />
+              )}
               <AnimatePresence>
                 {shortcutDropdownOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setShortcutDropdownOpen(false)}
-                      aria-hidden="true"
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                      transition={springs.snappy}
-                      className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden"
-                      role="listbox"
-                      aria-label="Send message shortcut options"
+                  <motion.div
+                    key="shortcut-dropdown"
+                    initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                    transition={springs.snappy}
+                    className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden"
+                    role="listbox"
+                    aria-label="Send message shortcut options"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSendMessageShortcut("enter");
+                        setShortcutDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                        sendMessageShortcut === "enter"
+                          ? "bg-accent-soft text-accent"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                      }`}
+                      role="option"
+                      aria-selected={sendMessageShortcut === "enter"}
                     >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSendMessageShortcut("enter");
-                          setShortcutDropdownOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                          sendMessageShortcut === "enter"
-                            ? "bg-accent-soft text-accent"
-                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                        }`}
-                        role="option"
-                        aria-selected={sendMessageShortcut === "enter"}
-                      >
-                        <span className="font-medium text-left">Enter to send, Shift+Enter for new line</span>
-                        {sendMessageShortcut === "enter" && (
-                          <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSendMessageShortcut("ctrl-enter");
-                          setShortcutDropdownOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                          sendMessageShortcut === "ctrl-enter"
-                            ? "bg-accent-soft text-accent"
-                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                        }`}
-                        role="option"
-                        aria-selected={sendMessageShortcut === "ctrl-enter"}
-                      >
-                        <span className="font-medium text-left">Ctrl+Enter to send, Enter for new line</span>
-                        {sendMessageShortcut === "ctrl-enter" && (
-                          <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                        )}
-                      </button>
-                    </motion.div>
-                  </>
+                      <span className="font-medium text-left">Enter to send, Shift+Enter for new line</span>
+                      {sendMessageShortcut === "enter" && (
+                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSendMessageShortcut("ctrl-enter");
+                        setShortcutDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                        sendMessageShortcut === "ctrl-enter"
+                          ? "bg-accent-soft text-accent"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                      }`}
+                      role="option"
+                      aria-selected={sendMessageShortcut === "ctrl-enter"}
+                    >
+                      <span className="font-medium text-left">Ctrl+Enter to send, Enter for new line</span>
+                      {sendMessageShortcut === "ctrl-enter" && (
+                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      )}
+                    </button>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>
@@ -282,14 +279,17 @@ export function GeneralSection() {
               <span className="text-sm font-medium text-text-primary block">Export Conversations</span>
               <span className="text-xs text-text-muted">Download all chat records to a local JSON file</span>
             </div>
-            <button
+            <motion.button
               type="button"
               onClick={handleExportConversations}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-hover border border-border text-text-primary text-sm font-medium transition-colors shadow-sm min-h-[40px] shrink-0"
             >
               <Download size={16} />
               <span>Export All</span>
-            </button>
+            </motion.button>
           </div>
 
           <div className="h-px bg-border/50" />
@@ -300,14 +300,17 @@ export function GeneralSection() {
               <span className="text-sm font-medium text-text-primary block">Reset Application Data</span>
               <span className="text-xs text-text-muted">Wipe storage, custom connections, and cached data</span>
             </div>
-            <button
+            <motion.button
               type="button"
               onClick={() => setIsConfirmOpen1(true)}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-600 dark:text-red-400 text-sm font-medium transition-colors shadow-sm min-h-[40px] shrink-0"
             >
               <Trash2 size={16} />
               <span>Wipe Data</span>
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
@@ -332,10 +335,13 @@ export function GeneralSection() {
                 v0.1.0
               </span>
             </div>
-            <button
+            <motion.button
               type="button"
               onClick={handleCheckUpdates}
               disabled={isCheckingUpdates}
+              whileHover={!isCheckingUpdates ? { scale: motionTokens.scale.pop } : undefined}
+              whileTap={!isCheckingUpdates ? { scale: motionTokens.scale.press } : undefined}
+              transition={springs.snappy}
               className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-hover border border-border text-text-primary text-sm font-medium transition-colors shadow-sm min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
               {isCheckingUpdates ? (
@@ -346,7 +352,7 @@ export function GeneralSection() {
               ) : (
                 <span>Check for Updates</span>
               )}
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>

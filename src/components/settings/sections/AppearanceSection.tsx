@@ -124,7 +124,7 @@ export const AppearanceSection = ({
           description="Enable transitions and spring animations (disable for better performance)"
         />
       </div>
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm animate-fade-in">
+      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
         <h4 className="text-sm font-semibold text-text-primary mb-2">Light Theme</h4>
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">
@@ -171,7 +171,7 @@ export const AppearanceSection = ({
           onChange={(val) => handleColorChange("light", "accent", val)}
         />
       </div>
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm animate-fade-in">
+      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
         <h4 className="text-sm font-semibold text-text-primary mb-2">Dark Theme</h4>
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">

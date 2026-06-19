@@ -146,7 +146,7 @@ export default function Settings() {
       </header>
 
       <div className="flex-1 flex min-w-0 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-scroll">
           <motion.div
             key={activeSection}
             className="max-w-2xl mx-auto px-4 md:px-8 py-8 space-y-6"

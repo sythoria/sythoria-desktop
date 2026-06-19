@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { springs } from "../../../lib/motion-tokens";
 import { MIN_TEMPERATURE, MAX_TEMPERATURE, TEMPERATURE_STEP } from "../../../config/constants";
@@ -86,9 +86,12 @@ export const ConfigurationSection = ({
               />
             </button>
             {modelDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setModelDropdownOpen(false)} aria-hidden="true" />
+              <div className="fixed inset-0 z-10" onClick={() => setModelDropdownOpen(false)} aria-hidden="true" />
+            )}
+            <AnimatePresence>
+              {modelDropdownOpen && (
                 <motion.div
+                  key="model-dropdown"
                   initial={{ opacity: 0, y: -4, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.97 }}
@@ -122,8 +125,8 @@ export const ConfigurationSection = ({
                     </button>
                   ))}
                 </motion.div>
-              </>
-            )}
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -152,13 +155,16 @@ export const ConfigurationSection = ({
               />
             </button>
             {searchProviderDropdownOpen && enabledSearchConfigs.length > 0 && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setSearchProviderDropdownOpen(false)}
-                  aria-hidden="true"
-                />
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setSearchProviderDropdownOpen(false)}
+                aria-hidden="true"
+              />
+            )}
+            <AnimatePresence>
+              {searchProviderDropdownOpen && enabledSearchConfigs.length > 0 && (
                 <motion.div
+                  key="search-provider-dropdown"
                   initial={{ opacity: 0, y: -4, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.97 }}
@@ -192,8 +198,8 @@ export const ConfigurationSection = ({
                     </button>
                   ))}
                 </motion.div>
-              </>
-            )}
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
