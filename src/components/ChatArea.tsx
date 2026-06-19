@@ -386,34 +386,47 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
     >
       <Sparkles size={14} className="mt-1 shrink-0" aria-hidden="true" />
       <div className="flex-1 min-w-0">
-        <motion.button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
-          aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
-          whileHover={{ x: 2 }}
-          transition={springs.snappy}
-        >
-          <span>Thinking</span>
-          <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-        </motion.button>
-        {expanded ? (
-          <motion.div
-            className="mt-1.5 p-2.5 rounded-xl bg-input text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            transition={springs.gentle}
+        <div className="flex items-center gap-2">
+          <motion.button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
+            aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
+            whileHover={{ x: 2 }}
+            transition={springs.snappy}
           >
-            <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
-              {content || "Thinking..."}
-            </p>
-          </motion.div>
-        ) : isStreaming && !hasContent ? (
-          <span className="generating-dots mt-0.5">
-            <span />
-            <span />
-            <span />
-          </span>
-        ) : null}
+            <span>Thinking</span>
+            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+          </motion.button>
+          {!expanded && isStreaming && !hasContent && (
+            <span className="generating-dots mt-0.5">
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
+        </div>
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              key="reasoning-content"
+              className="overflow-hidden bg-input rounded-xl"
+              initial={{ opacity: 0, height: 0, marginTop: 0 }}
+              animate={{ opacity: 1, height: "auto", marginTop: 6 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={{
+                type: "tween",
+                ease: motionTokens.easing.smooth,
+                duration: motionTokens.duration.normal,
+              }}
+            >
+              <div className="p-2.5 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+                <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
+                  {content || "Thinking..."}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
