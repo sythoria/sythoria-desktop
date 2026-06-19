@@ -212,6 +212,12 @@ export async function sendWithToolLoop(
     }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+      if (!get().isStreaming) {
+        logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
+        await useChatStore.getState().persistConversations();
+        return;
+      }
+
       useUIStore.getState().setLoading("toolExecution", true);
       logInfo("chat", `Tool loop step ${step + 1}/${MAX_TOOL_STEPS}`, {
         details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}`,
@@ -231,6 +237,12 @@ export async function sendWithToolLoop(
         tools: JSON.stringify(allTools),
         temperature,
       });
+
+      if (!get().isStreaming) {
+        logInfo("chat", "Tool loop aborted: stream was stopped by user during API call");
+        await useChatStore.getState().persistConversations();
+        return;
+      }
 
       const response: ToolCallResponse = JSON.parse(raw);
       const choice = response.choices?.[0];
@@ -254,6 +266,11 @@ export async function sendWithToolLoop(
           let resultContent = "";
 
           if (fnName === "unknown" && rawName.includes("__") && useMcp) {
+            if (!get().isStreaming) {
+              logInfo("chat", "Tool loop aborted: stream was stopped by user before MCP tool call");
+              await useChatStore.getState().persistConversations();
+              return;
+            }
             const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
             if (mcpTool && mcpCallTool) {
               logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
@@ -282,6 +299,11 @@ export async function sendWithToolLoop(
               }));
 
               const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
+              if (!get().isStreaming) {
+                logInfo("chat", "Tool loop aborted: stream was stopped by user during MCP tool call");
+                await useChatStore.getState().persistConversations();
+                return;
+              }
               resultContent = result.content;
 
               const displayContent = result.isError
@@ -431,10 +453,20 @@ export async function sendWithToolLoop(
           }));
 
           if (fnName === "search_query" && useSearch && searchConfig) {
+            if (!get().isStreaming) {
+              logInfo("chat", "Tool loop aborted: stream was stopped by user before search execution");
+              await useChatStore.getState().persistConversations();
+              return;
+            }
             logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
               details: `Provider: ${searchConfig.provider}, Step ${step + 1}`,
             });
             const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
+            if (!get().isStreaming) {
+              logInfo("chat", "Tool loop aborted: stream was stopped by user during search execution");
+              await useChatStore.getState().persistConversations();
+              return;
+            }
             resultContent = JSON.stringify(results);
             results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
 
@@ -458,10 +490,20 @@ export async function sendWithToolLoop(
               ),
             }));
           } else if (fnName === "fetch_url" && useSearch) {
+            if (!get().isStreaming) {
+              logInfo("chat", "Tool loop aborted: stream was stopped by user before fetch execution");
+              await useChatStore.getState().persistConversations();
+              return;
+            }
             logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
               details: `Step ${step + 1}`,
             });
             const urlContent = await fetchUrlContent(fnArgs.url!);
+            if (!get().isStreaming) {
+              logInfo("chat", "Tool loop aborted: stream was stopped by user during fetch execution");
+              await useChatStore.getState().persistConversations();
+              return;
+            }
             resultContent = JSON.stringify(urlContent);
             if (urlContent.status === "ok") {
               collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });

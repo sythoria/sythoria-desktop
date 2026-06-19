@@ -524,8 +524,10 @@ async fn chat_stream_tools(
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
+    stream_id: String,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    clear_stream_cancelled(&stream_id);
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
@@ -564,13 +566,19 @@ async fn chat_stream_tools(
     let mut accumulated = String::new();
 
     while let Some(chunk_result) = stream.next().await {
+        if is_stream_cancelled(&stream_id) {
+            clear_stream_cancelled(&stream_id);
+            return Ok(accumulated);
+        }
+
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(&app, "", |chunk_text| {
+        parser.process_lines(&app, &stream_id, |chunk_text| {
             accumulated.push_str(chunk_text);
         });
     }
 
+    clear_stream_cancelled(&stream_id);
     Ok(accumulated)
 }
 
