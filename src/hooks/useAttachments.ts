@@ -1,12 +1,22 @@
 import { useState, useRef, useCallback } from "react";
 import { Attachment } from "../types";
 import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../store/useChatStore";
 import { validateFile, readFileAsAttachment } from "../utils/attachments";
 
 export function useAttachments() {
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const attachments = useChatStore((s) => s.draftAttachments);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const setAttachments = useCallback((updater: Attachment[] | ((prev: Attachment[]) => Attachment[])) => {
+    const chatStore = useChatStore.getState();
+    if (typeof updater === "function") {
+      chatStore.setDraftAttachments(updater(chatStore.draftAttachments));
+    } else {
+      chatStore.setDraftAttachments(updater);
+    }
+  }, []);
 
   const handleAddFiles = useCallback(
     async (files: File[]) => {
@@ -35,7 +45,7 @@ export function useAttachments() {
       }
       setAttachments(newAttachments);
     },
-    [attachments],
+    [attachments, setAttachments],
   );
 
   const handleFileChange = useCallback(

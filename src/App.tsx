@@ -10,6 +10,7 @@ import { RenameChatModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import StartScreen from "./components/StartScreen";
+import { DragOverlay } from "./components/ui/DragOverlay";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
@@ -126,6 +127,7 @@ function App() {
     loading,
     toasts,
     hasStarted,
+    isDraggingFile,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -137,6 +139,7 @@ function App() {
       loading: s.loading,
       toasts: s.toasts,
       hasStarted: s.hasStarted,
+      isDraggingFile: s.isDraggingFile,
     })),
   );
   const {
@@ -173,6 +176,58 @@ function App() {
     useUIStore.getState().initDownloadedThemes();
     useKeybindStore.getState().initKeybinds();
   }, [init]);
+
+  useEffect(() => {
+    let unlistenDragEnter: (() => void) | undefined;
+    let unlistenDragOver: (() => void) | undefined;
+    let unlistenDragLeave: (() => void) | undefined;
+    let unlistenDragDrop: (() => void) | undefined;
+
+    async function setupListeners() {
+      const { listen } = await import("@tauri-apps/api/event");
+
+      unlistenDragEnter = await listen("tauri://drag-enter", () => {
+        const uiState = useUIStore.getState();
+        if (uiState.view === "chat") {
+          uiState.setIsDraggingFile(true);
+        }
+      });
+
+      unlistenDragOver = await listen("tauri://drag-over", () => {
+        const uiState = useUIStore.getState();
+        if (uiState.view === "chat" && !uiState.isDraggingFile) {
+          uiState.setIsDraggingFile(true);
+        }
+      });
+
+      unlistenDragLeave = await listen("tauri://drag-leave", () => {
+        useUIStore.getState().setIsDraggingFile(false);
+      });
+
+      unlistenDragDrop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+        useUIStore.getState().setIsDraggingFile(false);
+        const uiState = useUIStore.getState();
+        if (uiState.view !== "chat") return;
+
+        const { paths } = event.payload;
+        if (paths && paths.length > 0) {
+          const chatStore = useChatStore.getState();
+          for (const path of paths) {
+            await chatStore.addDraftFileFromPath(path);
+          }
+        }
+      });
+    }
+
+    setupListeners();
+
+    return () => {
+      if (unlistenDragEnter) unlistenDragEnter();
+      if (unlistenDragOver) unlistenDragOver();
+      if (unlistenDragLeave) unlistenDragLeave();
+      if (unlistenDragDrop) unlistenDragDrop();
+    };
+  }, []);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -346,6 +401,7 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-transparent">
       <div className="flex flex-1 overflow-hidden rounded-[18px] border-[12px] border-white/5 relative glass-app-container">
+        <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
           <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-[80px]" data-tauri-drag-region>
             <div className="flex items-center gap-1 h-full">

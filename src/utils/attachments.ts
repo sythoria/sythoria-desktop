@@ -84,7 +84,7 @@ export interface ValidationResult {
   reason?: string;
 }
 
-export function validateFile(file: File, currentCount = 0): ValidationResult {
+export function validateFile(file: { name: string; size: number; type: string }, currentCount = 0): ValidationResult {
   const kind = classifyFile(file);
   if (!kind) {
     return { ok: false, reason: `"${file.name}" — unsupported file type` };

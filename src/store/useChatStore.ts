@@ -39,7 +39,7 @@ import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { sendWithToolLoop } from "../services/toolLoop";
-import { buildUserApiContent } from "../utils/attachments";
+import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
   uiToast,
   uiLoading,
@@ -148,6 +148,7 @@ interface ChatState {
   generationLabel: string;
   navigationHistory: string[];
   navigationIndex: number;
+  draftAttachments: Attachment[];
 
   init: () => Promise<void>;
   cleanupEmptyConversations: () => void;
@@ -166,6 +167,8 @@ interface ChatState {
   clearAllChats: () => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
+  setDraftAttachments: (attachments: Attachment[]) => void;
+  addDraftFileFromPath: (path: string) => Promise<void>;
 }
 
 let initInProgress = false;
@@ -655,6 +658,64 @@ export const useChatStore = create<ChatState>((set, get) => ({
     modelStopHealthCheck();
     get().stopStreaming();
     modelReleaseListeners();
+  },
+
+  draftAttachments: [],
+
+  setDraftAttachments: (draftAttachments) => set({ draftAttachments }),
+
+  addDraftFileFromPath: async (path: string) => {
+    const addToast = useUIStore.getState().addToast;
+    const currentDrafts = get().draftAttachments;
+
+    try {
+      const payload = await invoke<{
+        name: string;
+        size: number;
+        mimeType: string;
+        dataUrl?: string;
+        textContent?: string;
+      }>("read_file_from_path", { path });
+
+      // Check for duplicate by name and size
+      const isDuplicate = currentDrafts.some((a) => a.name === payload.name && a.size === payload.size);
+      if (isDuplicate) {
+        return;
+      }
+
+      // Determine classification kind
+      const isImage = payload.mimeType.startsWith("image/");
+      const kind = isImage ? "image" : "text";
+
+      const valResult = validateFile(
+        {
+          name: payload.name,
+          size: payload.size,
+          type: payload.mimeType,
+        },
+        currentDrafts.length,
+      );
+
+      if (!valResult.ok) {
+        addToast(valResult.reason || "Invalid file", "error");
+        return;
+      }
+
+      const attachment: Attachment = {
+        id: generateId(),
+        name: payload.name,
+        mimeType: payload.mimeType,
+        size: payload.size,
+        kind,
+        dataUrl: payload.dataUrl,
+        textContent: payload.textContent,
+      };
+
+      set({ draftAttachments: [...currentDrafts, attachment] });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addToast(errMsg || `Failed to read file from path: ${path}`, "error");
+    }
   },
 
   setGenerationState: (state, label, error) => {

@@ -1123,7 +1123,88 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
     }
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FilePayload {
+    name: String,
+    size: u64,
+    mime_type: String,
+    data_url: Option<String>,
+    text_content: Option<String>,
+}
+
+#[tauri::command]
+async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
+    let path_buf = std::path::Path::new(&path);
+    if !path_buf.is_file() {
+        return Err(AppError::ConfigIo(format!("Path is not a file: {}", path)));
+    }
+
+    let metadata = fs::metadata(&path)?;
+    let size = metadata.len();
+    if size > 10 * 1024 * 1024 {
+        return Err(AppError::ConfigIo(format!("File size exceeds the 10 MB limit")));
+    }
+
+    let name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let ext = path_buf
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+
+    let is_image = ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "webp";
+
+    if is_image {
+        let bytes = fs::read(&path)?;
+        use base64::Engine;
+        let b64 = base64::prelude::BASE64_STANDARD.encode(&bytes);
+        let mime_type = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            _ => "image/png",
+        };
+        Ok(FilePayload {
+            name,
+            size,
+            mime_type: mime_type.to_string(),
+            data_url: Some(format!("data:{};base64,{}", mime_type, b64)),
+            text_content: None,
+        })
+    } else {
+        let text_content = fs::read_to_string(&path)
+            .map_err(|e| AppError::ConfigIo(format!("Failed to read file as text: {}", e)))?;
+        
+        let mime_type = match ext.as_str() {
+            "txt" => "text/plain",
+            "html" => "text/html",
+            "css" => "text/css",
+            "js" => "application/javascript",
+            "ts" => "application/typescript",
+            "json" => "application/json",
+            "md" | "markdown" => "text/markdown",
+            _ => "text/plain",
+        };
+
+        Ok(FilePayload {
+            name,
+            size,
+            mime_type: mime_type.to_string(),
+            data_url: None,
+            text_content: Some(text_content),
+        })
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+
 pub fn run() {
     init_keyring_store();
     tauri::Builder::default()
@@ -1226,7 +1307,8 @@ pub fn run() {
             mcp_call_tool,
             wipe_config_files,
             set_autostart_enabled,
-            is_autostart_enabled
+            is_autostart_enabled,
+            read_file_from_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -55,6 +55,7 @@ interface UIState {
   clearInputOnEscape: boolean;
   baseTextSize: "small" | "medium" | "large" | "xlarge";
   autoUpdateChecking: boolean;
+  isDraggingFile: boolean;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -83,6 +84,7 @@ interface UIState {
   setClearInputOnEscape: (value: boolean) => void;
   setBaseTextSize: (value: "small" | "medium" | "large" | "xlarge") => void;
   setAutoUpdateChecking: (value: boolean) => void;
+  setIsDraggingFile: (dragging: boolean) => void;
 }
 
 let toastCounter = 0;
@@ -119,8 +121,10 @@ export const useUIStore = create<UIState>((set) => ({
   clearInputOnEscape: false,
   baseTextSize: "medium",
   autoUpdateChecking: true,
+  isDraggingFile: false,
 
   setView: (view) => set({ view }),
+  setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
   setTheme: (theme) => {
     set({ theme });
     applyTheme(theme);
