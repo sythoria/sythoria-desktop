@@ -3,10 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { saveModelConfigs, saveApiKeys, saveTitleConfig, saveSystemPrompt } from "../utils/storage";
+import { saveModelConfigs, saveApiKeys, saveTitleConfig, saveSystemPrompt, saveMaxToolSteps } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
-import { DEFAULT_TEMPERATURE } from "../config/constants";
+import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
 
@@ -70,9 +70,11 @@ interface ModelState {
   modelStatuses: ModelStatuses;
   titleConfig: TitleGenerationConfig;
   systemPrompt: string;
+  maxToolSteps: number;
 
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
+  setMaxToolSteps: (steps: number) => void;
   updateModels: (models: ModelConfig[]) => void;
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
   deleteModel: (id: string) => void;
@@ -102,6 +104,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   modelStatuses: {},
   titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
   systemPrompt: "",
+  maxToolSteps: DEFAULT_MAX_TOOL_STEPS,
 
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
@@ -113,6 +116,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
   },
   setTemperature: (t) => set({ temperature: t }),
+  setMaxToolSteps: (t) => {
+    set({ maxToolSteps: t });
+    saveMaxToolSteps(t);
+  },
 
   updateModels: (models) => {
     const validationResults = models.map((m) => validateModelConfig(m));

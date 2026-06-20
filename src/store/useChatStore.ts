@@ -34,6 +34,7 @@ import {
   loadAutoUpdateChecking,
   loadSystemPrompt,
   loadShowContextWindow,
+  loadMaxToolSteps,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -208,6 +209,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedAutoUpdateChecking,
         loadedSystemPrompt,
         loadedShowContextWindow,
+        loadedMaxToolSteps,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -228,6 +230,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadAutoUpdateChecking(),
         loadSystemPrompt(),
         loadShowContextWindow(),
+        loadMaxToolSteps(),
       ]);
 
       const models = loadedModels || [];
@@ -253,6 +256,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         modelStatuses: {},
         titleConfig: loadedTitleCfg,
         systemPrompt: loadedSystemPrompt,
+        maxToolSteps: loadedMaxToolSteps,
       });
 
       searchSetState({

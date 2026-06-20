@@ -5,6 +5,7 @@ import type { Conversation, TitleGenerationConfig, ModelConfig } from "../types"
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
 import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
+import { DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -128,6 +129,7 @@ const BASE_TEXT_SIZE_KEY = "sythoria-base-text-size";
 const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
+const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -964,6 +966,33 @@ export async function saveShowContextWindow(value: boolean): Promise<void> {
     logError("storage", "Failed to save show context window setting", { error: e });
   }
   localStorage.setItem(SHOW_CONTEXT_WINDOW_KEY, String(value));
+}
+
+export async function loadMaxToolSteps(): Promise<number> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(MAX_TOOL_STEPS_KEY);
+    if (typeof raw === "number") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load max tool steps setting", { error: e });
+  }
+  const fallback = localStorage.getItem(MAX_TOOL_STEPS_KEY);
+  if (fallback !== null) {
+    const num = parseInt(fallback, 10);
+    if (!isNaN(num)) return num;
+  }
+  return DEFAULT_MAX_TOOL_STEPS;
+}
+
+export async function saveMaxToolSteps(value: number): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(MAX_TOOL_STEPS_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save max tool steps setting", { error: e });
+  }
+  localStorage.setItem(MAX_TOOL_STEPS_KEY, String(value));
 }
 
 export async function clearStoreData(): Promise<void> {

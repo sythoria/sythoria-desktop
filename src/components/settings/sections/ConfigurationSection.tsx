@@ -2,7 +2,13 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { springs } from "../../../lib/motion-tokens";
-import { MIN_TEMPERATURE, MAX_TEMPERATURE, TEMPERATURE_STEP } from "../../../config/constants";
+import {
+  MIN_TEMPERATURE,
+  MAX_TEMPERATURE,
+  TEMPERATURE_STEP,
+  MIN_TOOL_STEPS,
+  MAX_TOOL_STEPS_LIMIT,
+} from "../../../config/constants";
 import { ModelConfig, SearchApiConfig } from "../../../types";
 
 interface ConfigurationSectionProps {
@@ -15,6 +21,8 @@ interface ConfigurationSectionProps {
   temperature: number;
   setTemperature: (temp: number) => void;
   addToast: (msg: string, variant: "info" | "success" | "error") => void;
+  maxToolSteps: number;
+  setMaxToolSteps: (steps: number) => void;
 }
 
 export const ConfigurationSection = ({
@@ -27,10 +35,13 @@ export const ConfigurationSection = ({
   temperature,
   setTemperature,
   addToast,
+  maxToolSteps,
+  setMaxToolSteps,
 }: ConfigurationSectionProps) => {
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxStepsToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const enabledModels = models.filter((m) => m.enabled !== false);
   const effectiveModel = models.find((m) => m.id === selectedModel) ?? models[0];
@@ -50,13 +61,27 @@ export const ConfigurationSection = ({
     [setTemperature, addToast],
   );
 
+  const handleMaxToolStepsChange = useCallback(
+    (value: string) => {
+      const steps = parseInt(value, 10);
+      setMaxToolSteps(steps);
+      if (maxStepsToastRef.current) clearTimeout(maxStepsToastRef.current);
+      maxStepsToastRef.current = setTimeout(() => {
+        addToast(`Maximum tool steps set to ${steps}`, "info");
+      }, 800);
+    },
+    [setMaxToolSteps, addToast],
+  );
+
   useEffect(() => {
     return () => {
       if (tempToastRef.current) clearTimeout(tempToastRef.current);
+      if (maxStepsToastRef.current) clearTimeout(maxStepsToastRef.current);
     };
   }, []);
 
   const tempPercent = ((temperature - MIN_TEMPERATURE) / (MAX_TEMPERATURE - MIN_TEMPERATURE)) * 100;
+  const stepsPercent = ((maxToolSteps - MIN_TOOL_STEPS) / (MAX_TOOL_STEPS_LIMIT - MIN_TOOL_STEPS)) * 100;
 
   return (
     <>
@@ -245,6 +270,52 @@ export const ConfigurationSection = ({
             <span>Precise</span>
             <span>Balanced</span>
             <span>Creative</span>
+          </div>
+        </div>
+
+        <div className="space-y-3 pt-4 border-t border-border/50">
+          <div className="flex items-center justify-between">
+            <label htmlFor="max-tool-steps-slider" className="text-sm font-medium text-text-primary">
+              Maximum Tool Steps
+            </label>
+            <span className="text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono">
+              {maxToolSteps}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted">
+            Set the maximum number of consecutive tool execution steps allowed for complex tasks (e.g. web search, file
+            fetching, or MCP tools) before returning a final answer
+          </p>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TOOL_STEPS}</span>
+            <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
+              <div
+                className="absolute h-full bg-accent rounded-full transition-all duration-150"
+                style={{ width: `${stepsPercent}%` }}
+              />
+              <input
+                id="max-tool-steps-slider"
+                type="range"
+                min={MIN_TOOL_STEPS}
+                max={MAX_TOOL_STEPS_LIMIT}
+                step={1}
+                value={maxToolSteps}
+                onChange={(e) => handleMaxToolStepsChange(e.target.value)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                aria-label="Maximum Tool Steps"
+              />
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150"
+                style={{ left: `calc(${stepsPercent}% - 6px)` }}
+                aria-hidden="true"
+              />
+            </div>
+            <span className="text-xs text-text-muted whitespace-nowrap">{MAX_TOOL_STEPS_LIMIT}</span>
+          </div>
+          <div className="flex justify-between text-[10px] text-text-muted pt-1">
+            <span>Minimum (1)</span>
+            <span>Default (25)</span>
+            <span>Maximum (100)</span>
           </div>
         </div>
       </div>

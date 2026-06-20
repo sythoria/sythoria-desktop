@@ -26,10 +26,12 @@ export default function Settings() {
   const models = useModelStore((s) => s.models);
   const selectedModel = useModelStore((s) => s.selectedModel);
   const temperature = useModelStore((s) => s.temperature);
+  const maxToolSteps = useModelStore((s) => s.maxToolSteps);
   const modelStatuses = useModelStore((s) => s.modelStatuses);
   const titleConfig = useModelStore((s) => s.titleConfig);
   const setSelectedModel = useModelStore((s) => s.setSelectedModel);
   const setTemperature = useModelStore((s) => s.setTemperature);
+  const setMaxToolSteps = useModelStore((s) => s.setMaxToolSteps);
   const updateModel = useModelStore((s) => s.updateModel);
   const deleteModel = useModelStore((s) => s.deleteModel);
   const addModel = useModelStore((s) => s.addModel);
@@ -180,6 +182,8 @@ export default function Settings() {
                 temperature={temperature}
                 setTemperature={setTemperature}
                 addToast={addToast}
+                maxToolSteps={maxToolSteps}
+                setMaxToolSteps={setMaxToolSteps}
               />
             )}
 

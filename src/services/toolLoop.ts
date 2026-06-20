@@ -12,7 +12,6 @@ import type {
 } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
-import { MAX_TOOL_STEPS } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
@@ -214,7 +213,9 @@ export async function sendWithToolLoop(
       name?: string;
     }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
-    for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+    const maxToolSteps = useModelStore.getState().maxToolSteps;
+
+    for (let step = 0; step < maxToolSteps; step++) {
       if (!get().isStreaming) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
         await useChatStore.getState().persistConversations();
@@ -222,7 +223,7 @@ export async function sendWithToolLoop(
       }
 
       useUIStore.getState().setLoading("toolExecution", true);
-      logInfo("chat", `Tool loop step ${step + 1}/${MAX_TOOL_STEPS}`, {
+      logInfo("chat", `Tool loop step ${step + 1}/${maxToolSteps}`, {
         details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}`,
       });
       if (step > 0) {
