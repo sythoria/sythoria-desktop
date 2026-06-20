@@ -2,8 +2,13 @@ import React from "react";
 import { motion } from "motion/react";
 import { FileUp } from "lucide-react";
 import { springs, motionTokens } from "../../lib/motion-tokens";
+import { useModelStore } from "../../store/useModelStore";
 
 export const DragOverlay: React.FC = () => {
+  const selectedModelId = useModelStore((s) => s.selectedModel);
+  const currentModel = useModelStore((s) => s.models.find((m) => m.id === selectedModelId));
+  const supportsImages = currentModel ? currentModel.supportsImages !== false : true;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -33,13 +38,17 @@ export const DragOverlay: React.FC = () => {
           <FileUp size={40} className="text-accent" />
         </motion.div>
 
-        <h3 className="text-lg font-medium text-text-primary mb-1">Drop files to attach</h3>
+        <h3 className="text-lg font-medium text-text-primary mb-1">
+          {supportsImages ? "Drop files to attach" : "Drop text files to attach"}
+        </h3>
         <p className="text-sm text-text-muted text-center max-w-xs">
-          Release to add them as attachments to your message.
+          {supportsImages
+            ? "Release to add them as attachments to your message."
+            : `"${currentModel?.name || "Selected model"}" does not support image inputs.`}
         </p>
 
         <div className="mt-6 flex items-center gap-4 text-xs text-text-muted/60 border-t border-white/5 pt-4">
-          <span>Images & Text Files</span>
+          <span>{supportsImages ? "Images & Text Files" : "Text Files Only"}</span>
           <span className="w-1 h-1 rounded-full bg-text-muted/30" />
           <span>Max 10 MB per file</span>
         </div>

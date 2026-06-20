@@ -691,6 +691,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const isImage = payload.mimeType.startsWith("image/");
       const kind = isImage ? "image" : "text";
 
+      const modelStore = useModelStore.getState();
+      const currentModel = modelStore.models.find((m) => m.id === modelStore.selectedModel);
+      if (isImage && currentModel && currentModel.supportsImages === false) {
+        addToast(`"${currentModel.name}" does not support image inputs.`, "error");
+        return;
+      }
+
       const valResult = validateFile(
         {
           name: payload.name,
