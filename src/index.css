@@ -361,7 +361,8 @@
 }
 .markdown-body pre::-webkit-scrollbar,
 .markdown-body .code-block-content::-webkit-scrollbar {
-  height: 4px;
+  height: 6px;
+  width: 6px;
 }
 .markdown-body pre::-webkit-scrollbar-track,
 .markdown-body .code-block-content::-webkit-scrollbar-track {

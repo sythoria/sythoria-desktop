@@ -96,7 +96,7 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
   );
 }
 
-function SyntaxCodeBlock({ code, language }: { code: string; language: string }) {
+function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language: string; maxHeight?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
@@ -144,9 +144,14 @@ function SyntaxCodeBlock({ code, language }: { code: string; language: string })
         </motion.button>
       </div>
       {highlighted ? (
-        <div ref={ref} className="code-block-content" dangerouslySetInnerHTML={{ __html: highlighted }} />
+        <div
+          ref={ref}
+          className="code-block-content"
+          style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
       ) : (
-        <div ref={ref} className="code-block-content">
+        <div ref={ref} className="code-block-content" style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
           <code className={`language-${language}`}>{code}</code>
         </div>
       )}
@@ -327,6 +332,8 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
 }
 
 function ToolCallDisplay({ message }: { message: Message }) {
+  const [expanded, setExpanded] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const { name } = message.toolCall!;
   const isSearch = name === "search_query";
   const isFetch = name === "fetch_url";
@@ -336,6 +343,90 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const mcpParts = isMcp ? name.split("__") : [];
   const mcpToolName = mcpParts.length > 1 ? mcpParts.slice(1).join("__") : name;
 
+  if (isMcp) {
+    const formattedArgs = JSON.stringify(message.toolCall?.arguments || {}, null, 2);
+
+    let formattedResult = message.toolResult?.content || "";
+    let resultLanguage = "plaintext";
+    if (formattedResult) {
+      try {
+        const parsed = JSON.parse(formattedResult);
+        formattedResult = JSON.stringify(parsed, null, 2);
+        resultLanguage = "json";
+      } catch {
+        // keep as is
+      }
+    }
+
+    return (
+      <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
+        {/* Simple inline text with chevron */}
+        <div className="flex items-center gap-1.5 text-text-muted select-none">
+          <AtSign size={14} className="shrink-0" aria-hidden="true" />
+          <span className="text-sm">{isCompleted ? `Run: ${mcpToolName}` : `Running: ${mcpToolName}...`}</span>
+          {!isCompleted && <Loader2 size={12} className="animate-spin text-text-muted" />}
+
+          <motion.button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+            aria-label={expanded ? "Collapse details" : "Expand details"}
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+          </motion.button>
+        </div>
+
+        {/* Collapsible Content */}
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              key="mcp-details"
+              initial={{ height: 0, opacity: 0, marginTop: 0 }}
+              animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+              exit={{ height: 0, opacity: 0, marginTop: 0 }}
+              transition={{
+                type: "tween",
+                ease: motionTokens.easing.smooth,
+                duration: motionTokens.duration.normal,
+              }}
+              className="w-full overflow-hidden pl-5"
+            >
+              <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
+                {/* Arguments */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
+                    Arguments
+                  </span>
+                  <div className="markdown-body">
+                    <pre style={{ margin: 0 }}>
+                      <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
+                    </pre>
+                  </div>
+                </div>
+
+                {/* Result */}
+                {isCompleted && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
+                      Result
+                    </span>
+                    <div className="markdown-body">
+                      <pre style={{ margin: 0 }}>
+                        <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // Non-MCP Tools (Search, Fetch)
   return (
     <motion.div
       className="flex items-center gap-2 mb-1.5 text-text-muted"
@@ -351,16 +442,12 @@ function ToolCallDisplay({ message }: { message: Message }) {
             ? "Search results"
             : isFetch
               ? "Page content"
-              : isMcp
-                ? `Run: ${mcpToolName}`
-                : "Tool result"
+              : "Tool result"
           : isSearch
             ? "Searching..."
             : isFetch
               ? "Fetching..."
-              : isMcp
-                ? `Running: ${mcpToolName}...`
-                : "Calling tool..."}
+              : "Calling tool..."}
       </span>
       {!isCompleted && <Loader2 size={12} className="animate-spin ml-1" />}
     </motion.div>
@@ -648,7 +735,7 @@ export default function ChatArea({
 
   if (messages.length >= VIRTUALIZED_THRESHOLD) {
     return (
-      <div className="flex-1 relative" role="log" aria-label="Chat messages" aria-live="polite">
+      <div className="flex-1 min-h-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
         <Virtuoso
           ref={virtuosoRef}
           data={messages}
@@ -699,32 +786,48 @@ function NonVirtualizedChatArea({
   lastAssistantMessageId: string | undefined;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
 
-    const onScroll = () => {
+    const checkAtBottom = () => {
       const target = scrollContainerRef.current;
       if (!target) return;
       const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
       setIsAtBottom(atBottom);
     };
 
+    const onScroll = () => checkAtBottom();
+
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+
+    let observer: ResizeObserver | null = null;
+    if (contentRef.current && window.ResizeObserver) {
+      observer = new ResizeObserver(() => checkAtBottom());
+      observer.observe(contentRef.current);
+      observer.observe(el);
+    }
+
+    checkAtBottom();
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+    };
   }, [setIsAtBottom]);
 
   return (
     <div
       ref={scrollContainerRef}
       data-chat-scroll
-      className="flex-1 overflow-y-auto px-8 md:px-12 relative"
+      className="flex-1 min-h-0 overflow-y-auto px-8 md:px-12 relative"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div className="max-w-4xl mx-auto w-full px-8 md:px-12 py-8 space-y-6">
+      <div ref={contentRef} className="max-w-4xl mx-auto w-full px-8 md:px-12 py-8 space-y-6">
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}

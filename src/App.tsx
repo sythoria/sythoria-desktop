@@ -507,7 +507,7 @@ function App() {
             ) : (
               <motion.main
                 key="chat"
-                className="flex-1 flex flex-col min-w-0 relative"
+                className="flex-1 flex flex-col min-w-0 min-h-0 relative"
                 aria-label="Chat area"
                 initial={{ opacity: 0, y: -6, scale: 0.99 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}

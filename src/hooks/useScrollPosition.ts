@@ -25,12 +25,14 @@ export function useScrollButton() {
         behavior: "smooth",
         align: "end",
       });
+      setIsAtBottom(true);
       return;
     }
 
     const el = document.querySelector("[data-chat-scroll]") as HTMLElement | null;
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      setIsAtBottom(true);
     }
   }, []);
 
