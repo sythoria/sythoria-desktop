@@ -13,7 +13,11 @@
         { "event": "chat-stream-done" },
         { "event": "ws-error" },
         { "event": "ws-closed" },
-        { "event": "ws-message" }
+        { "event": "ws-message" },
+        { "event": "tauri://drag-enter" },
+        { "event": "tauri://drag-over" },
+        { "event": "tauri://drag-leave" },
+        { "event": "tauri://drag-drop" }
       ]
     },
     "opener:default",

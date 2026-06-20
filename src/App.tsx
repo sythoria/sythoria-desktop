@@ -178,6 +178,7 @@ function App() {
   }, [init]);
 
   useEffect(() => {
+    let active = true;
     let unlistenDragEnter: (() => void) | undefined;
     let unlistenDragOver: (() => void) | undefined;
     let unlistenDragLeave: (() => void) | undefined;
@@ -186,25 +187,40 @@ function App() {
     async function setupListeners() {
       const { listen } = await import("@tauri-apps/api/event");
 
-      unlistenDragEnter = await listen("tauri://drag-enter", () => {
+      const enter = await listen("tauri://drag-enter", () => {
         const uiState = useUIStore.getState();
         if (uiState.view === "chat") {
           uiState.setIsDraggingFile(true);
         }
       });
+      if (!active) {
+        enter();
+        return;
+      }
+      unlistenDragEnter = enter;
 
-      unlistenDragOver = await listen("tauri://drag-over", () => {
+      const over = await listen("tauri://drag-over", () => {
         const uiState = useUIStore.getState();
         if (uiState.view === "chat" && !uiState.isDraggingFile) {
           uiState.setIsDraggingFile(true);
         }
       });
+      if (!active) {
+        over();
+        return;
+      }
+      unlistenDragOver = over;
 
-      unlistenDragLeave = await listen("tauri://drag-leave", () => {
+      const leave = await listen("tauri://drag-leave", () => {
         useUIStore.getState().setIsDraggingFile(false);
       });
+      if (!active) {
+        leave();
+        return;
+      }
+      unlistenDragLeave = leave;
 
-      unlistenDragDrop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+      const drop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
         useUIStore.getState().setIsDraggingFile(false);
         const uiState = useUIStore.getState();
         if (uiState.view !== "chat") return;
@@ -217,11 +233,17 @@ function App() {
           }
         }
       });
+      if (!active) {
+        drop();
+        return;
+      }
+      unlistenDragDrop = drop;
     }
 
     setupListeners();
 
     return () => {
+      active = false;
       if (unlistenDragEnter) unlistenDragEnter();
       if (unlistenDragOver) unlistenDragOver();
       if (unlistenDragLeave) unlistenDragLeave();
