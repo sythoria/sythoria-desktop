@@ -12,10 +12,16 @@ const ToolCallSchema = z.object({
   arguments: z.record(z.string(), z.unknown()),
 });
 
+const McpImageContentSchema = z.object({
+  mimeType: z.string(),
+  data: z.string(),
+});
+
 const ToolCallResultSchema = z.object({
   id: z.string(),
   name: z.string(),
   content: z.string(),
+  images: z.array(McpImageContentSchema).optional(),
 });
 
 const SourceSchema = z.object({

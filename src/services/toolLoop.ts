@@ -322,6 +322,7 @@ export async function sendWithToolLoop(
                             id: toolCall.id,
                             name: rawName,
                             content: resultContent,
+                            images: result.images,
                           },
                         }
                       : m,

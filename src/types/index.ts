@@ -33,7 +33,7 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   toolCall?: { id: string; name: string; arguments: Record<string, string> };
-  toolResult?: { id: string; name: string; content: string };
+  toolResult?: { id: string; name: string; content: string; images?: McpImageContent[] };
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
 }

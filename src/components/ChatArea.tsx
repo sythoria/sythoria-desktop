@@ -333,6 +333,7 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
 
 function ToolCallDisplay({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false);
+  const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const { name } = message.toolCall!;
   const isSearch = name === "search_query";
@@ -357,6 +358,15 @@ function ToolCallDisplay({ message }: { message: Message }) {
         // keep as is
       }
     }
+
+    const mcpImages = message.toolResult?.images || [];
+    const previewImages = mcpImages.map((img, idx) => {
+      const ext = img.mimeType.split("/")[1] || "png";
+      return {
+        url: `data:${img.mimeType};base64,${img.data}`,
+        name: `mcp_image_${idx + 1}.${ext}`,
+      };
+    });
 
     return (
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
@@ -418,7 +428,45 @@ function ToolCallDisplay({ message }: { message: Message }) {
                     </div>
                   </div>
                 )}
+
+                {/* Images */}
+                {isCompleted && mcpImages.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
+                      Images
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {mcpImages.map((img, idx) => {
+                        const dataUrl = `data:${img.mimeType};base64,${img.data}`;
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => setPreviewImageIndex(idx)}
+                            className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-all group shrink-0"
+                            title={`View Image ${idx + 1}`}
+                          >
+                            <img
+                              src={dataUrl}
+                              alt={`MCP Output ${idx + 1}`}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 select-none"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {previewImageIndex !== null && previewImages.length > 0 && (
+                <ImagePreviewModal
+                  isOpen={previewImageIndex !== null}
+                  onClose={() => setPreviewImageIndex(null)}
+                  images={previewImages}
+                  activeIndex={previewImageIndex}
+                  onChangeActiveIndex={(idx) => setPreviewImageIndex(idx)}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
