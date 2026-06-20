@@ -191,6 +191,7 @@ pub async fn chat_completion_anthropic(
     model: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
+    max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
     let client = Client::builder().timeout(std::time::Duration::from_secs(60)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
@@ -199,7 +200,7 @@ pub async fn chat_completion_anthropic(
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: 4096,
+        max_tokens: max_tokens.unwrap_or(4096),
         temperature,
         stream: false,
         tools: None,
@@ -243,6 +244,7 @@ pub async fn chat_completion_tools_anthropic(
     messages: Vec<ChatMessage>,
     tools_str: String,
     temperature: f64,
+    max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
     let client = Client::builder().timeout(std::time::Duration::from_secs(120)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
@@ -252,7 +254,7 @@ pub async fn chat_completion_tools_anthropic(
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: 4096,
+        max_tokens: max_tokens.unwrap_or(4096),
         temperature,
         stream: false,
         tools,
@@ -318,6 +320,7 @@ pub async fn chat_stream_anthropic(
     messages: Vec<ChatMessage>,
     temperature: f64,
     stream_id: String,
+    max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
@@ -328,7 +331,7 @@ pub async fn chat_stream_anthropic(
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: 4096,
+        max_tokens: max_tokens.unwrap_or(4096),
         temperature,
         stream: true,
         tools: None,
@@ -377,6 +380,7 @@ pub async fn chat_stream_tools_anthropic(
     tools_str: String,
     temperature: f64,
     stream_id: String,
+    max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
@@ -388,7 +392,7 @@ pub async fn chat_stream_tools_anthropic(
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: 4096,
+        max_tokens: max_tokens.unwrap_or(4096),
         temperature,
         stream: true,
         tools,

@@ -197,7 +197,10 @@ export async function sendWithToolLoop(
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
     const allTools = buildToolDefinitions(useMcp ? mcpTools : [], useSearch);
 
-    const userSystemPrompt = useModelStore.getState().systemPrompt || "";
+    const userSystemPrompt =
+      modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()
+        ? modelConfig.systemPromptOverride
+        : useModelStore.getState().systemPrompt || "";
     const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : []);
     const combinedSystemPrompt = userSystemPrompt.trim()
       ? `${userSystemPrompt}\n\n${toolSystemPrompt}`
@@ -229,6 +232,9 @@ export async function sendWithToolLoop(
         }));
       }
 
+      const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
+      const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
+
       const raw = await invoke<string>("chat_completion_tools", {
         apiUrl,
         apiKey,
@@ -236,7 +242,8 @@ export async function sendWithToolLoop(
         provider: modelConfig.provider,
         messages: apiMessages,
         tools: JSON.stringify(allTools),
-        temperature,
+        temperature: requestTemp,
+        maxTokens,
       });
 
       if (!get().isStreaming) {

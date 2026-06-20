@@ -33,6 +33,7 @@ import {
   loadBaseTextSize,
   loadAutoUpdateChecking,
   loadSystemPrompt,
+  loadShowContextWindow,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -206,6 +207,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedBaseTextSize,
         loadedAutoUpdateChecking,
         loadedSystemPrompt,
+        loadedShowContextWindow,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -225,6 +227,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadBaseTextSize(),
         loadAutoUpdateChecking(),
         loadSystemPrompt(),
+        loadShowContextWindow(),
       ]);
 
       const models = loadedModels || [];
@@ -286,6 +289,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         clearInputOnEscape: hasOnboarded ? loadedClearInputOnEscape : false,
         baseTextSize: hasOnboarded ? loadedBaseTextSize : "medium",
         autoUpdateChecking: hasOnboarded ? loadedAutoUpdateChecking : true,
+        showContextWindow: hasOnboarded ? loadedShowContextWindow : false,
       });
       document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
 
@@ -814,10 +818,16 @@ async function sendNormal(
           content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
         })) ?? [];
 
-    const systemPrompt = useModelStore.getState().systemPrompt;
+    const systemPrompt =
+      modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()
+        ? modelConfig.systemPromptOverride
+        : useModelStore.getState().systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
       apiMessages.unshift({ role: "system", content: systemPrompt });
     }
+
+    const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
+    const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
 
     await invoke("chat_stream", {
       apiUrl,
@@ -825,7 +835,8 @@ async function sendNormal(
       model: modelConfig.modelId,
       provider: modelConfig.provider,
       messages: apiMessages,
-      temperature,
+      temperature: requestTemp,
+      maxTokens,
       streamId,
     });
 

@@ -15,6 +15,7 @@ import {
   saveClearInputOnEscape,
   saveBaseTextSize,
   saveAutoUpdateChecking,
+  saveShowContextWindow,
 } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
@@ -56,6 +57,7 @@ interface UIState {
   baseTextSize: "small" | "medium" | "large" | "xlarge";
   autoUpdateChecking: boolean;
   isDraggingFile: boolean;
+  showContextWindow: boolean;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -85,6 +87,7 @@ interface UIState {
   setBaseTextSize: (value: "small" | "medium" | "large" | "xlarge") => void;
   setAutoUpdateChecking: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
+  setShowContextWindow: (value: boolean) => void;
 }
 
 let toastCounter = 0;
@@ -122,6 +125,7 @@ export const useUIStore = create<UIState>((set) => ({
   baseTextSize: "medium",
   autoUpdateChecking: true,
   isDraggingFile: false,
+  showContextWindow: false,
 
   setView: (view) => set({ view }),
   setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
@@ -256,6 +260,10 @@ export const useUIStore = create<UIState>((set) => ({
   setAutoUpdateChecking: (value) => {
     set({ autoUpdateChecking: value });
     saveAutoUpdateChecking(value);
+  },
+  setShowContextWindow: (value) => {
+    set({ showContextWindow: value });
+    saveShowContextWindow(value);
   },
 }));
 

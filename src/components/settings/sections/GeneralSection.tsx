@@ -31,6 +31,8 @@ export function GeneralSection() {
   const setClearInputOnEscape = useUIStore((s) => s.setClearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
   const setBaseTextSize = useUIStore((s) => s.setBaseTextSize);
+  const showContextWindow = useUIStore((s) => s.showContextWindow);
+  const setShowContextWindow = useUIStore((s) => s.setShowContextWindow);
 
   const autoUpdateChecking = useUIStore((s) => s.autoUpdateChecking);
   const setAutoUpdateChecking = useUIStore((s) => s.setAutoUpdateChecking);
@@ -234,6 +236,14 @@ export function GeneralSection() {
             onChange={setClearInputOnEscape}
             label="Clear Input on Escape"
             description="Clear the message input bar when pressing the Escape key"
+          />
+
+          {/* Show Context Window Switch */}
+          <Switch
+            checked={showContextWindow}
+            onChange={setShowContextWindow}
+            label="Show Context Window"
+            description="Show a radial context usage indicator next to the model selector in chat area"
           />
 
           {/* Base Text Size Segmented Pill Selector */}

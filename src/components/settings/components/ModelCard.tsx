@@ -1,10 +1,11 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { motion } from "motion/react";
 import { Trash2, ChevronDown, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { ModelConfig } from "../../../types";
 import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateApiUrl, validateApiKey } from "../../../utils/validation";
+import { Switch } from "../../ui/Switch";
 
 interface ModelCardProps {
   model: ModelConfig;
@@ -25,6 +26,7 @@ export const ModelCard = memo(function ModelCard({
 }: ModelCardProps) {
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
     <motion.div
@@ -244,6 +246,122 @@ export const ModelCard = memo(function ModelCard({
               </p>
             )}
           </div>
+        </div>
+
+        <div className="border-t border-border/40 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-text-primary transition-colors cursor-pointer select-none"
+          >
+            <ChevronDown
+              size={14}
+              className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}
+            />
+            <span>Advanced Settings</span>
+          </button>
+
+          {showAdvanced && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              transition={springs.gentle}
+              className="mt-3 space-y-4 border-t border-border/40 pt-3"
+            >
+              {/* Image Support Toggle */}
+              <Switch
+                checked={model.supportsImages !== false}
+                onChange={(checked) => onUpdate(model.id, { supportsImages: checked })}
+                label="Supports Image Inputs"
+                description="Allow sending images/files to this model"
+              />
+
+              {/* Context Size & Max Output Size */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-context-${model.id}`}>
+                    Context Window Size (tokens)
+                  </label>
+                  <input
+                    id={`model-context-${model.id}`}
+                    type="number"
+                    value={model.contextSize ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseInt(e.target.value) : undefined;
+                      onUpdate(model.id, { contextSize: val });
+                    }}
+                    placeholder="e.g. 128000"
+                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-max-output-${model.id}`}>
+                    Max Output Limit (tokens)
+                  </label>
+                  <input
+                    id={`model-max-output-${model.id}`}
+                    type="number"
+                    value={model.maxOutputTokens ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value ? parseInt(e.target.value) : undefined;
+                      onUpdate(model.id, { maxOutputTokens: val });
+                    }}
+                    placeholder="e.g. 4096"
+                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Temperature override */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-temp-${model.id}`}>
+                    Temperature Override
+                  </label>
+                  <span className="text-[10px] font-mono text-text-muted">
+                    {model.temperature !== undefined ? model.temperature.toFixed(2) : "Default (0.70)"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    id={`model-temp-${model.id}`}
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.05"
+                    value={model.temperature ?? 0.7}
+                    onChange={(e) => onUpdate(model.id, { temperature: parseFloat(e.target.value) })}
+                    className="flex-1 h-1 bg-border rounded-lg appearance-none cursor-pointer accent-accent"
+                  />
+                  {model.temperature !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdate(model.id, { temperature: undefined })}
+                      className="text-[10px] text-accent hover:underline shrink-0"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* System Prompt Override */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-prompt-${model.id}`}>
+                  System Prompt Override
+                </label>
+                <textarea
+                  id={`model-prompt-${model.id}`}
+                  rows={3}
+                  value={model.systemPromptOverride ?? ""}
+                  onChange={(e) => onUpdate(model.id, { systemPromptOverride: e.target.value || undefined })}
+                  placeholder="Leave blank to use the default system prompt"
+                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y font-sans leading-relaxed"
+                />
+              </div>
+            </motion.div>
+          )}
         </div>
       </div>
     </motion.div>

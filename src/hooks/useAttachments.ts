@@ -2,7 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { Attachment } from "../types";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
-import { validateFile, readFileAsAttachment } from "../utils/attachments";
+import { validateFile, readFileAsAttachment, isImageFile } from "../utils/attachments";
+import { useModelStore } from "../store/useModelStore";
 
 export function useAttachments() {
   const attachments = useChatStore((s) => s.draftAttachments);
@@ -23,10 +24,18 @@ export function useAttachments() {
       const newAttachments = [...attachments];
       const addToast = useUIStore.getState().addToast;
 
+      const modelStore = useModelStore.getState();
+      const currentModel = modelStore.models.find((m) => m.id === modelStore.selectedModel);
+
       for (const file of files) {
         // Check for duplicate by name and size
         const isDuplicate = newAttachments.some((a) => a.name === file.name && a.size === file.size);
         if (isDuplicate) {
+          continue;
+        }
+
+        if (isImageFile(file) && currentModel && currentModel.supportsImages === false) {
+          addToast(`"${currentModel.name}" does not support image inputs.`, "error");
           continue;
         }
 

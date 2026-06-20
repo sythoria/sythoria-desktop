@@ -22,6 +22,9 @@ import { formatFileSize } from "../utils/attachments";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { useAttachments } from "../hooks/useAttachments";
 import { useUIStore } from "../store/useUIStore";
+import { useModelStore } from "../store/useModelStore";
+import { useChatStore } from "../store/useChatStore";
+import { estimateConversationTokens } from "../utils/tokens";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -80,6 +83,11 @@ export default function InputBar({
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
+  const showContextWindow = useUIStore((s) => s.showContextWindow);
+
+  const activeConversationId = useChatStore((s) => s.activeId);
+  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
+  const systemPrompt = useModelStore((s) => s.systemPrompt);
 
   const textSizeClass =
     {
@@ -214,6 +222,21 @@ export default function InputBar({
     models.find((m) => m.enabled !== false) ??
     models[0];
   const currentStatus = modelStatuses[selectedModel] ?? "disconnected";
+
+  const activeSystemPrompt =
+    currentModel?.systemPromptOverride && currentModel.systemPromptOverride.trim()
+      ? currentModel.systemPromptOverride
+      : systemPrompt;
+  const tokenBreakdown = estimateConversationTokens(conversation?.messages || [], activeSystemPrompt);
+  const estimatedTokens = tokenBreakdown.total;
+  const contextSize = currentModel?.contextSize;
+  const contextSizeSet = typeof contextSize === "number" && contextSize > 0;
+  const limit = contextSizeSet ? contextSize : 128000;
+  const percentage = Math.min((estimatedTokens / limit) * 100, 100);
+
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
   return (
     <div
@@ -404,6 +427,101 @@ export default function InputBar({
               aria-invalid={isOverLimit}
               className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""}`}
             />
+
+            {/* Context Window Radial Indicator */}
+            {showContextWindow && currentModel && (
+              <div className="relative group shrink-0 flex items-center justify-center">
+                <button
+                  type="button"
+                  className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
+                  aria-label="Context Window Usage"
+                >
+                  <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                    <circle
+                      className="text-border/60"
+                      strokeWidth="2"
+                      stroke="currentColor"
+                      fill="transparent"
+                      r={radius}
+                      cx="10"
+                      cy="10"
+                    />
+                    <circle
+                      className={percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"}
+                      strokeWidth="2"
+                      strokeDasharray={circumference}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="transparent"
+                      r={radius}
+                      cx="10"
+                      cy="10"
+                    />
+                  </svg>
+                </button>
+
+                {/* Hover Details Card */}
+                <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
+                  <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
+                    <span>Context Window</span>
+                    <span
+                      className={percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"}
+                    >
+                      {percentage.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
+                    <div
+                      className={`h-full ${percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
+                      style={{ width: `${Math.min(percentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="space-y-1.5 text-[11px] text-text-secondary">
+                    <div className="flex justify-between">
+                      <span>Usage:</span>
+                      <span className="font-semibold font-mono text-text-primary">
+                        {estimatedTokens.toLocaleString()} / {contextSizeSet ? contextSize.toLocaleString() : "128,000"}{" "}
+                        tokens
+                      </span>
+                    </div>
+                    {contextSizeSet ? (
+                      <>
+                        <div className="h-px bg-border/40 my-1" />
+                        <div className="flex justify-between">
+                          <span>System Prompt:</span>
+                          <span className="font-mono text-text-primary">
+                            {tokenBreakdown.systemPromptTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Messages:</span>
+                          <span className="font-mono text-text-primary">
+                            {tokenBreakdown.messagesTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Attachments:</span>
+                          <span className="font-mono text-text-primary">
+                            {tokenBreakdown.attachmentsTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
+                          <span>Remaining:</span>
+                          <span className="font-semibold font-mono text-text-primary">
+                            {Math.max(0, contextSize - estimatedTokens).toLocaleString()}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
+                        No context limit configured for this model. Click Settings &gt; Models to configure it.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Model selector */}
             <div ref={dropdownRef} className="relative shrink-0">

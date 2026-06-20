@@ -54,6 +54,11 @@ export interface ModelConfig {
   modelId: string;
   provider?: string;
   enabled?: boolean;
+  supportsImages?: boolean;
+  contextSize?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  systemPromptOverride?: string;
 }
 
 export type SearchProvider = "google" | "searxng" | "firecrawl" | "custom";

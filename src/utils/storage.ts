@@ -127,6 +127,7 @@ const CLEAR_INPUT_ON_ESCAPE_KEY = "sythoria-clear-input-on-escape";
 const BASE_TEXT_SIZE_KEY = "sythoria-base-text-size";
 const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
+const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -939,6 +940,30 @@ export async function saveSystemPrompt(value: string): Promise<void> {
     logError("storage", "Failed to save system prompt", { error: e });
   }
   localStorage.setItem(SYSTEM_PROMPT_KEY, value);
+}
+
+export async function loadShowContextWindow(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SHOW_CONTEXT_WINDOW_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load show context window setting", { error: e });
+  }
+  const fallback = localStorage.getItem(SHOW_CONTEXT_WINDOW_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveShowContextWindow(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SHOW_CONTEXT_WINDOW_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save show context window setting", { error: e });
+  }
+  localStorage.setItem(SHOW_CONTEXT_WINDOW_KEY, String(value));
 }
 
 export async function clearStoreData(): Promise<void> {

@@ -74,6 +74,8 @@ struct ChatRequest {
     messages: Vec<ChatMessage>,
     temperature: f64,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +86,8 @@ struct ChatRequestTools {
     tools: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -411,10 +415,11 @@ async fn chat_completion(
     provider: Option<String>,
     messages: Vec<ChatMessage>,
     temperature: f64,
+    max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            return anthropic::chat_completion_anthropic(api_url, api_key, model, messages, temperature).await;
+            return anthropic::chat_completion_anthropic(api_url, api_key, model, messages, temperature, max_tokens).await;
         }
     }
     let client = Client::builder()
@@ -425,6 +430,7 @@ async fn chat_completion(
         messages,
         temperature,
         stream: false,
+        max_tokens,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -475,11 +481,12 @@ async fn chat_stream(
     messages: Vec<ChatMessage>,
     temperature: f64,
     stream_id: String,
+    max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            return anthropic::chat_stream_anthropic(api_url, api_key, model, messages, temperature, stream_id, app).await;
+            return anthropic::chat_stream_anthropic(api_url, api_key, model, messages, temperature, stream_id, max_tokens, app).await;
         }
     }
     clear_stream_cancelled(&stream_id);
@@ -491,6 +498,7 @@ async fn chat_stream(
         messages,
         temperature,
         stream: true,
+        max_tokens,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -539,6 +547,7 @@ async fn chat_stream_tools(
     tools: String,
     temperature: f64,
     stream_id: String,
+    max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
@@ -546,7 +555,7 @@ async fn chat_stream_tools(
             let parsed_messages: Vec<ChatMessage> = messages.into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
                 .collect();
-            return anthropic::chat_stream_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, stream_id, app).await;
+            return anthropic::chat_stream_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, stream_id, max_tokens, app).await;
         }
     }
     clear_stream_cancelled(&stream_id);
@@ -559,6 +568,7 @@ async fn chat_stream_tools(
         temperature,
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        max_tokens,
     };
 
     let client = Client::builder()
@@ -613,6 +623,7 @@ async fn chat_completion_tools(
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
+    max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
@@ -620,7 +631,7 @@ async fn chat_completion_tools(
             let parsed_messages: Vec<ChatMessage> = messages.into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
                 .collect();
-            return anthropic::chat_completion_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature).await;
+            return anthropic::chat_completion_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, max_tokens).await;
         }
     }
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
@@ -632,6 +643,7 @@ async fn chat_completion_tools(
         temperature,
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        max_tokens,
     };
 
     let client = Client::builder()
@@ -828,6 +840,7 @@ async fn generate_title(
         ],
         temperature: 0.3,
         stream: false,
+        max_tokens: None,
     };
 
     let mut request = client.post(&api_url).json(&body);

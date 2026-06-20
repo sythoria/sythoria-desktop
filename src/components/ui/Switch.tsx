@@ -35,10 +35,10 @@ export function Switch({ checked, onChange, label, description }: SwitchProps) {
       >
         <motion.span
           className="inline-block h-4 w-4 rounded-full shadow-sm"
-          style={{ backgroundColor: checked ? "var(--theme-accent-foreground)" : "var(--theme-text-secondary)" }}
-          initial={{ x: checked ? 22 : 2 }}
+          style={{ backgroundColor: checked ? "var(--theme-accent-foreground)" : "#ffffff" }}
+          initial={{ x: checked ? 24 : 4 }}
           animate={{
-            x: checked ? 22 : 2,
+            x: checked ? 24 : 4,
           }}
           transition={springs.snappy}
           aria-hidden="true"

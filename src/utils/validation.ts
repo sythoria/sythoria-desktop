@@ -41,6 +41,11 @@ export const ModelConfigSchema = z.object({
   modelId: z.string().min(1, "Model ID is required"),
   provider: z.string().optional(),
   enabled: z.boolean().optional(),
+  supportsImages: z.boolean().optional(),
+  contextSize: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  systemPromptOverride: z.string().optional(),
 });
 
 const SearchApiConfigSchema = z.object({
