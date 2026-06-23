@@ -18,11 +18,11 @@ export function useScrollButton() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: "auto" | "smooth" = "smooth") => {
     if (virtuosoRef.current) {
       virtuosoRef.current.scrollToIndex({
         index: Number.MAX_SAFE_INTEGER,
-        behavior: "smooth",
+        behavior,
         align: "end",
       });
       setIsAtBottom(true);
@@ -31,7 +31,7 @@ export function useScrollButton() {
 
     const el = document.querySelector("[data-chat-scroll]") as HTMLElement | null;
     if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      el.scrollTo({ top: el.scrollHeight, behavior });
       setIsAtBottom(true);
     }
   }, []);

@@ -172,6 +172,30 @@ function App() {
   const { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef } = useScrollButton();
   const { hasNewMessages, setHasNewMessages } = useScrollTracking(activeId, messages.length, isAtBottom, isStreaming);
 
+  // Scroll to bottom instantly when switching conversations or going to the chat view
+  useEffect(() => {
+    if (view === "chat" && activeId) {
+      const scroll = () => {
+        scrollToBottom("auto");
+      };
+
+      scroll();
+
+      const raf = requestAnimationFrame(() => {
+        scroll();
+      });
+
+      const timer = setTimeout(() => {
+        scroll();
+      }, 60);
+
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(timer);
+      };
+    }
+  }, [activeId, view, scrollToBottom]);
+
   useEffect(() => {
     init();
     useUIStore.getState().initDownloadedThemes();

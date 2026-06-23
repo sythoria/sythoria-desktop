@@ -836,6 +836,9 @@ function NonVirtualizedChatArea({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  const lastHeightRef = useRef(0);
+  const wasAtBottomRef = useRef(true);
+
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -844,7 +847,20 @@ function NonVirtualizedChatArea({
       const target = scrollContainerRef.current;
       if (!target) return;
       const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
+      wasAtBottomRef.current = atBottom;
       setIsAtBottom(atBottom);
+    };
+
+    const handleResize = () => {
+      const target = scrollContainerRef.current;
+      if (!target) return;
+
+      // If we were at the bottom and the height increased, scroll to bottom
+      if (wasAtBottomRef.current && target.scrollHeight > lastHeightRef.current) {
+        target.scrollTop = target.scrollHeight;
+      }
+      lastHeightRef.current = target.scrollHeight;
+      checkAtBottom();
     };
 
     const onScroll = () => checkAtBottom();
@@ -853,11 +869,12 @@ function NonVirtualizedChatArea({
 
     let observer: ResizeObserver | null = null;
     if (contentRef.current && window.ResizeObserver) {
-      observer = new ResizeObserver(() => checkAtBottom());
+      observer = new ResizeObserver(() => handleResize());
       observer.observe(contentRef.current);
       observer.observe(el);
     }
 
+    lastHeightRef.current = el.scrollHeight;
     checkAtBottom();
 
     return () => {
