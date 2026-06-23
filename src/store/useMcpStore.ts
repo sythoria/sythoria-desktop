@@ -8,6 +8,25 @@ import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
 import { useUIStore } from "./useUIStore";
+import { debounce } from "../utils/debounce";
+
+const debouncedSaveMcpConfigs = debounce((configs: McpServerConfig[]) => {
+  saveMcpConfigs(configs);
+}, 500);
+
+const debouncedSaveMcpEnvSecrets = debounce((secrets: Record<string, Record<string, string>>) => {
+  saveMcpEnvSecrets(secrets);
+}, 500);
+
+const debouncedLogConfigUpdate = debounce((name: string, fields: string[]) => {
+  logInfo("mcp", `MCP server config updated: "${name}"`, {
+    details: `Updated fields: ${fields.join(", ")}`,
+  });
+}, 500);
+
+const debouncedLogEnvUpdate = debounce((name: string) => {
+  logInfo("mcp", `MCP env secrets updated for server: "${name}"`, {});
+}, 500);
 
 function sanitizeName(name: string): string {
   return name
@@ -69,6 +88,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       mcpConfigs: updated,
       serverStatuses: { ...get().serverStatuses, [newConfig.id]: "disconnected" },
     });
+    debouncedSaveMcpConfigs.cancel();
     saveMcpConfigs(updated);
     logInfo("mcp", `MCP server added: "${newConfig.name}"`, {
       details: `Transport: ${newConfig.transport}, Command: ${newConfig.command || "(not set)"}`,
@@ -109,6 +129,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       envSecrets: updatedEnvSecrets,
       serverStatuses: { ...get().serverStatuses, [newConfig.id]: "disconnected" },
     });
+    debouncedSaveMcpConfigs.cancel();
+    debouncedSaveMcpEnvSecrets.cancel();
     saveMcpConfigs(updated);
     saveMcpEnvSecrets(updatedEnvSecrets);
     const needsEnv = preset.envKeys?.length ?? 0;
@@ -129,12 +151,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const { mcpConfigs } = get();
     const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     set({ mcpConfigs: updatedConfigs });
-    saveMcpConfigs(updatedConfigs);
+    debouncedSaveMcpConfigs(updatedConfigs);
     const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
-      logInfo("mcp", `MCP server config updated: "${updatedConfig.name}"`, {
-        details: `Updated fields: ${Object.keys(updates).join(", ")}`,
-      });
+      debouncedLogConfigUpdate(updatedConfig.name, Object.keys(updates));
     }
   },
 
@@ -153,6 +173,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       envSecrets: newEnvSecrets,
       availableTools: updatedTools,
     });
+    debouncedSaveMcpConfigs.cancel();
+    debouncedSaveMcpEnvSecrets.cancel();
     saveMcpConfigs(updated);
     saveMcpEnvSecrets(newEnvSecrets);
     logInfo("mcp", `MCP server deleted: "${config?.name ?? id}"`, {});
@@ -297,7 +319,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const { envSecrets } = get();
     const updated = { ...envSecrets, [serverId]: secrets };
     set({ envSecrets: updated });
-    saveMcpEnvSecrets(updated);
+    debouncedSaveMcpEnvSecrets(updated);
+    const config = get().mcpConfigs.find((c) => c.id === serverId);
+    const serverName = config?.name ?? serverId;
+    debouncedLogEnvUpdate(serverName);
   },
 
   checkCommand: async (command) => {

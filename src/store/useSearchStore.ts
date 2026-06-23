@@ -6,6 +6,21 @@ import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { validateSearchConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
+import { debounce } from "../utils/debounce";
+
+const debouncedSaveSearchConfigs = debounce((configs: SearchApiConfig[]) => {
+  saveSearchConfigs(configs);
+}, 500);
+
+const debouncedSaveSearchApiKeys = debounce((keys: Record<string, string>) => {
+  saveSearchApiKeys(keys);
+}, 500);
+
+const debouncedLogSearchUpdate = debounce((name: string, fields: string[]) => {
+  logInfo("search", `Search config updated: "${name}"`, {
+    details: `Updated fields: ${fields.join(", ")}`,
+  });
+}, 500);
 
 interface SearchState {
   searchConfigs: SearchApiConfig[];
@@ -51,6 +66,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const { searchConfigs } = get();
     const updated = [...searchConfigs, newConfig];
     set({ searchConfigs: updated, activeSearchId: newConfig.id });
+    debouncedSaveSearchConfigs.cancel();
     saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
     logInfo("search", `Search API added: "${newConfig.name}" (${newConfig.provider})`, {
       details: `Provider: ${newConfig.provider}, Base URL: ${newConfig.baseUrl}`,
@@ -66,17 +82,15 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     if (updates.apiKey !== undefined) {
       const newKeys = { ...searchApiKeys, [id]: updates.apiKey! };
       set({ searchApiKeys: newKeys });
-      saveSearchApiKeys(newKeys);
+      debouncedSaveSearchApiKeys(newKeys);
     }
 
     const configsWithoutKeys = updatedConfigs.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig);
-    saveSearchConfigs(configsWithoutKeys);
+    debouncedSaveSearchConfigs(configsWithoutKeys);
 
     const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
-      logInfo("search", `Search config updated: "${updatedConfig.name}"`, {
-        details: `Updated fields: ${Object.keys(updates).join(", ")}`,
-      });
+      debouncedLogSearchUpdate(updatedConfig.name, Object.keys(updates));
     }
 
     if (!updatedConfigs.find((c) => c.id === get().activeSearchId) && updatedConfigs.length > 0) {
@@ -95,6 +109,8 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       activeSearchId: activeSearchId === id ? (updated[0]?.id ?? null) : activeSearchId,
       searchApiKeys: newKeys,
     });
+    debouncedSaveSearchConfigs.cancel();
+    debouncedSaveSearchApiKeys.cancel();
     saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
     saveSearchApiKeys(newKeys);
     logInfo("search", `Search API deleted: "${config?.name ?? id}"`, {});

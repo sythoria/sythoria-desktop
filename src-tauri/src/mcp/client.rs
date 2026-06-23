@@ -116,6 +116,104 @@ async fn find_executable(name: &str) -> String {
     name.to_string()
 }
 
+fn create_shell_command(program: &str, args: &[String]) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/c").arg(program).args(args);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        
+        let is_fish = shell.ends_with("/fish") || shell == "fish";
+        let is_posix = shell.ends_with("/zsh")
+            || shell.ends_with("/bash")
+            || shell.ends_with("/sh")
+            || shell.ends_with("/dash")
+            || shell.ends_with("/ksh")
+            || shell == "zsh"
+            || shell == "bash"
+            || shell == "sh";
+            
+        let actual_shell = if is_fish || is_posix {
+            shell
+        } else {
+            "/bin/sh".to_string()
+        };
+        
+        let mut cmd = Command::new(&actual_shell);
+        if actual_shell.ends_with("/fish") || actual_shell == "fish" {
+            cmd.arg("-l").arg("-c").arg("exec $argv[1] $argv[2..]");
+        } else {
+            cmd.arg("-l").arg("-c").arg("exec \"$0\" \"$@\"");
+        }
+        cmd.arg(program).args(args);
+        cmd
+    }
+}
+
+async fn resolve_executable_via_shell(program: &str) -> Option<String> {
+    if std::path::Path::new(program).is_absolute() && std::path::Path::new(program).exists() {
+        return Some(program.to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        let output = Command::new("cmd")
+            .args(&["/c", "where", program])
+            .output()
+            .await
+            .ok()?;
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let first_path = path_str.lines().next()?.trim().to_string();
+            if !first_path.is_empty() {
+                return Some(first_path);
+            }
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        
+        let is_fish = shell.ends_with("/fish") || shell == "fish";
+        let is_posix = shell.ends_with("/zsh")
+            || shell.ends_with("/bash")
+            || shell.ends_with("/sh")
+            || shell.ends_with("/dash")
+            || shell.ends_with("/ksh")
+            || shell == "zsh"
+            || shell == "bash"
+            || shell == "sh";
+            
+        let actual_shell = if is_fish || is_posix {
+            shell
+        } else {
+            "/bin/sh".to_string()
+        };
+        
+        let mut cmd = Command::new(&actual_shell);
+        if actual_shell.ends_with("/fish") || actual_shell == "fish" {
+            cmd.arg("-l").arg("-c").arg("command -v $argv[1]");
+        } else {
+            cmd.arg("-l").arg("-c").arg("command -v \"$0\"");
+        }
+        
+        let output = cmd.arg(program).output().await.ok()?;
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                return Some(path_str);
+            }
+        }
+        None
+    }
+}
+
+
 /// Probes whether the given program is resolvable to an executable.
 ///
 /// Returns an [`ExecutableInfo`] describing whether it was found, the resolved
@@ -132,12 +230,21 @@ pub async fn check_executable(program: &str) -> ExecutableInfo {
         };
     }
 
-    let resolved = find_executable(program).await;
+    let resolved_opt = resolve_executable_via_shell(program).await;
+    let (found, resolved) = match resolved_opt {
+        Some(path) => (true, path),
+        None => {
+            let fb = find_executable(program).await;
+            let exists = std::path::Path::new(&fb).exists() || which::which(&fb).is_ok();
+            if exists {
+                (true, fb)
+            } else {
+                (false, program.to_string())
+            }
+        }
+    };
 
-    // find_executable returns the original name unchanged when nothing matched,
-    // so distinguish a real hit from a fallthrough by checking it actually exists.
-    let found_exists = std::path::Path::new(&resolved).exists() || which::which(&resolved).is_ok();
-    if !found_exists {
+    if !found {
         return ExecutableInfo {
             found: false,
             path: None,
@@ -177,9 +284,10 @@ fn at_path_note(resolved: &str, program: &str) -> String {
 /// Runs `<program> --version` with a short timeout and returns the first line
 /// of output trimmed. Returns `None` on any failure — it's only a hint.
 async fn probe_version(resolved: &str) -> Option<String> {
+    let mut cmd = create_shell_command(resolved, &["--version".to_string()]);
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(4),
-        tokio::process::Command::new(resolved).arg("--version").output(),
+        cmd.output(),
     )
     .await
     .ok()?
@@ -237,11 +345,13 @@ pub async fn connect_server(
             let extra_args = config.args.as_deref().unwrap_or(&[]);
             let resolved_args: Vec<String> = extra_args.iter().cloned().collect();
 
-            let resolved_program = find_executable(&program).await;
+            let resolved_program = match resolve_executable_via_shell(&program).await {
+                Some(path) => path,
+                None => find_executable(&program).await,
+            };
 
-            let mut cmd = Command::new(&resolved_program);
-            cmd.args(&resolved_args)
-                .stdin(std::process::Stdio::piped())
+            let mut cmd = create_shell_command(&program, &resolved_args);
+            cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
 
@@ -557,4 +667,55 @@ mod tests {
         assert!(msg.contains("not found"));
         assert!(msg.contains("Install"));
     }
+
+    #[test]
+    fn test_create_shell_command() {
+        let cmd = create_shell_command("echo", &["hello".to_string(), "world".to_string()]);
+        
+        #[cfg(windows)]
+        {
+            assert_eq!(cmd.as_std().get_program().to_string_lossy(), "cmd");
+            let args: Vec<_> = cmd.as_std().get_args().map(|a| a.to_string_lossy().to_string()).collect();
+            assert_eq!(args, vec!["/c", "echo", "hello", "world"]);
+        }
+        #[cfg(not(windows))]
+        {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+            let is_fish = shell.ends_with("/fish") || shell == "fish";
+            let is_posix = shell.ends_with("/zsh")
+                || shell.ends_with("/bash")
+                || shell.ends_with("/sh")
+                || shell.ends_with("/dash")
+                || shell.ends_with("/ksh")
+                || shell == "zsh"
+                || shell == "bash"
+                || shell == "sh";
+            let expected_shell = if is_fish || is_posix { shell } else { "/bin/sh".to_string() };
+            
+            assert_eq!(cmd.as_std().get_program().to_string_lossy(), expected_shell);
+            let args: Vec<_> = cmd.as_std().get_args().map(|a| a.to_string_lossy().to_string()).collect();
+            assert_eq!(args[0], "-l");
+            assert_eq!(args[1], "-c");
+            if expected_shell.ends_with("/fish") || expected_shell == "fish" {
+                assert_eq!(args[2], "exec $argv[1] $argv[2..]");
+            } else {
+                assert_eq!(args[2], "exec \"$0\" \"$@\"");
+            }
+            assert_eq!(args[3], "echo");
+            assert_eq!(args[4], "hello");
+            assert_eq!(args[5], "world");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resolve_executable_via_shell() {
+        let git_path = resolve_executable_via_shell("git").await;
+        assert!(git_path.is_some());
+        let path = git_path.unwrap();
+        assert!(path.contains("git") || std::path::Path::new(&path).exists());
+
+        let fake = resolve_executable_via_shell("non_existent_command_12345").await;
+        assert!(fake.is_none());
+    }
 }
+

@@ -9,6 +9,21 @@ import { parseApiError } from "../utils/parseApiError";
 import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
+import { debounce } from "../utils/debounce";
+
+const debouncedSaveModelConfigs = debounce((configs: ModelConfig[]) => {
+  saveModelConfigs(configs);
+}, 500);
+
+const debouncedSaveApiKeys = debounce((keys: Record<string, string>) => {
+  saveApiKeys(keys);
+}, 500);
+
+const debouncedLogModelUpdate = debounce((name: string, fields: string[]) => {
+  logInfo("model", `Model config updated: "${name}"`, {
+    details: `Updated fields: ${fields.join(", ")}`,
+  });
+}, 500);
 
 interface StreamChunkPayload {
   streamId: string;
@@ -136,12 +151,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
       return;
     }
     set({ models });
+    debouncedSaveModelConfigs.cancel();
     saveModelConfigs(models.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     const keys: Record<string, string> = {};
     models.forEach((m) => {
       if (m.apiKey) keys[m.id] = m.apiKey;
     });
     set({ apiKeys: keys });
+    debouncedSaveApiKeys.cancel();
     saveApiKeys(keys);
     logInfo("model", "Models updated successfully", { details: `${models.length} model(s) saved` });
     useUIStore.getState().addToast("Models updated", "success");
@@ -151,12 +168,12 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const { models, apiKeys, modelStatuses } = get();
     const updatedModels = models.map((m) => (m.id === id ? { ...m, ...updates } : m));
     set({ models: updatedModels });
-    saveModelConfigs(updatedModels.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
+    debouncedSaveModelConfigs(updatedModels.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
 
     if (updates.apiKey !== undefined) {
       const newKeys = { ...apiKeys, [id]: updates.apiKey };
       set({ apiKeys: newKeys });
-      saveApiKeys(newKeys);
+      debouncedSaveApiKeys(newKeys);
     }
 
     if (updates.enabled === false) {
@@ -184,9 +201,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     const updatedModel = updatedModels.find((m) => m.id === id);
     if (updatedModel && Object.keys(updates).length > 0) {
-      logInfo("model", `Model config updated: "${updatedModel.name}"`, {
-        details: `Updated fields: ${Object.keys(updates).join(", ")}`,
-      });
+      debouncedLogModelUpdate(updatedModel.name, Object.keys(updates));
     }
   },
 
@@ -198,6 +213,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const newStatuses = { ...modelStatuses };
     delete newStatuses[id];
     set({ models: updated, apiKeys: newKeys, modelStatuses: newStatuses });
+    debouncedSaveModelConfigs.cancel();
+    debouncedSaveApiKeys.cancel();
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     saveApiKeys(newKeys);
     if (selectedModel === id && updated.length > 0) {
@@ -220,6 +237,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const { models } = get();
     const updated = [...models, newModel];
     set({ models: updated });
+    debouncedSaveModelConfigs.cancel();
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     logInfo("model", `Model added: "${newModel.name}"`, {
       details: `ID: ${newModel.id}, Provider: ${newModel.provider}, Model: ${newModel.modelId}`,
