@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Plus } from "lucide-react";
 import { SearchApiCard } from "../components/SearchApiCard";
@@ -21,6 +22,23 @@ export const BrowserSection = ({
   showSearchKeys,
   toggleSearchKeyVisibility,
 }: BrowserSectionProps) => {
+  const prevIdsRef = useRef<string[]>(searchConfigs.map((c) => c.id));
+
+  useEffect(() => {
+    const currentIds = searchConfigs.map((c) => c.id);
+    const prevIds = prevIdsRef.current;
+    const addedId = currentIds.find((id) => !prevIds.includes(id));
+    if (addedId) {
+      setTimeout(() => {
+        const element = document.getElementById(`search-card-${addedId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }, 100);
+    }
+    prevIdsRef.current = currentIds;
+  }, [searchConfigs]);
+
   return (
     <>
       <div className="flex items-center justify-between gap-3">
@@ -45,6 +63,7 @@ export const BrowserSection = ({
         {searchConfigs.map((config: SearchApiConfig) => (
           <SearchApiCard
             key={config.id}
+            id={`search-card-${config.id}`}
             config={config}
             onUpdate={updateSearchConfig}
             onDelete={deleteSearchConfig}

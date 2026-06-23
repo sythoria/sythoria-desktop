@@ -27,6 +27,7 @@ import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { EnvVarsEditor } from "./EnvVarsEditor";
 
 interface McpServerCardProps {
+  id?: string;
   config: McpServerConfig;
   status: McpServerStatus;
   tools: { name: string; description: string }[];
@@ -43,6 +44,7 @@ interface McpServerCardProps {
 }
 
 export const McpServerCard = memo(function McpServerCard({
+  id,
   config,
   status,
   tools,
@@ -110,6 +112,7 @@ export const McpServerCard = memo(function McpServerCard({
 
   return (
     <motion.div
+      id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={springs.gentle}

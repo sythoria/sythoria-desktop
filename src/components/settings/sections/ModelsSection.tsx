@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Plus, Loader2 } from "lucide-react";
 import { ModelCard } from "../components/ModelCard";
@@ -27,6 +28,23 @@ export const ModelsSection = ({
   showKeys,
   toggleKeyVisibility,
 }: ModelsSectionProps) => {
+  const prevIdsRef = useRef<string[]>(models.map((m) => m.id));
+
+  useEffect(() => {
+    const currentIds = models.map((m) => m.id);
+    const prevIds = prevIdsRef.current;
+    const addedId = currentIds.find((id) => !prevIds.includes(id));
+    if (addedId) {
+      setTimeout(() => {
+        const element = document.getElementById(`model-card-${addedId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }, 100);
+    }
+    prevIdsRef.current = currentIds;
+  }, [models]);
+
   return (
     <>
       <div className="flex items-center justify-between gap-3">
@@ -65,6 +83,7 @@ export const ModelsSection = ({
         {models.map((model: ModelConfig) => (
           <ModelCard
             key={model.id}
+            id={`model-card-${model.id}`}
             model={model}
             onUpdate={updateModel}
             onDelete={deleteModel}

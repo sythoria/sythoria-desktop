@@ -7,6 +7,7 @@ import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateSearchApiKey } from "../../../utils/validation";
 
 interface SearchApiCardProps {
+  id?: string;
   config: SearchApiConfig;
   onUpdate: (id: string, updates: Partial<SearchApiConfig>) => void;
   onDelete: (id: string) => void;
@@ -15,6 +16,7 @@ interface SearchApiCardProps {
 }
 
 export const SearchApiCard = memo(function SearchApiCard({
+  id,
   config,
   onUpdate,
   onDelete,
@@ -25,6 +27,7 @@ export const SearchApiCard = memo(function SearchApiCard({
 
   return (
     <motion.div
+      id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={springs.gentle}

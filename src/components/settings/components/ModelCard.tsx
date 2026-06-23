@@ -8,6 +8,7 @@ import { validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 
 interface ModelCardProps {
+  id?: string;
   model: ModelConfig;
   onUpdate: (id: string, updates: Partial<ModelConfig>) => void;
   onDelete: (id: string) => void;
@@ -17,6 +18,7 @@ interface ModelCardProps {
 }
 
 export const ModelCard = memo(function ModelCard({
+  id,
   model,
   onUpdate,
   onDelete,
@@ -30,6 +32,7 @@ export const ModelCard = memo(function ModelCard({
 
   return (
     <motion.div
+      id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={springs.gentle}

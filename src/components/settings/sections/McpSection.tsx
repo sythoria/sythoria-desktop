@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { Plus } from "lucide-react";
 import { McpServerCard } from "../components/McpServerCard";
@@ -38,6 +39,23 @@ export const McpSection = ({
   toggleMcpKeyVisibility,
   addMcpConfig,
 }: McpSectionProps) => {
+  const prevIdsRef = useRef<string[]>(mcpConfigs.map((c) => c.id));
+
+  useEffect(() => {
+    const currentIds = mcpConfigs.map((c) => c.id);
+    const prevIds = prevIdsRef.current;
+    const addedId = currentIds.find((id) => !prevIds.includes(id));
+    if (addedId) {
+      setTimeout(() => {
+        const element = document.getElementById(`mcp-card-${addedId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }, 100);
+    }
+    prevIdsRef.current = currentIds;
+  }, [mcpConfigs]);
+
   return (
     <>
       <div className="flex items-center justify-between gap-3">
@@ -62,6 +80,7 @@ export const McpSection = ({
         {mcpConfigs.map((mcpConfig: McpServerConfig) => (
           <McpServerCard
             key={mcpConfig.id}
+            id={`mcp-card-${mcpConfig.id}`}
             config={mcpConfig}
             status={serverStatuses[mcpConfig.id] ?? "disconnected"}
             tools={availableTools
