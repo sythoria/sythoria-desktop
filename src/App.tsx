@@ -17,6 +17,7 @@ import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
 import { useKeybindStore, matchKeybind } from "./store/useKeybindStore";
+import { useAppshotStore } from "./store/useAppshotStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
@@ -299,6 +300,9 @@ function App() {
         setTimeout(() => {
           document.getElementById("chat-input")?.focus();
         }, 50);
+      } else if (matchKeybind(e, keys.captureAppshot.currentCombo)) {
+        e.preventDefault();
+        useAppshotStore.getState().captureAndAttachToChat();
       } else if (matchKeybind(e, keys.goBack.currentCombo)) {
         if (useChatStore.getState().navigationIndex > 0) {
           e.preventDefault();

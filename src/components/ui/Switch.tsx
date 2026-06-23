@@ -6,11 +6,12 @@ interface SwitchProps {
   onChange: (checked: boolean) => void;
   label?: string;
   description?: string;
+  disabled?: boolean;
 }
 
-export function Switch({ checked, onChange, label, description }: SwitchProps) {
+export function Switch({ checked, onChange, label, description, disabled }: SwitchProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className={`flex items-center justify-between gap-4 ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
       {(label || description) && (
         <div className="min-w-0">
           {label && <p className="text-sm font-medium text-text-primary">{label}</p>}
@@ -22,8 +23,10 @@ export function Switch({ checked, onChange, label, description }: SwitchProps) {
         role="switch"
         aria-checked={checked}
         aria-label={label ?? "Toggle"}
-        onClick={() => onChange(!checked)}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
         onKeyDown={(e) => {
+          if (disabled) return;
           if (e.key === " " || e.key === "Enter") {
             e.preventDefault();
             onChange(!checked);

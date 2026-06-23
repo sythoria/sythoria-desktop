@@ -3,6 +3,8 @@ mod search;
 mod stream_parser;
 mod ws_handler;
 mod anthropic;
+mod git;
+mod appshots;
 
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -152,11 +154,19 @@ enum AppError {
     KeyNotFound(String),
     #[error("MCP error: {0}")]
     McpError(String),
+    #[error("Git error: {0}")]
+    GitError(String),
 }
 
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
         AppError::ConfigIo(err.to_string())
+    }
+}
+
+impl From<tauri::Error> for AppError {
+    fn from(err: tauri::Error) -> Self {
+        AppError::AppPath(err.to_string())
     }
 }
 
@@ -1318,7 +1328,19 @@ pub fn run() {
             wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
-            read_file_from_path
+            read_file_from_path,
+            git::git_detect_repo,
+            git::git_get_status,
+            git::git_create_commit,
+            git::git_undo_last_commit,
+            git::git_checkout_branch,
+            git::git_diff_changes,
+            appshots::capture_screen,
+            appshots::list_appshots,
+            appshots::delete_appshot,
+            appshots::run_appshots_clean,
+            appshots::has_screen_capture_permission,
+            appshots::request_screen_capture_permission
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

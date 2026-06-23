@@ -20,6 +20,8 @@ import { BrowserSection } from "./sections/BrowserSection";
 import { McpSection } from "./sections/McpSection";
 import { LogsSection } from "./sections/LogsSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
+import { GitSection } from "./sections/GitSection";
+import { AppshotsSection } from "./sections/AppshotsSection";
 import { SectionId } from "./types";
 
 export default function Settings() {
@@ -171,6 +173,8 @@ export default function Settings() {
 
             {activeSection === "keybinds" && <KeybindsSection />}
 
+            {activeSection === "appshots" && <AppshotsSection />}
+
             {activeSection === "configuration" && (
               <ConfigurationSection
                 models={models}
@@ -209,6 +213,8 @@ export default function Settings() {
                 toggleKeyVisibility={toggleKeyVisibility}
               />
             )}
+
+            {activeSection === "git" && <GitSection />}
 
             {activeSection === "browser" && (
               <BrowserSection

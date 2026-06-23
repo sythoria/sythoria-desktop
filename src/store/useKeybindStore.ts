@@ -35,6 +35,14 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     defaultCombo: "Ctrl+N",
     currentCombo: "Ctrl+N",
   },
+  captureAppshot: {
+    id: "captureAppshot",
+    label: "Capture Appshot",
+    category: "Recommended",
+    description: "Takes a screenshot of the app and attaches it to the current conversation",
+    defaultCombo: "Alt+Shift+S",
+    currentCombo: "Alt+Shift+S",
+  },
   goBack: {
     id: "goBack",
     label: "Go Back",

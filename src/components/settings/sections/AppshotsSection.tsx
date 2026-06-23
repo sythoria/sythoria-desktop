@@ -19,6 +19,8 @@ export function AppshotsSection() {
     triggerCapture,
     deleteAppshot,
     clearAll,
+    hasPermission,
+    requestPermission,
   } = useAppshotStore();
   const addToast = useUIStore((s) => s.addToast);
   const [inputFolder, setInputFolder] = useState(config.captureFolder);
@@ -74,8 +76,48 @@ export function AppshotsSection() {
             Capture monitor frames, configure encoders, and manage disk space cleanup.
           </p>
         </div>
-        <Switch checked={config.enabled} onChange={(val) => updateConfig({ enabled: val })} label="" description="" />
+        <Switch
+          checked={config.enabled && hasPermission}
+          onChange={(val) => updateConfig({ enabled: val })}
+          disabled={!hasPermission}
+          label=""
+          description=""
+        />
       </div>
+
+      {!hasPermission && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle size={18} className="shrink-0 mt-0.5 text-amber-500" />
+            <div>
+              <span className="font-semibold block mb-0.5 text-sm">Screen Recording Permission Required</span>
+              <span className="opacity-90 leading-relaxed block max-w-md">
+                macOS requires screen recording permission to take screenshots of the application. Please grant
+                permission in System Settings.
+              </span>
+              <span className="opacity-75 leading-relaxed block max-w-md mt-1.5 font-medium">
+                Note: If you reinstalled or rebuilt the app and the switch in System Settings already shows as enabled,
+                toggle it <strong>OFF</strong> and then <strong>ON</strong> again, then restart the app.
+              </span>
+            </div>
+          </div>
+          <motion.button
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm self-stretch sm:self-center text-center shrink-0"
+            onClick={async () => {
+              const ok = await requestPermission();
+              if (ok) {
+                addToast("Permission granted! Please restart the app if captures fail.", "success");
+              } else {
+                addToast("Permission was not granted or still needs to be enabled in System Settings.", "info");
+              }
+            }}
+          >
+            Grant Permission
+          </motion.button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl p-3 text-xs flex items-start gap-2.5 shadow-sm">
@@ -87,7 +129,7 @@ export function AppshotsSection() {
         </div>
       )}
 
-      {config.enabled && (
+      {config.enabled && hasPermission && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

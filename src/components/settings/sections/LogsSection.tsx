@@ -13,6 +13,8 @@ const LOG_SOURCE_OPTIONS: { value: LogSource | "all"; label: string }[] = [
   { value: "mcp", label: "MCP" },
   { value: "storage", label: "Storage" },
   { value: "stream", label: "Stream" },
+  { value: "git", label: "Git" },
+  { value: "appshots", label: "Appshots" },
   { value: "general", label: "General" },
 ];
 
@@ -37,6 +39,8 @@ const SOURCE_BADGE_COLORS: Record<string, string> = {
   mcp: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/20",
   storage: "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20",
   stream: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/20",
+  git: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  appshots: "bg-pink-500/10 text-pink-700 dark:text-pink-400 border-pink-500/20",
   general: "bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-500/20",
 };
 

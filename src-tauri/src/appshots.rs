@@ -25,14 +25,59 @@ pub struct AppshotFileMetadata {
     pub timestamp: String,
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+#[tauri::command]
+pub async fn has_screen_capture_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { CGPreflightScreenCaptureAccess() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+pub async fn request_screen_capture_permission(first_time: bool) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // 1. Request access (triggers macOS screen recording permission dialog)
+        let _ = unsafe { CGRequestScreenCaptureAccess() };
+        
+        // 2. Check if permission is now granted
+        let has_perm = unsafe { CGPreflightScreenCaptureAccess() };
+        
+        // 3. If not granted and it's not the first time, deep link to System Settings
+        if !has_perm && !first_time {
+            let _ = tokio::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                .spawn();
+        }
+        
+        has_perm
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = first_time;
+        true
+    }
+}
+
 #[tauri::command]
 pub async fn capture_screen(app: AppHandle, target: String, options: CaptureOptions) -> Result<String, AppError> {
     // 1. Hide/minimize main window if checked
     if options.hide_window {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.minimize();
-            // Wait a brief moment to allow minimization animation to complete
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            // Wait to allow minimization animation to complete fully
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         }
     }
 

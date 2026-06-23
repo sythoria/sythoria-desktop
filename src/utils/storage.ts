@@ -115,6 +115,8 @@ const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
+const GIT_CONFIG_KEY = "sythoria-git-config";
+const APPSHOT_CONFIG_KEY = "sythoria-appshots-config";
 const HAS_STARTED_KEY = "sythoria-has-started";
 const ANIMATIONS_DISABLED_KEY = "sythoria-animations-disabled";
 const DOWNLOADED_THEMES_KEY = "sythoria-downloaded-themes";
@@ -598,6 +600,56 @@ export async function saveAnimationsDisabled(disabled: boolean): Promise<void> {
   }
 }
 
+export interface GitConfig {
+  repoPath: string;
+  isAutoCommitEnabled: boolean;
+  isAiCommitMsgEnabled: boolean;
+  isPreCommitEnabled: boolean;
+  overrideIdentity: boolean;
+  gitName: string;
+  gitEmail: string;
+}
+
+const GitConfigSchema = z.object({
+  repoPath: z.string().default(""),
+  isAutoCommitEnabled: z.boolean().default(false),
+  isAiCommitMsgEnabled: z.boolean().default(true),
+  isPreCommitEnabled: z.boolean().default(true),
+  overrideIdentity: z.boolean().default(false),
+  gitName: z.string().default("Sythoria AI"),
+  gitEmail: z.string().default("assistant@sythoria.local"),
+});
+
+export interface AppshotConfig {
+  enabled: boolean;
+  captureFolder: string;
+  hotkey: string;
+  imageFormat: string;
+  imageQuality: number;
+  delaySeconds: number;
+  autoCleanEnabled: boolean;
+  autoCleanType: "count" | "size" | "age";
+  autoCleanValue: number;
+  includeCursor: boolean;
+  hideWindowOnCapture: boolean;
+  screenCapturePromptShown: boolean;
+}
+
+const AppshotConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  captureFolder: z.string().default(""),
+  hotkey: z.string().default("Alt+Shift+S"),
+  imageFormat: z.string().default("png"),
+  imageQuality: z.number().default(85),
+  delaySeconds: z.number().default(0),
+  autoCleanEnabled: z.boolean().default(false),
+  autoCleanType: z.enum(["count", "size", "age"]).default("count"),
+  autoCleanValue: z.number().default(50),
+  includeCursor: z.boolean().default(false),
+  hideWindowOnCapture: z.boolean().default(true),
+  screenCapturePromptShown: z.boolean().default(false),
+});
+
 const McpServerConfigSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -993,6 +1045,99 @@ export async function saveMaxToolSteps(value: number): Promise<void> {
     logError("storage", "Failed to save max tool steps setting", { error: e });
   }
   localStorage.setItem(MAX_TOOL_STEPS_KEY, String(value));
+}
+
+const DEFAULT_GIT_CONFIG: GitConfig = {
+  repoPath: "",
+  isAutoCommitEnabled: false,
+  isAiCommitMsgEnabled: true,
+  isPreCommitEnabled: true,
+  overrideIdentity: false,
+  gitName: "Sythoria AI",
+  gitEmail: "assistant@sythoria.local",
+};
+
+export async function loadGitConfig(): Promise<GitConfig> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(GIT_CONFIG_KEY);
+    if (raw) {
+      const result = GitConfigSchema.safeParse(raw);
+      if (result.success) return { ...DEFAULT_GIT_CONFIG, ...result.data };
+      logWarn("storage", "Stored Git config failed validation, resetting", {
+        details: result.error?.message,
+        action: "Git configuration was reset to defaults. Re-configure in Settings > Git.",
+      });
+    }
+  } catch (e) {
+    logError("storage", "Failed to load Git config from secure store", {
+      error: e,
+      action: "Using default Git settings.",
+    });
+  }
+  return { ...DEFAULT_GIT_CONFIG };
+}
+
+export async function saveGitConfig(config: GitConfig): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(GIT_CONFIG_KEY, config);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save Git config to secure store", {
+      error: e,
+      action: "Git configuration settings may not persist.",
+    });
+  }
+}
+
+const DEFAULT_APPSHOT_CONFIG: AppshotConfig = {
+  enabled: true,
+  captureFolder: "",
+  hotkey: "Alt+Shift+S",
+  imageFormat: "png",
+  imageQuality: 85,
+  delaySeconds: 0,
+  autoCleanEnabled: false,
+  autoCleanType: "count",
+  autoCleanValue: 50,
+  includeCursor: false,
+  hideWindowOnCapture: true,
+  screenCapturePromptShown: false,
+};
+
+export async function loadAppshotConfig(): Promise<AppshotConfig> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(APPSHOT_CONFIG_KEY);
+    if (raw) {
+      const result = AppshotConfigSchema.safeParse(raw);
+      if (result.success) return { ...DEFAULT_APPSHOT_CONFIG, ...result.data } as AppshotConfig;
+      logWarn("storage", "Stored Appshots config failed validation, resetting", {
+        details: result.error?.message,
+        action: "Appshots configuration was reset to defaults. Re-configure in Settings > Appshots.",
+      });
+    }
+  } catch (e) {
+    logError("storage", "Failed to load Appshots config from secure store", {
+      error: e,
+      action: "Using default Appshots settings.",
+    });
+  }
+  return { ...DEFAULT_APPSHOT_CONFIG };
+}
+
+export async function saveAppshotConfig(config: AppshotConfig): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(APPSHOT_CONFIG_KEY, config);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save Appshots config to secure store", {
+      error: e,
+      action: "Appshots configuration settings may not persist.",
+    });
+  }
 }
 
 export async function clearStoreData(): Promise<void> {
