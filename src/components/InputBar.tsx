@@ -25,6 +25,7 @@ import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { useChatStore } from "../store/useChatStore";
 import { estimateConversationTokens } from "../utils/tokens";
+import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -79,6 +80,9 @@ export default function InputBar({
 
   const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
     useAttachments();
+
+  const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
+  const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -289,38 +293,65 @@ export default function InputBar({
           <AnimatePresence>
             {attachments.length > 0 && (
               <motion.div
+                layout
                 initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                 animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
                 exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                className="flex flex-wrap gap-2 w-full overflow-hidden pb-1 border-b border-border/40"
+                transition={springs.gentle}
+                className="w-full overflow-hidden"
               >
-                {attachments.map((a) => (
-                  <motion.div
-                    key={a.id}
-                    initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                    transition={springs.gentle}
-                    className="flex items-center gap-1.5 rounded-md border border-border bg-surface pl-2 pr-0.5 py-0.5 text-xs text-text-secondary select-none"
-                  >
-                    {a.kind === "image" ? (
-                      <ImageIcon size={13} className="text-text-muted" />
-                    ) : (
-                      <FileTextIcon size={13} className="text-text-muted" />
-                    )}
-                    <span className="max-w-[120px] truncate font-medium" title={a.name}>
-                      {a.name}
-                    </span>
-                    <span className="text-[10px] text-text-muted">({formatFileSize(a.size)})</span>
-                    <button
-                      onClick={() => setAttachments((prev) => prev.filter((item) => item.id !== a.id))}
-                      className="p-0.5 rounded-md hover:bg-hover text-text-muted hover:text-text-primary transition-colors"
-                      title="Remove attachment"
+                <div className="flex flex-wrap gap-2 w-full pb-1 border-b border-border/40">
+                  {attachments.map((a) => (
+                    <motion.div
+                      layout
+                      key={a.id}
+                      initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                      transition={springs.gentle}
+                      onClick={() => {
+                        if (a.kind === "image" && a.dataUrl) {
+                          const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
+                          if (imgIdx !== -1) {
+                            setPreviewImageIndex(imgIdx);
+                          }
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 rounded-md border border-border bg-surface pl-2 pr-0.5 py-0.5 text-xs text-text-secondary select-none ${
+                        a.kind === "image" && a.dataUrl
+                          ? "cursor-pointer hover:bg-active/10 hover:border-active transition-colors"
+                          : ""
+                      }`}
+                      title={a.kind === "image" && a.dataUrl ? `View ${a.name}` : undefined}
                     >
-                      <X size={12} />
-                    </button>
-                  </motion.div>
-                ))}
+                      {a.kind === "image" && a.dataUrl ? (
+                        <img
+                          src={a.dataUrl}
+                          alt={a.name}
+                          className="w-3.5 h-3.5 rounded-sm object-cover shrink-0 select-none"
+                        />
+                      ) : a.kind === "image" ? (
+                        <ImageIcon size={13} className="text-text-muted" />
+                      ) : (
+                        <FileTextIcon size={13} className="text-text-muted" />
+                      )}
+                      <span className="max-w-[120px] truncate font-medium" title={a.name}>
+                        {a.name}
+                      </span>
+                      <span className="text-[10px] text-text-muted">({formatFileSize(a.size)})</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                        }}
+                        className="p-0.5 rounded-md hover:bg-hover text-text-muted hover:text-text-primary transition-colors"
+                        title="Remove attachment"
+                      >
+                        <X size={12} />
+                      </button>
+                    </motion.div>
+                  ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -660,6 +691,16 @@ export default function InputBar({
           )}
         </p>
       </div>
+
+      {previewImageIndex !== null && imageAttachments.length > 0 && (
+        <ImagePreviewModal
+          isOpen={previewImageIndex !== null}
+          onClose={() => setPreviewImageIndex(null)}
+          images={imageAttachments.map((a) => ({ url: a.dataUrl!, name: a.name, size: a.size }))}
+          activeIndex={previewImageIndex}
+          onChangeActiveIndex={(idx) => setPreviewImageIndex(idx)}
+        />
+      )}
     </div>
   );
 }

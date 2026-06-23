@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
+import { useChatStore } from "../store/useChatStore";
 
 const mockModels: ModelConfig[] = [
   {
@@ -196,5 +197,57 @@ describe("InputBar", () => {
 
     await user.click(searchOption);
     expect(onToggleSearch).toHaveBeenCalledWith(true);
+  });
+
+  it("renders image attachment and allows opening preview modal", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useChatStore.getState().setDraftAttachments([
+        {
+          id: "attachment-1",
+          name: "test-image.png",
+          mimeType: "image/png",
+          size: 1024,
+          kind: "image",
+          dataUrl:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        },
+      ]);
+    });
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    // Verify thumbnail image is rendered
+    const imgEl = screen.getByAltText("test-image.png");
+    expect(imgEl).toBeInTheDocument();
+    expect(imgEl).toHaveAttribute("src", expect.stringContaining("data:image/png"));
+
+    // Click on the attachment element to trigger preview modal
+    const attachmentPill = screen.getByTitle("View test-image.png");
+    await user.click(attachmentPill);
+
+    // Verify ImagePreviewModal is open
+    expect(screen.getAllByText("test-image.png")).toHaveLength(2);
+
+    // Close preview modal
+    const closeBtn = screen.getByTitle("Close viewer (Esc)");
+    await user.click(closeBtn);
+    expect(screen.queryByTitle("Close viewer (Esc)")).not.toBeInTheDocument();
+
+    // Clean up
+    act(() => {
+      useChatStore.getState().setDraftAttachments([]);
+    });
   });
 });
