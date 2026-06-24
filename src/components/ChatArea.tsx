@@ -331,6 +331,21 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
   );
 }
 
+function formatToolName(name: string): string {
+  if (name.includes("__")) {
+    const parts = name.split("__");
+    return parts.length > 1 ? parts.slice(1).join("__") : name;
+  }
+  if (name.startsWith("project_")) {
+    const raw = name.replace("project_", "");
+    return raw
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+  return name;
+}
+
 function ToolCallDisplay({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false);
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
@@ -338,13 +353,12 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const { name } = message.toolCall!;
   const isSearch = name === "search_query";
   const isFetch = name === "fetch_url";
+  const isProject = name.startsWith("project_");
   const isMcp = name.includes("__");
   const isCompleted = !!message.toolResult;
+  const isCollapsible = isMcp || isProject;
 
-  const mcpParts = isMcp ? name.split("__") : [];
-  const mcpToolName = mcpParts.length > 1 ? mcpParts.slice(1).join("__") : name;
-
-  if (isMcp) {
+  if (isCollapsible) {
     const formattedArgs = JSON.stringify(message.toolCall?.arguments || {}, null, 2);
 
     let formattedResult = message.toolResult?.content || "";
@@ -368,12 +382,14 @@ function ToolCallDisplay({ message }: { message: Message }) {
       };
     });
 
+    const displayName = formatToolName(name);
+
     return (
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
         {/* Simple inline text with chevron */}
         <div className="flex items-center gap-1.5 text-text-muted select-none">
           <AtSign size={14} className="shrink-0" aria-hidden="true" />
-          <span className="text-sm">{isCompleted ? `Run: ${mcpToolName}` : `Running: ${mcpToolName}...`}</span>
+          <span className="text-sm">{isCompleted ? `Run: ${displayName}` : `Running: ${displayName}...`}</span>
           {!isCompleted && <Loader2 size={12} className="animate-spin text-text-muted" />}
 
           <motion.button

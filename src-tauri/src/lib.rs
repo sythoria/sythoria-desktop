@@ -5,6 +5,7 @@ mod ws_handler;
 mod anthropic;
 mod git;
 mod appshots;
+mod project_tools;
 
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -1289,6 +1290,7 @@ pub fn run() {
             }
         })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::AppleScript, None))
         .plugin(
@@ -1335,6 +1337,11 @@ pub fn run() {
             git::git_undo_last_commit,
             git::git_checkout_branch,
             git::git_diff_changes,
+            project_tools::project_read_file,
+            project_tools::project_write_file,
+            project_tools::project_list_dir,
+            project_tools::project_run_command,
+            project_tools::create_project_dir,
             appshots::capture_screen,
             appshots::list_appshots,
             appshots::delete_appshot,

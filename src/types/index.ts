@@ -44,6 +44,21 @@ export interface Conversation {
   timestamp: Date;
   messages: Message[];
   model: string;
+  projectId?: string;
+}
+
+export type ProjectPermission = "read" | "write" | "full";
+
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  permissions: ProjectPermission;
+  excludePatterns?: string[];
+  systemPromptOverride?: string;
+  modelOverride?: string;
+  isAutoCommitEnabled?: boolean;
+  autoCommitMsgTemplate?: string;
 }
 
 export interface ModelConfig {

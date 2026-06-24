@@ -112,6 +112,7 @@ describe("sendWithToolLoop", () => {
       () => state,
       vi.fn(),
       vi.fn(),
+      null,
     );
 
     const last = state.conversations[0].messages[state.conversations[0].messages.length - 1];

@@ -1,11 +1,25 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
-import type { Conversation, TitleGenerationConfig, ModelConfig } from "../types";
+import type { Conversation, TitleGenerationConfig, ModelConfig, Project, ProjectPermission } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
 import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
 import { DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
+
+const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  permissions: z.enum(["read", "write", "full"]),
+  excludePatterns: z.array(z.string()).optional(),
+  systemPromptOverride: z.string().optional(),
+  modelOverride: z.string().optional(),
+  isAutoCommitEnabled: z.boolean().optional(),
+  autoCommitMsgTemplate: z.string().optional(),
+});
+
+const ProjectsArraySchema = z.array(ProjectSchema);
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -58,6 +72,7 @@ const ConversationSchema = z.object({
   timestamp: z.coerce.date(),
   messages: z.array(MessageSchema),
   model: z.string().default(""),
+  projectId: z.string().optional(),
 });
 
 const CustomThemeConfigSchema = z.object({
@@ -109,6 +124,9 @@ export const KeybindsSchema = z.record(z.string(), KeybindActionSchema);
 export type KeybindsData = z.infer<typeof KeybindsSchema>;
 
 const CONVERSATIONS_KEY = "sythoria-conversations";
+const PROJECTS_KEY = "sythoria-projects";
+const PROJECTS_ENABLED_KEY = "sythoria-projects-enabled";
+const PROJECTS_DEFAULT_PERMISSION_KEY = "sythoria-projects-default-permission";
 const THEME_KEY = "sythoria-theme";
 const API_KEYS_KEY = "sythoria-api-keys";
 const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
@@ -208,6 +226,30 @@ export async function saveConversations(conversations: Conversation[]): Promise<
         action: "Storage is full or unavailable. Try clearing old conversations.",
       });
     }
+  }
+}
+
+export async function loadProjects(): Promise<Project[]> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(PROJECTS_KEY);
+    if (raw) {
+      const result = ProjectsArraySchema.safeParse(raw);
+      if (result.success) return result.data as Project[];
+    }
+  } catch (e) {
+    logError("storage", "Failed to load projects", { error: e });
+  }
+  return [];
+}
+
+export async function saveProjects(projects: Project[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(PROJECTS_KEY, projects);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save projects", { error: e });
   }
 }
 
@@ -1147,5 +1189,49 @@ export async function clearStoreData(): Promise<void> {
     await store.save();
   } catch (e) {
     logError("storage", "Failed to clear store data", { error: e });
+  }
+}
+
+export async function loadProjectsEnabled(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const val = await store.get<boolean>(PROJECTS_ENABLED_KEY);
+    return val ?? false; // default disabled
+  } catch (e) {
+    logError("storage", "Failed to load projects enabled status", { error: e });
+    return false;
+  }
+}
+
+export async function saveProjectsEnabled(enabled: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(PROJECTS_ENABLED_KEY, enabled);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save projects enabled status", { error: e });
+  }
+}
+
+export async function loadProjectsDefaultPermission(): Promise<ProjectPermission> {
+  try {
+    const store = await getStore();
+    const val = await store.get<string>(PROJECTS_DEFAULT_PERMISSION_KEY);
+    if (val === "read" || val === "write" || val === "full") {
+      return val as ProjectPermission;
+    }
+  } catch (e) {
+    logError("storage", "Failed to load projects default permission", { error: e });
+  }
+  return "read"; // default read
+}
+
+export async function saveProjectsDefaultPermission(perm: ProjectPermission): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(PROJECTS_DEFAULT_PERMISSION_KEY, perm);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save projects default permission", { error: e });
   }
 }

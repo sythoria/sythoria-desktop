@@ -11,6 +11,7 @@ import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import StartScreen from "./components/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
+import ProjectConfigModal from "./components/ProjectConfigModal";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
@@ -641,6 +642,7 @@ function App() {
         )}
       </AnimatePresence>
 
+      <ProjectConfigModal />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

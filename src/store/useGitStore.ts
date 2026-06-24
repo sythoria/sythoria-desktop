@@ -27,6 +27,7 @@ interface GitStore {
   undoLastCommit: () => Promise<void>;
   checkoutBranch: (branch: string) => Promise<void>;
   getDiff: () => Promise<string>;
+  autoCommitIfNeeded: () => Promise<void>;
 }
 
 export const useGitStore = create<GitStore>((set, get) => ({
@@ -166,6 +167,78 @@ export const useGitStore = create<GitStore>((set, get) => ({
     } catch (e: any) {
       logError("git", "Failed to retrieve diff from repository", { error: e });
       return "";
+    }
+  },
+
+  autoCommitIfNeeded: async () => {
+    const state = get();
+    const { useProjectStore } = await import("./useProjectStore");
+    const projectState = useProjectStore.getState();
+    const activeProject = projectState.projects.find((p) => p.id === projectState.activeProjectId);
+
+    const isAutoCommitEnabled = activeProject
+      ? activeProject.isAutoCommitEnabled !== undefined
+        ? activeProject.isAutoCommitEnabled
+        : state.config.isAutoCommitEnabled
+      : state.config.isAutoCommitEnabled;
+
+    const repoPath = activeProject ? activeProject.path : state.config.repoPath;
+    if (!isAutoCommitEnabled || !repoPath) return;
+
+    // Check if there are changes
+    await state.verifyPath(repoPath);
+    const { status } = get();
+    if (!status || (!status.isDirty && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0)) return;
+
+    let message = "Auto-commit by Sythoria AI";
+
+    if (state.config.isAiCommitMsgEnabled) {
+      const diff = await state.getDiff();
+      if (diff) {
+        const { useModelStore } = await import("./useModelStore");
+        const modelState = useModelStore.getState();
+
+        const selectedModelId = activeProject?.modelOverride || modelState.selectedModel;
+        const modelConfig =
+          modelState.models.find((m) => m.id === selectedModelId) ||
+          modelState.models.find((m) => m.id === modelState.selectedModel);
+
+        if (modelConfig) {
+          const apiBase = modelConfig.apiBase;
+          const apiKey = modelState.apiKeys[modelConfig.id] || modelConfig.apiKey || "";
+
+          const systemPrompt =
+            activeProject?.autoCommitMsgTemplate && activeProject.autoCommitMsgTemplate.trim()
+              ? activeProject.autoCommitMsgTemplate
+              : "You are a git commit message generator. Based on the following diff, write a concise, conventional commit message. Do not include any other text or explanation, just the commit message itself.";
+
+          try {
+            message = await invoke<string>("chat_completion", {
+              apiUrl: apiBase,
+              apiKey: apiKey,
+              model: modelConfig.modelId,
+              provider: modelConfig.provider,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: diff.slice(0, 5000) },
+              ],
+              temperature: 0.3,
+              maxTokens: 100,
+            });
+            message = message.trim();
+          } catch (e) {
+            logError("git", "Failed to generate AI commit message, falling back to default", { error: e });
+          }
+        }
+      }
+    }
+
+    try {
+      await state.commitChanges(message);
+      const { useUIStore } = await import("./useUIStore");
+      useUIStore.getState().addToast(`Auto-committed: ${message}`, "success");
+    } catch {
+      // Error handled in commitChanges
     }
   },
 }));

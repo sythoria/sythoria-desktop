@@ -9,6 +9,7 @@ import type {
   GenerationState,
   McpTool,
   McpToolResult,
+  Project,
 } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -23,6 +24,34 @@ export interface ToolLoopSlice {
   isStreaming: boolean;
   generationState: GenerationState;
   generationLabel: string;
+}
+
+function isPathExcluded(p: string, projectPath: string, excludePatterns?: string[]): boolean {
+  if (!excludePatterns || excludePatterns.length === 0) return false;
+
+  let relPath = p;
+  if (p.startsWith(projectPath)) {
+    relPath = p.slice(projectPath.length).replace(/^[/\\]+/, "");
+  }
+  relPath = relPath.replace(/\\/g, "/");
+
+  for (const pattern of excludePatterns) {
+    const trimmed = pattern.trim();
+    if (!trimmed) continue;
+
+    try {
+      const escaped = trimmed.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+      const regex = new RegExp(`(^|/)${escaped}(/|$)`, "i");
+      if (regex.test(relPath)) {
+        return true;
+      }
+    } catch {
+      if (relPath.toLowerCase().includes(trimmed.toLowerCase())) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 interface ToolDefinition {
@@ -87,6 +116,111 @@ export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = t
   return tools;
 }
 
+export function buildProjectToolDefinitions(project: Project | null) {
+  if (!project) return [];
+  const tools: ToolDefinition[] = [];
+
+  // Read permissions
+  tools.push({
+    type: "function",
+    function: {
+      name: "project_list_dir",
+      description: "List contents of a directory within the project.",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string", description: "Relative or absolute path to list" } },
+        required: ["path"],
+      },
+    },
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "project_read_file",
+      description: "Read the contents of a file within the project.",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string", description: "Relative or absolute path to the file" } },
+        required: ["path"],
+      },
+    },
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "project_git_status",
+      description: "Get the current git status of the project.",
+      parameters: { type: "object", properties: {} },
+    },
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "project_git_diff",
+      description: "Get the git diff of the project (unstaged and staged changes).",
+      parameters: { type: "object", properties: {} },
+    },
+  });
+
+  // Write permissions
+  if (project.permissions === "write" || project.permissions === "full") {
+    tools.push({
+      type: "function",
+      function: {
+        name: "project_write_file",
+        description: "Write content to a file within the project. Creates directories if needed.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Relative or absolute path to the file" },
+            content: { type: "string", description: "The content to write" },
+          },
+          required: ["path", "content"],
+        },
+      },
+    });
+    tools.push({
+      type: "function",
+      function: {
+        name: "project_git_commit",
+        description: "Stage and commit changes in the project.",
+        parameters: {
+          type: "object",
+          properties: {
+            message: { type: "string", description: "The commit message" },
+            files: {
+              type: "array",
+              items: { type: "string" },
+              description: "Optional list of files to commit. If empty, all changes are committed.",
+            },
+          },
+          required: ["message"],
+        },
+      },
+    });
+  }
+
+  // Full Shell permissions
+  if (project.permissions === "full") {
+    tools.push({
+      type: "function",
+      function: {
+        name: "project_run_command",
+        description: "Run an arbitrary shell command in the project directory.",
+        parameters: {
+          type: "object",
+          properties: {
+            command: { type: "string", description: "The shell command to run" },
+          },
+          required: ["command"],
+        },
+      },
+    });
+  }
+
+  return tools;
+}
+
 export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 
 - search_query(query: string): Search the web for information. Returns search results with titles, URLs, and snippets.
@@ -94,8 +228,26 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 
 When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.`;
 
-export function buildToolSystemPrompt(mcpTools: McpTool[] = []) {
+export function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
   let prompt = TOOL_SYSTEM_PROMPT;
+
+  if (project) {
+    prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
+    prompt += `\n\nYou have access to the following native project tools based on your permissions:
+- project_list_dir(path: string)
+- project_read_file(path: string)
+- project_git_status()
+- project_git_diff()`;
+
+    if (project.permissions === "write" || project.permissions === "full") {
+      prompt += `\n- project_write_file(path: string, content: string)\n- project_git_commit(message: string, files?: string[])`;
+    }
+    if (project.permissions === "full") {
+      prompt += `\n- project_run_command(command: string)`;
+    }
+    prompt += `\nWhen using project tools, you can use paths relative to the project path.`;
+  }
+
   if (mcpTools.length > 0) {
     const mcpDescriptions = mcpTools
       .map((t) => `- ${t.namespacedName}: [MCP: ${t.serverName}] ${t.description}`)
@@ -105,8 +257,27 @@ export function buildToolSystemPrompt(mcpTools: McpTool[] = []) {
   return prompt;
 }
 
-type KnownToolName = "search_query" | "fetch_url";
-const KNOWN_TOOLS: Set<string> = new Set(["search_query", "fetch_url"]);
+type KnownToolName =
+  | "search_query"
+  | "fetch_url"
+  | "project_list_dir"
+  | "project_read_file"
+  | "project_write_file"
+  | "project_git_status"
+  | "project_git_diff"
+  | "project_git_commit"
+  | "project_run_command";
+const KNOWN_TOOLS: Set<string> = new Set([
+  "search_query",
+  "fetch_url",
+  "project_list_dir",
+  "project_read_file",
+  "project_write_file",
+  "project_git_status",
+  "project_git_diff",
+  "project_git_commit",
+  "project_run_command",
+]);
 
 function toKnownToolName(name: string): KnownToolName | "unknown" {
   return KNOWN_TOOLS.has(name) ? (name as KnownToolName) : "unknown";
@@ -168,6 +339,7 @@ export async function sendWithToolLoop(
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string) => Promise<UrlContent>,
+  project: Project | null,
 ) {
   set(() => ({
     isStreaming: true,
@@ -194,13 +366,19 @@ export async function sendWithToolLoop(
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
-    const allTools = buildToolDefinitions(useMcp ? mcpTools : [], useSearch);
+    const allTools = [
+      ...buildToolDefinitions(useMcp ? mcpTools : [], useSearch),
+      ...buildProjectToolDefinitions(project),
+    ];
 
-    const userSystemPrompt =
-      modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()
-        ? modelConfig.systemPromptOverride
-        : useModelStore.getState().systemPrompt || "";
-    const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : []);
+    let userSystemPrompt = useModelStore.getState().systemPrompt || "";
+    if (modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()) {
+      userSystemPrompt = modelConfig.systemPromptOverride;
+    }
+    if (project && project.systemPromptOverride && project.systemPromptOverride.trim()) {
+      userSystemPrompt = project.systemPromptOverride;
+    }
+    const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : [], project);
     const combinedSystemPrompt = userSystemPrompt.trim()
       ? `${userSystemPrompt}\n\n${toolSystemPrompt}`
       : toolSystemPrompt;
@@ -443,10 +621,17 @@ export async function sendWithToolLoop(
           }
 
           const toolCallMsgId = generateId();
+          const isProjectTool = fnName.startsWith("project_");
+
+          let toolDesc: string = fnName;
+          if (fnName === "search_query") toolDesc = `Searching: ${fnArgs.query}`;
+          else if (fnName === "fetch_url") toolDesc = `Fetching: ${fnArgs.url}`;
+          else if (isProjectTool) toolDesc = `Project: ${fnName.replace("project_", "")}`;
+
           const toolCallMsg: Message = {
             id: toolCallMsgId,
             role: "tool",
-            content: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
+            content: toolDesc,
             timestamp: new Date(),
             toolCall: {
               id: toolCall.id,
@@ -459,10 +644,107 @@ export async function sendWithToolLoop(
             conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, toolCallMsg]),
             generationState:
               fnName === "search_query" ? ("searching" as GenerationState) : ("fetching" as GenerationState),
-            generationLabel: fnName === "search_query" ? `Searching: ${fnArgs.query}` : `Fetching: ${fnArgs.url}`,
+            generationLabel: toolDesc,
           }));
 
-          if (fnName === "search_query" && useSearch && searchConfig) {
+          if (isProjectTool) {
+            if (!project) {
+              resultContent = JSON.stringify({ error: "Project tool called but no project is active." });
+            } else {
+              try {
+                const resolvePath = (p: string) => {
+                  if (p.startsWith("/")) return p;
+                  return `${project.path}/${p}`;
+                };
+
+                switch (fnName) {
+                  case "project_list_dir": {
+                    const dirPath = fnArgs.path || "";
+                    const resolvedDir = resolvePath(dirPath);
+                    if (isPathExcluded(resolvedDir, project.path, project.excludePatterns)) {
+                      throw new Error(`Permission denied: directory is excluded by configuration.`);
+                    }
+                    const files = await invoke<string[]>("project_list_dir", { path: resolvedDir });
+                    if (project.excludePatterns && project.excludePatterns.length > 0) {
+                      const relativeDir = dirPath ? (dirPath.endsWith("/") ? dirPath : dirPath + "/") : "";
+                      resultContent = JSON.stringify(
+                        files.filter((f) => {
+                          const relFilePath = relativeDir + f;
+                          return !isPathExcluded(relFilePath, project.path, project.excludePatterns);
+                        }),
+                      );
+                    } else {
+                      resultContent = JSON.stringify(files);
+                    }
+                    break;
+                  }
+                  case "project_read_file": {
+                    const resolved = resolvePath(fnArgs.path);
+                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                      throw new Error(`Permission denied: file is excluded by configuration.`);
+                    }
+                    resultContent = await invoke<string>("project_read_file", { path: resolved });
+                    break;
+                  }
+                  case "project_write_file": {
+                    const resolved = resolvePath(fnArgs.path);
+                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                      throw new Error(`Permission denied: file is excluded by configuration.`);
+                    }
+                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+                    await invoke("project_write_file", { path: resolved, content: fnArgs.content });
+                    resultContent = "File written successfully.";
+                    break;
+                  }
+                  case "project_run_command":
+                    if (project.permissions !== "full") throw new Error("Permission denied: full shell not allowed");
+                    resultContent = await invoke<string>("project_run_command", {
+                      command: fnArgs.command,
+                      cwd: project.path,
+                    });
+                    break;
+                  case "project_git_status":
+                    resultContent = JSON.stringify(await invoke("git_get_status", { repoPath: project.path }));
+                    break;
+                  case "project_git_diff":
+                    resultContent = await invoke<string>("git_diff_changes", { repoPath: project.path });
+                    break;
+                  case "project_git_commit":
+                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+                    resultContent = await invoke<string>("git_create_commit", {
+                      repoPath: project.path,
+                      message: fnArgs.message,
+                      files:
+                        fnArgs.files && Array.isArray(fnArgs.files) && fnArgs.files.length > 0 ? fnArgs.files : null,
+                      authorName: null,
+                      authorEmail: null,
+                      bypassHooks: false,
+                    });
+                    break;
+                }
+              } catch (e) {
+                resultContent = JSON.stringify({ error: String(e) });
+              }
+            }
+
+            set((state) => ({
+              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
+                msgs.map((m) =>
+                  m.id === toolCallMsgId
+                    ? {
+                        ...m,
+                        content: `${toolDesc}\n\n${resultContent.slice(0, 1000)}${resultContent.length > 1000 ? "..." : ""}`,
+                        toolResult: {
+                          id: toolCall.id,
+                          name: fnName,
+                          content: resultContent,
+                        },
+                      }
+                    : m,
+                ),
+              ),
+            }));
+          } else if (fnName === "search_query" && useSearch && searchConfig) {
             if (!get().isStreaming) {
               logInfo("chat", "Tool loop aborted: stream was stopped by user before search execution");
               await useChatStore.getState().persistConversations();

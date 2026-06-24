@@ -9,6 +9,9 @@ import {
   Download,
   MoreVertical,
   Folder,
+  FolderPlus,
+  ChevronDown,
+  ChevronRight,
   ArrowLeft,
 } from "lucide-react";
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
@@ -22,6 +25,7 @@ import { useDebounce } from "../hooks/useDebounce";
 import { SIDEBAR_WIDTH, COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
 import { useUIStore } from "../store/useUIStore";
 import { useKeybindStore } from "../store/useKeybindStore";
+import { useProjectStore } from "../store/useProjectStore";
 import { SECTION_GROUPS, SectionId } from "./settings/types";
 import { springs, motionTokens } from "../lib/motion-tokens";
 
@@ -89,6 +93,16 @@ export default function Sidebar({
   const setView = useUIStore((s) => s.setView);
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
   const setActiveSection = useUIStore((s) => s.setActiveSection);
+  const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
+
+  const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore();
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+
+  const toggleProject = (id: string) => {
+    setExpandedProjects((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const zoomLevel = useKeybindStore((s) => s.zoomLevel);
   const [showZoom, setShowZoom] = useState(false);
@@ -120,6 +134,7 @@ export default function Sidebar({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -137,7 +152,20 @@ export default function Sidebar({
     );
   }, [nonEmptyConversations, debouncedQuery]);
 
-  const groups = useMemo(() => groupConversations(filteredConversations), [filteredConversations]);
+  const globalConversations = useMemo(() => filteredConversations.filter((c) => !c.projectId), [filteredConversations]);
+
+  const groups = useMemo(() => groupConversations(globalConversations), [globalConversations]);
+
+  const projectConversations = useMemo(() => {
+    const map: Record<string, typeof filteredConversations> = {};
+    for (const conv of filteredConversations) {
+      if (conv.projectId) {
+        if (!map[conv.projectId]) map[conv.projectId] = [];
+        map[conv.projectId].push(conv);
+      }
+    }
+    return map;
+  }, [filteredConversations]);
 
   const handleDeleteConfirm = useCallback(() => {
     if (chatToDelete) {
@@ -146,11 +174,21 @@ export default function Sidebar({
     }
   }, [chatToDelete, onDeleteChat]);
 
+  const handleDeleteProjectConfirm = useCallback(() => {
+    if (projectToDelete) {
+      deleteProject(projectToDelete);
+      setProjectToDelete(null);
+    }
+  }, [projectToDelete, deleteProject]);
+
   useEffect(() => {
-    if (openMenuId === null) return;
+    if (openMenuId === null && !showProjectMenu) return;
     const handleOutsideAction = (e: Event) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpenMenuId(null);
+      }
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setShowProjectMenu(false);
       }
     };
     document.addEventListener("mousedown", handleOutsideAction);
@@ -159,7 +197,7 @@ export default function Sidebar({
       document.removeEventListener("mousedown", handleOutsideAction);
       window.removeEventListener("scroll", handleOutsideAction, true);
     };
-  }, [openMenuId]);
+  }, [openMenuId, showProjectMenu]);
 
   const aggregateStatus: ConnectionStatus = useMemo(() => {
     const statuses = Object.values(modelStatuses);
@@ -314,19 +352,201 @@ export default function Sidebar({
               </div>
             </div>
 
-            {/* Project Placeholder */}
-            <div className="px-3 mb-4">
-              <button
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                onClick={() => {}}
-              >
-                <Folder size={16} className="text-text-muted" />
-                Project
-              </button>
-            </div>
+            {/* Projects Section */}
+            {isProjectsEnabled && (
+              <>
+                <div className="px-3 mb-2 flex items-center justify-between">
+                  <h3 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider pl-1">Projects</h3>
+                  <button
+                    className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+                    onClick={() => openProjectConfigModal("create")}
+                    aria-label="New Project Workspace"
+                    title="Add Project Workspace"
+                  >
+                    <FolderPlus size={14} />
+                  </button>
+                </div>
 
-            {/* Conversation List */}
+                {projects.length > 0 && (
+                  <div className="px-2 mb-4 space-y-0.5">
+                    {projects.map((project) => {
+                      const isExpanded = expandedProjects[project.id];
+                      const pChats = projectConversations[project.id] || [];
+                      const isActive = activeProjectId === project.id;
+
+                      return (
+                        <div key={project.id} className="flex flex-col">
+                          <div className="relative group flex items-center">
+                            <button
+                              onClick={() => {
+                                setActiveProject(project.id);
+                                if (!isExpanded) toggleProject(project.id);
+                              }}
+                              className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                isActive
+                                  ? "bg-active text-text-primary"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }`}
+                            >
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleProject(project.id);
+                                }}
+                                className="p-0.5 rounded text-text-muted hover:bg-black/10 dark:hover:bg-white/10"
+                              >
+                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              </button>
+                              <Folder size={14} className="shrink-0" />
+                              <span className="truncate flex-1 text-left">{project.name}</span>
+                            </button>
+                            <div className="absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openProjectConfigModal("edit", project.id);
+                                }}
+                                className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-hover text-text-secondary hover:text-text-primary transition-colors"
+                                title="Project Settings"
+                              >
+                                <Settings size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setProjectToDelete(project.id);
+                                }}
+                                className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-red-500/10 text-red-500 hover:text-red-500 transition-colors"
+                                title="Remove project"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <AnimatePresence initial={false}>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden pl-6 pr-1 space-y-0.5 mt-0.5"
+                              >
+                                {pChats.length === 0 ? (
+                                  <div className="py-1 px-2 text-[11px] text-text-muted">No chats</div>
+                                ) : (
+                                  pChats.map((conv) => (
+                                    <div key={conv.id} className="relative group">
+                                      <button
+                                        onClick={() => onSelect(conv.id)}
+                                        className={`
+                                          w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
+                                          text-sm text-left transition-colors duration-100
+                                          ${
+                                            activeId === conv.id
+                                              ? "bg-active text-text-primary font-medium"
+                                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                          }
+                                        `}
+                                      >
+                                        <MessageSquare size={13} className="shrink-0 opacity-50" />
+                                        <span className="truncate flex-1">{conv.title}</span>
+                                        <span
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
+                                            setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === " ") {
+                                              e.stopPropagation();
+                                              const rect = e.currentTarget.getBoundingClientRect();
+                                              setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
+                                              setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                                            }
+                                          }}
+                                          className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
+                                          aria-label="Conversation actions"
+                                        >
+                                          <MoreVertical size={13} />
+                                        </span>
+                                      </button>
+                                      {openMenuId === conv.id &&
+                                        menuPosition &&
+                                        createPortal(
+                                          <div
+                                            ref={menuRef}
+                                            className="fixed z-[9999] min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                                            style={{
+                                              top: `${menuPosition.top}px`,
+                                              left: `${menuPosition.left}px`,
+                                              boxShadow: "var(--shadow-lg)",
+                                            }}
+                                            role="menu"
+                                          >
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(null);
+                                                onExportChat(conv.id);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                              role="menuitem"
+                                            >
+                                              <Download size={14} className="text-text-muted" />
+                                              Export
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(null);
+                                                onRenameChat(conv.id, conv.title);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                              role="menuitem"
+                                            >
+                                              <Pencil size={14} className="text-text-muted" />
+                                              Rename
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(null);
+                                                setChatToDelete(conv.id);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                                              role="menuitem"
+                                            >
+                                              <Trash2 size={14} />
+                                              Delete
+                                            </button>
+                                          </div>,
+                                          document.body,
+                                        )}
+                                    </div>
+                                  ))
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Global Conversation List */}
             <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0" aria-label="Conversation list">
+              {isProjectsEnabled && projects.length > 0 && (
+                <h3 className="px-2 py-1.5 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                  Global Chats
+                </h3>
+              )}
               <AnimatePresence mode="popLayout">
                 {groups.map((group) => (
                   <motion.div
@@ -499,6 +719,16 @@ export default function Sidebar({
         variant="danger"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setChatToDelete(null)}
+      />
+
+      <ConfirmModal
+        isOpen={projectToDelete !== null}
+        title="Delete Project"
+        message="Are you sure you want to remove this project? This will not delete the folder on your disk, but it will remove the project configuration and history from Sythoria."
+        confirmText="Remove"
+        variant="danger"
+        onConfirm={handleDeleteProjectConfirm}
+        onCancel={() => setProjectToDelete(null)}
       />
     </>
   );

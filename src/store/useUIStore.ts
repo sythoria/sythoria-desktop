@@ -58,6 +58,9 @@ interface UIState {
   autoUpdateChecking: boolean;
   isDraggingFile: boolean;
   showContextWindow: boolean;
+  showProjectConfigModal: boolean;
+  projectConfigModalMode: "create" | "edit";
+  projectConfigModalId: string | null;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -88,6 +91,8 @@ interface UIState {
   setAutoUpdateChecking: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
   setShowContextWindow: (value: boolean) => void;
+  openProjectConfigModal: (mode: "create" | "edit", id?: string | null) => void;
+  closeProjectConfigModal: () => void;
 }
 
 let toastCounter = 0;
@@ -126,6 +131,9 @@ export const useUIStore = create<UIState>((set) => ({
   autoUpdateChecking: true,
   isDraggingFile: false,
   showContextWindow: false,
+  showProjectConfigModal: false,
+  projectConfigModalMode: "create",
+  projectConfigModalId: null,
 
   setView: (view) => set({ view }),
   setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
@@ -159,6 +167,12 @@ export const useUIStore = create<UIState>((set) => ({
   },
   closeRenameModal: () => {
     set({ showRenameModal: false, renameId: null, renameCurrentTitle: "" });
+  },
+  openProjectConfigModal: (mode, id = null) => {
+    set({ showProjectConfigModal: true, projectConfigModalMode: mode, projectConfigModalId: id });
+  },
+  closeProjectConfigModal: () => {
+    set({ showProjectConfigModal: false, projectConfigModalId: null });
   },
   setLogBuffer: (logs) => set({ logBuffer: logs }),
   setLogFilterSource: (source) => set({ logFilterSource: source }),

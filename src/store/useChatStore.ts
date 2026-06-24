@@ -68,6 +68,8 @@ import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
 import { useMcpStore } from "./useMcpStore";
 import { useUIStore } from "./useUIStore";
+import { useProjectStore } from "./useProjectStore";
+import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
 
 function truncateTitle(text: string): string {
@@ -231,6 +233,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadSystemPrompt(),
         loadShowContextWindow(),
         loadMaxToolSteps(),
+        useProjectStore.getState().init(),
       ]);
 
       const models = loadedModels || [];
@@ -396,6 +399,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   newChat: () => {
     const { selectedModel, models } = useModelStore.getState();
+    const { activeProjectId } = useProjectStore.getState();
     const id = generateId();
     const modelConfig = models.find((m) => m.id === selectedModel);
     const conv: Conversation = {
@@ -404,6 +408,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date(),
       messages: [],
       model: modelConfig?.id || selectedModel,
+      projectId: activeProjectId || undefined,
     };
     set((state) => {
       const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
@@ -471,6 +476,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
+    const { activeProjectId } = useProjectStore.getState();
 
     if (!convId) {
       const id = generateId();
@@ -481,6 +487,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
+        projectId: activeProjectId || undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -504,7 +511,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     };
 
     const finalId = convId;
-    const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    const activeProject =
+      useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+    let modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    if (activeProject && activeProject.modelOverride) {
+      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
+      if (overrideModel && overrideModel.enabled !== false) {
+        modelConfig = overrideModel;
+      }
+    }
 
     if (!modelConfig) {
       logError("model", "No model configuration selected — user tried to send message without any model configured", {
@@ -530,6 +545,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const toolLoop = getEnabledToolLoopConfig();
     if (toolLoop.shouldUseTools) {
+      const activeProject =
+        useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
       await sendWithToolLoop(
         finalId,
         modelConfig,
@@ -543,10 +560,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         get,
         searchPerformSearch,
         searchFetchUrlContent,
+        activeProject,
       );
     } else {
       await sendNormal(finalId, modelConfig, temperature, apiKeys, set, get);
     }
+
+    // Auto-commit if enabled and changes exist
+    useGitStore.getState().autoCommitIfNeeded();
   },
 
   stopStreaming: () => {
@@ -593,7 +614,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     }));
 
-    const modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    const activeProject =
+      useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+    let modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    if (activeProject && activeProject.modelOverride) {
+      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
+      if (overrideModel && overrideModel.enabled !== false) {
+        modelConfig = overrideModel;
+      }
+    }
     if (!modelConfig) {
       logError("model", "No model configuration selected — user tried to retry message without any model configured", {
         action: "Go to Settings > Models and add at least one model configuration.",
@@ -604,6 +633,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const toolLoop = getEnabledToolLoopConfig();
     if (toolLoop.shouldUseTools) {
+      const activeProject =
+        useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
       await sendWithToolLoop(
         convId,
         modelConfig,
@@ -617,10 +648,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         get,
         searchPerformSearch,
         searchFetchUrlContent,
+        activeProject,
       );
     } else {
       await sendNormal(convId, modelConfig, temperature, apiKeys, set, get);
     }
+
+    // Auto-commit if enabled and changes exist
+    useGitStore.getState().autoCommitIfNeeded();
   },
 
   exportChat: (id) => {

@@ -20,7 +20,7 @@ import { BrowserSection } from "./sections/BrowserSection";
 import { McpSection } from "./sections/McpSection";
 import { LogsSection } from "./sections/LogsSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
-import { GitSection } from "./sections/GitSection";
+import { ProjectsSection } from "./sections/ProjectsSection";
 import { AppshotsSection } from "./sections/AppshotsSection";
 import { SectionId } from "./types";
 
@@ -214,7 +214,7 @@ export default function Settings() {
               />
             )}
 
-            {activeSection === "git" && <GitSection />}
+            {activeSection === "projects" && <ProjectsSection />}
 
             {activeSection === "browser" && (
               <BrowserSection

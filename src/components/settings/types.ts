@@ -8,7 +8,7 @@ import {
   Cpu,
   Search,
   Plug,
-  GitBranch,
+  Folder,
   FileText,
   Store,
 } from "lucide-react";
@@ -25,7 +25,7 @@ export type SectionId =
   | "computer"
   | "hooks"
   | "models"
-  | "git"
+  | "projects"
   | "environments"
   | "worktrees"
   | "search"
@@ -56,7 +56,7 @@ export const SECTION_GROUPS = [
     category: "Coding",
     items: [
       { id: "models", label: "Connections", icon: Plug },
-      { id: "git", label: "Git", icon: GitBranch },
+      { id: "projects", label: "Projects", icon: Folder },
       { id: "logs", label: "Activity Log", icon: FileText },
     ],
   },
