@@ -1116,7 +1116,7 @@ async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_autostart::ManagerExt;
-        let manager = app.autostart();
+        let manager = app.autolaunch();
         if enabled {
             manager.enable().map_err(|e| AppError::ConfigIo(e.to_string()))?;
         } else {
@@ -1138,7 +1138,7 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_autostart::ManagerExt;
-        let manager = app.autostart();
+        let manager = app.autolaunch();
         manager.is_enabled().map_err(|e| AppError::ConfigIo(e.to_string()))
     }
 }
