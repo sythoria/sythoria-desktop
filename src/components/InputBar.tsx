@@ -104,6 +104,7 @@ export default function InputBar({
 
   const activeConversationId = useChatStore((s) => s.activeId);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
+  const setConversationProject = useChatStore((s) => s.setConversationProject);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
 
   const textSizeClass =
@@ -761,6 +762,9 @@ export default function InputBar({
                                     key={p.id}
                                     onClick={() => {
                                       setActiveProject(p.id);
+                                      if (activeConversationId) {
+                                        setConversationProject(activeConversationId, p.id);
+                                      }
                                       setProjectDropdownOpen(false);
                                     }}
                                     className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
@@ -842,6 +846,9 @@ export default function InputBar({
                           <button
                             onClick={() => {
                               setActiveProject(null);
+                              if (activeConversationId) {
+                                setConversationProject(activeConversationId, undefined);
+                              }
                               setProjectDropdownOpen(false);
                             }}
                             className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"

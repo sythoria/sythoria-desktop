@@ -17,6 +17,7 @@ import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
+import { useProjectStore } from "./store/useProjectStore";
 import { useKeybindStore, matchKeybind } from "./store/useKeybindStore";
 import { useAppshotStore } from "./store/useAppshotStore";
 import { useShallow } from "zustand/react/shallow";
@@ -164,11 +165,31 @@ function App() {
     })),
   );
 
+  const { activeProjectId, setActiveProject } = useProjectStore(
+    useShallow((s) => ({
+      activeProjectId: s.activeProjectId,
+      setActiveProject: s.setActiveProject,
+    })),
+  );
+
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
   );
   const messages = activeConversation?.messages ?? [];
+
+  // Synchronize active project when active conversation changes
+  useEffect(() => {
+    if (activeConversation) {
+      if (activeConversation.projectId !== activeProjectId) {
+        setActiveProject(activeConversation.projectId || null);
+      }
+    } else {
+      if (activeProjectId !== null) {
+        setActiveProject(null);
+      }
+    }
+  }, [activeId, activeConversation?.projectId, activeProjectId, setActiveProject]);
 
   const { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef } = useScrollButton();
   const { hasNewMessages, setHasNewMessages } = useScrollTracking(activeId, messages.length, isAtBottom, isStreaming);

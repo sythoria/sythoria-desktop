@@ -135,8 +135,10 @@ function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
           useMcpStore.getState().callTool(serverId, toolName, args)
       : undefined;
 
+  const { activeProjectId } = useProjectStore.getState();
+
   return {
-    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0,
+    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0 || Boolean(activeProjectId),
     searchConfig,
     searchApiKey,
     mcpTools,
@@ -173,6 +175,7 @@ interface ChatState {
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
   setDraftAttachments: (attachments: Attachment[]) => void;
   addDraftFileFromPath: (path: string) => Promise<void>;
+  setConversationProject: (id: string, projectId: string | undefined) => void;
 }
 
 let initInProgress = false;
@@ -453,6 +456,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   renameChat: (id, newTitle) => {
     set((state) => ({
       conversations: state.conversations.map((c) => (c.id === id ? { ...c, title: newTitle } : c)),
+    }));
+    get().persistConversations();
+  },
+
+  setConversationProject: (id, projectId) => {
+    set((state) => ({
+      conversations: state.conversations.map((c) => (c.id === id ? { ...c, projectId } : c)),
     }));
     get().persistConversations();
   },
