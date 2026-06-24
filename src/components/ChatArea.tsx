@@ -21,6 +21,11 @@ import {
   Terminal,
   FileText as FileTextIcon,
   AtSign,
+  File,
+  FileCode,
+  FileJson,
+  Atom,
+  Palette,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState, Attachment } from "../types";
@@ -346,6 +351,74 @@ function formatToolName(name: string): string {
   return name;
 }
 
+function getFileWriteInfo(toolName: string, args: Record<string, string> | undefined) {
+  if (!args) return null;
+
+  // Normalize the tool name by taking whatever is after "__" if MCP, and removing "project_" if project tool
+  let cleanName = toolName;
+  if (cleanName.includes("__")) {
+    const parts = cleanName.split("__");
+    cleanName = parts.length > 1 ? parts.slice(1).join("__") : cleanName;
+  }
+  cleanName = cleanName.replace("project_", "");
+
+  const lowerName = cleanName.toLowerCase();
+  const isWriteName =
+    lowerName.includes("write") ||
+    lowerName.includes("edit") ||
+    lowerName.includes("replace") ||
+    lowerName.includes("create") ||
+    lowerName.includes("save") ||
+    lowerName.includes("update") ||
+    lowerName.includes("patch");
+
+  if (!isWriteName) return null;
+
+  const pathKeys = ["path", "filepath", "file_path", "filePath", "relative_path", "filename", "file"];
+  for (const key of pathKeys) {
+    if (typeof args[key] === "string") {
+      const fullPath = args[key];
+      const filename = fullPath.split(/[/\\]/).pop() || fullPath;
+
+      const ext = filename.split(".").pop()?.toLowerCase();
+      let IconComponent = File;
+      let colorClass = "text-text-muted";
+
+      if (ext === "tsx" || ext === "jsx") {
+        IconComponent = Atom;
+        colorClass = "text-cyan-500 dark:text-cyan-400";
+      } else if (ext === "ts") {
+        IconComponent = FileCode;
+        colorClass = "text-blue-500 dark:text-blue-400";
+      } else if (ext === "js") {
+        IconComponent = FileCode;
+        colorClass = "text-amber-500 dark:text-amber-400";
+      } else if (ext === "css") {
+        IconComponent = Palette;
+        colorClass = "text-pink-500 dark:text-pink-400";
+      } else if (ext === "json") {
+        IconComponent = FileJson;
+        colorClass = "text-amber-500 dark:text-amber-400";
+      } else if (ext === "md" || ext === "txt") {
+        IconComponent = FileTextIcon;
+        colorClass = "text-emerald-500 dark:text-emerald-400";
+      } else if (ext === "rs") {
+        IconComponent = FileCode;
+        colorClass = "text-orange-600 dark:text-orange-500";
+      } else if (ext === "py") {
+        IconComponent = FileCode;
+        colorClass = "text-green-600 dark:text-green-500";
+      } else if (ext === "html") {
+        IconComponent = FileCode;
+        colorClass = "text-orange-500 dark:text-orange-400";
+      }
+
+      return { filename, IconComponent, colorClass };
+    }
+  }
+  return null;
+}
+
 function ToolCallDisplay({ message }: { message: Message }) {
   const [expanded, setExpanded] = useState(false);
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
@@ -383,13 +456,39 @@ function ToolCallDisplay({ message }: { message: Message }) {
     });
 
     const displayName = formatToolName(name);
+    const fileWriteInfo = getFileWriteInfo(name, message.toolCall?.arguments);
 
     return (
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
         {/* Simple inline text with chevron */}
         <div className="flex items-center gap-1.5 text-text-muted select-none">
           <AtSign size={14} className="shrink-0" aria-hidden="true" />
-          <span className="text-sm">{isCompleted ? `Run: ${displayName}` : `Running: ${displayName}...`}</span>
+          {fileWriteInfo ? (
+            <span className="text-sm flex items-center gap-1.5">
+              <span>{isCompleted ? (message.toolResult?.diffSummary?.isNew ? "Created" : "Edited") : "Editing"}</span>
+              <fileWriteInfo.IconComponent
+                size={14}
+                className={`${fileWriteInfo.colorClass} shrink-0`}
+                aria-hidden="true"
+              />
+              <span className="font-medium text-text-primary">
+                {message.toolResult?.diffSummary?.filename || fileWriteInfo.filename}
+              </span>
+              {!isCompleted && <span>...</span>}
+              {isCompleted && message.toolResult?.diffSummary && (
+                <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
+                  <span className="text-emerald-600 dark:text-emerald-500 font-medium">
+                    +{message.toolResult.diffSummary.added}
+                  </span>
+                  <span className="text-rose-500 dark:text-rose-400 font-medium">
+                    -{message.toolResult.diffSummary.deleted}
+                  </span>
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-sm">{isCompleted ? `Run: ${displayName}` : `Running: ${displayName}...`}</span>
+          )}
           {!isCompleted && <Loader2 size={12} className="animate-spin text-text-muted" />}
 
           <motion.button

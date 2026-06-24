@@ -54,6 +54,84 @@ function isPathExcluded(p: string, projectPath: string, excludePatterns?: string
   return false;
 }
 
+export function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
+  const oldLines = oldContent ? oldContent.split(/\r?\n/) : [];
+  const newLines = newContent ? newContent.split(/\r?\n/) : [];
+
+  let start = 0;
+  let endOld = oldLines.length - 1;
+  let endNew = newLines.length - 1;
+
+  // Trim common prefix
+  while (start <= endOld && start <= endNew && oldLines[start] === newLines[start]) {
+    start++;
+  }
+
+  // Trim common suffix
+  while (endOld >= start && endNew >= start && oldLines[endOld] === newLines[endNew]) {
+    endOld--;
+    endNew--;
+  }
+
+  const N = endOld - start + 1;
+  const M = endNew - start + 1;
+
+  if (N <= 0) return { added: M > 0 ? M : 0, deleted: 0 };
+  if (M <= 0) return { added: 0, deleted: N > 0 ? N : 0 };
+
+  // Fallback for massive diffs to avoid freezing the thread
+  if (N * M > 1000000) {
+    return { added: M, deleted: N };
+  }
+
+  const dp = new Int32Array(M + 1);
+  for (let i = 1; i <= N; i++) {
+    let prev = 0;
+    const oldLine = oldLines[start + i - 1];
+    for (let j = 1; j <= M; j++) {
+      const temp = dp[j];
+      if (oldLine === newLines[start + j - 1]) {
+        dp[j] = prev + 1;
+      } else {
+        dp[j] = Math.max(dp[j], dp[j - 1]);
+      }
+      prev = temp;
+    }
+  }
+
+  const lcs = dp[M];
+  return {
+    added: M - lcs,
+    deleted: N - lcs,
+  };
+}
+
+export function isFileWriteTool(
+  name: string,
+  args: Record<string, string> | undefined,
+): { isWrite: boolean; pathKey?: string } {
+  const lowerName = name.toLowerCase();
+  const isWriteName =
+    lowerName.includes("write") ||
+    lowerName.includes("edit") ||
+    lowerName.includes("replace") ||
+    lowerName.includes("create") ||
+    lowerName.includes("save") ||
+    lowerName.includes("update") ||
+    lowerName.includes("patch");
+
+  if (!isWriteName) return { isWrite: false };
+
+  const pathKeys = ["path", "filepath", "file_path", "filePath", "relative_path", "filename", "file"];
+  for (const key of pathKeys) {
+    if (args && typeof args[key] === "string") {
+      return { isWrite: true, pathKey: key };
+    }
+  }
+
+  return { isWrite: false };
+}
+
 interface ToolDefinition {
   type: "function";
   function: {
@@ -485,6 +563,25 @@ export async function sendWithToolLoop(
                 generationLabel: `Running: ${mcpTool.name} via ${mcpTool.serverName}`,
               }));
 
+              let mcpOldContent = "";
+              let mcpIsNew = false;
+              let mcpFileChangeInfo: { path: string; filename: string } | null = null;
+
+              const writeToolInfo = isFileWriteTool(mcpTool.name, fnArgs);
+              if (writeToolInfo.isWrite && writeToolInfo.pathKey) {
+                const rawPath = fnArgs[writeToolInfo.pathKey];
+                const resolvedPath = project && !rawPath.startsWith("/") ? `${project.path}/${rawPath}` : rawPath;
+                mcpFileChangeInfo = {
+                  path: resolvedPath,
+                  filename: rawPath.split(/[/\\]/).pop() || rawPath,
+                };
+                try {
+                  mcpOldContent = await invoke<string>("project_read_file", { path: resolvedPath });
+                } catch {
+                  mcpIsNew = true;
+                }
+              }
+
               const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
               if (!get().isStreaming) {
                 logInfo("chat", "Tool loop aborted: stream was stopped by user during MCP tool call");
@@ -492,6 +589,23 @@ export async function sendWithToolLoop(
                 return;
               }
               resultContent = result.content;
+
+              let mcpDiffSummary: { added: number; deleted: number; isNew?: boolean; filename?: string } | undefined =
+                undefined;
+              if (mcpFileChangeInfo && !result.isError) {
+                try {
+                  const mcpNewContent = await invoke<string>("project_read_file", { path: mcpFileChangeInfo.path });
+                  const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
+                  mcpDiffSummary = {
+                    added: diff.added,
+                    deleted: diff.deleted,
+                    isNew: mcpIsNew,
+                    filename: mcpFileChangeInfo.filename,
+                  };
+                } catch {
+                  // Ignore if we couldn't read file or calculate diff
+                }
+              }
 
               const displayContent = result.isError
                 ? `Error: ${result.content.slice(0, 2000)}`
@@ -509,6 +623,7 @@ export async function sendWithToolLoop(
                             name: rawName,
                             content: resultContent,
                             images: result.images,
+                            diffSummary: mcpDiffSummary,
                           },
                         }
                       : m,
@@ -647,6 +762,15 @@ export async function sendWithToolLoop(
             generationLabel: toolDesc,
           }));
 
+          let toolResultDiffSummary:
+            | {
+                added: number;
+                deleted: number;
+                isNew?: boolean;
+                filename?: string;
+              }
+            | undefined = undefined;
+
           if (isProjectTool) {
             if (!project) {
               resultContent = JSON.stringify({ error: "Project tool called but no project is active." });
@@ -692,8 +816,27 @@ export async function sendWithToolLoop(
                       throw new Error(`Permission denied: file is excluded by configuration.`);
                     }
                     if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+
+                    let oldContent = "";
+                    let isNew = false;
+                    try {
+                      oldContent = await invoke<string>("project_read_file", { path: resolved });
+                    } catch {
+                      isNew = true;
+                    }
+
                     await invoke("project_write_file", { path: resolved, content: fnArgs.content });
                     resultContent = "File written successfully.";
+
+                    const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
+                    const filename = fnArgs.path.split(/[/\\]/).pop() || fnArgs.path;
+
+                    toolResultDiffSummary = {
+                      added: diff.added,
+                      deleted: diff.deleted,
+                      isNew,
+                      filename,
+                    };
                     break;
                   }
                   case "project_run_command":
@@ -738,6 +881,7 @@ export async function sendWithToolLoop(
                           id: toolCall.id,
                           name: fnName,
                           content: resultContent,
+                          diffSummary: toolResultDiffSummary,
                         },
                       }
                     : m,
