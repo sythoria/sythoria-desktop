@@ -15,8 +15,8 @@ interface ToastContainerProps {
 }
 
 const VARIANT_STYLES: Record<Toast["variant"], string> = {
-  error: "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
-  success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  error: "border-red-500/30 bg-red-50 dark:bg-red-950/80 text-red-700 dark:text-red-300",
+  success: "border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300",
   info: "border-border bg-surface text-text-primary",
 };
 
@@ -32,7 +32,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
   return (
     <motion.div
-      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md ${VARIANT_STYLES[toast.variant]}`}
+      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg ${VARIANT_STYLES[toast.variant]}`}
       role="alert"
       aria-live="assertive"
       layout
