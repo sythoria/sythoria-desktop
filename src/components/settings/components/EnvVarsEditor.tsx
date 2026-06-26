@@ -74,7 +74,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                       type={showEnvValues[key] ? "text" : "password"}
                       value={value}
                       onChange={(e) => updateEnvValue(key, e.target.value)}
-                      className="w-full px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                      className="w-full px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary font-mono focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                       aria-label={`Value for ${key}`}
                     />
                     <button
@@ -104,7 +104,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
-                  className="flex-1 min-w-[80px] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                  className="flex-1 min-w-[80px] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   aria-label="New env var key"
                 />
                 <input
@@ -115,7 +115,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
-                  className="flex-[2] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent/50 focus:outline-none transition-colors"
+                  className="flex-[2] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   aria-label="New env var value"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") addEnvVar();
