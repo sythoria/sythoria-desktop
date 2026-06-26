@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { springs, motionTokens } from "../../lib/motion-tokens";
+import { useUIStore } from "../../store/useUIStore";
 
 export interface Toast {
   id: string;
@@ -20,8 +21,18 @@ const VARIANT_STYLES: Record<Toast["variant"], string> = {
   info: "border-border bg-surface text-text-primary",
 };
 
+const CLOSE_BUTTON_STYLES: Record<Toast["variant"], string> = {
+  error:
+    "text-red-600/80 hover:text-red-700 dark:text-red-400/80 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 active:bg-red-500/20 dark:active:bg-red-500/30 focus-visible:ring-red-500",
+  success:
+    "text-emerald-600/80 hover:text-emerald-700 dark:text-emerald-400/80 dark:hover:text-emerald-300 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/20 active:bg-emerald-500/20 dark:active:bg-emerald-500/30 focus-visible:ring-emerald-500",
+  info: "text-text-muted hover:text-text-primary hover:bg-hover active:bg-active focus-visible:ring-accent",
+};
+
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animationsDisabled = useUIStore((s) => s.animationsDisabled);
+  const shouldAnimate = !animationsDisabled;
 
   useEffect(() => {
     timerRef.current = setTimeout(() => onDismiss(toast.id), 5000);
@@ -42,13 +53,16 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       transition={springs.snappy}
     >
       <p className="flex-1 text-sm leading-relaxed">{toast.message}</p>
-      <button
+      <motion.button
         onClick={() => onDismiss(toast.id)}
-        className="shrink-0 p-0.5 rounded hover:bg-hover transition-colors text-text-muted hover:text-text-primary"
+        whileHover={shouldAnimate ? { scale: 1.04 } : undefined}
+        whileTap={shouldAnimate ? { scale: 0.96 } : undefined}
+        transition={springs.snappy}
+        className={`shrink-0 p-1.5 rounded-full transition-colors outline-none focus-visible:ring-2 ${CLOSE_BUTTON_STYLES[toast.variant]}`}
         aria-label="Dismiss notification"
       >
-        <X size={14} />
-      </button>
+        <X size={16} />
+      </motion.button>
     </motion.div>
   );
 }
