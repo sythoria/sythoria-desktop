@@ -138,7 +138,7 @@ export function AppshotsSection() {
         >
           {/* Card 1: Storage Options */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Save Location</h4>
+            <h4 className="text-xs font-medium text-text-muted">Save Location</h4>
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input
@@ -165,9 +165,7 @@ export function AppshotsSection() {
 
           {/* Card 2: Capture Preferences */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              Capture & Encoder Preferences
-            </h4>
+            <h4 className="text-xs font-medium text-text-muted">Capture & Encoder Preferences</h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-1">
               <div className="space-y-2">
@@ -234,7 +232,7 @@ export function AppshotsSection() {
 
           {/* Card 3: Auto-Clean Rules */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Disk Space Auto-Cleanup</h4>
+            <h4 className="text-xs font-medium text-text-muted">Disk Space Auto-Cleanup</h4>
             <Switch
               checked={config.autoCleanEnabled}
               onChange={(val) => updateConfig({ autoCleanEnabled: val })}
@@ -253,9 +251,7 @@ export function AppshotsSection() {
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                        Pruning Rule
-                      </label>
+                      <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
                       <select
                         value={config.autoCleanType}
                         onChange={(e) => updateConfig({ autoCleanType: e.target.value as any })}
@@ -268,9 +264,7 @@ export function AppshotsSection() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                        Limit Threshold Value
-                      </label>
+                      <label className="text-[10px] font-medium text-text-muted">Limit Threshold Value</label>
                       <input
                         type="number"
                         min="1"
@@ -288,7 +282,7 @@ export function AppshotsSection() {
           {/* Recent Appshots / Gallery */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Captures Gallery</h4>
+              <h4 className="text-xs font-medium text-text-muted">Captures Gallery</h4>
               <div className="flex gap-2">
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
