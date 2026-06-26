@@ -142,9 +142,7 @@ const ThemeCard = ({
           <p className="text-xs text-text-secondary leading-relaxed line-clamp-1 sm:line-clamp-2">
             {theme.description}
           </p>
-          <span className="text-[10px] text-text-muted font-semibold uppercase tracking-wider mt-1">
-            By {theme.author}
-          </span>
+          <span className="text-[10px] text-text-muted mt-1">By {theme.author}</span>
         </div>
 
         {/* Action Button */}
