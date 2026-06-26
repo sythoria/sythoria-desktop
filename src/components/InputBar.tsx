@@ -279,7 +279,7 @@ export default function InputBar({
           : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
       }`}
     >
-      <div className={`w-full max-w-4xl mx-auto px-8 md:px-12 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
+      <div className={`w-full max-w-3xl mx-auto px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
@@ -301,10 +301,10 @@ export default function InputBar({
               await handleAddFiles(Array.from(e.dataTransfer.files));
             }
           }}
-          className={`flex flex-col items-stretch bg-input rounded-3xl px-4 py-3 transition-all focus-within:ring-1 focus-within:ring-border ${
-            isOverLimit ? "ring-red-500/50" : ""
+          className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-3 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
+            isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
           } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
-            isDragging ? "ring-accent bg-active/40 scale-[1.01]" : ""
+            isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""
           }`}
         >
           {/* Hidden input element */}
@@ -753,7 +753,7 @@ export default function InputBar({
                           {projects.length > 0 && (
                             <>
                               <div className="border-t border-border/50 my-1 mx-1" />
-                              <div className="px-2.5 py-1 text-[9px] font-semibold text-text-muted uppercase tracking-wider">
+                              <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
                                 Recent Workspaces
                               </div>
                               <div className="max-h-48 overflow-y-auto py-0.5">
@@ -779,7 +779,7 @@ export default function InputBar({
                         </>
                       ) : (
                         <>
-                          <div className="px-2.5 py-1 text-[9px] font-semibold text-text-muted uppercase tracking-wider">
+                          <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
                             Active Workspace Info
                           </div>
                           <div className="px-2.5 py-1 text-xs text-text-secondary">
@@ -789,9 +789,7 @@ export default function InputBar({
                             </div>
                           </div>
                           <div className="border-t border-border/50 my-1 mx-1" />
-                          <div className="px-2.5 py-1 text-[9px] font-semibold text-text-muted uppercase tracking-wider">
-                            Permissions
-                          </div>
+                          <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">Permissions</div>
                           <button
                             onClick={() => handleToggleProjectPermission("read")}
                             className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
