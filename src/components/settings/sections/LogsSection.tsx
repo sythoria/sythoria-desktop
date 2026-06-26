@@ -176,38 +176,44 @@ export const LogsSection = ({
             </div>
           ) : (
             <div className="divide-y divide-border/30">
+              {/* Grid header */}
+              <div className="grid grid-cols-[140px_50px_85px_1fr] gap-2 px-3 py-1.5 bg-surface/50 text-[10px] font-medium text-text-muted uppercase tracking-wider sticky top-0">
+                <span>Time</span>
+                <span>Level</span>
+                <span>Source</span>
+                <span>Message</span>
+              </div>
               {filteredLogs.map((log: LogEntry) => (
-                <div key={log.id} className="px-3 py-2.5 hover:bg-hover/30 transition-colors">
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={`shrink-0 text-xs font-mono font-semibold mt-0.5 ${LEVEL_COLORS[log.level] || "text-text-muted"}`}
-                    >
-                      {log.level.toUpperCase().padEnd(5)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span
-                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium border ${SOURCE_BADGE_COLORS[log.source] || "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}
-                        >
-                          {log.source}
-                        </span>
-                        <span className="text-sm text-text-primary break-words">{log.message}</span>
-                      </div>
-                      {log.details && (
-                        <p className="text-xs text-text-muted mt-1 break-words font-mono">{log.details}</p>
-                      )}
-                      {log.action && log.level !== "info" && (
-                        <p className="text-xs text-accent mt-1 break-words">
-                          <span className="font-medium">Fix:</span> {log.action}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[10px] text-text-muted font-mono mt-0.5">
-                      {(() => {
-                        const d = new Date(log.timestamp);
-                        return `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)}`;
-                      })()}
-                    </span>
+                <div
+                  key={log.id}
+                  className="grid grid-cols-[140px_50px_85px_1fr] gap-2 px-3 py-2 hover:bg-hover/30 transition-colors items-start"
+                >
+                  <span className="shrink-0 text-[10px] text-text-muted font-mono pt-0.5">
+                    {(() => {
+                      const d = new Date(log.timestamp);
+                      return `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)}`;
+                    })()}
+                  </span>
+                  <span
+                    className={`shrink-0 text-[10px] font-mono font-semibold pt-0.5 ${LEVEL_COLORS[log.level] || "text-text-muted"}`}
+                  >
+                    {log.level.slice(0, 4).toUpperCase()}
+                  </span>
+                  <span
+                    className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium border self-start ${SOURCE_BADGE_COLORS[log.source] || "bg-gray-500/10 text-gray-400 border-gray-500/20"}`}
+                  >
+                    {log.source}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-text-primary break-words">{log.message}</span>
+                    {log.details && (
+                      <p className="text-[10px] text-text-muted mt-0.5 break-words font-mono">{log.details}</p>
+                    )}
+                    {log.action && log.level !== "info" && (
+                      <p className="text-[10px] text-yellow-600 dark:text-yellow-400 mt-0.5 break-words">
+                        <span className="font-medium">Fix:</span> {log.action}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
