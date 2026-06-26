@@ -117,6 +117,7 @@ export default function InputBar({
 
   const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
+  const enabledServers = mcpServers.filter((s) => enabledMcpServerIds.has(s.id));
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
@@ -462,8 +463,8 @@ export default function InputBar({
                               aria-checked={isEnabled}
                             >
                               <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
-                              <span className="truncate">{server.name}</span>
-                              {isEnabled && <Check size={14} className="text-text-primary ml-auto" />}
+                              <span className="truncate flex-1 text-left">{server.name}</span>
+                              {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
                             </button>
                           );
                         })}
@@ -686,181 +687,234 @@ export default function InputBar({
             </button>
           </div>
 
-          {/* Project Row */}
-          {isProjectsEnabled && (
-            <div className="flex items-center w-full mt-2 pt-2 border-t border-border/30">
-              <div ref={projectDropdownRef} className="relative">
-                <button
-                  onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                    activeProject
-                      ? "text-accent bg-accent-soft/40 hover:bg-accent-soft"
-                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                  }`}
-                  aria-label="Project context"
-                  aria-expanded={projectDropdownOpen}
-                >
-                  {activeProject ? (
-                    <>
-                      <FolderOpen size={14} className="shrink-0" />
-                      <span className="truncate max-w-[120px]">{activeProject.name}</span>
-                      {activeProject.permissions === "full" ? (
-                        <span title="Full Shell Access" className="shrink-0 ml-1 flex items-center">
-                          <ShieldAlert size={12} className="text-red-500" />
-                        </span>
-                      ) : activeProject.permissions === "write" ? (
-                        <span title="Read/Write Access" className="shrink-0 ml-1 flex items-center">
-                          <Shield size={12} className="text-amber-500" />
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      <FolderPlus size={14} className="shrink-0" />
-                      <span>Work in a project</span>
-                    </>
-                  )}
-                  <ChevronDown
-                    size={12}
-                    className={`shrink-0 ml-0.5 transition-transform duration-200 ${projectDropdownOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
+          {/* Active Tools and Context Row */}
+          {(isProjectsEnabled || isSearchEnabled || enabledServers.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 w-full mt-2 pt-2 border-t border-border/30">
+              {/* Project Row */}
+              {isProjectsEnabled && (
+                <div ref={projectDropdownRef} className="relative">
+                  <button
+                    onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      activeProject
+                        ? "text-accent bg-accent-soft/40 hover:bg-accent-soft"
+                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                    }`}
+                    aria-label="Project context"
+                    aria-expanded={projectDropdownOpen}
+                  >
+                    {activeProject ? (
+                      <>
+                        <FolderOpen size={14} className="shrink-0" />
+                        <span className="truncate max-w-[120px]">{activeProject.name}</span>
+                        {activeProject.permissions === "full" ? (
+                          <span title="Full Shell Access" className="shrink-0 ml-1 flex items-center">
+                            <ShieldAlert size={12} className="text-red-500" />
+                          </span>
+                        ) : activeProject.permissions === "write" ? (
+                          <span title="Read/Write Access" className="shrink-0 ml-1 flex items-center">
+                            <Shield size={12} className="text-amber-500" />
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <FolderPlus size={14} className="shrink-0" />
+                        <span>Work in a project</span>
+                      </>
+                    )}
+                    <ChevronDown
+                      size={12}
+                      className={`shrink-0 ml-0.5 transition-transform duration-200 ${projectDropdownOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
 
-                <AnimatePresence>
-                  {projectDropdownOpen && (
-                    <motion.div
-                      className="absolute bottom-full left-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 overflow-hidden"
-                      style={{ boxShadow: "var(--shadow-xl)" }}
-                      role="menu"
-                      initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                      transition={springs.gentle}
+                  <AnimatePresence>
+                    {projectDropdownOpen && (
+                      <motion.div
+                        className="absolute bottom-full left-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 overflow-hidden"
+                        style={{ boxShadow: "var(--shadow-xl)" }}
+                        role="menu"
+                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        transition={springs.gentle}
+                      >
+                        {!activeProject ? (
+                          <>
+                            <button
+                              onClick={() => {
+                                setProjectDropdownOpen(false);
+                                openProjectConfigModal("create");
+                              }}
+                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-accent hover:bg-accent-soft/20 transition-colors text-left font-medium"
+                              role="menuitem"
+                            >
+                              <FolderPlus size={15} className="text-accent" />
+                              <span>Add Project Workspace...</span>
+                            </button>
+                            {projects.length > 0 && (
+                              <>
+                                <div className="border-t border-border/50 my-1 mx-1" />
+                                <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
+                                  Recent Workspaces
+                                </div>
+                                <div className="max-h-48 overflow-y-auto py-0.5">
+                                  {projects.map((p) => (
+                                    <button
+                                      key={p.id}
+                                      onClick={() => {
+                                        setActiveProject(p.id);
+                                        if (activeConversationId) {
+                                          setConversationProject(activeConversationId, p.id);
+                                        }
+                                        setProjectDropdownOpen(false);
+                                      }}
+                                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                    >
+                                      <Folder size={13} className="text-text-muted shrink-0" />
+                                      <span className="truncate">{p.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
+                              Active Workspace Info
+                            </div>
+                            <div className="px-2.5 py-1 text-xs text-text-secondary">
+                              <div className="font-semibold truncate">{activeProject.name}</div>
+                              <div
+                                className="text-[10px] text-text-muted truncate font-mono"
+                                title={activeProject.path}
+                              >
+                                {activeProject.path}
+                              </div>
+                            </div>
+                            <div className="border-t border-border/50 my-1 mx-1" />
+                            <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">Permissions</div>
+                            <button
+                              onClick={() => handleToggleProjectPermission("read")}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                activeProject.permissions === "read"
+                                  ? "bg-active text-text-primary font-medium"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }`}
+                            >
+                              <span>Read Only (RO)</span>
+                              {activeProject.permissions === "read" && <Check size={12} />}
+                            </button>
+                            <button
+                              onClick={() => handleToggleProjectPermission("write")}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                activeProject.permissions === "write"
+                                  ? "bg-active text-text-primary font-medium"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }`}
+                            >
+                              <span>Read/Write (RW)</span>
+                              {activeProject.permissions === "write" && <Check size={12} />}
+                            </button>
+                            <button
+                              onClick={() => handleToggleProjectPermission("full")}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                activeProject.permissions === "full"
+                                  ? "bg-red-500/10 text-red-500 font-medium"
+                                  : "text-text-secondary hover:bg-hover hover:text-red-500"
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <ShieldAlert
+                                  size={12}
+                                  className={activeProject.permissions === "full" ? "text-red-500" : "text-text-muted"}
+                                />
+                                <span>Full Shell</span>
+                              </div>
+                              {activeProject.permissions === "full" && <Check size={12} />}
+                            </button>
+                            <div className="border-t border-border/50 my-1 mx-1" />
+                            <button
+                              onClick={() => {
+                                setProjectDropdownOpen(false);
+                                openProjectConfigModal("edit", activeProject.id);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                              role="menuitem"
+                            >
+                              <Settings size={13} className="text-text-muted" />
+                              <span>Workspace Settings...</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setActiveProject(null);
+                                if (activeConversationId) {
+                                  setConversationProject(activeConversationId, undefined);
+                                }
+                                setProjectDropdownOpen(false);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                              role="menuitem"
+                            >
+                              <X size={13} className="text-text-muted" />
+                              <span>Detach Project</span>
+                            </button>
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* Web Search Pill */}
+              {isSearchEnabled && (
+                <motion.div
+                  initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                  transition={springs.gentle}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
+                >
+                  <Search size={12} className="shrink-0" />
+                  <span>Web Search</span>
+                  <button
+                    onClick={() => onToggleSearch(false)}
+                    className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
+                    title="Disable Web Search"
+                  >
+                    <X size={12} />
+                  </button>
+                </motion.div>
+              )}
+
+              {/* MCP Server Pills */}
+              {enabledServers.map((server) => {
+                return (
+                  <motion.div
+                    key={server.id}
+                    initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                    transition={springs.gentle}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-border bg-surface text-text-primary text-xs font-medium select-none"
+                  >
+                    <Cpu size={12} className="shrink-0" />
+                    <span className="truncate max-w-[100px]" title={server.name}>
+                      {server.name}
+                    </span>
+                    <button
+                      onClick={() => onToggleMcpServer(server.id)}
+                      className="p-0.5 rounded hover:bg-hover text-text-muted hover:text-text-primary transition-colors"
+                      title={`Disable ${server.name}`}
                     >
-                      {!activeProject ? (
-                        <>
-                          <button
-                            onClick={() => {
-                              setProjectDropdownOpen(false);
-                              openProjectConfigModal("create");
-                            }}
-                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-accent hover:bg-accent-soft/20 transition-colors text-left font-medium"
-                            role="menuitem"
-                          >
-                            <FolderPlus size={15} className="text-accent" />
-                            <span>Add Project Workspace...</span>
-                          </button>
-                          {projects.length > 0 && (
-                            <>
-                              <div className="border-t border-border/50 my-1 mx-1" />
-                              <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
-                                Recent Workspaces
-                              </div>
-                              <div className="max-h-48 overflow-y-auto py-0.5">
-                                {projects.map((p) => (
-                                  <button
-                                    key={p.id}
-                                    onClick={() => {
-                                      setActiveProject(p.id);
-                                      if (activeConversationId) {
-                                        setConversationProject(activeConversationId, p.id);
-                                      }
-                                      setProjectDropdownOpen(false);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                                  >
-                                    <Folder size={13} className="text-text-muted shrink-0" />
-                                    <span className="truncate">{p.name}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
-                            Active Workspace Info
-                          </div>
-                          <div className="px-2.5 py-1 text-xs text-text-secondary">
-                            <div className="font-semibold truncate">{activeProject.name}</div>
-                            <div className="text-[10px] text-text-muted truncate font-mono" title={activeProject.path}>
-                              {activeProject.path}
-                            </div>
-                          </div>
-                          <div className="border-t border-border/50 my-1 mx-1" />
-                          <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">Permissions</div>
-                          <button
-                            onClick={() => handleToggleProjectPermission("read")}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                              activeProject.permissions === "read"
-                                ? "bg-active text-text-primary font-medium"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                          >
-                            <span>Read Only (RO)</span>
-                            {activeProject.permissions === "read" && <Check size={12} />}
-                          </button>
-                          <button
-                            onClick={() => handleToggleProjectPermission("write")}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                              activeProject.permissions === "write"
-                                ? "bg-active text-text-primary font-medium"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                          >
-                            <span>Read/Write (RW)</span>
-                            {activeProject.permissions === "write" && <Check size={12} />}
-                          </button>
-                          <button
-                            onClick={() => handleToggleProjectPermission("full")}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                              activeProject.permissions === "full"
-                                ? "bg-red-500/10 text-red-500 font-medium"
-                                : "text-text-secondary hover:bg-hover hover:text-red-500"
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <ShieldAlert
-                                size={12}
-                                className={activeProject.permissions === "full" ? "text-red-500" : "text-text-muted"}
-                              />
-                              <span>Full Shell</span>
-                            </div>
-                            {activeProject.permissions === "full" && <Check size={12} />}
-                          </button>
-                          <div className="border-t border-border/50 my-1 mx-1" />
-                          <button
-                            onClick={() => {
-                              setProjectDropdownOpen(false);
-                              openProjectConfigModal("edit", activeProject.id);
-                            }}
-                            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                            role="menuitem"
-                          >
-                            <Settings size={13} className="text-text-muted" />
-                            <span>Workspace Settings...</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setActiveProject(null);
-                              if (activeConversationId) {
-                                setConversationProject(activeConversationId, undefined);
-                              }
-                              setProjectDropdownOpen(false);
-                            }}
-                            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                            role="menuitem"
-                          >
-                            <X size={13} className="text-text-muted" />
-                            <span>Detach Project</span>
-                          </button>
-                        </>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                      <X size={12} />
+                    </button>
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>

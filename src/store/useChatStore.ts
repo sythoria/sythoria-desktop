@@ -23,6 +23,7 @@ import {
   loadTitleConfig,
   loadMcpConfigs,
   loadMcpEnvSecrets,
+  loadEnabledMcpServers,
   loadHasStarted,
   loadAnimationsDisabled,
   loadAlwaysOnTop,
@@ -204,6 +205,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedTitleCfg,
         loadedMcpConfigs,
         loadedMcpEnvSecrets,
+        loadedMcpEnabledServers,
         loadedAnimationsDisabled,
         loadedAlwaysOnTop,
         loadedCloseToTray,
@@ -225,6 +227,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadTitleConfig(),
         loadMcpConfigs(),
         loadMcpEnvSecrets(),
+        loadEnabledMcpServers(),
         loadAnimationsDisabled(),
         loadAlwaysOnTop(),
         loadCloseToTray(),
@@ -272,10 +275,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       const mcpConfigs = loadedMcpConfigs || [];
+      const mcpEnabledServers = loadedMcpEnabledServers || [];
       mcpSetState({
         mcpConfigs,
         envSecrets: loadedMcpEnvSecrets,
         serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
+        enabledServerIds: new Set(mcpEnabledServers.filter((id) => mcpConfigs.some((c) => c.id === id))),
       });
 
       const initialActiveId = nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null;

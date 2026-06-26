@@ -133,6 +133,7 @@ const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
+const MCP_ENABLED_SERVERS_KEY = "sythoria-enabled-mcp-chat-servers";
 const GIT_CONFIG_KEY = "sythoria-git-config";
 const APPSHOT_CONFIG_KEY = "sythoria-appshots-config";
 const HAS_STARTED_KEY = "sythoria-has-started";
@@ -1233,5 +1234,28 @@ export async function saveProjectsDefaultPermission(perm: ProjectPermission): Pr
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save projects default permission", { error: e });
+  }
+}
+
+export async function loadEnabledMcpServers(): Promise<string[]> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(MCP_ENABLED_SERVERS_KEY);
+    if (Array.isArray(raw)) {
+      return raw.filter((item): item is string => typeof item === "string");
+    }
+  } catch (e) {
+    logError("storage", "Failed to load enabled MCP servers from secure store", { error: e });
+  }
+  return [];
+}
+
+export async function saveEnabledMcpServers(enabledIds: string[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(MCP_ENABLED_SERVERS_KEY, enabledIds);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save enabled MCP servers to secure store", { error: e });
   }
 }

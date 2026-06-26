@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../types";
 import { generateId } from "../utils/generateId";
-import { saveMcpConfigs, saveMcpEnvSecrets } from "../utils/storage";
+import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
@@ -167,16 +167,20 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const newEnvSecrets = { ...envSecrets };
     delete newEnvSecrets[id];
     const updatedTools = availableTools.filter((t) => t.serverId !== id);
+    const nextEnabled = new Set(get().enabledServerIds);
+    nextEnabled.delete(id);
     set({
       mcpConfigs: updated,
       serverStatuses: newStatuses,
       envSecrets: newEnvSecrets,
       availableTools: updatedTools,
+      enabledServerIds: nextEnabled,
     });
     debouncedSaveMcpConfigs.cancel();
     debouncedSaveMcpEnvSecrets.cancel();
     saveMcpConfigs(updated);
     saveMcpEnvSecrets(newEnvSecrets);
+    saveEnabledMcpServers(Array.from(nextEnabled));
     logInfo("mcp", `MCP server deleted: "${config?.name ?? id}"`, {});
     useUIStore.getState().addToast("MCP server deleted", "info");
   },
@@ -212,12 +216,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
         serverName: config.name,
       }));
 
-      const { availableTools, enabledServerIds } = get();
+      const { availableTools } = get();
       const otherTools = availableTools.filter((t) => t.serverId !== id);
       set({
         serverStatuses: { ...get().serverStatuses, [id]: "connected" },
         availableTools: [...otherTools, ...mcpTools],
-        enabledServerIds: new Set([...Array.from(enabledServerIds), id]),
       });
 
       logInfo("mcp", `Connected to MCP server: "${config.name}"`, {
@@ -308,6 +311,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       next.delete(serverId);
     }
     set({ enabledServerIds: next });
+    saveEnabledMcpServers(Array.from(next));
   },
 
   getEnabledTools: () => {
