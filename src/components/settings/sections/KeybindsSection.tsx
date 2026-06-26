@@ -110,7 +110,7 @@ export const KeybindsSection = () => {
 
           return (
             <div key={catName} className="space-y-3">
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider pl-1">{catName}</h4>
+              <h4 className="text-xs font-medium text-text-muted pl-1">{catName}</h4>
 
               <div className="bg-surface border border-border rounded-xl divide-y divide-border/40 shadow-sm overflow-hidden">
                 {list.map((action) => {
