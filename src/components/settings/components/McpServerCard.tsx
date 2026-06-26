@@ -178,7 +178,7 @@ export const McpServerCard = memo(function McpServerCard({
                   if (preset) onApplyPreset(preset, config);
                   e.target.value = "";
                 }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 aria-label="Apply MCP server template"
               >
                 <option value="">Choose a template to pre-fill…</option>
@@ -211,7 +211,7 @@ export const McpServerCard = memo(function McpServerCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -235,7 +235,7 @@ export const McpServerCard = memo(function McpServerCard({
                     onUpdate(config.id, { transport });
                   }
                 }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 aria-label="MCP transport type"
               >
                 {MCP_TRANSPORT_PRESETS.map((p) => (
@@ -394,7 +394,7 @@ export const McpServerCard = memo(function McpServerCard({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
-                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               />
               <p className="text-[11px] text-text-muted/60 mt-0.5">
                 {config.transport === "sse"
