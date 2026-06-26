@@ -1,5 +1,5 @@
 import React from "react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { FileUp } from "lucide-react";
 import { springs, motionTokens } from "../../lib/motion-tokens";
 import { useModelStore } from "../../store/useModelStore";
@@ -8,6 +8,7 @@ export const DragOverlay: React.FC = () => {
   const selectedModelId = useModelStore((s) => s.selectedModel);
   const currentModel = useModelStore((s) => s.models.find((m) => m.id === selectedModelId));
   const supportsImages = currentModel ? currentModel.supportsImages !== false : true;
+  const prefersReducedMotion = useReducedMotion();
 
   return (
     <motion.div
@@ -25,14 +26,22 @@ export const DragOverlay: React.FC = () => {
         className="w-full h-full border-2 border-dashed border-accent/50 rounded-[24px] flex flex-col items-center justify-center bg-accent/5 p-8"
       >
         <motion.div
-          animate={{
-            y: [0, -8, 0],
-          }}
-          transition={{
-            repeat: Infinity,
-            duration: 1.8,
-            ease: "easeInOut",
-          }}
+          animate={
+            prefersReducedMotion
+              ? {}
+              : {
+                  y: [0, -8, 0],
+                }
+          }
+          transition={
+            prefersReducedMotion
+              ? {}
+              : {
+                  repeat: Infinity,
+                  duration: 1.8,
+                  ease: "easeInOut",
+                }
+          }
           className="p-5 rounded-2xl bg-accent/10 border border-accent/20 mb-4 shadow-lg shadow-accent/5"
         >
           <FileUp size={40} className="text-accent" />
