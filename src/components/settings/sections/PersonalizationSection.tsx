@@ -165,7 +165,7 @@ export const PersonalizationSection = ({
                     onChange={(e) => setTitleConfig({ systemPrompt: e.target.value })}
                     rows={4}
                     placeholder={DEFAULT_TITLE_SYSTEM_PROMPT}
-                    className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
+                    className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors resize-y min-h-[80px]"
                   />
                   {titleConfig.systemPrompt !== DEFAULT_TITLE_SYSTEM_PROMPT && (
                     <button
@@ -199,7 +199,7 @@ export const PersonalizationSection = ({
             onChange={(e) => setSystemPrompt(e.target.value)}
             rows={4}
             placeholder="Customize the global instructions for the AI..."
-            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y min-h-[80px]"
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors resize-y min-h-[80px]"
           />
           {systemPrompt !== "" && (
             <button
