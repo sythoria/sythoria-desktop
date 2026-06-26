@@ -102,7 +102,7 @@ export const AppearanceSection = ({
                   mode,
                 });
               }}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               aria-label="Appearance Mode"
             >
               <option value="light">Light</option>
@@ -133,7 +133,7 @@ export const AppearanceSection = ({
             <select
               value={getSelectedPreset(theme.lightTheme, mergedLightPresets)}
               onChange={(e) => handlePresetChange("light", e.target.value)}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               aria-label="Light Theme Preset"
             >
               {Object.keys(mergedLightPresets).map((pName) => (
@@ -180,7 +180,7 @@ export const AppearanceSection = ({
             <select
               value={getSelectedPreset(theme.darkTheme, mergedDarkPresets)}
               onChange={(e) => handlePresetChange("dark", e.target.value)}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               aria-label="Dark Theme Preset"
             >
               {Object.keys(mergedDarkPresets).map((pName) => (
