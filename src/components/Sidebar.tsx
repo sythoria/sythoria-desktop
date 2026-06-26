@@ -288,9 +288,7 @@ export default function Sidebar({
           <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
             {SECTION_GROUPS.map((group) => (
               <div key={group.category} className="mb-4">
-                <h3 className="text-[11px] font-semibold text-text-muted mb-1 px-3 uppercase tracking-wider">
-                  {group.category}
-                </h3>
+                <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">{group.category}</h3>
                 <div className="space-y-0.5">
                   {group.items.map((section) => {
                     const Icon = section.icon;
@@ -347,8 +345,17 @@ export default function Sidebar({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search conversations…"
-                  className="w-full pl-8 pr-3 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-text-muted focus:outline-none transition-colors"
+                  className="w-full pl-8 pr-8 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-text-muted focus:outline-none transition-colors"
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -356,7 +363,7 @@ export default function Sidebar({
             {isProjectsEnabled && (
               <>
                 <div className="px-3 mb-2 flex items-center justify-between">
-                  <h3 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider pl-1">Projects</h3>
+                  <h3 className="text-[11px] font-medium text-text-muted pl-1">Projects</h3>
                   <button
                     className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
                     onClick={() => openProjectConfigModal("create")}
@@ -378,25 +385,26 @@ export default function Sidebar({
                         <div key={project.id} className="flex flex-col">
                           <div className="relative group flex items-center">
                             <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleProject(project.id);
+                              }}
+                              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-hover transition-colors shrink-0"
+                              aria-label={isExpanded ? "Collapse project" : "Expand project"}
+                            >
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </button>
+                            <button
                               onClick={() => {
                                 setActiveProject(project.id);
                                 if (!isExpanded) toggleProject(project.id);
                               }}
-                              className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                              className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                                 isActive
                                   ? "bg-active text-text-primary"
                                   : "text-text-secondary hover:bg-hover hover:text-text-primary"
                               }`}
                             >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleProject(project.id);
-                                }}
-                                className="p-0.5 rounded text-text-muted hover:bg-black/10 dark:hover:bg-white/10"
-                              >
-                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                              </button>
                               <Folder size={14} className="shrink-0" />
                               <span className="truncate flex-1 text-left">{project.name}</span>
                             </button>
@@ -451,35 +459,25 @@ export default function Sidebar({
                                       >
                                         <MessageSquare size={13} className="shrink-0 opacity-50" />
                                         <span className="truncate flex-1">{conv.title}</span>
-                                        <span
-                                          role="button"
-                                          tabIndex={0}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
-                                            setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Enter" || e.key === " ") {
-                                              e.stopPropagation();
-                                              const rect = e.currentTarget.getBoundingClientRect();
-                                              setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
-                                              setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                                            }
-                                          }}
-                                          className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                                          aria-label="Conversation actions"
-                                        >
-                                          <MoreVertical size={13} />
-                                        </span>
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
+                                          setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                                        }}
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
+                                        aria-label="Conversation actions"
+                                      >
+                                        <MoreVertical size={13} />
                                       </button>
                                       {openMenuId === conv.id &&
                                         menuPosition &&
                                         createPortal(
                                           <div
                                             ref={menuRef}
-                                            className="fixed z-[9999] min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                                            className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
                                             style={{
                                               top: `${menuPosition.top}px`,
                                               left: `${menuPosition.left}px`,
@@ -543,9 +541,7 @@ export default function Sidebar({
             {/* Global Conversation List */}
             <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0" aria-label="Conversation list">
               {isProjectsEnabled && projects.length > 0 && (
-                <h3 className="px-2 py-1.5 text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-                  Global Chats
-                </h3>
+                <h3 className="px-2 py-1.5 text-[11px] font-medium text-text-muted">Global chats</h3>
               )}
               <AnimatePresence mode="popLayout">
                 {groups.map((group) => (
@@ -558,9 +554,7 @@ export default function Sidebar({
                     transition={{ duration: motionTokens.duration.fast }}
                     className="mb-2"
                   >
-                    <p className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                      {group.label}
-                    </p>
+                    <p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">{group.label}</p>
                     {group.items.map((conv) => (
                       <div key={conv.id} className="relative group">
                         <button
@@ -579,41 +573,28 @@ export default function Sidebar({
                         >
                           <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
                           <span className="truncate flex-1">{conv.title}</span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setMenuPosition({
-                                top: rect.bottom + 4,
-                                left: rect.left - 8,
-                              });
-                              setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.stopPropagation();
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                setMenuPosition({
-                                  top: rect.bottom + 4,
-                                  left: rect.left - 8,
-                                });
-                                setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                              }
-                            }}
-                            className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                            aria-label="Conversation actions"
-                          >
-                            <MoreVertical size={14} />
-                          </span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setMenuPosition({
+                              top: rect.bottom + 4,
+                              left: rect.left - 8,
+                            });
+                            setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                          }}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
+                          aria-label="Conversation actions"
+                        >
+                          <MoreVertical size={14} />
                         </button>
                         {openMenuId === conv.id &&
                           menuPosition &&
                           createPortal(
                             <div
                               ref={menuRef}
-                              className="fixed z-[9999] min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                              className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
                               style={{
                                 top: `${menuPosition.top}px`,
                                 left: `${menuPosition.left}px`,
