@@ -114,7 +114,7 @@ export const ModelCard = memo(function ModelCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -139,7 +139,7 @@ export const ModelCard = memo(function ModelCard({
                     onUpdate(model.id, { provider: e.target.value });
                   }
                 }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 aria-label="Provider preset"
               >
                 {PROVIDER_PRESETS.map((p) => (
@@ -204,7 +204,7 @@ export const ModelCard = memo(function ModelCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -294,7 +294,7 @@ export const ModelCard = memo(function ModelCard({
                       onUpdate(model.id, { contextSize: val });
                     }}
                     placeholder="e.g. 128000"
-                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   />
                 </div>
 
@@ -311,7 +311,7 @@ export const ModelCard = memo(function ModelCard({
                       onUpdate(model.id, { maxOutputTokens: val });
                     }}
                     placeholder="e.g. 4096"
-                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   />
                 </div>
               </div>
@@ -360,7 +360,7 @@ export const ModelCard = memo(function ModelCard({
                   value={model.systemPromptOverride ?? ""}
                   onChange={(e) => onUpdate(model.id, { systemPromptOverride: e.target.value || undefined })}
                   placeholder="Leave blank to use the default system prompt"
-                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors resize-y font-sans leading-relaxed"
+                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors resize-y font-sans leading-relaxed"
                 />
               </div>
             </motion.div>
