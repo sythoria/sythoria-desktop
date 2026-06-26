@@ -283,6 +283,23 @@ export function buildProjectToolDefinitions(project: Project | null) {
   tools.push({
     type: "function",
     function: {
+      name: "project_list_dir",
+      description: "Lists the files and directories inside a specific directory path within the project.",
+      parameters: {
+        type: "object",
+        properties: {
+          dir_path: {
+            type: "string",
+            description: "The relative or absolute path of the directory to list.",
+          },
+        },
+        required: ["dir_path"],
+      },
+    },
+  });
+  tools.push({
+    type: "function",
+    function: {
       name: "project_git_diff",
       description: "Get the git diff of the project (unstaged and staged changes).",
       parameters: { type: "object", properties: {} },
@@ -407,6 +424,7 @@ export function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project
     prompt += `\n\nYou have access to the following native project tools based on your permissions:
 - project_glob(pattern: string)
 - project_grep(pattern: string, output_mode?: string, multiline?: boolean)
+- project_list_dir(dir_path: string)
 - project_read(file_path: string, offset?: number, limit?: number)
 - project_git_status()
 - project_git_diff()`;
@@ -434,6 +452,7 @@ type KnownToolName =
   | "fetch_url"
   | "project_glob"
   | "project_grep"
+  | "project_list_dir"
   | "project_read"
   | "project_write"
   | "project_edit"
@@ -446,6 +465,7 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "fetch_url",
   "project_glob",
   "project_grep",
+  "project_list_dir",
   "project_read",
   "project_write",
   "project_edit",
@@ -629,6 +649,22 @@ export async function sendWithToolLoop(
 
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         apiMessages.push({ role: "assistant", content: msg.content, tool_calls: msg.tool_calls });
+
+        if (typeof msg.content === "string" && msg.content.trim()) {
+          const thoughtMsgId = generateId();
+          set((state) => ({
+            conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
+              ...msgs,
+              {
+                id: thoughtMsgId,
+                role: "assistant",
+                content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
+                timestamp: new Date(),
+                isStreaming: false,
+              },
+            ]),
+          }));
+        }
 
         for (const toolCall of msg.tool_calls) {
           const rawName = toolCall.function.name;
@@ -900,6 +936,18 @@ export async function sendWithToolLoop(
                       await invoke("project_glob", {
                         path: project.path,
                         pattern: fnArgs.pattern,
+                      }),
+                    );
+                    break;
+                  }
+                  case "project_list_dir": {
+                    const resolved = resolvePath(fnArgs.dir_path);
+                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                      throw new Error(`Permission denied: directory is excluded by configuration.`);
+                    }
+                    resultContent = JSON.stringify(
+                      await invoke("project_list_dir", {
+                        path: resolved,
                       }),
                     );
                     break;

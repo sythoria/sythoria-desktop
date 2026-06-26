@@ -157,7 +157,7 @@ interface ChatState {
   draftAttachments: Attachment[];
 
   init: () => Promise<void>;
-  cleanupEmptyConversations: () => void;
+  cleanupEmptyConversations: (exceptId?: string | null) => void;
   setActiveId: (id: string | null, isHistoryMove?: boolean) => void;
   navigateBack: () => void;
   navigateForward: () => void;
@@ -345,9 +345,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  cleanupEmptyConversations: () => {
+  cleanupEmptyConversations: (exceptId?: string | null) => {
     const { conversations, activeId } = get();
-    const nonEmpty = conversations.filter((c) => c.messages.length > 0);
+    const keepId = exceptId !== undefined ? exceptId : activeId;
+    const nonEmpty = conversations.filter((c) => c.messages.length > 0 || c.id === keepId);
     if (nonEmpty.length === conversations.length) return;
     const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
     set({
@@ -359,7 +360,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setActiveId: (id, isHistoryMove = false) => {
     const { activeId, navigationHistory, navigationIndex } = get();
     if (activeId === id) return;
-    get().cleanupEmptyConversations();
+    get().cleanupEmptyConversations(id);
 
     if (!isHistoryMove) {
       const newHistory = navigationHistory.slice(0, navigationIndex + 1);

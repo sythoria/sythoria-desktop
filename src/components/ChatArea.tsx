@@ -351,71 +351,152 @@ function formatToolName(name: string): string {
   return name;
 }
 
-function getFileWriteInfo(toolName: string, args: Record<string, string> | undefined) {
+function getNativeToolDisplayInfo(
+  name: string,
+  args: Record<string, string> | undefined,
+  result: any,
+  isCompleted: boolean,
+) {
   if (!args) return null;
 
-  // Normalize the tool name by taking whatever is after "__" if MCP, and removing "project_" if project tool
-  let cleanName = toolName;
-  if (cleanName.includes("__")) {
-    const parts = cleanName.split("__");
-    cleanName = parts.length > 1 ? parts.slice(1).join("__") : cleanName;
-  }
-  cleanName = cleanName.replace("project_", "");
+  // Strictly only target native project tools (start with project_ and must not be MCP tools containing __)
+  if (!name.startsWith("project_") || name.includes("__")) return null;
 
+  const cleanName = name.replace("project_", "");
   const lowerName = cleanName.toLowerCase();
-  const isWriteName =
-    lowerName.includes("write") ||
-    lowerName.includes("edit") ||
-    lowerName.includes("replace") ||
-    lowerName.includes("create") ||
-    lowerName.includes("save") ||
-    lowerName.includes("update") ||
-    lowerName.includes("patch");
 
-  if (!isWriteName) return null;
+  // Helper to determine icon & color
+  const getFileIcon = (filename: string) => {
+    const ext = filename.split(".").pop()?.toLowerCase();
+    let IconComponent = File;
+    let colorClass = "text-text-muted";
+    if (ext === "tsx" || ext === "jsx") {
+      IconComponent = Atom;
+      colorClass = "text-cyan-500 dark:text-cyan-400";
+    } else if (ext === "ts") {
+      IconComponent = FileCode;
+      colorClass = "text-blue-500 dark:text-blue-400";
+    } else if (ext === "js") {
+      IconComponent = FileCode;
+      colorClass = "text-amber-500 dark:text-amber-400";
+    } else if (ext === "css") {
+      IconComponent = Palette;
+      colorClass = "text-pink-500 dark:text-pink-400";
+    } else if (ext === "json") {
+      IconComponent = FileJson;
+      colorClass = "text-amber-500 dark:text-amber-400";
+    } else if (ext === "md" || ext === "txt") {
+      IconComponent = FileTextIcon;
+      colorClass = "text-emerald-500 dark:text-emerald-400";
+    } else if (ext === "rs") {
+      IconComponent = FileCode;
+      colorClass = "text-orange-600 dark:text-orange-500";
+    } else if (ext === "py") {
+      IconComponent = FileCode;
+      colorClass = "text-green-600 dark:text-green-500";
+    } else if (ext === "html") {
+      IconComponent = FileCode;
+      colorClass = "text-orange-500 dark:text-orange-400";
+    }
+    return { IconComponent, colorClass };
+  };
 
-  const pathKeys = ["path", "filepath", "file_path", "filePath", "relative_path", "filename", "file"];
-  for (const key of pathKeys) {
-    if (typeof args[key] === "string") {
-      const fullPath = args[key];
-      const filename = fullPath.split(/[/\\]/).pop() || fullPath;
+  // 1. Bash / Commands
+  if (lowerName === "bash" || lowerName === "git_status" || lowerName === "git_diff" || lowerName === "git_commit") {
+    let commandStr =
+      lowerName === "git_status"
+        ? "git status"
+        : lowerName === "git_diff"
+          ? "git diff"
+          : lowerName === "git_commit"
+            ? "git commit"
+            : args.command;
+    if (commandStr && commandStr.length > 40) commandStr = commandStr.substring(0, 40) + "...";
+    return {
+      type: "bash",
+      IconComponent: Terminal,
+      colorClass: "text-text-muted",
+      label: isCompleted ? `Ran ${commandStr}` : `Running ${commandStr}...`,
+    };
+  }
 
-      const ext = filename.split(".").pop()?.toLowerCase();
-      let IconComponent = File;
-      let colorClass = "text-text-muted";
+  // 2. Read / Explore (grep, glob, read, list_dir)
+  const isRead = lowerName === "read";
+  const isGrep = lowerName === "grep";
+  const isGlob = lowerName === "glob";
+  const isList = lowerName === "list_dir";
 
-      if (ext === "tsx" || ext === "jsx") {
-        IconComponent = Atom;
-        colorClass = "text-cyan-500 dark:text-cyan-400";
-      } else if (ext === "ts") {
-        IconComponent = FileCode;
-        colorClass = "text-blue-500 dark:text-blue-400";
-      } else if (ext === "js") {
-        IconComponent = FileCode;
-        colorClass = "text-amber-500 dark:text-amber-400";
-      } else if (ext === "css") {
-        IconComponent = Palette;
-        colorClass = "text-pink-500 dark:text-pink-400";
-      } else if (ext === "json") {
-        IconComponent = FileJson;
-        colorClass = "text-amber-500 dark:text-amber-400";
-      } else if (ext === "md" || ext === "txt") {
-        IconComponent = FileTextIcon;
-        colorClass = "text-emerald-500 dark:text-emerald-400";
-      } else if (ext === "rs") {
-        IconComponent = FileCode;
-        colorClass = "text-orange-600 dark:text-orange-500";
-      } else if (ext === "py") {
-        IconComponent = FileCode;
-        colorClass = "text-green-600 dark:text-green-500";
-      } else if (ext === "html") {
-        IconComponent = FileCode;
-        colorClass = "text-orange-500 dark:text-orange-400";
+  if (isRead || isGrep || isGlob || isList) {
+    const target = args.file_path || args.pattern || args.dir_path || args.path || "files";
+    const filename = target.split(/[/\\]/).pop() || target;
+    const { IconComponent, colorClass } = getFileIcon(filename);
+
+    let extraInfo = "";
+    if (isRead && args.offset) {
+      const start = args.offset;
+      const limit = args.limit || 2000;
+      extraInfo = ` #L${start}-${Number(start) + Number(limit)}`;
+    } else if (isCompleted && result && result.content) {
+      try {
+        const parsed = JSON.parse(result.content);
+        if (isList && Array.isArray(parsed)) {
+          extraInfo = ` (${parsed.length} items)`;
+        } else if (isGlob && Array.isArray(parsed)) {
+          extraInfo = ` (${parsed.length} matches)`;
+        } else if (isGrep) {
+          if (parsed.FilesWithMatches) {
+            extraInfo = ` (${parsed.FilesWithMatches.length} files)`;
+          } else if (parsed.Content) {
+            extraInfo = ` (${parsed.Content.length} lines)`;
+          } else if (typeof parsed.Count === "number") {
+            extraInfo = ` (${parsed.Count} matches)`;
+          }
+        }
+      } catch {
+        // ignore
       }
+    }
 
-      return { filename, IconComponent, colorClass };
+    let label = isCompleted ? "Explored" : "Exploring";
+    if (isRead) label = isCompleted ? "Analyzed" : "Analyzing";
+    else if (isGrep) label = isCompleted ? "Searched" : "Searching";
+    else if (isList) label = isCompleted ? "Listed" : "Listing";
+
+    return {
+      type: "explore",
+      filename,
+      IconComponent,
+      colorClass,
+      label,
+      extraInfo,
+    };
+  }
+
+  // 3. Write / Edit
+  const isWriteName = lowerName === "write" || lowerName === "edit";
+
+  if (isWriteName) {
+    const pathKeys = ["file_path"];
+    for (const key of pathKeys) {
+      if (typeof args[key] === "string") {
+        const fullPath = args[key];
+        const filename = fullPath.split(/[/\\]/).pop() || fullPath;
+        const { IconComponent, colorClass } = getFileIcon(filename);
+
+        const isTodo = filename.toLowerCase().includes("todo");
+
+        return {
+          type: isTodo ? "todo" : "edit",
+          filename,
+          IconComponent,
+          colorClass,
+          label: isCompleted ? (result?.diffSummary?.isNew ? "Created" : "Edited") : "Editing",
+          isTodo,
+        };
+      }
     }
   }
+
   return null;
 }
 
@@ -456,26 +537,46 @@ function ToolCallDisplay({ message }: { message: Message }) {
     });
 
     const displayName = formatToolName(name);
-    const fileWriteInfo = getFileWriteInfo(name, message.toolCall?.arguments);
+    const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted);
 
     return (
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
         {/* Simple inline text with chevron */}
         <div className="flex items-center gap-1.5 text-text-muted select-none">
-          <Wrench size={14} className="shrink-0" aria-hidden="true" />
-          {fileWriteInfo ? (
+          {!nativeInfo && <Wrench size={14} className="shrink-0" aria-hidden="true" />}
+
+          {nativeInfo ? (
             <span className="text-sm flex items-center gap-1.5">
-              <span>{isCompleted ? (message.toolResult?.diffSummary?.isNew ? "Created" : "Edited") : "Editing"}</span>
-              <fileWriteInfo.IconComponent
-                size={14}
-                className={`${fileWriteInfo.colorClass} shrink-0`}
-                aria-hidden="true"
-              />
-              <span className="font-medium text-text-primary">
-                {message.toolResult?.diffSummary?.filename || fileWriteInfo.filename}
-              </span>
+              {nativeInfo.type === "todo" ? (
+                <span>{isCompleted ? "Updated TODO" : "Updating TODO..."}</span>
+              ) : nativeInfo.type === "bash" ? (
+                <>
+                  <nativeInfo.IconComponent
+                    size={14}
+                    className={`${nativeInfo.colorClass} shrink-0`}
+                    aria-hidden="true"
+                  />
+                  <span className="font-mono text-xs text-text-primary">{nativeInfo.label}</span>
+                </>
+              ) : (
+                <>
+                  <span>{nativeInfo.label}</span>
+                  <nativeInfo.IconComponent
+                    size={14}
+                    className={`${nativeInfo.colorClass} shrink-0`}
+                    aria-hidden="true"
+                  />
+                  <span className="font-medium text-text-primary">
+                    {message.toolResult?.diffSummary?.filename || nativeInfo.filename}
+                    {nativeInfo.extraInfo && (
+                      <span className="text-text-muted font-normal">{nativeInfo.extraInfo}</span>
+                    )}
+                  </span>
+                </>
+              )}
+
               {!isCompleted && <span>...</span>}
-              {isCompleted && message.toolResult?.diffSummary && (
+              {isCompleted && message.toolResult?.diffSummary && nativeInfo.type === "edit" && (
                 <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
                   <span className="text-emerald-600 dark:text-emerald-500 font-medium">
                     +{message.toolResult.diffSummary.added}
@@ -525,11 +626,37 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 </div>
 
                 {/* Result */}
-                {isCompleted && (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-medium text-text-muted font-mono">Result</span>
-                    <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                {isCompleted && nativeInfo?.type === "todo" ? (
+                  <div className="flex flex-col gap-1 text-sm text-text-secondary">
+                    {/* Try to parse standard markdown checkboxes if we updated a TODO */}
+                    {formattedResult
+                      .split("\\n")
+                      .filter((line) => line.trim().startsWith("- [") || line.trim().startsWith("* ["))
+                      .map((line, i) => {
+                        const isChecked = line.includes("[x]") || line.includes("[X]");
+                        const text = line.replace(/^[-*]\s*\[.\]\s*/, "");
+                        return (
+                          <div key={i} className="flex items-start gap-2">
+                            {isChecked ? (
+                              <Check size={14} className="mt-0.5 text-emerald-500" />
+                            ) : (
+                              <div className="mt-0.5 w-[14px] h-[14px] border border-border rounded-sm" />
+                            )}
+                            <span className={isChecked ? "line-through opacity-70" : ""}>{text}</span>
+                          </div>
+                        );
+                      })}
+                    {!formattedResult.includes("[ ]") && !formattedResult.includes("[x]") && (
+                      <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                    )}
                   </div>
+                ) : (
+                  isCompleted && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-medium text-text-muted font-mono">Result</span>
+                      <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                    </div>
+                  )
                 )}
 
                 {/* Images */}
@@ -631,7 +758,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
             whileHover={{ x: 2 }}
             transition={springs.snappy}
           >
-            <span>Thinking</span>
+            <span>{isStreaming ? "Thinking" : "Thought"}</span>
             <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           </motion.button>
           {!expanded && isStreaming && !hasContent && (

@@ -397,7 +397,7 @@ export default function Sidebar({
                             <button
                               onClick={() => {
                                 setActiveProject(project.id);
-                                if (!isExpanded) toggleProject(project.id);
+                                toggleProject(project.id);
                               }}
                               className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                                 isActive
