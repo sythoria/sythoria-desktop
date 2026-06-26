@@ -198,28 +198,77 @@ export function buildProjectToolDefinitions(project: Project | null) {
   if (!project) return [];
   const tools: ToolDefinition[] = [];
 
-  // Read permissions
   tools.push({
     type: "function",
     function: {
-      name: "project_list_dir",
-      description: "List contents of a directory within the project.",
+      name: "project_read",
+      description:
+        "Retrieves the raw textual contents of a targeted file within the project. Handles data formatting and clear text extraction automatically.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string", description: "Relative or absolute path to list" } },
-        required: ["path"],
+        properties: {
+          file_path: {
+            type: "string",
+            description: "The absolute or relative path string identifying the file to read.",
+          },
+          offset: {
+            type: "number",
+            description: "Optional. The 1-indexed line index number from which to begin reading.",
+          },
+          limit: {
+            type: "number",
+            description:
+              "Optional. The maximum number of continuous lines to retrieve. If unspecified, defaults to 2000 lines.",
+          },
+        },
+        required: ["file_path"],
       },
     },
   });
   tools.push({
     type: "function",
     function: {
-      name: "project_read_file",
-      description: "Read the contents of a file within the project.",
+      name: "project_grep",
+      description:
+        "Scans file text contents globally across the repository workspace for matching strings and code definitions utilizing an optimized background regex engine.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string", description: "Relative or absolute path to the file" } },
-        required: ["path"],
+        properties: {
+          pattern: {
+            type: "string",
+            description: "The exact regex or text string pattern to match across the codebase.",
+          },
+          output_mode: {
+            type: "string",
+            description:
+              "Optional. Determines the layout style of the tool result. Allowed values: 'files_with_matches', 'content', 'count'. Defaults to 'files_with_matches'.",
+          },
+          multiline: {
+            type: "boolean",
+            description:
+              "Optional. When configured to true, allows the regex engine to span across newline breaks. Defaults to false.",
+          },
+        },
+        required: ["pattern"],
+      },
+    },
+  });
+  tools.push({
+    type: "function",
+    function: {
+      name: "project_glob",
+      description:
+        "Discovers and arrays file paths across the active workspace using recursive directory pattern-matching filters.",
+      parameters: {
+        type: "object",
+        properties: {
+          pattern: {
+            type: "string",
+            description:
+              "A standard unix-style glob pattern string supporting deep recursive matching paths (e.g., 'src/**/*.ts', 'package.json', '**/tests/*.py').",
+          },
+        },
+        required: ["pattern"],
       },
     },
   });
@@ -245,15 +294,48 @@ export function buildProjectToolDefinitions(project: Project | null) {
     tools.push({
       type: "function",
       function: {
-        name: "project_write_file",
-        description: "Write content to a file within the project. Creates directories if needed.",
+        name: "project_write",
+        description:
+          "Write content to a file within the project, overwriting it entirely. Creates directories if needed.",
         parameters: {
           type: "object",
           properties: {
-            path: { type: "string", description: "Relative or absolute path to the file" },
+            file_path: { type: "string", description: "Relative or absolute path to the file" },
             content: { type: "string", description: "The content to write" },
           },
-          required: ["path", "content"],
+          required: ["file_path", "content"],
+        },
+      },
+    });
+    tools.push({
+      type: "function",
+      function: {
+        name: "project_edit",
+        description:
+          "Performs modifications on an existing target file via precise exact-string block matching. This tool will automatically fail if the target string block inside old_string is structurally ambiguous, uniquely missing, or doesn't match line-for-line.",
+        parameters: {
+          type: "object",
+          properties: {
+            file_path: {
+              type: "string",
+              description: "The absolute or relative path string pointing to the target file.",
+            },
+            old_string: {
+              type: "string",
+              description:
+                "The exact multi-line text block sequence currently present in the file that needs to be targeted and removed.",
+            },
+            new_string: {
+              type: "string",
+              description: "The precise structural code block sequence that will replace the old_string block.",
+            },
+            replace_all: {
+              type: "boolean",
+              description:
+                "Optional. When set to true, scans the file and replaces all identical matches of old_string. Defaults to false.",
+            },
+          },
+          required: ["file_path", "old_string", "new_string"],
         },
       },
     });
@@ -283,12 +365,23 @@ export function buildProjectToolDefinitions(project: Project | null) {
     tools.push({
       type: "function",
       function: {
-        name: "project_run_command",
-        description: "Run an arbitrary shell command in the project directory.",
+        name: "project_bash",
+        description:
+          "Executes terminal/shell commands natively inside a persistent, stateful shell session in the user's workspace environment.",
         parameters: {
           type: "object",
           properties: {
-            command: { type: "string", description: "The shell command to run" },
+            command: { type: "string", description: "The complete raw shell command string sequence to be executed." },
+            timeout: {
+              type: "number",
+              description:
+                "Optional. Maximum duration allowed for the command to execute before throwing a termination error, specified in milliseconds. Maximum cap is 600000 (10 minutes).",
+            },
+            run_in_background: {
+              type: "boolean",
+              description:
+                "Optional. When configured to true, detaches the process to run in the background. Defaults to false.",
+            },
           },
           required: ["command"],
         },
@@ -312,16 +405,17 @@ export function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project
   if (project) {
     prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
     prompt += `\n\nYou have access to the following native project tools based on your permissions:
-- project_list_dir(path: string)
-- project_read_file(path: string)
+- project_glob(pattern: string)
+- project_grep(pattern: string, output_mode?: string, multiline?: boolean)
+- project_read(file_path: string, offset?: number, limit?: number)
 - project_git_status()
 - project_git_diff()`;
 
     if (project.permissions === "write" || project.permissions === "full") {
-      prompt += `\n- project_write_file(path: string, content: string)\n- project_git_commit(message: string, files?: string[])`;
+      prompt += `\n- project_write(file_path: string, content: string)\n- project_edit(file_path: string, old_string: string, new_string: string, replace_all?: boolean)\n- project_git_commit(message: string, files?: string[])`;
     }
     if (project.permissions === "full") {
-      prompt += `\n- project_run_command(command: string)`;
+      prompt += `\n- project_bash(command: string, timeout?: number, run_in_background?: boolean)`;
     }
     prompt += `\nWhen using project tools, you can use paths relative to the project path.`;
   }
@@ -338,23 +432,27 @@ export function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project
 type KnownToolName =
   | "search_query"
   | "fetch_url"
-  | "project_list_dir"
-  | "project_read_file"
-  | "project_write_file"
+  | "project_glob"
+  | "project_grep"
+  | "project_read"
+  | "project_write"
+  | "project_edit"
+  | "project_bash"
   | "project_git_status"
   | "project_git_diff"
-  | "project_git_commit"
-  | "project_run_command";
+  | "project_git_commit";
 const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
-  "project_list_dir",
-  "project_read_file",
-  "project_write_file",
+  "project_glob",
+  "project_grep",
+  "project_read",
+  "project_write",
+  "project_edit",
+  "project_bash",
   "project_git_status",
   "project_git_diff",
   "project_git_commit",
-  "project_run_command",
 ]);
 
 function toKnownToolName(name: string): KnownToolName | "unknown" {
@@ -453,8 +551,22 @@ export async function sendWithToolLoop(
     if (modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()) {
       userSystemPrompt = modelConfig.systemPromptOverride;
     }
-    if (project && project.systemPromptOverride && project.systemPromptOverride.trim()) {
-      userSystemPrompt = project.systemPromptOverride;
+    if (project) {
+      if (project.systemPromptOverride && project.systemPromptOverride.trim()) {
+        userSystemPrompt = project.systemPromptOverride;
+      }
+      try {
+        const agentsMdContent = await invoke<string>("project_read", {
+          path: "AGENTS.md",
+          offset: null,
+          limit: null,
+        });
+        if (agentsMdContent && agentsMdContent.trim()) {
+          userSystemPrompt += `\n\n=== Project Instructions (AGENTS.md) ===\n${agentsMdContent.trim()}\n========================================`;
+        }
+      } catch {
+        // AGENTS.md not found or cannot be read, ignore
+      }
     }
     const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : [], project);
     const combinedSystemPrompt = userSystemPrompt.trim()
@@ -521,7 +633,8 @@ export async function sendWithToolLoop(
         for (const toolCall of msg.tool_calls) {
           const rawName = toolCall.function.name;
           const fnName = toKnownToolName(rawName);
-          let fnArgs: Record<string, string>;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let fnArgs: Record<string, any>;
           try {
             fnArgs = JSON.parse(toolCall.function.arguments || "{}");
           } catch {
@@ -782,36 +895,40 @@ export async function sendWithToolLoop(
                 };
 
                 switch (fnName) {
-                  case "project_list_dir": {
-                    const dirPath = fnArgs.path || "";
-                    const resolvedDir = resolvePath(dirPath);
-                    if (isPathExcluded(resolvedDir, project.path, project.excludePatterns)) {
-                      throw new Error(`Permission denied: directory is excluded by configuration.`);
-                    }
-                    const files = await invoke<string[]>("project_list_dir", { path: resolvedDir });
-                    if (project.excludePatterns && project.excludePatterns.length > 0) {
-                      const relativeDir = dirPath ? (dirPath.endsWith("/") ? dirPath : dirPath + "/") : "";
-                      resultContent = JSON.stringify(
-                        files.filter((f) => {
-                          const relFilePath = relativeDir + f;
-                          return !isPathExcluded(relFilePath, project.path, project.excludePatterns);
-                        }),
-                      );
-                    } else {
-                      resultContent = JSON.stringify(files);
-                    }
+                  case "project_glob": {
+                    resultContent = JSON.stringify(
+                      await invoke("project_glob", {
+                        path: project.path,
+                        pattern: fnArgs.pattern,
+                      }),
+                    );
                     break;
                   }
-                  case "project_read_file": {
-                    const resolved = resolvePath(fnArgs.path);
+                  case "project_read": {
+                    const resolved = resolvePath(fnArgs.file_path);
                     if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
                       throw new Error(`Permission denied: file is excluded by configuration.`);
                     }
-                    resultContent = await invoke<string>("project_read_file", { path: resolved });
+                    resultContent = await invoke<string>("project_read", {
+                      path: resolved,
+                      offset: fnArgs.offset ? Number(fnArgs.offset) : null,
+                      limit: fnArgs.limit ? Number(fnArgs.limit) : null,
+                    });
                     break;
                   }
-                  case "project_write_file": {
-                    const resolved = resolvePath(fnArgs.path);
+                  case "project_grep": {
+                    resultContent = JSON.stringify(
+                      await invoke("project_grep", {
+                        path: project.path,
+                        pattern: fnArgs.pattern,
+                        outputMode: fnArgs.output_mode || "files_with_matches",
+                        multiline: fnArgs.multiline === true,
+                      }),
+                    );
+                    break;
+                  }
+                  case "project_write": {
+                    const resolved = resolvePath(fnArgs.file_path);
                     if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
                       throw new Error(`Permission denied: file is excluded by configuration.`);
                     }
@@ -820,16 +937,16 @@ export async function sendWithToolLoop(
                     let oldContent = "";
                     let isNew = false;
                     try {
-                      oldContent = await invoke<string>("project_read_file", { path: resolved });
+                      oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
                     } catch {
                       isNew = true;
                     }
 
-                    await invoke("project_write_file", { path: resolved, content: fnArgs.content });
+                    await invoke("project_write", { path: resolved, content: fnArgs.content });
                     resultContent = "File written successfully.";
 
                     const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
-                    const filename = fnArgs.path.split(/[/\\]/).pop() || fnArgs.path;
+                    const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
 
                     toolResultDiffSummary = {
                       added: diff.added,
@@ -839,11 +956,51 @@ export async function sendWithToolLoop(
                     };
                     break;
                   }
-                  case "project_run_command":
+                  case "project_edit": {
+                    const resolved = resolvePath(fnArgs.file_path);
+                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                      throw new Error(`Permission denied: file is excluded by configuration.`);
+                    }
+                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+
+                    let oldContent = "";
+                    try {
+                      oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
+                    } catch {
+                      throw new Error("File does not exist or cannot be read.");
+                    }
+
+                    await invoke("project_edit", {
+                      path: resolved,
+                      oldString: fnArgs.old_string,
+                      newString: fnArgs.new_string,
+                      replaceAll: fnArgs.replace_all === true,
+                    });
+                    resultContent = "File content replaced successfully.";
+
+                    const newContent = await invoke<string>("project_read", {
+                      path: resolved,
+                      offset: null,
+                      limit: null,
+                    });
+                    const diff = computeLineDiff(oldContent, newContent);
+                    const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+
+                    toolResultDiffSummary = {
+                      added: diff.added,
+                      deleted: diff.deleted,
+                      isNew: false,
+                      filename,
+                    };
+                    break;
+                  }
+                  case "project_bash":
                     if (project.permissions !== "full") throw new Error("Permission denied: full shell not allowed");
-                    resultContent = await invoke<string>("project_run_command", {
+                    resultContent = await invoke<string>("project_bash", {
                       command: fnArgs.command,
                       cwd: project.path,
+                      timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
+                      runInBackground: fnArgs.run_in_background === true,
                     });
                     break;
                   case "project_git_status":
