@@ -55,9 +55,7 @@ export function ProjectsSection() {
               className="overflow-hidden"
             >
               <div className="space-y-4 pt-4 border-t border-border/50 mt-4">
-                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
-                  Global Default Permission
-                </h4>
+                <h4 className="text-xs font-medium text-text-muted block">Global Default Permission</h4>
                 <p className="text-xs text-text-muted">
                   The default access level granted to new workspaces when they are added.
                 </p>
@@ -118,7 +116,7 @@ export function ProjectsSection() {
 
       {/* Card 2: Commit Author overrides (preserved from GitSection) */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Commit Author overrides</h4>
+        <h4 className="text-xs font-medium text-text-muted">Commit Author overrides</h4>
         <Switch
           checked={gitConfig.overrideIdentity}
           onChange={(val) => updateGitConfig({ overrideIdentity: val })}
@@ -136,9 +134,7 @@ export function ProjectsSection() {
               className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 overflow-hidden"
             >
               <div className="space-y-1.5">
-                <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                  Author Name
-                </label>
+                <label className="text-[10px] font-medium text-text-muted">Author Name</label>
                 <input
                   type="text"
                   value={gitConfig.gitName}
@@ -147,9 +143,7 @@ export function ProjectsSection() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                  Author Email
-                </label>
+                <label className="text-[10px] font-medium text-text-muted">Author Email</label>
                 <input
                   type="email"
                   value={gitConfig.gitEmail}
