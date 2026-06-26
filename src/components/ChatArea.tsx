@@ -20,7 +20,6 @@ import {
   RotateCw,
   Terminal,
   FileText as FileTextIcon,
-  AtSign,
   File,
   FileCode,
   FileJson,
@@ -130,7 +129,7 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
   }, [code]);
 
   return (
-    <div className="code-block group relative">
+    <div className="code-block group relative bg-surface border border-border rounded-xl overflow-hidden shadow-sm my-3">
       <div className="flex items-center justify-between px-4 py-1.5 text-[11px] text-text-muted border-b border-border/40 select-none">
         <span className="flex items-center gap-1.5 font-mono lowercase">
           <Terminal size={12} />
@@ -165,8 +164,9 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
 }
 
 const markdownComponents = {
-  pre({ children, ...props }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode }) {
-    return <pre {...props}>{children}</pre>;
+  pre({ children }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode }) {
+    // Return Fragment to avoid nesting <pre> inside .markdown-body pre (double border bug)
+    return <>{children}</>;
   },
   code({ children, className, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
     const isBlock = className?.startsWith("language-");
@@ -462,7 +462,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
         {/* Simple inline text with chevron */}
         <div className="flex items-center gap-1.5 text-text-muted select-none">
-          <AtSign size={14} className="shrink-0" aria-hidden="true" />
+          <Wrench size={14} className="shrink-0" aria-hidden="true" />
           {fileWriteInfo ? (
             <span className="text-sm flex items-center gap-1.5">
               <span>{isCompleted ? (message.toolResult?.diffSummary?.isNew ? "Created" : "Edited") : "Editing"}</span>
@@ -520,36 +520,22 @@ function ToolCallDisplay({ message }: { message: Message }) {
               <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                 {/* Arguments */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
-                    Arguments
-                  </span>
-                  <div className="markdown-body">
-                    <pre style={{ margin: 0 }}>
-                      <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
-                    </pre>
-                  </div>
+                  <span className="text-[10px] font-medium text-text-muted font-mono">Arguments</span>
+                  <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
                 </div>
 
                 {/* Result */}
                 {isCompleted && (
                   <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
-                      Result
-                    </span>
-                    <div className="markdown-body">
-                      <pre style={{ margin: 0 }}>
-                        <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
-                      </pre>
-                    </div>
+                    <span className="text-[10px] font-medium text-text-muted font-mono">Result</span>
+                    <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
                   </div>
                 )}
 
                 {/* Images */}
                 {isCompleted && mcpImages.length > 0 && (
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider font-mono">
-                      Images
-                    </span>
+                    <span className="text-[10px] font-medium text-text-muted font-mono">Images</span>
                     <div className="flex flex-wrap gap-2">
                       {mcpImages.map((img, idx) => {
                         const dataUrl = `data:${img.mimeType};base64,${img.data}`;
@@ -557,13 +543,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
                           <div
                             key={idx}
                             onClick={() => setPreviewImageIndex(idx)}
-                            className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-all group shrink-0"
+                            className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
                             title={`View Image ${idx + 1}`}
                           >
                             <img
                               src={dataUrl}
                               alt={`MCP Output ${idx + 1}`}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 select-none"
+                              className="w-full h-full object-cover select-none"
                             />
                           </div>
                         );
@@ -590,6 +576,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
   }
 
   // Non-MCP Tools (Search, Fetch)
+  const NativeIcon = isSearch ? Search : isFetch ? Globe : Wrench;
   return (
     <motion.div
       className="flex items-center gap-2 mb-1.5 text-text-muted"
@@ -598,13 +585,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
       animate="visible"
       transition={springs.gentle}
     >
-      <AtSign size={14} className="shrink-0" aria-hidden="true" />
+      <NativeIcon size={14} className="shrink-0" aria-hidden="true" />
       <span className="text-sm">
         {isCompleted
           ? isSearch
-            ? "Search results"
+            ? `Searched: "${message.toolCall?.arguments?.query || ""}"`
             : isFetch
-              ? "Page content"
+              ? `Fetched: ${message.toolCall?.arguments?.url || ""}`
               : "Tool result"
           : isSearch
             ? "Searching..."
@@ -623,7 +610,7 @@ function ToolCallBubble({ message }: { message: Message }) {
 }
 
 function ReasoningBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!isStreaming);
   const hasContent = content.length > 0;
 
   return (
@@ -700,14 +687,10 @@ function AttachmentList({
             <div
               key={a.id}
               onClick={() => onImageClick(imgIdx)}
-              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-all group shrink-0"
+              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
               title={`View ${a.name}`}
             >
-              <img
-                src={a.dataUrl}
-                alt={a.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 select-none"
-              />
+              <img src={a.dataUrl} alt={a.name} className="w-full h-full object-cover select-none" />
             </div>
           );
         } else {
@@ -1002,12 +985,12 @@ function NonVirtualizedChatArea({
     <div
       ref={scrollContainerRef}
       data-chat-scroll
-      className="flex-1 min-h-0 overflow-y-auto px-8 md:px-12 relative"
+      className="flex-1 min-h-0 overflow-y-auto relative"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div ref={contentRef} className="max-w-4xl mx-auto w-full px-8 md:px-12 py-8 space-y-6">
+      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-6">
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
