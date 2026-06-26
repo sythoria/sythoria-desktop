@@ -93,7 +93,7 @@ export const SearchApiCard = memo(function SearchApiCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -119,7 +119,7 @@ export const SearchApiCard = memo(function SearchApiCard({
                     onUpdate(config.id, { provider });
                   }
                 }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 aria-label="Search provider"
               >
                 {SEARCH_PROVIDER_PRESETS.map((p) => (
@@ -158,7 +158,7 @@ export const SearchApiCard = memo(function SearchApiCard({
             autoComplete="off"
             autoCorrect="off"
             spellCheck="false"
-            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
           />
         </div>
 
@@ -220,7 +220,7 @@ export const SearchApiCard = memo(function SearchApiCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent/50 focus:outline-none transition-colors"
+              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
         )}
@@ -236,7 +236,7 @@ export const SearchApiCard = memo(function SearchApiCard({
             max={20}
             value={config.maxResults}
             onChange={(e) => onUpdate(config.id, { maxResults: parseInt(e.target.value) || 5 })}
-            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent/50 focus:outline-none transition-colors"
+            className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
           />
         </div>
       </div>
