@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import type { Project, ProjectPermission } from "../types";
 import {
   loadProjects,
@@ -42,6 +43,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const enabled = await loadProjectsEnabled();
     const defaultPerm = await loadProjectsDefaultPermission();
     set({ projects: loaded, isProjectsEnabled: enabled, defaultPermission: defaultPerm });
+
+    const { activeProjectId, projects } = get();
+    const activeProj = projects.find((p) => p.id === activeProjectId);
+    const path = activeProj ? activeProj.path : null;
+    try {
+      await invoke("set_active_project", { path });
+    } catch (e) {
+      console.error("Failed to set active project on init:", e);
+    }
   },
 
   setIsProjectsEnabled: (enabled) => {
@@ -70,15 +80,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteProject: (id) => {
+    const wasActive = get().activeProjectId === id;
     set((state) => ({
       projects: state.projects.filter((p) => p.id !== id),
       activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
     }));
     get().persistProjects();
+    if (wasActive) {
+      invoke("set_active_project", { path: null }).catch((e) => {
+        console.error("Failed to clear active project on delete:", e);
+      });
+    }
   },
 
   setActiveProject: (id) => {
     set({ activeProjectId: id });
+    const { projects } = get();
+    const activeProj = projects.find((p) => p.id === id);
+    const path = activeProj ? activeProj.path : null;
+    invoke("set_active_project", { path }).catch((e) => {
+      console.error("Failed to set active project:", e);
+    });
   },
 
   persistProjects: async () => {
