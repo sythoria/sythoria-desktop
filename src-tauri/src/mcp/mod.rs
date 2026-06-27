@@ -15,6 +15,8 @@ pub struct McpServerConfig {
     pub baseUrl: Option<String>,
     pub apiKey: Option<String>,
     pub enabled: bool,
+    pub trustLevel: Option<String>,
+    pub allowLocalNetwork: Option<bool>,
 }
 
 #[allow(non_snake_case)]
