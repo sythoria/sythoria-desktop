@@ -130,6 +130,8 @@ export interface McpServerConfig {
   baseUrl?: string;
   apiKey?: string;
   enabled: boolean;
+  trustLevel?: "trusted" | "untrusted";
+  allowLocalNetwork?: boolean;
 }
 
 /** Result of probing whether a stdio command resolves to an executable. */
