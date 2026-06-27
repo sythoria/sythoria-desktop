@@ -153,9 +153,15 @@ interface ChatState {
   isStreaming: boolean;
   generationState: GenerationState;
   generationLabel: string;
+  generationByConversation: Record<string, { state: GenerationState; label: string }>;
   navigationHistory: string[];
   navigationIndex: number;
   draftAttachments: Attachment[];
+  compareId: string | null;
+  isCompareMode: boolean;
+
+  setCompareId: (id: string | null) => void;
+  setIsCompareMode: (val: boolean) => void;
 
   init: () => Promise<void>;
   cleanupEmptyConversations: (exceptId?: string | null) => void;
@@ -169,7 +175,7 @@ interface ChatState {
   sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: () => void;
-  exportChat: (id: string) => void;
+  exportChat: (id: string) => void | Promise<void>;
   persistConversations: () => Promise<void>;
   clearAllChats: () => Promise<void>;
   cleanup: () => void;
@@ -181,14 +187,37 @@ interface ChatState {
 
 let initInProgress = false;
 
+function setConversationGeneration(
+  state: ChatState,
+  convId: string,
+  generationState: GenerationState,
+  generationLabel: string,
+): Record<string, { state: GenerationState; label: string }> {
+  if (generationState === "idle") {
+    const rest = { ...state.generationByConversation };
+    delete rest[convId];
+    return rest;
+  }
+  return {
+    ...state.generationByConversation,
+    [convId]: { state: generationState, label: generationLabel },
+  };
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeId: null,
   isStreaming: false,
   generationState: "idle" as GenerationState,
   generationLabel: "",
+  generationByConversation: {},
   navigationHistory: [],
   navigationIndex: -1,
+  compareId: null,
+  isCompareMode: false,
+
+  setCompareId: (compareId) => set({ compareId }),
+  setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
 
   init: async () => {
     if (initInProgress) return;
@@ -482,13 +511,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text, attachments) => {
-    const { isStreaming, activeId, conversations } = get();
+    const { isStreaming, activeId, isCompareMode, compareId } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
 
     if (isStreaming) return;
 
     let convId = activeId;
-    let isFirstMessage = false;
+    let compId = compareId;
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
@@ -510,12 +539,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeId: id,
       }));
       convId = id;
-      isFirstMessage = true;
-    } else {
-      const existing = conversations.find((c) => c.id === convId);
-      if (existing && existing.messages.length === 0) {
-        isFirstMessage = true;
-      }
+    }
+
+    if (isCompareMode && !compId) {
+      const id = generateId();
+      const secondaryModel = models.find((m) => m.id !== selectedModel && m.enabled !== false)?.id || selectedModel;
+      const conv: Conversation = {
+        id,
+        title: initialTitle + " (Compare)",
+        timestamp: new Date(),
+        messages: [],
+        model: secondaryModel,
+        projectId: activeProjectId || undefined,
+      };
+      set((state) => ({
+        conversations: [conv, ...state.conversations],
+        compareId: id,
+      }));
+      compId = id;
     }
 
     const userMsg: Message = {
@@ -526,18 +567,61 @@ export const useChatStore = create<ChatState>((set, get) => ({
       attachments,
     };
 
-    const finalId = convId;
+    const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
+
+    const runForConversation = async (cId: string, modelConfig: ModelConfig) => {
+      if (!modelConfig) return;
+      const currentConvs = get().conversations;
+      const isFirstForThis = currentConvs.find((c) => c.id === cId)?.messages.length === 0;
+
+      set((state) => ({
+        conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
+          title: isFirstForThis ? (cId === compId ? fallbackTitle + " (Compare)" : fallbackTitle) : undefined,
+        }),
+      }));
+
+      if (isFirstForThis && titleConfig.enabled) {
+        generateConversationTitle(cId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
+      }
+
+      const toolLoop = getEnabledToolLoopConfig();
+      if (toolLoop.shouldUseTools) {
+        const activeProject =
+          useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+        await sendWithToolLoop(
+          cId,
+          modelConfig,
+          temperature,
+          apiKeys,
+          toolLoop.searchConfig,
+          toolLoop.searchApiKey,
+          toolLoop.mcpTools,
+          toolLoop.mcpCallTool,
+          (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+          get,
+          searchPerformSearch,
+          searchFetchUrlContent,
+          activeProject,
+        );
+      } else {
+        await sendNormal(cId, modelConfig, temperature, apiKeys, set, get);
+      }
+    };
+
+    const primaryConv = get().conversations.find((c) => c.id === convId);
+    const primaryModel = primaryConv?.model || selectedModel;
+    let primaryModelConfig = models.find((m) => m.id === primaryModel) ?? models[0];
+
     const activeProject =
       useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
-    let modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
     if (activeProject && activeProject.modelOverride) {
       const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
       if (overrideModel && overrideModel.enabled !== false) {
-        modelConfig = overrideModel;
+        primaryModelConfig = overrideModel;
       }
     }
 
-    if (!modelConfig) {
+    if (!primaryModelConfig) {
       logError("model", "No model configuration selected — user tried to send message without any model configured", {
         action: "Go to Settings > Models and add at least one model configuration.",
       });
@@ -545,44 +629,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
+    set({
+      isStreaming: true,
+      generationState: "thinking" as GenerationState,
+      generationLabel: "Thinking",
+    });
 
-    set((state) => ({
-      generationState: "idle" as GenerationState,
-      generationLabel: "",
-      conversations: updateConversationMessages(state.conversations, finalId, (msgs) => [...msgs, userMsg], {
-        title: isFirstMessage ? fallbackTitle : undefined,
-      }),
-    }));
+    const promises = [runForConversation(convId, primaryModelConfig)];
 
-    if (isFirstMessage && titleConfig.enabled) {
-      generateConversationTitle(finalId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
+    if (isCompareMode && compId) {
+      const compareConv = get().conversations.find((c) => c.id === compId);
+      const compareModel =
+        compareConv?.model || models.find((m) => m.id !== selectedModel && m.enabled !== false)?.id || selectedModel;
+      const compareModelConfig = models.find((m) => m.id === compareModel) ?? models[0];
+      if (compareModelConfig) {
+        promises.push(runForConversation(compId, compareModelConfig));
+      }
     }
 
-    const toolLoop = getEnabledToolLoopConfig();
-    if (toolLoop.shouldUseTools) {
-      const activeProject =
-        useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
-      await sendWithToolLoop(
-        finalId,
-        modelConfig,
-        temperature,
-        apiKeys,
-        toolLoop.searchConfig,
-        toolLoop.searchApiKey,
-        toolLoop.mcpTools,
-        toolLoop.mcpCallTool,
-        (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
-        get,
-        searchPerformSearch,
-        searchFetchUrlContent,
-        activeProject,
-      );
-    } else {
-      await sendNormal(finalId, modelConfig, temperature, apiKeys, set, get);
-    }
+    await Promise.all(promises);
 
-    // Auto-commit if enabled and changes exist
     useGitStore.getState().autoCommitIfNeeded();
   },
 
@@ -597,6 +663,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isStreaming: false,
         generationState: "idle" as GenerationState,
         generationLabel: "",
+        generationByConversation: {},
         conversations: convs,
       };
     });
@@ -674,29 +741,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
     useGitStore.getState().autoCommitIfNeeded();
   },
 
-  exportChat: (id) => {
+  exportChat: async (id) => {
     const conv = get().conversations.find((c) => c.id === id);
     if (!conv) return;
-    const lines = [
-      `# ${conv.title}`,
-      ``,
-      ...conv.messages.map((m) => {
-        if (m.role === "tool") {
-          const result = m.toolResult;
-          return `**Tool (${result?.name ?? "unknown"}):** ${m.content.slice(0, 200)}`;
-        }
-        const label = m.role === "user" ? "You" : "Assistant";
-        return `**${label}:** ${m.content}`;
-      }),
-    ];
-    const blob = new Blob([lines.join("\n\n")], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-    uiToast("Chat exported", "success");
+
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const filePath = await save({
+        title: "Export Chat",
+        defaultPath: `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
+        filters: [
+          { name: "Markdown", extensions: ["md"] },
+          { name: "JSON", extensions: ["json"] },
+        ],
+      });
+
+      if (!filePath) return;
+
+      let content = "";
+      if (filePath.endsWith(".json")) {
+        content = JSON.stringify(conv, null, 2);
+      } else {
+        const lines = [
+          `# ${conv.title}`,
+          ``,
+          ...conv.messages.map((m) => {
+            if (m.role === "tool") {
+              const result = m.toolResult;
+              return `**Tool (${result?.name ?? "unknown"}):** ${m.content.slice(0, 200)}`;
+            }
+            const label = m.role === "user" ? "You" : "Assistant";
+            return `**${label}:** ${m.content}`;
+          }),
+        ];
+        content = lines.join("\n\n");
+      }
+
+      await invoke("write_exported_file", { path: filePath, content });
+      uiToast("Chat exported", "success");
+    } catch (err) {
+      logError("chat", "Failed to export chat", { error: err });
+      uiToast("Failed to export chat", "error");
+    }
   },
 
   persistConversations: async () => {
@@ -785,9 +871,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setGenerationState: (state, label, error) => {
+    const generationLabel = error ? `${label ?? state}: ${error}` : (label ?? state);
     set({
       generationState: state,
-      generationLabel: error ? `${label ?? state}: ${error}` : (label ?? state),
+      generationLabel,
+      ...(get().activeId
+        ? {
+            generationByConversation: setConversationGeneration(get(), get().activeId!, state, generationLabel),
+          }
+        : {}),
     });
   },
 }));
@@ -812,6 +904,7 @@ async function sendNormal(
     isStreaming: true,
     generationState: "thinking" as GenerationState,
     generationLabel: "Thinking",
+    generationByConversation: setConversationGeneration(state, convId, "thinking" as GenerationState, "Thinking"),
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
   uiLoading("sendMessage", true);
@@ -832,8 +925,12 @@ async function sendNormal(
           newState.generationState = "responding";
           newState.generationLabel = "Responding";
         }
+        const nextGenerationByConversation = content.startsWith("<reasoning>")
+          ? state.generationByConversation
+          : setConversationGeneration(state, cId, "responding" as GenerationState, "Responding");
         return {
           ...newState,
+          generationByConversation: nextGenerationByConversation,
           conversations: state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
@@ -850,8 +947,8 @@ async function sendNormal(
       logInfo("stream", `Stream completed`, {
         details: `Conversation: ${cId}`,
       });
-      set((state) => ({
-        conversations: state.conversations.map((c) => {
+      set((state) => {
+        const conversations = state.conversations.map((c) => {
           if (c.id !== cId) return c;
           const updated = [...c.messages];
           const last = updated[updated.length - 1];
@@ -859,11 +956,16 @@ async function sendNormal(
             updated[updated.length - 1] = { ...last, isStreaming: false };
           }
           return { ...c, messages: updated };
-        }),
-        isStreaming: false,
-        generationState: "idle" as GenerationState,
-        generationLabel: "",
-      }));
+        });
+        const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
+        return {
+          conversations,
+          isStreaming: stillStreaming,
+          generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+          generationLabel: stillStreaming ? state.generationLabel : "",
+          generationByConversation: setConversationGeneration(state, cId, "idle" as GenerationState, ""),
+        };
+      });
     },
   );
 
@@ -909,7 +1011,13 @@ async function sendNormal(
 
     set((state) => ({
       conversations: finalizeAssistantMessage(state.conversations, convId),
-      ...(streamStillActive ? { isStreaming: false } : {}),
+      ...(streamStillActive
+        ? {
+            isStreaming: finalizeAssistantMessage(state.conversations, convId).some((c) =>
+              c.messages.some((m) => m.isStreaming),
+            ),
+          }
+        : {}),
     }));
 
     get().persistConversations();
@@ -917,12 +1025,16 @@ async function sendNormal(
     const parsed = parseApiError(err);
     modelSetActiveStream(null, null);
     modelReleaseListeners();
-    set((state) => ({
-      conversations: setAssistantError(state.conversations, convId, err),
-      isStreaming: false,
-      generationState: "error" as GenerationState,
-      generationLabel: `Generation failed: ${parsed.message}`,
-    }));
+    set((state) => {
+      const generationLabel = `Generation failed: ${parsed.message}`;
+      return {
+        conversations: setAssistantError(state.conversations, convId, err),
+        isStreaming: Object.keys(state.generationByConversation).some((id) => id !== convId),
+        generationState: "error" as GenerationState,
+        generationLabel,
+        generationByConversation: setConversationGeneration(state, convId, "error" as GenerationState, generationLabel),
+      };
+    });
     uiLoading("sendMessage", false);
     uiToast(parsed.message, "error");
     logError("chat", "Failed to send message or stream response", {
