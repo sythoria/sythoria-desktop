@@ -2,12 +2,11 @@ mod anthropic;
 mod appshots;
 mod git;
 mod mcp;
+pub mod project;
 mod project_tools;
 mod search;
 mod stream_parser;
 mod ws_handler;
-
-pub struct ActiveProject(pub std::sync::Mutex<Option<std::path::PathBuf>>);
 
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -16,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
@@ -416,16 +415,121 @@ async fn save_search_api_keys_cmd(
     save_secret_map(&app, "search", SEARCH_API_KEY_INDEX, &keys).await
 }
 
+#[derive(Deserialize)]
+struct ModelConfig {
+    id: String,
+    #[serde(rename = "apiBase")]
+    api_base: String,
+    #[serde(rename = "modelId")]
+    model_id: String,
+    provider: Option<String>,
+    #[serde(rename = "allowLocalNetwork")]
+    allow_local_network: Option<bool>,
+}
+
+async fn get_model_config_and_key(
+    app: &tauri::AppHandle,
+    config_id: &str,
+) -> Result<(String, String, String, Option<String>), AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let config_path = app_data_dir.join("config.json");
+    if !config_path.exists() {
+        return Err(AppError::ConfigIo("Configuration file not found".to_string()));
+    }
+    let config_content = fs::read_to_string(config_path)?;
+    let configs: Vec<ModelConfig> = serde_json::from_str(&config_content)
+        .map_err(|e| AppError::ConfigIo(format!("Failed to parse config: {}", e)))?;
+
+    let config = configs.into_iter().find(|c| c.id == config_id)
+        .ok_or_else(|| AppError::ConfigIo(format!("Model config not found for ID: {}", config_id)))?;
+
+    let api_key = match get_keychain_secret("model", config_id) {
+        Ok(secret) => secret,
+        Err(_) => String::new(),
+    };
+
+    let parsed_url = url::Url::parse(&config.api_base)
+        .map_err(|e| AppError::ConfigIo(format!("Invalid apiBase URL: {}", e)))?;
+
+    if let Some(host) = parsed_url.host_str() {
+        let host_lower = host.to_lowercase();
+
+        let is_loopback = host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1";
+
+        let is_private_ip = if let Some(ip) = parsed_url.host().and_then(|h| match h {
+            url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
+            _ => None,
+        }) {
+            match ip {
+                std::net::IpAddr::V4(v4) => {
+                    let octets = v4.octets();
+                    octets[0] == 10
+                        || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                        || (octets[0] == 192 && octets[1] == 168)
+                        || (octets[0] == 169 && octets[1] == 254)
+                }
+                std::net::IpAddr::V6(v6) => {
+                    let segments = v6.segments();
+                    (segments[0] & 0xfe00) == 0xfc00
+                        || (segments[0] & 0xffc0) == 0xfe80
+                        || v6.is_loopback()
+                }
+            }
+        } else {
+            false
+        };
+
+        if is_loopback || is_private_ip {
+            let is_ollama = config
+                .provider
+                .as_deref()
+                .map(|p| p.to_lowercase() == "ollama")
+                .unwrap_or(false)
+                || config.api_base.contains("11434");
+
+            if is_ollama {
+                if !config.allow_local_network.unwrap_or(false) {
+                    return Err(AppError::ConfigIo("Access denied: Local/private network access is disabled for Ollama. Enable 'allowLocalNetwork' in model config.".to_string()));
+                }
+            } else {
+                return Err(AppError::ConfigIo(format!(
+                    "Access denied: Local/private network endpoint '{}' is not allowed.",
+                    host
+                )));
+            }
+        }
+    }
+
+    Ok((config.api_base, api_key, config.model_id, config.provider))
+}
+
+fn truncate_error(body: &str) -> String {
+    if body.len() > 200 {
+        format!("{}...", &body[..200])
+    } else {
+        body.to_string()
+    }
+}
+
+#[tauri::command]
+async fn cancel_chat_stream(stream_id: String) -> Result<(), AppError> {
+    mark_stream_cancelled(stream_id)
+}
+
 #[tauri::command]
 async fn chat_completion(
-    api_url: String,
-    api_key: String,
-    model: String,
-    provider: Option<String>,
+    app: tauri::AppHandle,
+    config_id: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             return anthropic::chat_completion_anthropic(
@@ -461,10 +565,11 @@ async fn chat_completion(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        log::error!("chat_completion API error {}: {}", status, body);
+        let err_msg = truncate_error(&body);
+        log::error!("chat_completion API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
             status,
-            message: format!("Request failed: {}", body),
+            message: format!("Request failed: {}", err_msg),
         });
     }
 
@@ -485,22 +590,16 @@ async fn chat_completion(
 }
 
 #[tauri::command]
-async fn cancel_chat_stream(stream_id: String) -> Result<(), AppError> {
-    mark_stream_cancelled(stream_id)
-}
-
-#[tauri::command]
 async fn chat_stream(
-    api_url: String,
-    api_key: String,
-    model: String,
-    provider: Option<String>,
+    app: tauri::AppHandle,
+    config_id: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
-    app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             return anthropic::chat_stream_anthropic(
@@ -539,10 +638,11 @@ async fn chat_stream(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        log::error!("chat_stream API error {}: {}", status, body);
+        let err_msg = truncate_error(&body);
+        log::error!("chat_stream API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
             status,
-            message: format!("Request failed: {}", body),
+            message: format!("Request failed: {}", err_msg),
         });
     }
 
@@ -566,17 +666,16 @@ async fn chat_stream(
 
 #[tauri::command]
 async fn chat_stream_tools(
-    api_url: String,
-    api_key: String,
-    model: String,
-    provider: Option<String>,
+    app: tauri::AppHandle,
+    config_id: String,
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
-    app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             let parsed_messages: Vec<ChatMessage> = messages
@@ -625,10 +724,11 @@ async fn chat_stream_tools(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        log::error!("chat_stream_tools API error {}: {}", status, body);
+        let err_msg = truncate_error(&body);
+        log::error!("chat_stream_tools API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
             status,
-            message: format!("Request failed: {}", body),
+            message: format!("Request failed: {}", err_msg),
         });
     }
 
@@ -655,18 +755,17 @@ async fn chat_stream_tools(
 
 #[tauri::command]
 async fn chat_completion_tools(
-    api_url: String,
-    api_key: String,
-    model: String,
-    provider: Option<String>,
+    app: tauri::AppHandle,
+    config_id: String,
     messages: Vec<serde_json::Value>,
     tools: String,
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            // Need to parse serde_json::Value back to ChatMessage for anthropic
             let parsed_messages: Vec<ChatMessage> = messages
                 .into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
@@ -710,10 +809,11 @@ async fn chat_completion_tools(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        log::error!("chat_completion_tools API error {}: {}", status, body);
+        let err_msg = truncate_error(&body);
+        log::error!("chat_completion_tools API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
             status,
-            message: format!("Request failed: {}", body),
+            message: format!("Request failed: {}", err_msg),
         });
     }
 
@@ -723,10 +823,11 @@ async fn chat_completion_tools(
 
 #[tauri::command]
 async fn check_api(
-    api_url: String,
-    api_key: String,
-    provider: Option<String>,
+    app: tauri::AppHandle,
+    config_id: String,
 ) -> Result<bool, AppError> {
+    let (api_url, api_key, _, provider) = get_model_config_and_key(&app, &config_id).await?;
+
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             return anthropic::check_api_anthropic(api_url, api_key).await;
@@ -1292,6 +1393,34 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
     }
 }
 
+pub struct FileTokenRegistry {
+    pub tokens: std::sync::Mutex<std::collections::HashMap<String, std::path::PathBuf>>,
+}
+
+impl FileTokenRegistry {
+    pub fn new() -> Self {
+        Self {
+            tokens: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn register(&self, path: std::path::PathBuf) -> String {
+        let token = uuid::Uuid::new_v4().to_string();
+        if let Ok(mut lock) = self.tokens.lock() {
+            lock.insert(token.clone(), path);
+        }
+        token
+    }
+
+    pub fn consume(&self, token: &str) -> Option<std::path::PathBuf> {
+        if let Ok(mut lock) = self.tokens.lock() {
+            lock.remove(token)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FilePayload {
@@ -1303,13 +1432,66 @@ struct FilePayload {
 }
 
 #[tauri::command]
-async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
-    let path_buf = std::path::Path::new(&path);
+async fn select_file_and_get_token(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FileTokenRegistry>,
+    title: Option<String>,
+) -> Result<Option<(String, String, u64)>, AppError> {
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title(title.as_deref().unwrap_or("Select File"))
+        .blocking_pick_file();
+
+    if let Some(path) = file_path {
+        let path_buf = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => {
+                if let Ok(p) = u.to_file_path() {
+                    p
+                } else {
+                    return Err(AppError::ConfigIo("Invalid file path URL".to_string()));
+                }
+            }
+        };
+        let name = path_buf
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let metadata = std::fs::metadata(&path_buf)?;
+        let size = metadata.len();
+
+        if size > 10 * 1024 * 1024 {
+            return Err(AppError::ConfigIo("File size exceeds the 10 MB limit".to_string()));
+        }
+
+        let token = state.register(path_buf);
+        Ok(Some((token, name, size)))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn read_file_from_token(
+    state: tauri::State<'_, FileTokenRegistry>,
+    token: String,
+) -> Result<FilePayload, AppError> {
+    let path_buf = state
+        .consume(&token)
+        .ok_or_else(|| AppError::ConfigIo("Invalid or expired file token".to_string()))?;
+
     if !path_buf.is_file() {
-        return Err(AppError::ConfigIo(format!("Path is not a file: {}", path)));
+        return Err(AppError::ConfigIo(format!(
+            "Path is not a file: {}",
+            path_buf.display()
+        )));
     }
 
-    let metadata = fs::metadata(&path)?;
+    let metadata = fs::metadata(&path_buf)?;
     let size = metadata.len();
     if size > 10 * 1024 * 1024 {
         return Err(AppError::ConfigIo(format!(
@@ -1332,7 +1514,7 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
     let is_image = ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "webp";
 
     if is_image {
-        let bytes = fs::read(&path)?;
+        let bytes = fs::read(&path_buf)?;
         use base64::Engine;
         let b64 = base64::prelude::BASE64_STANDARD.encode(&bytes);
         let mime_type = match ext.as_str() {
@@ -1350,7 +1532,7 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
             text_content: None,
         })
     } else {
-        let text_content = fs::read_to_string(&path)
+        let text_content = fs::read_to_string(&path_buf)
             .map_err(|e| AppError::ConfigIo(format!("Failed to read file as text: {}", e)))?;
 
         let mime_type = match ext.as_str() {
@@ -1375,36 +1557,70 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
 }
 
 #[tauri::command]
-async fn write_exported_file(path: String, content: String) -> Result<(), AppError> {
-    let path_buf = std::path::Path::new(&path);
-    if let Some(parent) = path_buf.parent() {
-        fs::create_dir_all(parent)?;
+async fn select_save_file_and_get_token(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FileTokenRegistry>,
+    title: Option<String>,
+    default_name: Option<String>,
+) -> Result<Option<(String, String)>, AppError> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_title(title.as_deref().unwrap_or("Save File"));
+    if let Some(ref name) = default_name {
+        builder = builder.set_file_name(name);
     }
+
+    let file_path = builder.blocking_save_file();
+    if let Some(path) = file_path {
+        let path_buf = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => {
+                if let Ok(p) = u.to_file_path() {
+                    p
+                } else {
+                    return Err(AppError::ConfigIo("Invalid file path URL".to_string()));
+                }
+            }
+        };
+        let path_str = path_buf.to_string_lossy().to_string();
+        let token = state.register(path_buf);
+        Ok(Some((token, path_str)))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn write_exported_file_by_token(
+    state: tauri::State<'_, FileTokenRegistry>,
+    token: String,
+    content: String,
+) -> Result<(), AppError> {
+    let path_buf = state
+        .consume(&token)
+        .ok_or_else(|| AppError::ConfigIo("Invalid or expired file token".to_string()))?;
+
     fs::write(path_buf, content)?;
     Ok(())
 }
 
-#[tauri::command]
-fn set_active_project(
-    active_project: tauri::State<'_, ActiveProject>,
-    path: Option<String>,
-) -> Result<(), AppError> {
-    let mut guard = active_project
-        .0
-        .lock()
-        .map_err(|_| AppError::AppPath("Lock poisoned".into()))?;
-    *guard = path.map(std::path::PathBuf::from);
-    Ok(())
-}
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 
 pub fn run() {
     init_keyring_store();
+    let project_registry = project::ProjectRegistry::new();
+    let file_token_registry = FileTokenRegistry::new();
     tauri::Builder::default()
-        .manage(ActiveProject(std::sync::Mutex::new(None)))
+        .manage(project_registry)
+        .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
         .setup(|app| {
+            let registry = app.state::<project::ProjectRegistry>();
+            let _ = registry.load_from_disk(app.app_handle());
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
@@ -1483,6 +1699,30 @@ pub fn run() {
                     }
                 }
             }
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                let app = window.app_handle();
+                let state = app.state::<FileTokenRegistry>();
+
+                let mut payload = Vec::new();
+                for path in paths {
+                    if path.is_file() {
+                        let name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        let token = state.register(path.clone());
+                        payload.push(serde_json::json!({
+                            "token": token,
+                            "name": name,
+                            "size": size,
+                        }));
+                    }
+                }
+
+                let _ = window.emit("sythoria://drag-drop-tokens", payload);
+            }
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1557,9 +1797,13 @@ pub fn run() {
             wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
-            read_file_from_path,
-            write_exported_file,
-            set_active_project,
+            select_file_and_get_token,
+            read_file_from_token,
+            select_save_file_and_get_token,
+            write_exported_file_by_token,
+            project::load_projects,
+            project::save_projects,
+            project::set_active_project,
             git::git_detect_repo,
             git::git_get_status,
             git::git_create_commit,
@@ -1579,6 +1823,7 @@ pub fn run() {
             appshots::list_appshots,
             appshots::delete_appshot,
             appshots::run_appshots_clean,
+            appshots::select_appshot_folder,
             appshots::has_screen_capture_permission,
             appshots::request_screen_capture_permission
         ])
