@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Menu, PanelLeft, MessageSquarePlus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Menu, PanelLeft, MessageSquarePlus, ChevronLeft, ChevronRight, Split, X } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import InputBar from "./components/InputBar";
 import Settings from "./components/settings";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
-import { RenameChatModal } from "./components/ui/Modal";
+import { RenameChatModal, ToolConfirmationModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import StartScreen from "./components/StartScreen";
@@ -39,18 +39,31 @@ function App() {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const { conversations, activeId, isStreaming, generationState, generationLabel, navigationHistory, navigationIndex } =
-    useChatStore(
-      useShallow((s) => ({
-        conversations: s.conversations,
-        activeId: s.activeId,
-        isStreaming: s.isStreaming,
-        generationState: s.generationState,
-        generationLabel: s.generationLabel,
-        navigationHistory: s.navigationHistory,
-        navigationIndex: s.navigationIndex,
-      })),
-    );
+  const {
+    conversations,
+    activeId,
+    isStreaming,
+    generationState,
+    generationLabel,
+    generationByConversation,
+    navigationHistory,
+    navigationIndex,
+    isCompareMode,
+    compareId,
+  } = useChatStore(
+    useShallow((s) => ({
+      conversations: s.conversations,
+      activeId: s.activeId,
+      isStreaming: s.isStreaming,
+      generationState: s.generationState,
+      generationLabel: s.generationLabel,
+      generationByConversation: s.generationByConversation,
+      navigationHistory: s.navigationHistory,
+      navigationIndex: s.navigationIndex,
+      isCompareMode: s.isCompareMode,
+      compareId: s.compareId,
+    })),
+  );
   const {
     init,
     setActiveId,
@@ -63,6 +76,7 @@ function App() {
     confirmRename,
     navigateBack,
     navigateForward,
+    setIsCompareMode,
   } = useChatStore(
     useShallow((s) => ({
       init: s.init,
@@ -76,6 +90,7 @@ function App() {
       confirmRename: s.confirmRename,
       navigateBack: s.navigateBack,
       navigateForward: s.navigateForward,
+      setIsCompareMode: s.setIsCompareMode,
     })),
   );
 
@@ -131,6 +146,8 @@ function App() {
     toasts,
     hasStarted,
     isDraggingFile,
+    pendingToolConfirmations,
+    activeArtifact,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -143,6 +160,8 @@ function App() {
       toasts: s.toasts,
       hasStarted: s.hasStarted,
       isDraggingFile: s.isDraggingFile,
+      pendingToolConfirmations: s.pendingToolConfirmations,
+      activeArtifact: s.activeArtifact,
     })),
   );
   const {
@@ -153,6 +172,8 @@ function App() {
     closeRenameModal,
     dismissToast,
     setHasStarted,
+    respondToToolConfirmation,
+    setActiveArtifact,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
@@ -162,6 +183,8 @@ function App() {
       closeRenameModal: s.closeRenameModal,
       dismissToast: s.dismissToast,
       setHasStarted: s.setHasStarted,
+      respondToToolConfirmation: s.respondToToolConfirmation,
+      setActiveArtifact: s.setActiveArtifact,
     })),
   );
 
@@ -177,6 +200,41 @@ function App() {
     [conversations, activeId],
   );
   const messages = activeConversation?.messages ?? [];
+  const primaryGeneration = activeId ? generationByConversation[activeId] : null;
+
+  const compareConversation = useMemo(
+    () => conversations.find((c) => c.id === compareId) ?? null,
+    [conversations, compareId],
+  );
+  const compareMessages = compareConversation?.messages ?? [];
+  const compareGeneration = compareId ? generationByConversation[compareId] : null;
+
+  const handleToggleCompareMode = useCallback(() => {
+    const nextCompareMode = !isCompareMode;
+    setIsCompareMode(nextCompareMode);
+
+    if (nextCompareMode) {
+      if (activeId && !compareId) {
+        const activeConv = conversations.find((c) => c.id === activeId);
+        const secondaryModel =
+          models.find((m) => m.id !== activeConv?.model && m.enabled !== false)?.id || selectedModel;
+
+        const newId = "compare-" + Date.now();
+        const newConv = {
+          id: newId,
+          title: (activeConv?.title ?? "Comparison") + " (Compare)",
+          timestamp: new Date(),
+          messages: [],
+          model: secondaryModel,
+        };
+
+        useChatStore.setState({
+          conversations: [newConv, ...conversations],
+          compareId: newId,
+        });
+      }
+    }
+  }, [isCompareMode, activeId, compareId, conversations, models, selectedModel, setIsCompareMode]);
 
   // Synchronize active project when active conversation changes
   useEffect(() => {
@@ -601,17 +659,63 @@ function App() {
                       {activeConversation?.title ?? "New chat"}
                     </motion.h2>
                   </div>
-                  <div className="flex items-center gap-2"></div>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={handleToggleCompareMode}
+                      className={`p-1.5 rounded-md transition-colors ${
+                        isCompareMode
+                          ? "text-accent bg-accent/10 hover:bg-accent/15"
+                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                      }`}
+                      aria-label={isCompareMode ? "Disable compare mode" : "Enable compare mode"}
+                      title={isCompareMode ? "Disable compare mode" : "Compare responses"}
+                    >
+                      <Split size={16} />
+                    </button>
+                  </div>
                 </header>
 
-                <ChatArea
-                  messages={messages}
-                  setIsAtBottom={setIsAtBottom}
-                  virtuosoRef={virtuosoRef}
-                  onRetry={handleRetry}
-                  generationState={generationState}
-                  generationLabel={generationLabel}
-                />
+                {isCompareMode && compareConversation ? (
+                  <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border">
+                    <div className="min-h-0 flex flex-col">
+                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border">
+                        {activeConversation?.title ?? "Primary"}
+                      </div>
+                      <ChatArea
+                        messages={messages}
+                        setIsAtBottom={setIsAtBottom}
+                        virtuosoRef={virtuosoRef}
+                        onRetry={handleRetry}
+                        generationState={primaryGeneration?.state ?? generationState}
+                        generationLabel={primaryGeneration?.label ?? generationLabel}
+                      />
+                    </div>
+                    <div className="min-h-0 flex flex-col">
+                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border">
+                        {compareConversation.title}
+                      </div>
+                      <ChatArea
+                        messages={compareMessages}
+                        setIsAtBottom={() => undefined}
+                        virtuosoRef={{ current: null }}
+                        onRetry={() => {
+                          if (compareConversation.id) retryLastMessage(compareConversation.id);
+                        }}
+                        generationState={compareGeneration?.state ?? "idle"}
+                        generationLabel={compareGeneration?.label ?? ""}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <ChatArea
+                    messages={messages}
+                    setIsAtBottom={setIsAtBottom}
+                    virtuosoRef={virtuosoRef}
+                    onRetry={handleRetry}
+                    generationState={primaryGeneration?.state ?? generationState}
+                    generationLabel={primaryGeneration?.label ?? generationLabel}
+                  />
+                )}
 
                 <motion.div
                   className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
@@ -664,6 +768,63 @@ function App() {
       </AnimatePresence>
 
       <ProjectConfigModal />
+      <ToolConfirmationModal
+        confirmation={
+          pendingToolConfirmations && pendingToolConfirmations.length > 0 ? pendingToolConfirmations[0] : null
+        }
+        onRespond={respondToToolConfirmation}
+      />
+      <AnimatePresence>
+        {activeArtifact && (
+          <motion.div
+            key="artifact-preview"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: motionTokens.duration.fast }}
+          >
+            <button
+              className="absolute inset-0 cursor-default"
+              style={{ backgroundColor: "var(--theme-overlay)" }}
+              onClick={() => setActiveArtifact(null)}
+              aria-label="Close artifact preview"
+            />
+            <motion.div
+              className="relative z-10 flex h-[min(760px,90vh)] w-[min(980px,92vw)] flex-col overflow-hidden rounded-xl border border-border bg-surface"
+              style={{ boxShadow: "var(--shadow-xl)" }}
+              initial={{ opacity: 0, scale: 0.98, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={springs.gentle}
+            >
+              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+                <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
+                <button
+                  onClick={() => setActiveArtifact(null)}
+                  className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                  aria-label="Close artifact preview"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              {activeArtifact.type === "html" || activeArtifact.type === "svg" ? (
+                <iframe
+                  title={activeArtifact.title}
+                  sandbox="allow-scripts"
+                  srcDoc={activeArtifact.content}
+                  className="min-h-0 flex-1 bg-white"
+                />
+              ) : (
+                <pre className="min-h-0 flex-1 overflow-auto bg-chat p-4 font-mono text-xs text-text-primary">
+                  {activeArtifact.content}
+                </pre>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
