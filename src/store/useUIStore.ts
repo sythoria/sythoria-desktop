@@ -31,6 +31,13 @@ export type { ThemeConfig, CustomThemeConfig };
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
 
+export interface ToolConfirmation {
+  id: string;
+  toolName: string;
+  arguments: Record<string, any>;
+  resolve: (approved: boolean) => void;
+}
+
 interface UIState {
   view: "chat" | "settings";
   theme: ThemeConfig;
@@ -91,8 +98,15 @@ interface UIState {
   setAutoUpdateChecking: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
   setShowContextWindow: (value: boolean) => void;
+  sidebarWidth: number;
+  setSidebarWidth: (width: number) => void;
+  activeArtifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null;
+  setActiveArtifact: (artifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null) => void;
   openProjectConfigModal: (mode: "create" | "edit", id?: string | null) => void;
   closeProjectConfigModal: () => void;
+  pendingToolConfirmations: ToolConfirmation[];
+  addPendingToolConfirmation: (conf: ToolConfirmation) => void;
+  respondToToolConfirmation: (id: string, approved: boolean) => void;
 }
 
 let toastCounter = 0;
@@ -134,6 +148,15 @@ export const useUIStore = create<UIState>((set) => ({
   showProjectConfigModal: false,
   projectConfigModalMode: "create",
   projectConfigModalId: null,
+  sidebarWidth: typeof window !== "undefined" ? Number(localStorage.getItem("sythoria-sidebar-width") || 260) : 260,
+  activeArtifact: null,
+  pendingToolConfirmations: [],
+
+  setSidebarWidth: (sidebarWidth) => {
+    localStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
+    set({ sidebarWidth });
+  },
+  setActiveArtifact: (activeArtifact) => set({ activeArtifact }),
 
   setView: (view) => set({ view }),
   setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
@@ -174,6 +197,20 @@ export const useUIStore = create<UIState>((set) => ({
   closeProjectConfigModal: () => {
     set({ showProjectConfigModal: false, projectConfigModalId: null });
   },
+  addPendingToolConfirmation: (conf) =>
+    set((s) => ({
+      pendingToolConfirmations: [...s.pendingToolConfirmations, conf],
+    })),
+  respondToToolConfirmation: (id, approved) =>
+    set((s) => {
+      const conf = s.pendingToolConfirmations.find((c) => c.id === id);
+      if (conf) {
+        conf.resolve(approved);
+      }
+      return {
+        pendingToolConfirmations: s.pendingToolConfirmations.filter((c) => c.id !== id),
+      };
+    }),
   setLogBuffer: (logs) => set({ logBuffer: logs }),
   setLogFilterSource: (source) => set({ logFilterSource: source }),
   setLogFilterLevel: (level) => set({ logFilterLevel: level }),
