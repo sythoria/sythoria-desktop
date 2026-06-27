@@ -109,6 +109,16 @@ interface UIState {
   respondToToolConfirmation: (id: string, approved: boolean) => void;
 }
 
+const safeLocalStorage =
+  typeof window !== "undefined" && window.localStorage
+    ? window.localStorage
+    : {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+      };
+
 let toastCounter = 0;
 
 export const useUIStore = create<UIState>((set) => ({
@@ -148,12 +158,12 @@ export const useUIStore = create<UIState>((set) => ({
   showProjectConfigModal: false,
   projectConfigModalMode: "create",
   projectConfigModalId: null,
-  sidebarWidth: typeof window !== "undefined" ? Number(localStorage.getItem("sythoria-sidebar-width") || 260) : 260,
+  sidebarWidth: Number(safeLocalStorage.getItem("sythoria-sidebar-width") || 260),
   activeArtifact: null,
   pendingToolConfirmations: [],
 
   setSidebarWidth: (sidebarWidth) => {
-    localStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
+    safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
     set({ sidebarWidth });
   },
   setActiveArtifact: (activeArtifact) => set({ activeArtifact }),

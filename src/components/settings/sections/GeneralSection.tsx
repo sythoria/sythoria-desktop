@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check, Download, Trash2 } from "lucide-react";
 import { Switch } from "../../ui/Switch";
@@ -7,6 +7,7 @@ import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { clearStoreData } from "../../../utils/storage";
 
@@ -43,6 +44,17 @@ export function GeneralSection() {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isConfirmOpen1, setIsConfirmOpen1] = useState(false);
   const [isConfirmOpen2, setIsConfirmOpen2] = useState(false);
+  const [appVersion, setAppVersion] = useState("v0.1.0");
+
+  useEffect(() => {
+    getVersion()
+      .then((v) => {
+        setAppVersion(`v${v}`);
+      })
+      .catch((err) => {
+        console.error("Failed to get version from Tauri:", err);
+      });
+  }, []);
 
   const handleExportConversations = () => {
     try {
@@ -342,7 +354,7 @@ export function GeneralSection() {
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-text-primary">Current Version</span>
               <span className="px-2 py-0.5 rounded bg-input border border-border/60 text-xs font-mono text-text-secondary">
-                v0.1.0
+                {appVersion}
               </span>
             </div>
             <motion.button
