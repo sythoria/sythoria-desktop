@@ -180,7 +180,10 @@ export default function Sidebar({
   const debouncedQuery = useDebounce(searchQuery);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const nonEmptyConversations = useMemo(() => conversations.filter((c) => c.messages.length > 0), [conversations]);
+  const nonEmptyConversations = useMemo(
+    () => conversations.filter((c) => c.messages.length > 0 && !c.id.startsWith("compare-")),
+    [conversations],
+  );
 
   const filteredConversations = useMemo(() => {
     if (!debouncedQuery.trim()) return nonEmptyConversations;
