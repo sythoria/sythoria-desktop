@@ -88,7 +88,12 @@ export const useGitStore = create<GitStore>((set, get) => ({
       }
 
       // 2. Fetch repo status
-      const status = await invoke<GitStatus>("git_get_status", { repoPath: detected });
+      const { useProjectStore } = await import("./useProjectStore");
+      const projectId = useProjectStore.getState().activeProjectId;
+      if (!projectId) {
+        throw new Error("No active project configured");
+      }
+      const status = await invoke<GitStatus>("git_get_status", { projectId });
       set({ status, loading: false });
 
       // Auto save path if changed and validated
@@ -107,25 +112,27 @@ export const useGitStore = create<GitStore>((set, get) => ({
   commitChanges: async (message, files) => {
     set({ loading: true, error: null });
     const { repoPath, overrideIdentity, gitName, gitEmail, isPreCommitEnabled } = get().config;
-    if (!repoPath) {
-      const err = "No repository path configured";
+    const { useProjectStore } = await import("./useProjectStore");
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!projectId) {
+      const err = "No active project configured";
       set({ error: err, loading: false });
       throw new Error(err);
     }
     try {
       const result = await invoke<string>("git_create_commit", {
-        repoPath,
+        projectId,
         message,
         files: files || null,
         authorName: overrideIdentity ? gitName : null,
         authorEmail: overrideIdentity ? gitEmail : null,
         bypassHooks: !isPreCommitEnabled,
       });
-      logInfo("git", `Created Git commit in repo: ${repoPath}`, { details: result });
+      logInfo("git", `Created Git commit for project: ${projectId}`, { details: result });
       await get().verifyPath(repoPath);
       return result;
     } catch (e: any) {
-      logError("git", `Failed to commit changes in: ${repoPath}`, { error: e });
+      logError("git", `Failed to commit changes for project: ${projectId}`, { error: e });
       set({ error: e.message || String(e), loading: false });
       throw e;
     }
@@ -134,13 +141,15 @@ export const useGitStore = create<GitStore>((set, get) => ({
   undoLastCommit: async () => {
     set({ loading: true, error: null });
     const { repoPath } = get().config;
-    if (!repoPath) return;
+    const { useProjectStore } = await import("./useProjectStore");
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!projectId) return;
     try {
-      await invoke("git_undo_last_commit", { repoPath });
-      logInfo("git", `Soft reset last commit in: ${repoPath}`);
+      await invoke("git_undo_last_commit", { projectId });
+      logInfo("git", `Soft reset last commit for project: ${projectId}`);
       await get().verifyPath(repoPath);
     } catch (e: any) {
-      logError("git", `Failed to undo last commit in: ${repoPath}`, { error: e });
+      logError("git", `Failed to undo last commit for project: ${projectId}`, { error: e });
       set({ error: e.message || String(e), loading: false });
     }
   },
@@ -148,22 +157,25 @@ export const useGitStore = create<GitStore>((set, get) => ({
   checkoutBranch: async (branch) => {
     set({ loading: true, error: null });
     const { repoPath } = get().config;
-    if (!repoPath) return;
+    const { useProjectStore } = await import("./useProjectStore");
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!projectId) return;
     try {
-      await invoke("git_checkout_branch", { repoPath, branch });
-      logInfo("git", `Checked out branch ${branch} in: ${repoPath}`);
+      await invoke("git_checkout_branch", { projectId, branch });
+      logInfo("git", `Checked out branch ${branch} for project: ${projectId}`);
       await get().verifyPath(repoPath);
     } catch (e: any) {
-      logError("git", `Failed to checkout branch ${branch} in: ${repoPath}`, { error: e });
+      logError("git", `Failed to checkout branch ${branch} for project: ${projectId}`, { error: e });
       set({ error: e.message || String(e), loading: false });
     }
   },
 
   getDiff: async () => {
-    const { repoPath } = get().config;
-    if (!repoPath) return "";
+    const { useProjectStore } = await import("./useProjectStore");
+    const projectId = useProjectStore.getState().activeProjectId;
+    if (!projectId) return "";
     try {
-      return await invoke<string>("git_diff_changes", { repoPath });
+      return await invoke<string>("git_diff_changes", { projectId });
     } catch (e: any) {
       logError("git", "Failed to retrieve diff from repository", { error: e });
       return "";
@@ -204,9 +216,6 @@ export const useGitStore = create<GitStore>((set, get) => ({
           modelState.models.find((m) => m.id === modelState.selectedModel);
 
         if (modelConfig) {
-          const apiBase = modelConfig.apiBase;
-          const apiKey = modelState.apiKeys[modelConfig.id] || modelConfig.apiKey || "";
-
           const systemPrompt =
             activeProject?.autoCommitMsgTemplate && activeProject.autoCommitMsgTemplate.trim()
               ? activeProject.autoCommitMsgTemplate
@@ -214,10 +223,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
           try {
             message = await invoke<string>("chat_completion", {
-              apiUrl: apiBase,
-              apiKey: apiKey,
-              model: modelConfig.modelId,
-              provider: modelConfig.provider,
+              configId: modelConfig.id,
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: diff.slice(0, 5000) },
