@@ -27,6 +27,30 @@ import { springs, motionTokens } from "./lib/motion-tokens";
 
 import "./index.css";
 
+function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
+  const connectSrc = allowNetwork ? "*" : "'none'";
+  const imgSrc = allowNetwork ? "*" : "'self' data: blob:";
+  const fontSrc = allowNetwork ? "*" : "'self' data:";
+  const styleSrc = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; style-src 'self' 'unsafe-inline';";
+
+  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${styleSrc} connect-src ${connectSrc}; img-src ${imgSrc}; font-src ${fontSrc}; object-src 'none'; frame-src 'none';">`;
+
+  const lowerContent = content.toLowerCase();
+  const headIndex = lowerContent.indexOf("<head>");
+  if (headIndex !== -1) {
+    const insertPos = headIndex + 6;
+    return content.slice(0, insertPos) + "\n  " + cspMeta + content.slice(insertPos);
+  }
+
+  const htmlIndex = lowerContent.indexOf("<html>");
+  if (htmlIndex !== -1) {
+    const insertPos = htmlIndex + 6;
+    return content.slice(0, insertPos) + "\n<head>\n  " + cspMeta + "\n</head>" + content.slice(insertPos);
+  }
+
+  return "<!DOCTYPE html>\n<html>\n<head>\n  " + cspMeta + "\n</head>\n<body>\n" + content + "\n</body>\n</html>";
+}
+
 function App() {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -194,6 +218,15 @@ function App() {
       setActiveProject: s.setActiveProject,
     })),
   );
+  const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
+
+  useEffect(() => {
+    if (!activeArtifact) {
+      requestAnimationFrame(() => {
+        setAllowArtifactNetwork(false);
+      });
+    }
+  }, [activeArtifact]);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -220,17 +253,29 @@ function App() {
           models.find((m) => m.id !== activeConv?.model && m.enabled !== false)?.id || selectedModel;
 
         const newId = "compare-" + Date.now();
+        // Clone historical context to comparison conversation
+        const clonedMessages = activeConv ? activeConv.messages.map((m) => ({ ...m })) : [];
+
         const newConv = {
           id: newId,
           title: (activeConv?.title ?? "Comparison") + " (Compare)",
           timestamp: new Date(),
-          messages: [],
+          messages: clonedMessages,
           model: secondaryModel,
+          projectId: activeConv?.projectId || undefined,
         };
 
         useChatStore.setState({
           conversations: [newConv, ...conversations],
           compareId: newId,
+        });
+      }
+    } else {
+      // Clean up the temporary comparison chat on toggle off
+      if (compareId) {
+        useChatStore.setState({
+          conversations: conversations.filter((c) => c.id !== compareId),
+          compareId: null,
         });
       }
     }
@@ -249,14 +294,32 @@ function App() {
     }
   }, [activeId, activeConversation?.projectId, activeProjectId, setActiveProject]);
 
-  const { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef } = useScrollButton();
-  const { hasNewMessages, setHasNewMessages } = useScrollTracking(activeId, messages.length, isAtBottom, isStreaming);
+  const primaryScroll = useScrollButton();
+  const compareScroll = useScrollButton();
+
+  const primaryTracking = useScrollTracking(activeId, messages.length, primaryScroll.isAtBottom, isStreaming);
+  const compareTracking = useScrollTracking(compareId, compareMessages.length, compareScroll.isAtBottom, isStreaming);
+
+  const showScrollToBottom = !primaryScroll.isAtBottom || (isCompareMode && !compareScroll.isAtBottom);
+  const hasNewMessages = primaryTracking.hasNewMessages || (isCompareMode && compareTracking.hasNewMessages);
+
+  const handleScrollToBottom = useCallback(() => {
+    primaryScroll.scrollToBottom();
+    primaryTracking.setHasNewMessages(false);
+    if (isCompareMode) {
+      compareScroll.scrollToBottom();
+      compareTracking.setHasNewMessages(false);
+    }
+  }, [primaryScroll, compareScroll, primaryTracking, compareTracking, isCompareMode]);
 
   // Scroll to bottom instantly when switching conversations or going to the chat view
   useEffect(() => {
     if (view === "chat" && activeId) {
       const scroll = () => {
-        scrollToBottom("auto");
+        primaryScroll.scrollToBottom("auto");
+        if (isCompareMode) {
+          compareScroll.scrollToBottom("auto");
+        }
       };
 
       scroll();
@@ -274,7 +337,7 @@ function App() {
         clearTimeout(timer);
       };
     }
-  }, [activeId, view, scrollToBottom]);
+  }, [activeId, view, isCompareMode, primaryScroll.scrollToBottom, compareScroll.scrollToBottom]);
 
   useEffect(() => {
     init();
@@ -325,19 +388,22 @@ function App() {
       }
       unlistenDragLeave = leave;
 
-      const drop = await listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-        useUIStore.getState().setIsDraggingFile(false);
-        const uiState = useUIStore.getState();
-        if (uiState.view !== "chat") return;
+      const drop = await listen<{ token: string; name: string; size: number }[]>(
+        "sythoria://drag-drop-tokens",
+        async (event) => {
+          useUIStore.getState().setIsDraggingFile(false);
+          const uiState = useUIStore.getState();
+          if (uiState.view !== "chat") return;
 
-        const { paths } = event.payload;
-        if (paths && paths.length > 0) {
-          const chatStore = useChatStore.getState();
-          for (const path of paths) {
-            await chatStore.addDraftFileFromPath(path);
+          const payload = event.payload;
+          if (payload && payload.length > 0) {
+            const chatStore = useChatStore.getState();
+            for (const item of payload) {
+              await chatStore.addDraftFileFromToken(item.token);
+            }
           }
-        }
-      });
+        },
+      );
       if (!active) {
         drop();
         return;
@@ -499,11 +565,6 @@ function App() {
     setView("settings");
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
-
-  const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
-    setHasNewMessages(false);
-  }, [scrollToBottom, setHasNewMessages]);
 
   const handleRetry = useCallback(() => {
     if (activeId) retryLastMessage(activeId);
@@ -676,28 +737,82 @@ function App() {
                 </header>
 
                 {isCompareMode && compareConversation ? (
-                  <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border">
-                    <div className="min-h-0 flex flex-col">
-                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border">
-                        {activeConversation?.title ?? "Primary"}
+                  <div className="flex-1 min-h-0 grid grid-cols-2 divide-x divide-border">
+                    {/* Left Column (Primary) */}
+                    <div className="min-h-0 min-w-0 flex flex-col">
+                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border flex items-center justify-between">
+                        <span className="truncate max-w-[50%]">
+                          Primary Chat ({activeConversation?.title || "Primary"})
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-text-muted">Model:</span>
+                          <select
+                            value={activeConversation?.model || selectedModel}
+                            onChange={(e) => {
+                              const newModelId = e.target.value;
+                              setSelectedModel(newModelId);
+                              if (activeConversation) {
+                                useChatStore.setState((state) => ({
+                                  conversations: state.conversations.map((c) =>
+                                    c.id === activeConversation.id ? { ...c, model: newModelId } : c,
+                                  ),
+                                }));
+                              }
+                            }}
+                            className="bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text-secondary outline-none focus:border-accent hover:border-text-muted transition-colors cursor-pointer max-w-[150px] shadow-sm"
+                          >
+                            {models
+                              .filter((m) => m.enabled !== false)
+                              .map((m) => (
+                                <option key={m.id} value={m.id} className="bg-surface text-text-primary">
+                                  {m.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
                       </div>
                       <ChatArea
                         messages={messages}
-                        setIsAtBottom={setIsAtBottom}
-                        virtuosoRef={virtuosoRef}
+                        setIsAtBottom={primaryScroll.setIsAtBottom}
+                        virtuosoRef={primaryScroll.virtuosoRef}
                         onRetry={handleRetry}
                         generationState={primaryGeneration?.state ?? generationState}
                         generationLabel={primaryGeneration?.label ?? generationLabel}
                       />
                     </div>
-                    <div className="min-h-0 flex flex-col">
-                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border">
-                        {compareConversation.title}
+
+                    {/* Right Column (Comparison) */}
+                    <div className="min-h-0 min-w-0 flex flex-col">
+                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border flex items-center justify-between">
+                        <span className="truncate max-w-[50%]">{compareConversation.title}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-text-muted">Model:</span>
+                          <select
+                            value={compareConversation.model}
+                            onChange={(e) => {
+                              const newModelId = e.target.value;
+                              useChatStore.setState((state) => ({
+                                conversations: state.conversations.map((c) =>
+                                  c.id === compareConversation.id ? { ...c, model: newModelId } : c,
+                                ),
+                              }));
+                            }}
+                            className="bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text-secondary outline-none focus:border-accent hover:border-text-muted transition-colors cursor-pointer max-w-[150px] shadow-sm"
+                          >
+                            {models
+                              .filter((m) => m.enabled !== false)
+                              .map((m) => (
+                                <option key={m.id} value={m.id} className="bg-surface text-text-primary">
+                                  {m.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
                       </div>
                       <ChatArea
                         messages={compareMessages}
-                        setIsAtBottom={() => undefined}
-                        virtuosoRef={{ current: null }}
+                        setIsAtBottom={compareScroll.setIsAtBottom}
+                        virtuosoRef={compareScroll.virtuosoRef}
                         onRetry={() => {
                           if (compareConversation.id) retryLastMessage(compareConversation.id);
                         }}
@@ -709,8 +824,8 @@ function App() {
                 ) : (
                   <ChatArea
                     messages={messages}
-                    setIsAtBottom={setIsAtBottom}
-                    virtuosoRef={virtuosoRef}
+                    setIsAtBottom={primaryScroll.setIsAtBottom}
+                    virtuosoRef={primaryScroll.virtuosoRef}
                     onRetry={handleRetry}
                     generationState={primaryGeneration?.state ?? generationState}
                     generationLabel={primaryGeneration?.label ?? generationLabel}
@@ -718,7 +833,7 @@ function App() {
                 )}
 
                 <motion.div
-                  className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${!isAtBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+                  className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
                   transition={{ duration: motionTokens.duration.fast }}
                   initial={false}
                 >
@@ -799,7 +914,26 @@ function App() {
               transition={springs.gentle}
             >
               <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
+                <div className="flex items-center gap-4">
+                  <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
+                  {(activeArtifact.type === "html" || activeArtifact.type === "svg") && (
+                    <div className="flex items-center gap-2 border-l border-border pl-4">
+                      <input
+                        id="allow-network-toggle"
+                        type="checkbox"
+                        checked={allowArtifactNetwork}
+                        onChange={(e) => setAllowArtifactNetwork(e.target.checked)}
+                        className="w-3.5 h-3.5 accent-accent cursor-pointer rounded border-border"
+                      />
+                      <label
+                        htmlFor="allow-network-toggle"
+                        className="text-xs text-text-muted font-medium cursor-pointer select-none hover:text-text-secondary transition-colors"
+                      >
+                        Allow Network Access
+                      </label>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => setActiveArtifact(null)}
                   className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
@@ -813,7 +947,7 @@ function App() {
                 <iframe
                   title={activeArtifact.title}
                   sandbox="allow-scripts"
-                  srcDoc={activeArtifact.content}
+                  srcDoc={getSafeSrcDoc(activeArtifact.content, allowArtifactNetwork)}
                   className="min-h-0 flex-1 bg-white"
                 />
               ) : (
