@@ -1,8 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -90,70 +87,6 @@ impl Default for WsConfig {
     }
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct SessionManager {
-    sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
-    event_tx: broadcast::Sender<WsEvent>,
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct SessionInfo {
-    user_id: String,
-    created_at: String,
-    last_activity: String,
-    message_count: usize,
-}
-
-#[allow(dead_code)]
-impl SessionManager {
-    pub fn new() -> Self {
-        let (event_tx, _) = broadcast::channel::<WsEvent>(1000);
-        SessionManager {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            event_tx,
-        }
-    }
-
-    pub async fn create_session(&self, user_id: String) -> String {
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-        
-        let mut sessions = self.sessions.write().await;
-        sessions.insert(
-            session_id.clone(),
-            SessionInfo {
-                user_id,
-                created_at: now.clone(),
-                last_activity: now,
-                message_count: 0,
-            },
-        );
-        
-        session_id
-    }
-
-    pub async fn update_activity(&self, session_id: &str) {
-        if let Some(session) = self.sessions.write().await.get_mut(session_id) {
-            session.last_activity = chrono::Utc::now().to_rfc3339();
-            session.message_count += 1;
-        }
-    }
-
-    pub async fn remove_session(&self, session_id: &str) {
-        self.sessions.write().await.remove(session_id);
-    }
-
-    pub fn event_receiver(&self) -> broadcast::Receiver<WsEvent> {
-        self.event_tx.clone().subscribe()
-    }
-
-    pub async fn broadcast_event(&self, event: WsEvent) {
-        let _ = self.event_tx.send(event);
-    }
-}
-
 #[derive(Debug, Serialize)]
 struct AuthFrame {
     #[serde(rename = "type")]
@@ -177,18 +110,17 @@ struct TypingFrame {
     chat_id: Option<String>,
 }
 
+#[allow(dead_code)]
 pub struct WebSocketConnection {
     config: WsConfig,
-    #[allow(dead_code)]
-    session_manager: Arc<SessionManager>,
     reconnect_count: u32,
 }
 
+#[allow(dead_code)]
 impl WebSocketConnection {
-    pub fn new(config: WsConfig, session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(config: WsConfig) -> Self {
         WebSocketConnection {
             config,
-            session_manager,
             reconnect_count: 0,
         }
     }
@@ -196,7 +128,7 @@ impl WebSocketConnection {
     fn calculate_backoff(&self) -> Duration {
         let base_delay = Duration::from_secs(1);
         let max_delay = Duration::from_secs(30);
-        
+
         let delay = base_delay * (2u32.pow(self.reconnect_count.min(5)));
         delay.min(max_delay)
     }
@@ -206,17 +138,17 @@ impl WebSocketConnection {
     }
 }
 
+#[allow(dead_code)]
 pub async fn ws_chat_stream(
     ws_config: WsConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     use tauri::Emitter;
 
-    let session_manager = Arc::new(SessionManager::new());
-    let mut connection = WebSocketConnection::new(ws_config.clone(), session_manager.clone());
+    let mut connection = WebSocketConnection::new(ws_config.clone());
 
     loop {
-        match run_ws_connection(&ws_config, &app_handle, session_manager.clone()).await {
+        match run_ws_connection(&ws_config, &app_handle).await {
             Ok(content) => return Ok(content),
             Err(e) => {
                 if !connection.should_reconnect() {
@@ -227,7 +159,7 @@ pub async fn ws_chat_stream(
 
                 connection.reconnect_count += 1;
                 let backoff = connection.calculate_backoff();
-                
+
                 let _ = app_handle.emit(
                     "ws-reconnecting",
                     &serde_json::json!({
@@ -243,10 +175,10 @@ pub async fn ws_chat_stream(
     }
 }
 
+#[allow(dead_code)]
 async fn run_ws_connection(
     ws_config: &WsConfig,
     app_handle: &tauri::AppHandle,
-    _session_manager: Arc<SessionManager>,
 ) -> Result<String, String> {
     use tauri::Emitter;
 
@@ -280,10 +212,13 @@ async fn run_ws_connection(
         .await
         .map_err(|e| format!("Send config failed: {}", e))?;
 
-    let _ = app_handle.emit("ws-connected", &serde_json::json!({
-        "model": ws_config.model,
-        "url": ws_config.url
-    }));
+    let _ = app_handle.emit(
+        "ws-connected",
+        &serde_json::json!({
+            "model": ws_config.model,
+            "url": ws_config.url
+        }),
+    );
 
     let mut full_content = String::new();
 
@@ -372,12 +307,172 @@ pub async fn send_typing_event(
     };
     let typing_json = serde_json::to_string(&typing_frame)
         .map_err(|e| format!("Serialize typing error: {}", e))?;
-    
+
     write
         .send(Message::Text(typing_json.into()))
         .await
         .map_err(|e| format!("Send typing failed: {}", e))?;
 
+    Ok(())
+}
+
+use futures_util::stream::SplitSink;
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub type WsWriter = SplitSink<WsStream, Message>;
+
+pub struct WsSession {
+    pub writer: std::sync::Arc<Mutex<Option<WsWriter>>>,
+}
+
+impl Default for WsSession {
+    fn default() -> Self {
+        WsSession {
+            writer: std::sync::Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+pub async fn ws_connect(
+    ws_config: WsConfig,
+    app_handle: tauri::AppHandle,
+    session: &WsSession,
+) -> Result<(), String> {
+    // 1. Close any existing connection first
+    {
+        let mut guard = session.writer.lock().await;
+        *guard = None;
+    }
+
+    // 2. Connect
+    let (ws_stream, _) = connect_async(&ws_config.url)
+        .await
+        .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+
+    let (mut write, mut read) = ws_stream.split();
+
+    // 3. Auth handshake if needed
+    if let Some(ref key) = ws_config.api_key {
+        let auth_frame = AuthFrame {
+            frame_type: "auth".to_string(),
+            key: key.clone(),
+        };
+        let auth_json =
+            serde_json::to_string(&auth_frame).map_err(|e| format!("Serialize error: {}", e))?;
+        write
+            .send(Message::Text(auth_json.into()))
+            .await
+            .map_err(|e| format!("Send auth failed: {}", e))?;
+    }
+
+    // 4. Config handshake if needed
+    let config_frame = ConfigFrame {
+        frame_type: "config".to_string(),
+        model: ws_config.model.clone(),
+    };
+    let config_json =
+        serde_json::to_string(&config_frame).map_err(|e| format!("Serialize error: {}", e))?;
+    write
+        .send(Message::Text(config_json.into()))
+        .await
+        .map_err(|e| format!("Send config failed: {}", e))?;
+
+    use tauri::Emitter;
+    let _ = app_handle.emit(
+        "ws-connected",
+        &serde_json::json!({
+            "model": ws_config.model,
+            "url": ws_config.url
+        }),
+    );
+
+    // Save the writer
+    {
+        let mut guard = session.writer.lock().await;
+        *guard = Some(write);
+    }
+
+    // Spawn the read loop
+    let writer_clone = session.writer.clone();
+    let app_handle_clone = app_handle.clone();
+    tokio::spawn(async move {
+        use tauri::Emitter;
+        while let Some(msg) = read.next().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    let text_str = text.to_string();
+                    if text_str.trim() == "[DONE]" {
+                        let _ = app_handle_clone.emit("ws-closed", ());
+                        break;
+                    }
+                    match serde_json::from_str::<ChatWsMessage>(&text_str) {
+                        Ok(parsed) => {
+                            if parsed.msg_type == "error" {
+                                let _ = app_handle_clone.emit("ws-error", &parsed.content);
+                                break;
+                            }
+                            let _ = app_handle_clone.emit("ws-message", &parsed);
+                        }
+                        Err(e) => {
+                            let _ =
+                                app_handle_clone.emit("ws-error", &format!("Parse error: {}", e));
+                            break;
+                        }
+                    }
+                }
+                Ok(Message::Close(_)) => {
+                    let _ = app_handle_clone.emit("ws-closed", ());
+                    break;
+                }
+                Ok(Message::Ping(data)) => {
+                    let mut guard = writer_clone.lock().await;
+                    if let Some(ref mut writer) = *guard {
+                        let _ = writer.send(Message::Pong(data)).await;
+                    }
+                }
+                Ok(Message::Pong(_)) => {}
+                Err(e) => {
+                    let _ = app_handle_clone.emit("ws-error", &format!("WebSocket error: {}", e));
+                    break;
+                }
+                _ => {}
+            }
+        }
+        // Connection closed: clear the writer
+        let mut guard = writer_clone.lock().await;
+        *guard = None;
+    });
+
+    Ok(())
+}
+
+pub async fn ws_send(message: String, session: &WsSession) -> Result<(), String> {
+    let mut guard = session.writer.lock().await;
+    if let Some(ref mut writer) = *guard {
+        writer
+            .send(Message::Text(message.into()))
+            .await
+            .map_err(|e| format!("Send message failed: {}", e))?;
+        Ok(())
+    } else {
+        Err("WebSocket is not connected".to_string())
+    }
+}
+
+pub async fn ws_disconnect(
+    session: &WsSession,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let mut guard = session.writer.lock().await;
+    if let Some(ref mut writer) = *guard {
+        let _ = writer.send(Message::Close(None)).await;
+    }
+    *guard = None;
+    let _ = app_handle.emit("ws-closed", ());
     Ok(())
 }
 
@@ -488,8 +583,7 @@ mod tests {
     #[test]
     fn test_backoff_calculation() {
         let config = WsConfig::default();
-        let session_manager = Arc::new(SessionManager::new());
-        let mut connection = WebSocketConnection::new(config, session_manager);
+        let mut connection = WebSocketConnection::new(config);
 
         connection.reconnect_count = 0;
         assert_eq!(connection.calculate_backoff(), Duration::from_secs(1));
@@ -511,8 +605,7 @@ mod tests {
             max_reconnect_attempts: 3,
             ..WsConfig::default()
         };
-        let session_manager = Arc::new(SessionManager::new());
-        let mut connection = WebSocketConnection::new(config, session_manager);
+        let mut connection = WebSocketConnection::new(config);
 
         connection.reconnect_count = 0;
         assert!(connection.should_reconnect());
@@ -528,28 +621,8 @@ mod tests {
             max_reconnect_attempts: 10,
             ..WsConfig::default()
         };
-        let session_manager = Arc::new(SessionManager::new());
-        let mut connection =
-            WebSocketConnection::new(config_no_reconnect, session_manager);
+        let mut connection = WebSocketConnection::new(config_no_reconnect);
         connection.reconnect_count = 0;
         assert!(!connection.should_reconnect());
-    }
-
-    #[tokio::test]
-    async fn test_session_manager() {
-        let manager = SessionManager::new();
-        
-        let session_id = manager.create_session("user1".to_string()).await;
-        assert!(!session_id.is_empty());
-
-        manager.update_activity(&session_id).await;
-        
-        let sessions = manager.sessions.read().await;
-        assert!(sessions.contains_key(&session_id));
-        drop(sessions);
-
-        manager.remove_session(&session_id).await;
-        let sessions = manager.sessions.read().await;
-        assert!(!sessions.contains_key(&session_id));
     }
 }
