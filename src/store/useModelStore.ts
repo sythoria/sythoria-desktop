@@ -246,7 +246,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   checkModelConnections: async (modelIds?: string[], force?: boolean) => {
-    const { models, apiKeys, modelStatuses } = get();
+    const { models, modelStatuses } = get();
     if (!force) {
       if (useUIStore.getState().loading.checkConnection) return;
       const now = Date.now();
@@ -272,12 +272,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     const results = await Promise.allSettled(
       toCheck.map(async (model) => {
-        const apiKey = apiKeys[model.id] ?? model.apiKey ?? "";
         try {
           const ok = await invoke<boolean>("check_api", {
-            apiUrl: model.apiBase,
-            apiKey,
-            provider: model.provider,
+            configId: model.id,
           });
           return { id: model.id, status: (ok ? "connected" : "error") as ConnectionStatus };
         } catch (err) {
