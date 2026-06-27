@@ -22,7 +22,7 @@ import { STATUS_COLORS } from "../types";
 import type { ModelStatuses, ConnectionStatus } from "../types";
 import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
-import { SIDEBAR_WIDTH, COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
+import { COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
 import { useUIStore } from "../store/useUIStore";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useProjectStore } from "../store/useProjectStore";
@@ -94,6 +94,8 @@ export default function Sidebar({
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
   const setActiveSection = useUIStore((s) => s.setActiveSection);
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
 
   const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
@@ -131,6 +133,43 @@ export default function Sidebar({
   }, []);
 
   const isSidebarCollapsed = isMobile && isOpen ? false : isCollapsed;
+
+  const isDragging = useRef(false);
+
+  const resize = useCallback(
+    (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const newWidth = Math.max(180, Math.min(480, e.clientX));
+      setSidebarWidth(newWidth);
+    },
+    [setSidebarWidth],
+  );
+
+  const stopResize = useCallback(
+    function stopResizeFn() {
+      isDragging.current = false;
+      document.removeEventListener("mousemove", resize);
+      document.removeEventListener("mouseup", stopResizeFn);
+    },
+    [resize],
+  );
+
+  const startResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDragging.current = true;
+      document.addEventListener("mousemove", resize);
+      document.addEventListener("mouseup", stopResize);
+    },
+    [resize, stopResize],
+  );
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", resize);
+      document.removeEventListener("mouseup", stopResize);
+    };
+  }, [resize, stopResize]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
@@ -210,7 +249,7 @@ export default function Sidebar({
 
   const sidebarVariants = {
     expanded: {
-      width: SIDEBAR_WIDTH,
+      width: sidebarWidth,
       opacity: 1,
       borderRightWidth: 1,
       display: "flex" as const,
@@ -252,6 +291,7 @@ export default function Sidebar({
         initial={isSidebarCollapsed ? "collapsed" : "expanded"}
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
         variants={sidebarVariants}
+        style={{ width: isSidebarCollapsed ? undefined : sidebarWidth }}
         role="navigation"
         aria-label="Sidebar navigation"
       >
@@ -690,6 +730,13 @@ export default function Sidebar({
             </motion.div>
           )}
         </AnimatePresence>
+        {/* Resize Handle */}
+        {!isSidebarCollapsed && (
+          <div
+            className="absolute top-0 right-0 w-1 h-full cursor-col-resize select-none z-50 hover:bg-accent/20 active:bg-accent/40 transition-colors"
+            onMouseDown={startResize}
+          />
+        )}
       </motion.aside>
 
       <ConfirmModal
