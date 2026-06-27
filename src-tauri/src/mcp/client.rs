@@ -1,5 +1,5 @@
 use crate::mcp::{
-    McpServerConfig, McpServerHandle, McpToolInfo, McpToolRequest, McpToolResult, MCP_SERVERS,
+    McpServerConfig, McpServerHandle, McpServerRequest, McpToolInfo, McpToolResult, MCP_SERVERS,
 };
 use rmcp::model::ClientInfo;
 use rmcp::service::ServiceExt;
@@ -90,9 +90,7 @@ async fn find_executable(name: &str) -> String {
         }
 
         if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
-            let nvm_bin = std::path::Path::new(&nvm_dir)
-                .join("versions")
-                .join("node");
+            let nvm_bin = std::path::Path::new(&nvm_dir).join("versions").join("node");
             if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
                 let mut versions: Vec<_> = entries
                     .filter_map(|e| e.ok())
@@ -119,14 +117,14 @@ async fn find_executable(name: &str) -> String {
 fn create_shell_command(program: &str, args: &[String]) -> Command {
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/c").arg(program).args(args);
+        let mut cmd = Command::new(program);
+        cmd.args(args);
         cmd
     }
     #[cfg(not(windows))]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        
+
         let is_fish = shell.ends_with("/fish") || shell == "fish";
         let is_posix = shell.ends_with("/zsh")
             || shell.ends_with("/bash")
@@ -136,13 +134,13 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
             || shell == "zsh"
             || shell == "bash"
             || shell == "sh";
-            
+
         let actual_shell = if is_fish || is_posix {
             shell
         } else {
             "/bin/sh".to_string()
         };
-        
+
         let mut cmd = Command::new(&actual_shell);
         if actual_shell.ends_with("/fish") || actual_shell == "fish" {
             cmd.arg("-l").arg("-c").arg("exec $argv[1] $argv[2..]");
@@ -178,7 +176,7 @@ async fn resolve_executable_via_shell(program: &str) -> Option<String> {
     #[cfg(not(windows))]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        
+
         let is_fish = shell.ends_with("/fish") || shell == "fish";
         let is_posix = shell.ends_with("/zsh")
             || shell.ends_with("/bash")
@@ -188,20 +186,20 @@ async fn resolve_executable_via_shell(program: &str) -> Option<String> {
             || shell == "zsh"
             || shell == "bash"
             || shell == "sh";
-            
+
         let actual_shell = if is_fish || is_posix {
             shell
         } else {
             "/bin/sh".to_string()
         };
-        
+
         let mut cmd = Command::new(&actual_shell);
         if actual_shell.ends_with("/fish") || actual_shell == "fish" {
             cmd.arg("-l").arg("-c").arg("command -v $argv[1]");
         } else {
             cmd.arg("-l").arg("-c").arg("command -v \"$0\"");
         }
-        
+
         let output = cmd.arg(program).output().await.ok()?;
         if output.status.success() {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -212,7 +210,6 @@ async fn resolve_executable_via_shell(program: &str) -> Option<String> {
         None
     }
 }
-
 
 /// Probes whether the given program is resolvable to an executable.
 ///
@@ -261,7 +258,12 @@ pub async fn check_executable(program: &str) -> ExecutableInfo {
     let version = probe_version(&resolved).await;
 
     let message = match &version {
-        Some(v) => format!("{} found{} — {}", program, at_path_note(&resolved, program), v),
+        Some(v) => format!(
+            "{} found{} — {}",
+            program,
+            at_path_note(&resolved, program),
+            v
+        ),
         None => format!("{} found{}", program, at_path_note(&resolved, program)),
     };
 
@@ -285,13 +287,10 @@ fn at_path_note(resolved: &str, program: &str) -> String {
 /// of output trimmed. Returns `None` on any failure — it's only a hint.
 async fn probe_version(resolved: &str) -> Option<String> {
     let mut cmd = create_shell_command(resolved, &["--version".to_string()]);
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(4),
-        cmd.output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(4), cmd.output())
+        .await
+        .ok()?
+        .ok()?;
 
     let text = if !output.stdout.is_empty() {
         String::from_utf8_lossy(&output.stdout).to_string()
@@ -299,7 +298,10 @@ async fn probe_version(resolved: &str) -> Option<String> {
         String::from_utf8_lossy(&output.stderr).to_string()
     };
 
-    text.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+    text.lines()
+        .next()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
 }
 
 /// Produces a user-friendly error string when spawning the MCP process fails.
@@ -319,10 +321,7 @@ fn friendly_spawn_error(program: &str, resolved: &str, err: &std::io::Error) -> 
              Check that the file is executable (chmod +x) or pick a different path.",
             program, resolved
         ),
-        _ => format!(
-            "Could not start \"{}\" ({}): {}",
-            program, resolved, err
-        ),
+        _ => format!("Could not start \"{}\" ({}): {}", program, resolved, err),
     }
 }
 
@@ -386,22 +385,55 @@ pub async fn connect_server(
 
             let tools: Vec<McpToolInfo> = tools_result.tools.iter().map(convert_tool).collect();
 
-            let (tool_tx, mut tool_rx) = tokio::sync::mpsc::channel::<McpToolRequest>(64);
+            let (request_tx, mut request_rx) = tokio::sync::mpsc::channel::<McpServerRequest>(64);
 
             let peer = running.peer().clone();
             let task_cancel = cancel_token.clone();
+            let server_id_clone = server_id.clone();
 
             tokio::spawn(async move {
+                let mut timeout_sleep =
+                    Box::pin(tokio::time::sleep(tokio::time::Duration::from_secs(300)));
                 loop {
                     tokio::select! {
-                        req = tool_rx.recv() => {
+                        req = request_rx.recv() => {
                             match req {
                                 Some(req) => {
-                                    let result = call_tool_via_peer(&peer, &req.tool_name, &req.arguments).await;
-                                    let _ = req.reply_tx.send(result);
+                                    match req {
+                                        McpServerRequest::CallTool { tool_name, arguments, reply_tx } => {
+                                            timeout_sleep = Box::pin(tokio::time::sleep(tokio::time::Duration::from_secs(300)));
+                                            let result = call_tool_via_peer(&peer, &tool_name, &arguments).await;
+                                            let _ = reply_tx.send(result);
+                                        }
+                                        McpServerRequest::ListResources { reply_tx } => {
+                                            timeout_sleep = Box::pin(tokio::time::sleep(tokio::time::Duration::from_secs(300)));
+                                            let res = peer.list_resources(Default::default()).await;
+                                            let mapped = res
+                                                .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
+                                                .map_err(|e| e.to_string());
+                                            let _ = reply_tx.send(mapped);
+                                        }
+                                        McpServerRequest::ListPrompts { reply_tx } => {
+                                            timeout_sleep = Box::pin(tokio::time::sleep(tokio::time::Duration::from_secs(300)));
+                                            let res = peer.list_prompts(Default::default()).await;
+                                            let mapped = res
+                                                .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
+                                                .map_err(|e| e.to_string());
+                                            let _ = reply_tx.send(mapped);
+                                        }
+                                    }
                                 }
                                 None => break,
                             }
+                        }
+                        _ = &mut timeout_sleep => {
+                            log::info!("MCP server '{}' idle timeout: terminating child process", server_id_clone);
+                            if let Ok(mut manager) = MCP_SERVERS.lock() {
+                                if let Some(handle) = manager.servers.get_mut(&server_id_clone) {
+                                    handle.request_tx = None;
+                                }
+                            }
+                            break;
                         }
                         _ = task_cancel.cancelled() => {
                             break;
@@ -414,13 +446,13 @@ pub async fn connect_server(
             let handle = McpServerHandle {
                 tools: tools.clone(),
                 cancel_token,
-                tool_tx: Some(tool_tx),
+                request_tx: Some(request_tx),
+                config: config.clone(),
+                env_secrets: env_secrets.clone(),
             };
 
             {
-                let mut manager = MCP_SERVERS
-                    .lock()
-                    .map_err(|e| format!("Manager lock poisoned: {}", e))?;
+                let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
                 manager.servers.insert(server_id, handle);
             }
 
@@ -457,7 +489,7 @@ pub async fn connect_server(
 
             let tools: Vec<McpToolInfo> = tools_result.tools.iter().map(convert_tool).collect();
 
-            let (tool_tx, mut tool_rx) = tokio::sync::mpsc::channel::<McpToolRequest>(64);
+            let (request_tx, mut request_rx) = tokio::sync::mpsc::channel::<McpServerRequest>(64);
 
             let peer = running.peer().clone();
             let task_cancel = cancel_token.clone();
@@ -465,11 +497,29 @@ pub async fn connect_server(
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        req = tool_rx.recv() => {
+                        req = request_rx.recv() => {
                             match req {
                                 Some(req) => {
-                                    let result = call_tool_via_peer(&peer, &req.tool_name, &req.arguments).await;
-                                    let _ = req.reply_tx.send(result);
+                                    match req {
+                                        McpServerRequest::CallTool { tool_name, arguments, reply_tx } => {
+                                            let result = call_tool_via_peer(&peer, &tool_name, &arguments).await;
+                                            let _ = reply_tx.send(result);
+                                        }
+                                        McpServerRequest::ListResources { reply_tx } => {
+                                            let res = peer.list_resources(Default::default()).await;
+                                            let mapped = res
+                                                .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
+                                                .map_err(|e| e.to_string());
+                                            let _ = reply_tx.send(mapped);
+                                        }
+                                        McpServerRequest::ListPrompts { reply_tx } => {
+                                            let res = peer.list_prompts(Default::default()).await;
+                                            let mapped = res
+                                                .map(|r| serde_json::to_value(r).unwrap_or(serde_json::Value::Null))
+                                                .map_err(|e| e.to_string());
+                                            let _ = reply_tx.send(mapped);
+                                        }
+                                    }
                                 }
                                 None => break,
                             }
@@ -485,13 +535,13 @@ pub async fn connect_server(
             let handle = McpServerHandle {
                 tools: tools.clone(),
                 cancel_token,
-                tool_tx: Some(tool_tx),
+                request_tx: Some(request_tx),
+                config: config.clone(),
+                env_secrets: env_secrets.clone(),
             };
 
             {
-                let mut manager = MCP_SERVERS
-                    .lock()
-                    .map_err(|e| format!("Manager lock poisoned: {}", e))?;
+                let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
                 manager.servers.insert(server_id, handle);
             }
 
@@ -559,21 +609,41 @@ pub async fn call_tool_on_server(
     tool_name: &str,
     arguments: &serde_json::Value,
 ) -> Result<McpToolResult, String> {
-    let tool_tx = {
-        let manager = MCP_SERVERS
-            .lock()
-            .map_err(|e| format!("Manager lock poisoned: {}", e))?;
+    let mut needs_respawn = false;
+    let mut saved_config = None;
+    let mut saved_env_secrets = None;
+
+    {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(h) = manager.servers.get(server_id) {
+            if h.request_tx.is_none() {
+                needs_respawn = true;
+                saved_config = Some(h.config.clone());
+                saved_env_secrets = Some(h.env_secrets.clone());
+            }
+        }
+    }
+
+    if needs_respawn {
+        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
+            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+            connect_server(&config, env_secrets).await?;
+        }
+    }
+
+    let request_tx = {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
         manager
             .servers
             .get(server_id)
-            .and_then(|h| h.tool_tx.clone())
+            .and_then(|h| h.request_tx.clone())
             .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
     };
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
-    tool_tx
-        .send(McpToolRequest {
+    request_tx
+        .send(McpServerRequest::CallTool {
             tool_name: tool_name.to_string(),
             arguments: arguments.clone(),
             reply_tx,
@@ -587,9 +657,7 @@ pub async fn call_tool_on_server(
 }
 
 pub fn disconnect_server(server_id: &str) -> Result<(), String> {
-    let mut manager = MCP_SERVERS
-        .lock()
-        .map_err(|e| format!("Manager lock poisoned: {}", e))?;
+    let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
     manager.remove_server(server_id);
     Ok(())
 }
@@ -610,6 +678,94 @@ fn io_error_kind_from_display(msg: &str) -> Option<std::io::ErrorKind> {
     } else {
         None
     }
+}
+
+pub async fn list_resources_on_server(server_id: &str) -> Result<serde_json::Value, String> {
+    let mut needs_respawn = false;
+    let mut saved_config = None;
+    let mut saved_env_secrets = None;
+
+    {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(h) = manager.servers.get(server_id) {
+            if h.request_tx.is_none() {
+                needs_respawn = true;
+                saved_config = Some(h.config.clone());
+                saved_env_secrets = Some(h.env_secrets.clone());
+            }
+        }
+    }
+
+    if needs_respawn {
+        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
+            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+            connect_server(&config, env_secrets).await?;
+        }
+    }
+
+    let request_tx = {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        manager
+            .servers
+            .get(server_id)
+            .and_then(|h| h.request_tx.clone())
+            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
+    };
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    request_tx
+        .send(McpServerRequest::ListResources { reply_tx })
+        .await
+        .map_err(|e| format!("Failed to send list resources request: {}", e))?;
+
+    reply_rx
+        .await
+        .map_err(|e| format!("Request cancelled: {}", e))?
+}
+
+pub async fn list_prompts_on_server(server_id: &str) -> Result<serde_json::Value, String> {
+    let mut needs_respawn = false;
+    let mut saved_config = None;
+    let mut saved_env_secrets = None;
+
+    {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(h) = manager.servers.get(server_id) {
+            if h.request_tx.is_none() {
+                needs_respawn = true;
+                saved_config = Some(h.config.clone());
+                saved_env_secrets = Some(h.env_secrets.clone());
+            }
+        }
+    }
+
+    if needs_respawn {
+        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
+            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+            connect_server(&config, env_secrets).await?;
+        }
+    }
+
+    let request_tx = {
+        let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        manager
+            .servers
+            .get(server_id)
+            .and_then(|h| h.request_tx.clone())
+            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
+    };
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    request_tx
+        .send(McpServerRequest::ListPrompts { reply_tx })
+        .await
+        .map_err(|e| format!("Failed to send list prompts request: {}", e))?;
+
+    reply_rx
+        .await
+        .map_err(|e| format!("Request cancelled: {}", e))?
 }
 
 #[cfg(test)]
@@ -671,12 +827,16 @@ mod tests {
     #[test]
     fn test_create_shell_command() {
         let cmd = create_shell_command("echo", &["hello".to_string(), "world".to_string()]);
-        
+
         #[cfg(windows)]
         {
-            assert_eq!(cmd.as_std().get_program().to_string_lossy(), "cmd");
-            let args: Vec<_> = cmd.as_std().get_args().map(|a| a.to_string_lossy().to_string()).collect();
-            assert_eq!(args, vec!["/c", "echo", "hello", "world"]);
+            assert_eq!(cmd.as_std().get_program().to_string_lossy(), "echo");
+            let args: Vec<_> = cmd
+                .as_std()
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect();
+            assert_eq!(args, vec!["hello", "world"]);
         }
         #[cfg(not(windows))]
         {
@@ -690,10 +850,18 @@ mod tests {
                 || shell == "zsh"
                 || shell == "bash"
                 || shell == "sh";
-            let expected_shell = if is_fish || is_posix { shell } else { "/bin/sh".to_string() };
-            
+            let expected_shell = if is_fish || is_posix {
+                shell
+            } else {
+                "/bin/sh".to_string()
+            };
+
             assert_eq!(cmd.as_std().get_program().to_string_lossy(), expected_shell);
-            let args: Vec<_> = cmd.as_std().get_args().map(|a| a.to_string_lossy().to_string()).collect();
+            let args: Vec<_> = cmd
+                .as_std()
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect();
             assert_eq!(args[0], "-l");
             assert_eq!(args[1], "-c");
             if expected_shell.ends_with("/fish") || expected_shell == "fish" {
@@ -718,4 +886,3 @@ mod tests {
         assert!(fake.is_none());
     }
 }
-
