@@ -29,11 +29,11 @@ export function useScrollButton() {
       return;
     }
 
-    const el = document.querySelector("[data-chat-scroll]") as HTMLElement | null;
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior });
-      setIsAtBottom(true);
-    }
+    const elements = document.querySelectorAll("[data-chat-scroll]");
+    elements.forEach((el) => {
+      el.scrollTo({ top: (el as HTMLElement).scrollHeight, behavior });
+    });
+    setIsAtBottom(true);
   }, []);
 
   return { isAtBottom, setIsAtBottom, scrollToBottom, virtuosoRef };
