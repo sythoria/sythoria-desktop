@@ -129,6 +129,8 @@ function preloadLanguages(): Promise<void> {
   return preloadPromise;
 }
 
+import DOMPurify from "dompurify";
+
 export async function highlightCode(code: string, lang: string): Promise<string | null> {
   await preloadLanguages();
 
@@ -142,7 +144,11 @@ export async function highlightCode(code: string, lang: string): Promise<string 
 
   try {
     const tree = lowlight.highlight(resolvedLang, code);
-    return serializeHast(tree as HastNode);
+    const html = serializeHast(tree as HastNode);
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ["span", "pre", "code", "br"],
+      ALLOWED_ATTR: ["class"],
+    });
   } catch {
     return null;
   }
