@@ -41,18 +41,27 @@ pub struct McpToolResult {
     pub images: Vec<McpImageContent>,
 }
 
+pub enum McpServerRequest {
+    CallTool {
+        tool_name: String,
+        arguments: serde_json::Value,
+        reply_tx: tokio::sync::oneshot::Sender<Result<McpToolResult, String>>,
+    },
+    ListResources {
+        reply_tx: tokio::sync::oneshot::Sender<Result<serde_json::Value, String>>,
+    },
+    ListPrompts {
+        reply_tx: tokio::sync::oneshot::Sender<Result<serde_json::Value, String>>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct McpServerHandle {
     pub tools: Vec<McpToolInfo>,
     pub cancel_token: tokio_util::sync::CancellationToken,
-    pub tool_tx: Option<tokio::sync::mpsc::Sender<McpToolRequest>>,
-}
-
-#[derive(Debug)]
-pub struct McpToolRequest {
-    pub tool_name: String,
-    pub arguments: serde_json::Value,
-    pub reply_tx: tokio::sync::oneshot::Sender<Result<McpToolResult, String>>,
+    pub request_tx: Option<tokio::sync::mpsc::Sender<McpServerRequest>>,
+    pub config: McpServerConfig,
+    pub env_secrets: HashMap<String, String>,
 }
 
 pub struct McpServerManager {
