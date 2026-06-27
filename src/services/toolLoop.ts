@@ -12,7 +12,7 @@ import type {
   Project,
 } from "../types";
 import { generateId } from "../utils/generateId";
-import { logError, logInfo, logWarn } from "../utils/logger";
+import { logError, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
@@ -24,6 +24,24 @@ export interface ToolLoopSlice {
   isStreaming: boolean;
   generationState: GenerationState;
   generationLabel: string;
+  generationByConversation: Record<string, { state: GenerationState; label: string }>;
+}
+
+function setConversationGeneration(
+  state: ToolLoopSlice,
+  convId: string,
+  generationState: GenerationState,
+  generationLabel: string,
+): Record<string, { state: GenerationState; label: string }> {
+  if (generationState === "idle") {
+    const rest = { ...state.generationByConversation };
+    delete rest[convId];
+    return rest;
+  }
+  return {
+    ...state.generationByConversation,
+    [convId]: { state: generationState, label: generationLabel },
+  };
 }
 
 function isPathExcluded(p: string, projectPath: string, excludePatterns?: string[]): boolean {
@@ -537,10 +555,11 @@ export async function sendWithToolLoop(
   fetchUrlContent: (url: string) => Promise<UrlContent>,
   project: Project | null,
 ) {
-  set(() => ({
+  set((state) => ({
     isStreaming: true,
     generationState: "thinking" as GenerationState,
     generationLabel: "Thinking",
+    generationByConversation: setConversationGeneration(state, convId, "thinking" as GenerationState, "Thinking"),
   }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
@@ -615,9 +634,15 @@ export async function sendWithToolLoop(
         details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}`,
       });
       if (step > 0) {
-        set(() => ({
+        set((state) => ({
           generationState: "thinking" as GenerationState,
           generationLabel: "Thinking (continued)",
+          generationByConversation: setConversationGeneration(
+            state,
+            convId,
+            "thinking" as GenerationState,
+            "Thinking (continued)",
+          ),
         }));
       }
 
@@ -666,7 +691,8 @@ export async function sendWithToolLoop(
           }));
         }
 
-        for (const toolCall of msg.tool_calls) {
+        // Prepare list of tool call metadata and initial messages
+        const toolCallDataList = msg.tool_calls.map((toolCall) => {
           const rawName = toolCall.function.name;
           const fnName = toKnownToolName(rawName);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -676,214 +702,6 @@ export async function sendWithToolLoop(
           } catch {
             fnArgs = {};
           }
-
-          let resultContent = "";
-
-          if (fnName === "unknown" && rawName.includes("__") && useMcp) {
-            if (!get().isStreaming) {
-              logInfo("chat", "Tool loop aborted: stream was stopped by user before MCP tool call");
-              await useChatStore.getState().persistConversations();
-              return;
-            }
-            const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
-            if (mcpTool && mcpCallTool) {
-              logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
-                details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
-              });
-              const toolCallMsgId = generateId();
-              const toolCallMsg: Message = {
-                id: toolCallMsgId,
-                role: "tool",
-                content: `Running: ${mcpTool.name} via ${mcpTool.serverName}`,
-                timestamp: new Date(),
-                toolCall: {
-                  id: toolCall.id,
-                  name: rawName,
-                  arguments: fnArgs,
-                },
-              };
-
-              set((state) => ({
-                conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
-                  ...msgs,
-                  toolCallMsg,
-                ]),
-                generationState: "mcp_executing" as GenerationState,
-                generationLabel: `Running: ${mcpTool.name} via ${mcpTool.serverName}`,
-              }));
-
-              let mcpOldContent = "";
-              let mcpIsNew = false;
-              let mcpFileChangeInfo: { path: string; filename: string } | null = null;
-
-              const writeToolInfo = isFileWriteTool(mcpTool.name, fnArgs);
-              if (writeToolInfo.isWrite && writeToolInfo.pathKey) {
-                const rawPath = fnArgs[writeToolInfo.pathKey];
-                const resolvedPath = project && !rawPath.startsWith("/") ? `${project.path}/${rawPath}` : rawPath;
-                mcpFileChangeInfo = {
-                  path: resolvedPath,
-                  filename: rawPath.split(/[/\\]/).pop() || rawPath,
-                };
-                try {
-                  mcpOldContent = await invoke<string>("project_read_file", { path: resolvedPath });
-                } catch {
-                  mcpIsNew = true;
-                }
-              }
-
-              const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
-              if (!get().isStreaming) {
-                logInfo("chat", "Tool loop aborted: stream was stopped by user during MCP tool call");
-                await useChatStore.getState().persistConversations();
-                return;
-              }
-              resultContent = result.content;
-
-              let mcpDiffSummary: { added: number; deleted: number; isNew?: boolean; filename?: string } | undefined =
-                undefined;
-              if (mcpFileChangeInfo && !result.isError) {
-                try {
-                  const mcpNewContent = await invoke<string>("project_read_file", { path: mcpFileChangeInfo.path });
-                  const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
-                  mcpDiffSummary = {
-                    added: diff.added,
-                    deleted: diff.deleted,
-                    isNew: mcpIsNew,
-                    filename: mcpFileChangeInfo.filename,
-                  };
-                } catch {
-                  // Ignore if we couldn't read file or calculate diff
-                }
-              }
-
-              const displayContent = result.isError
-                ? `Error: ${result.content.slice(0, 2000)}`
-                : result.content.slice(0, 2000);
-
-              set((state) => ({
-                conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
-                  msgs.map((m) =>
-                    m.id === toolCallMsgId
-                      ? {
-                          ...m,
-                          content: displayContent,
-                          toolResult: {
-                            id: toolCall.id,
-                            name: rawName,
-                            content: resultContent,
-                            images: result.images,
-                            diffSummary: mcpDiffSummary,
-                          },
-                        }
-                      : m,
-                  ),
-                ),
-                ...(result.isError
-                  ? {
-                      generationState: "error" as GenerationState,
-                      generationLabel: `MCP tool failed: ${mcpTool.name}`,
-                    }
-                  : {}),
-              }));
-
-              if (result.images && result.images.length > 0) {
-                apiMessages.push({
-                  role: "tool",
-                  tool_call_id: toolCall.id,
-                  name: rawName,
-                  content: resultContent || "(tool returned images)",
-                });
-
-                const imageContentParts: unknown[] = [
-                  {
-                    type: "text",
-                    text: `[Images from MCP tool "${mcpTool.name}" — analyze these images:]`,
-                  },
-                ];
-                for (const img of result.images) {
-                  imageContentParts.push({
-                    type: "image_url",
-                    image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-                  });
-                }
-                apiMessages.push({
-                  role: "user",
-                  content: imageContentParts,
-                });
-              } else {
-                apiMessages.push({
-                  role: "tool",
-                  tool_call_id: toolCall.id,
-                  name: rawName,
-                  content: resultContent,
-                });
-              }
-              continue;
-            } else {
-              const unknownMsg: Message = {
-                id: generateId(),
-                role: "tool",
-                content: `Unknown tool: ${rawName}`,
-                timestamp: new Date(),
-                toolCall: {
-                  id: toolCall.id,
-                  name: "fetch_url",
-                  arguments: { url: `unknown:${rawName}` },
-                },
-                toolResult: {
-                  id: toolCall.id,
-                  name: rawName,
-                  content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
-                },
-              };
-              logWarn("chat", `Unknown tool called in tool loop: ${rawName}`, {
-                details: `Available: ${allTools.map((t) => t.function.name).join(", ")}`,
-                action: "The model requested a tool that is not available. This may indicate a model hallucination.",
-              });
-              set((state) => ({
-                conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
-                generationState: "error" as GenerationState,
-                generationLabel: `Unknown tool: ${rawName}`,
-              }));
-              apiMessages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                name: rawName,
-                content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
-              });
-              continue;
-            }
-          } else if (fnName === "unknown") {
-            const unknownMsg: Message = {
-              id: generateId(),
-              role: "tool",
-              content: `Unknown tool: ${rawName}`,
-              timestamp: new Date(),
-              toolCall: {
-                id: toolCall.id,
-                name: "fetch_url",
-                arguments: { url: `unknown:${rawName}` },
-              },
-              toolResult: {
-                id: toolCall.id,
-                name: rawName,
-                content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
-              },
-            };
-            set((state) => ({
-              conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, unknownMsg]),
-              generationState: "error" as GenerationState,
-              generationLabel: `Unknown tool: ${rawName}`,
-            }));
-            apiMessages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              name: rawName,
-              content: JSON.stringify({ error: `Unknown tool: ${rawName}` }),
-            });
-            continue;
-          }
-
           const toolCallMsgId = generateId();
           const isProjectTool = fnName.startsWith("project_");
 
@@ -891,6 +709,12 @@ export async function sendWithToolLoop(
           if (fnName === "search_query") toolDesc = `Searching: ${fnArgs.query}`;
           else if (fnName === "fetch_url") toolDesc = `Fetching: ${fnArgs.url}`;
           else if (isProjectTool) toolDesc = `Project: ${fnName.replace("project_", "")}`;
+          else if (fnName === "unknown" && rawName.includes("__") && useMcp) {
+            const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
+            if (mcpTool) {
+              toolDesc = `Running: ${mcpTool.name} via ${mcpTool.serverName}`;
+            }
+          }
 
           const toolCallMsg: Message = {
             id: toolCallMsgId,
@@ -899,314 +723,438 @@ export async function sendWithToolLoop(
             timestamp: new Date(),
             toolCall: {
               id: toolCall.id,
-              name: fnName,
+              name: rawName,
               arguments: fnArgs,
             },
           };
 
-          set((state) => ({
-            conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, toolCallMsg]),
-            generationState:
-              fnName === "search_query" ? ("searching" as GenerationState) : ("fetching" as GenerationState),
-            generationLabel: toolDesc,
-          }));
+          return {
+            toolCall,
+            rawName,
+            fnName,
+            fnArgs,
+            toolCallMsgId,
+            toolCallMsg,
+            toolDesc,
+          };
+        });
 
-          let toolResultDiffSummary:
-            | {
-                added: number;
-                deleted: number;
-                isNew?: boolean;
-                filename?: string;
+        // Atomic append of all initial tool call messages
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
+            ...msgs,
+            ...toolCallDataList.map((td) => td.toolCallMsg),
+          ]),
+        }));
+
+        // Determine general generationState and label for this step
+        let stepState: GenerationState = "thinking";
+        if (toolCallDataList.some((td) => td.fnName === "unknown" && td.rawName.includes("__") && useMcp)) {
+          stepState = "mcp_executing";
+        } else if (toolCallDataList.some((td) => td.fnName === "search_query")) {
+          stepState = "searching";
+        } else if (toolCallDataList.some((td) => td.fnName === "fetch_url")) {
+          stepState = "fetching";
+        }
+
+        const combinedDesc = toolCallDataList
+          .map((td) => {
+            if (td.fnName === "search_query") return `Searching: ${td.fnArgs.query}`;
+            if (td.fnName === "fetch_url") return `Fetching: ${td.fnArgs.url}`;
+            if (td.fnName.startsWith("project_")) return `Project: ${td.fnName.replace("project_", "")}`;
+            return td.fnName;
+          })
+          .join(", ");
+
+        const generationLabel =
+          toolCallDataList.length === 1
+            ? toolCallDataList[0].toolDesc
+            : `Running ${toolCallDataList.length} tools: ${combinedDesc}`;
+
+        set((state) => ({
+          generationState: stepState,
+          generationLabel,
+          generationByConversation: setConversationGeneration(state, convId, stepState, generationLabel),
+        }));
+
+        const toolCallPromises = toolCallDataList.map(async (td) => {
+          const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
+
+          let resultContent = "";
+          let images: any[] | undefined = undefined;
+          let isError = false;
+          let toolResultDiffSummary: any = undefined;
+
+          try {
+            if (!get().isStreaming) {
+              throw new Error("Tool loop aborted: stream was stopped by user");
+            }
+
+            // 1. Check HITL gate
+            const isHitl =
+              fnName === "project_write" ||
+              fnName === "project_git_commit" ||
+              fnName === "project_bash" ||
+              rawName === "git_create_commit";
+            if (isHitl) {
+              const approved = await new Promise<boolean>((resolve) => {
+                useUIStore.getState().addPendingToolConfirmation({
+                  id: toolCall.id,
+                  toolName: fnName,
+                  arguments: fnArgs,
+                  resolve,
+                });
+              });
+              if (!approved) {
+                throw new Error("Tool execution rejected by the user.");
               }
-            | undefined = undefined;
+            }
 
-          if (isProjectTool) {
-            if (!project) {
-              resultContent = JSON.stringify({ error: "Project tool called but no project is active." });
-            } else {
-              try {
-                const resolvePath = (p: string) => {
-                  if (p.startsWith("/")) return p;
-                  return `${project.path}/${p}`;
-                };
+            if (!get().isStreaming) {
+              throw new Error("Tool loop aborted: stream was stopped by user");
+            }
 
-                switch (fnName) {
-                  case "project_glob": {
-                    resultContent = JSON.stringify(
-                      await invoke("project_glob", {
-                        path: project.path,
-                        pattern: fnArgs.pattern,
-                      }),
-                    );
-                    break;
+            // 2. Execute the tool
+            if (fnName === "unknown" && rawName.includes("__") && useMcp) {
+              const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
+              if (mcpTool && mcpCallTool) {
+                logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
+                  details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
+                });
+
+                let mcpOldContent = "";
+                let mcpIsNew = false;
+                let mcpFileChangeInfo: { path: string; filename: string } | null = null;
+
+                const writeToolInfo = isFileWriteTool(mcpTool.name, fnArgs);
+                if (writeToolInfo.isWrite && writeToolInfo.pathKey) {
+                  const rawPath = fnArgs[writeToolInfo.pathKey];
+                  const resolvedPath = project && !rawPath.startsWith("/") ? `${project.path}/${rawPath}` : rawPath;
+                  mcpFileChangeInfo = {
+                    path: resolvedPath,
+                    filename: rawPath.split(/[/\\]/).pop() || rawPath,
+                  };
+                  try {
+                    mcpOldContent = await invoke<string>("project_read_file", { path: resolvedPath });
+                  } catch {
+                    mcpIsNew = true;
                   }
-                  case "project_list_dir": {
-                    const resolved = resolvePath(fnArgs.dir_path);
-                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                      throw new Error(`Permission denied: directory is excluded by configuration.`);
-                    }
-                    resultContent = JSON.stringify(
-                      await invoke("project_list_dir", {
-                        path: resolved,
-                      }),
-                    );
-                    break;
-                  }
-                  case "project_read": {
-                    const resolved = resolvePath(fnArgs.file_path);
-                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                      throw new Error(`Permission denied: file is excluded by configuration.`);
-                    }
-                    resultContent = await invoke<string>("project_read", {
-                      path: resolved,
-                      offset: fnArgs.offset ? Number(fnArgs.offset) : null,
-                      limit: fnArgs.limit ? Number(fnArgs.limit) : null,
-                    });
-                    break;
-                  }
-                  case "project_grep": {
-                    resultContent = JSON.stringify(
-                      await invoke("project_grep", {
-                        path: project.path,
-                        pattern: fnArgs.pattern,
-                        outputMode: fnArgs.output_mode || "files_with_matches",
-                        multiline: fnArgs.multiline === true,
-                      }),
-                    );
-                    break;
-                  }
-                  case "project_write": {
-                    const resolved = resolvePath(fnArgs.file_path);
-                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                      throw new Error(`Permission denied: file is excluded by configuration.`);
-                    }
-                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
-
-                    let oldContent = "";
-                    let isNew = false;
-                    try {
-                      oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
-                    } catch {
-                      isNew = true;
-                    }
-
-                    await invoke("project_write", { path: resolved, content: fnArgs.content });
-                    resultContent = "File written successfully.";
-
-                    const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
-                    const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
-
-                    toolResultDiffSummary = {
-                      added: diff.added,
-                      deleted: diff.deleted,
-                      isNew,
-                      filename,
-                    };
-                    break;
-                  }
-                  case "project_edit": {
-                    const resolved = resolvePath(fnArgs.file_path);
-                    if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                      throw new Error(`Permission denied: file is excluded by configuration.`);
-                    }
-                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
-
-                    let oldContent = "";
-                    try {
-                      oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
-                    } catch {
-                      throw new Error("File does not exist or cannot be read.");
-                    }
-
-                    await invoke("project_edit", {
-                      path: resolved,
-                      oldString: fnArgs.old_string,
-                      newString: fnArgs.new_string,
-                      replaceAll: fnArgs.replace_all === true,
-                    });
-                    resultContent = "File content replaced successfully.";
-
-                    const newContent = await invoke<string>("project_read", {
-                      path: resolved,
-                      offset: null,
-                      limit: null,
-                    });
-                    const diff = computeLineDiff(oldContent, newContent);
-                    const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
-
-                    toolResultDiffSummary = {
-                      added: diff.added,
-                      deleted: diff.deleted,
-                      isNew: false,
-                      filename,
-                    };
-                    break;
-                  }
-                  case "project_bash":
-                    if (project.permissions !== "full") throw new Error("Permission denied: full shell not allowed");
-                    resultContent = await invoke<string>("project_bash", {
-                      command: fnArgs.command,
-                      cwd: project.path,
-                      timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
-                      runInBackground: fnArgs.run_in_background === true,
-                    });
-                    break;
-                  case "project_git_status":
-                    resultContent = JSON.stringify(await invoke("git_get_status", { repoPath: project.path }));
-                    break;
-                  case "project_git_diff":
-                    resultContent = await invoke<string>("git_diff_changes", { repoPath: project.path });
-                    break;
-                  case "project_git_commit":
-                    if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
-                    resultContent = await invoke<string>("git_create_commit", {
-                      repoPath: project.path,
-                      message: fnArgs.message,
-                      files:
-                        fnArgs.files && Array.isArray(fnArgs.files) && fnArgs.files.length > 0 ? fnArgs.files : null,
-                      authorName: null,
-                      authorEmail: null,
-                      bypassHooks: false,
-                    });
-                    break;
                 }
-              } catch (e) {
-                resultContent = JSON.stringify({ error: String(e) });
-              }
-            }
 
-            set((state) => ({
-              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
-                msgs.map((m) =>
-                  m.id === toolCallMsgId
-                    ? {
-                        ...m,
-                        content: `${toolDesc}\n\n${resultContent.slice(0, 1000)}${resultContent.length > 1000 ? "..." : ""}`,
-                        toolResult: {
-                          id: toolCall.id,
-                          name: fnName,
-                          content: resultContent,
-                          diffSummary: toolResultDiffSummary,
-                        },
-                      }
-                    : m,
-                ),
-              ),
-            }));
-          } else if (fnName === "search_query" && useSearch && searchConfig) {
-            if (!get().isStreaming) {
-              logInfo("chat", "Tool loop aborted: stream was stopped by user before search execution");
-              await useChatStore.getState().persistConversations();
-              return;
-            }
-            logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
-              details: `Provider: ${searchConfig.provider}, Step ${step + 1}`,
-            });
-            const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
-            if (!get().isStreaming) {
-              logInfo("chat", "Tool loop aborted: stream was stopped by user during search execution");
-              await useChatStore.getState().persistConversations();
-              return;
-            }
-            resultContent = JSON.stringify(results);
-            results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
+                const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
+                resultContent = result.content;
+                images = result.images;
+                isError = result.isError;
 
-            const displayContent = results.map((r) => `[${r.title}](${r.url}): ${r.snippet}`).join("\n");
-
-            set((state) => ({
-              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
-                msgs.map((m) =>
-                  m.id === toolCallMsgId
-                    ? {
-                        ...m,
-                        content: displayContent,
-                        toolResult: {
-                          id: toolCall.id,
-                          name: "search_query",
-                          content: resultContent,
-                        },
-                      }
-                    : m,
-                ),
-              ),
-            }));
-          } else if (fnName === "fetch_url" && useSearch) {
-            if (!get().isStreaming) {
-              logInfo("chat", "Tool loop aborted: stream was stopped by user before fetch execution");
-              await useChatStore.getState().persistConversations();
-              return;
-            }
-            logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
-              details: `Step ${step + 1}`,
-            });
-            const urlContent = await fetchUrlContent(fnArgs.url!);
-            if (!get().isStreaming) {
-              logInfo("chat", "Tool loop aborted: stream was stopped by user during fetch execution");
-              await useChatStore.getState().persistConversations();
-              return;
-            }
-            resultContent = JSON.stringify(urlContent);
-            if (urlContent.status === "ok") {
-              collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
-            }
-
-            const displayContent =
-              urlContent.status === "ok"
-                ? urlContent.content.slice(0, 2000)
-                : `Error fetching URL: ${urlContent.error || "Unknown error"}`;
-
-            const fetchFailed = urlContent.status !== "ok";
-
-            set((state) => ({
-              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
-                msgs.map((m) =>
-                  m.id === toolCallMsgId
-                    ? {
-                        ...m,
-                        content: displayContent,
-                        toolResult: {
-                          id: toolCall.id,
-                          name: "fetch_url",
-                          content: resultContent,
-                        },
-                      }
-                    : m,
-                ),
-              ),
-              ...(fetchFailed
-                ? {
-                    generationState: "error" as GenerationState,
-                    generationLabel: `Fetch failed: ${fnArgs.url} — ${urlContent.error || "Unknown error"}`,
+                if (mcpFileChangeInfo && !result.isError) {
+                  try {
+                    const mcpNewContent = await invoke<string>("project_read_file", { path: mcpFileChangeInfo.path });
+                    const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
+                    toolResultDiffSummary = {
+                      added: diff.added,
+                      deleted: diff.deleted,
+                      isNew: mcpIsNew,
+                      filename: mcpFileChangeInfo.filename,
+                    };
+                  } catch {
+                    // Ignore
                   }
-                : {}),
-            }));
-          } else if ((fnName === "search_query" && !useSearch) || (fnName === "fetch_url" && !useSearch)) {
-            resultContent = JSON.stringify({ error: `${fnName} is not available — web search is not configured` });
-            set((state) => ({
-              conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
-                msgs.map((m) =>
-                  m.id === toolCallMsgId
-                    ? {
-                        ...m,
-                        content: `${fnName} is not available`,
-                        toolResult: {
-                          id: toolCall.id,
-                          name: fnName,
-                          content: resultContent,
-                        },
-                      }
-                    : m,
-                ),
-              ),
-            }));
+                }
+              } else {
+                throw new Error(`Unknown tool: ${rawName}`);
+              }
+            } else if (fnName === "unknown") {
+              throw new Error(`Unknown tool: ${rawName}`);
+            } else if (fnName.startsWith("project_")) {
+              if (!project) {
+                throw new Error("Project tool called but no project is active.");
+              }
+              const resolvePath = (p: string) => {
+                if (p.startsWith("/")) return p;
+                return `${project.path}/${p}`;
+              };
+
+              switch (fnName) {
+                case "project_glob": {
+                  resultContent = JSON.stringify(
+                    await invoke("project_glob", {
+                      path: project.path,
+                      pattern: fnArgs.pattern,
+                    }),
+                  );
+                  break;
+                }
+                case "project_list_dir": {
+                  const resolved = resolvePath(fnArgs.dir_path);
+                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                    throw new Error(`Permission denied: directory is excluded by configuration.`);
+                  }
+                  resultContent = JSON.stringify(
+                    await invoke("project_list_dir", {
+                      path: resolved,
+                    }),
+                  );
+                  break;
+                }
+                case "project_read": {
+                  const resolved = resolvePath(fnArgs.file_path);
+                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                    throw new Error(`Permission denied: file is excluded by configuration.`);
+                  }
+                  resultContent = await invoke<string>("project_read", {
+                    path: resolved,
+                    offset: fnArgs.offset ? Number(fnArgs.offset) : null,
+                    limit: fnArgs.limit ? Number(fnArgs.limit) : null,
+                  });
+                  break;
+                }
+                case "project_grep": {
+                  resultContent = JSON.stringify(
+                    await invoke("project_grep", {
+                      path: project.path,
+                      pattern: fnArgs.pattern,
+                      outputMode: fnArgs.output_mode || "files_with_matches",
+                      multiline: fnArgs.multiline === true,
+                    }),
+                  );
+                  break;
+                }
+                case "project_write": {
+                  const resolved = resolvePath(fnArgs.file_path);
+                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                    throw new Error(`Permission denied: file is excluded by configuration.`);
+                  }
+                  if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+
+                  let oldContent = "";
+                  let isNew = false;
+                  try {
+                    oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
+                  } catch {
+                    isNew = true;
+                  }
+
+                  await invoke("project_write", { path: resolved, content: fnArgs.content });
+                  resultContent = "File written successfully.";
+
+                  const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+
+                  toolResultDiffSummary = {
+                    added: diff.added,
+                    deleted: diff.deleted,
+                    isNew,
+                    filename,
+                  };
+                  break;
+                }
+                case "project_edit": {
+                  const resolved = resolvePath(fnArgs.file_path);
+                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
+                    throw new Error(`Permission denied: file is excluded by configuration.`);
+                  }
+                  if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+
+                  let oldContent = "";
+                  try {
+                    oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
+                  } catch {
+                    throw new Error("File does not exist or cannot be read.");
+                  }
+
+                  await invoke("project_edit", {
+                    path: resolved,
+                    oldString: fnArgs.old_string,
+                    newString: fnArgs.new_string,
+                    replaceAll: fnArgs.replace_all === true,
+                  });
+                  resultContent = "File content replaced successfully.";
+
+                  const newContent = await invoke<string>("project_read", {
+                    path: resolved,
+                    offset: null,
+                    limit: null,
+                  });
+                  const diff = computeLineDiff(oldContent, newContent);
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+
+                  toolResultDiffSummary = {
+                    added: diff.added,
+                    deleted: diff.deleted,
+                    isNew: false,
+                    filename,
+                  };
+                  break;
+                }
+                case "project_bash":
+                  if (project.permissions !== "full") throw new Error("Permission denied: full shell not allowed");
+                  resultContent = await invoke<string>("project_bash", {
+                    command: fnArgs.command,
+                    cwd: project.path,
+                    timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
+                    runInBackground: fnArgs.run_in_background === true,
+                  });
+                  break;
+                case "project_git_status":
+                  resultContent = JSON.stringify(await invoke("git_get_status", { repoPath: project.path }));
+                  break;
+                case "project_git_diff":
+                  resultContent = await invoke<string>("git_diff_changes", { repoPath: project.path });
+                  break;
+                case "project_git_commit":
+                  if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
+                  resultContent = await invoke<string>("git_create_commit", {
+                    repoPath: project.path,
+                    message: fnArgs.message,
+                    files: fnArgs.files && Array.isArray(fnArgs.files) && fnArgs.files.length > 0 ? fnArgs.files : null,
+                    authorName: null,
+                    authorEmail: null,
+                    bypassHooks: false,
+                  });
+                  break;
+              }
+            } else if (fnName === "search_query" && useSearch && searchConfig) {
+              logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
+                details: `Provider: ${searchConfig.provider}, Step ${step + 1}`,
+              });
+              const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
+              resultContent = JSON.stringify(results);
+              results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
+            } else if (fnName === "fetch_url" && useSearch) {
+              logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
+                details: `Step ${step + 1}`,
+              });
+              const urlContent = await fetchUrlContent(fnArgs.url!);
+              resultContent = JSON.stringify(urlContent);
+              if (urlContent.status === "ok") {
+                collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
+              } else {
+                isError = true;
+              }
+            } else {
+              throw new Error(`${fnName} is not available — web search is not configured`);
+            }
+          } catch (err: any) {
+            isError = true;
+            resultContent = err.message || String(err);
           }
 
-          apiMessages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            name: fnName,
-            content: resultContent,
-          });
+          if (!get().isStreaming) {
+            return { toolCallId: toolCall.id, rawName, fnName, resultContent: "Aborted", images: [], isError: true };
+          }
+
+          // Format display content
+          let displayContent = "";
+          if (fnName === "search_query" && !isError) {
+            try {
+              const parsed = JSON.parse(resultContent);
+              displayContent = parsed.map((r: any) => `[${r.title}](${r.url}): ${r.snippet}`).join("\n");
+            } catch {
+              displayContent = resultContent;
+            }
+          } else if (fnName === "fetch_url" && !isError) {
+            try {
+              const parsed = JSON.parse(resultContent);
+              displayContent =
+                parsed.status === "ok"
+                  ? parsed.content.slice(0, 2000)
+                  : `Error fetching URL: ${parsed.error || "Unknown error"}`;
+            } catch {
+              displayContent = resultContent;
+            }
+          } else if (isError) {
+            displayContent = resultContent.startsWith("Error:") ? resultContent : `Error: ${resultContent}`;
+          } else {
+            displayContent = resultContent.slice(0, 2000);
+          }
+
+          set((state) => ({
+            conversations: updateConversationMessages(state.conversations, convId, (msgs) =>
+              msgs.map((m) =>
+                m.id === toolCallMsgId
+                  ? {
+                      ...m,
+                      content: fnName.startsWith("project_")
+                        ? `${toolDesc}\n\n${displayContent.slice(0, 1000)}${displayContent.length > 1000 ? "..." : ""}`
+                        : displayContent,
+                      toolResult: {
+                        id: toolCall.id,
+                        name: rawName,
+                        content: resultContent,
+                        images,
+                        diffSummary: toolResultDiffSummary,
+                      },
+                    }
+                  : m,
+              ),
+            ),
+            ...(isError
+              ? {
+                  generationState: "error" as GenerationState,
+                  generationLabel: `Tool failed: ${fnName}`,
+                  generationByConversation: setConversationGeneration(
+                    state,
+                    convId,
+                    "error" as GenerationState,
+                    `Tool failed: ${fnName}`,
+                  ),
+                }
+              : {}),
+          }));
+
+          return {
+            toolCallId: toolCall.id,
+            rawName,
+            fnName,
+            resultContent,
+            images,
+            isError,
+          };
+        });
+
+        // Wait for all tool completions
+        const results = await Promise.all(toolCallPromises);
+
+        if (!get().isStreaming) {
+          logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
+          await useChatStore.getState().persistConversations();
+          return;
+        }
+
+        // Push results to apiMessages in order
+        for (const res of results) {
+          if (res.images && res.images.length > 0) {
+            apiMessages.push({
+              role: "tool",
+              tool_call_id: res.toolCallId,
+              name: res.rawName,
+              content: res.resultContent || "(tool returned images)",
+            });
+
+            const imageContentParts: unknown[] = [
+              {
+                type: "text",
+                text: `[Images from MCP tool "${res.rawName}" — analyze these images:]`,
+              },
+            ];
+            for (const img of res.images) {
+              imageContentParts.push({
+                type: "image_url",
+                image_url: { url: `data:${img.mimeType};base64,${img.data}` },
+              });
+            }
+            apiMessages.push({
+              role: "user",
+              content: imageContentParts,
+            });
+          } else {
+            apiMessages.push({
+              role: "tool",
+              tool_call_id: res.toolCallId,
+              name: res.rawName,
+              content: res.resultContent,
+            });
+          }
         }
       } else {
         const assistantContent = msg.content || "";
@@ -1220,12 +1168,21 @@ export async function sendWithToolLoop(
           sources: collectedSources.length > 0 ? collectedSources : undefined,
         };
 
-        set((state) => ({
-          conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
-          isStreaming: false,
-          generationState: "idle" as GenerationState,
-          generationLabel: "",
-        }));
+        set((state) => {
+          const conversations = updateConversationMessages(state.conversations, convId, (msgs) => [
+            ...msgs,
+            assistantMsg,
+          ]);
+          const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
+          const stillStreaming = Object.keys(generationByConversation).length > 0;
+          return {
+            conversations,
+            isStreaming: stillStreaming,
+            generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+            generationLabel: stillStreaming ? state.generationLabel : "",
+            generationByConversation,
+          };
+        });
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
 
@@ -1243,24 +1200,34 @@ export async function sendWithToolLoop(
       sources: collectedSources.length > 0 ? collectedSources : undefined,
     };
 
-    set((state) => ({
-      conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]),
-      isStreaming: false,
-      generationState: "idle" as GenerationState,
-      generationLabel: "",
-    }));
+    set((state) => {
+      const conversations = updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]);
+      const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
+      const stillStreaming = Object.keys(generationByConversation).length > 0;
+      return {
+        conversations,
+        isStreaming: stillStreaming,
+        generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+        generationLabel: stillStreaming ? state.generationLabel : "",
+        generationByConversation,
+      };
+    });
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
 
     await useChatStore.getState().persistConversations();
   } catch (err) {
     const parsed = parseApiError(err);
-    set((state) => ({
-      conversations: setAssistantError(state.conversations, convId, err),
-      isStreaming: false,
-      generationState: "error" as GenerationState,
-      generationLabel: `Generation failed: ${parsed.message}`,
-    }));
+    set((state) => {
+      const generationLabel = `Generation failed: ${parsed.message}`;
+      return {
+        conversations: setAssistantError(state.conversations, convId, err),
+        isStreaming: Object.keys(state.generationByConversation).some((id) => id !== convId),
+        generationState: "error" as GenerationState,
+        generationLabel,
+        generationByConversation: setConversationGeneration(state, convId, "error" as GenerationState, generationLabel),
+      };
+    });
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
     useUIStore.getState().addToast(parsed.message, "error");
