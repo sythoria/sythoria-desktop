@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
 import { Image, Trash2, Camera, AlertCircle, Copy, Check } from "lucide-react";
 import { Switch } from "../../ui/Switch";
@@ -36,16 +37,11 @@ export function AppshotsSection() {
     init();
   }, [init]);
 
-  const handleSaveFolder = async () => {
-    await updateConfig({ captureFolder: inputFolder.trim() });
-    addToast("Appshots capture folder path updated", "success");
-  };
-
   const handleTestCapture = async () => {
     try {
       addToast("Starting screen capture...", "info");
-      const path = await triggerCapture("primary");
-      addToast(`Screenshot captured! Saved to ${path.slice(-40)}...`, "success");
+      const result = await triggerCapture("primary");
+      addToast(`Screenshot captured! Saved to ${result.path.slice(-40)}...`, "success");
     } catch (e: any) {
       addToast(`Screen capture failed: ${e.message || String(e)}`, "error");
     }
@@ -136,7 +132,6 @@ export function AppshotsSection() {
           transition={springs.gentle}
           className="space-y-6"
         >
-          {/* Card 1: Storage Options */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
             <h4 className="text-xs font-medium text-text-muted">Save Location</h4>
             <div className="space-y-2">
@@ -144,21 +139,47 @@ export function AppshotsSection() {
                 <input
                   type="text"
                   value={inputFolder}
-                  onChange={(e) => setInputFolder(e.target.value)}
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent transition-colors"
+                  readOnly
+                  className="flex-1 px-3 py-1.5 rounded-lg bg-input/40 border border-border text-sm text-text-secondary focus:outline-none focus:border-border transition-colors cursor-default"
                   placeholder="Default (Sythoria app data folder)"
                 />
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
                   whileTap={{ scale: motionTokens.scale.press }}
                   className="px-4 py-1.5 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent-hover transition-colors shadow-sm"
-                  onClick={handleSaveFolder}
+                  onClick={async () => {
+                    try {
+                      const selected = await invoke<string | null>("select_appshot_folder");
+                      if (selected) {
+                        setInputFolder(selected);
+                        await updateConfig({ captureFolder: selected });
+                        addToast("Appshots capture folder path updated", "success");
+                      }
+                    } catch (e: any) {
+                      addToast(e.message || String(e), "error");
+                    }
+                  }}
                 >
-                  Save
+                  Browse...
                 </motion.button>
+                {inputFolder && (
+                  <motion.button
+                    whileHover={{ scale: motionTokens.scale.pop }}
+                    whileTap={{ scale: motionTokens.scale.press }}
+                    className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors shadow-sm"
+                    onClick={async () => {
+                      setInputFolder("");
+                      await updateConfig({ captureFolder: "" });
+                      addToast("Reset to default secure app data folder", "success");
+                    }}
+                  >
+                    Clear
+                  </motion.button>
+                )}
               </div>
               <p className="text-[10px] text-text-muted">
-                Leave path empty to default to Sythoria's secure local cache folder.
+                Appshot save directory must be inside whitelisted system directories (Pictures, Documents, Downloads,
+                Desktop, or App Data).
               </p>
             </div>
           </div>
