@@ -50,17 +50,19 @@ pub async fn request_screen_capture_permission(first_time: bool) -> bool {
     {
         // 1. Request access (triggers macOS screen recording permission dialog)
         let _ = unsafe { CGRequestScreenCaptureAccess() };
-        
+
         // 2. Check if permission is now granted
         let has_perm = unsafe { CGPreflightScreenCaptureAccess() };
-        
+
         // 3. If not granted and it's not the first time, deep link to System Settings
         if !has_perm && !first_time {
             let _ = tokio::process::Command::new("open")
-                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                .arg(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                )
                 .spawn();
         }
-        
+
         has_perm
     }
     #[cfg(not(target_os = "macos"))]
@@ -71,9 +73,15 @@ pub async fn request_screen_capture_permission(first_time: bool) -> bool {
 }
 
 #[tauri::command]
-pub async fn capture_screen(app: AppHandle, target: String, options: CaptureOptions) -> Result<String, AppError> {
+pub async fn capture_screen(
+    app: AppHandle,
+    target: String,
+    options: CaptureOptions,
+) -> Result<String, AppError> {
+    let hide_window = options.hide_window;
+
     // 1. Hide/minimize main window if checked
-    if options.hide_window {
+    if hide_window {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.minimize();
             // Wait to allow minimization animation to complete fully
@@ -86,47 +94,74 @@ pub async fn capture_screen(app: AppHandle, target: String, options: CaptureOpti
         tokio::time::sleep(std::time::Duration::from_secs(options.delay_seconds)).await;
     }
 
-    // 3. Capture screen
-    let monitors = Monitor::all().map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    if monitors.is_empty() {
-        return Err(AppError::ConfigIo("No monitors found".to_string()));
-    }
-
-    let monitor = match target.as_str() {
-        "primary" => monitors.into_iter().find(|m| m.is_primary().unwrap_or(false))
-            .ok_or_else(|| AppError::ConfigIo("Primary monitor not found".to_string()))?,
-        _ => monitors.into_iter().next().ok_or_else(|| AppError::ConfigIo("No monitors found".to_string()))?,
-    };
-
-    let img = monitor.capture_image().map_err(|e| AppError::ConfigIo(e.to_string()))?;
-
-    // 4. Resolve save folder
-    let base_path = match options.custom_folder {
-        Some(ref f) if !f.is_empty() => PathBuf::from(f),
+    // Resolve base path on this thread
+    let base_path = match &options.custom_folder {
+        Some(f) if !f.is_empty() => PathBuf::from(f),
         _ => app.path().app_data_dir()?.join("appshots"),
     };
-    std::fs::create_dir_all(&base_path)?;
 
-    // 5. Generate filename
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let ext = if options.format.to_lowercase() == "jpeg" { "jpg" } else { "png" };
-    let filename = format!("appshot_{}.{}", timestamp, ext);
-    let output_path = base_path.join(&filename);
+    // Offload CPU-bound capturing, file writes, and image encoding to spawn_blocking
+    let output_path = tokio::task::spawn_blocking(move || -> Result<PathBuf, AppError> {
+        // 3. Capture screen
+        let monitors = Monitor::all().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        if monitors.is_empty() {
+            return Err(AppError::ConfigIo("No monitors found".to_string()));
+        }
 
-    // 6. Save image using image crate codecs
-    if options.format.to_lowercase() == "jpeg" {
-        let file = std::fs::File::create(&output_path)?;
-        let ref mut writer = std::io::BufWriter::new(file);
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(writer, options.quality);
-        encoder.encode(&img, img.width(), img.height(), image::ExtendedColorType::Rgba8)
-            .map_err(|e| AppError::ConfigIo(format!("Failed to encode JPEG: {}", e)))?;
-    } else {
-        img.save(&output_path)
-            .map_err(|e| AppError::ConfigIo(format!("Failed to save PNG: {}", e)))?;
-    }
+        let monitor = match target.as_str() {
+            "primary" => monitors
+                .into_iter()
+                .find(|m| m.is_primary().unwrap_or(false))
+                .ok_or_else(|| AppError::ConfigIo("Primary monitor not found".to_string()))?,
+            _ => monitors
+                .into_iter()
+                .next()
+                .ok_or_else(|| AppError::ConfigIo("No monitors found".to_string()))?,
+        };
+
+        let img = monitor
+            .capture_image()
+            .map_err(|e| AppError::ConfigIo(e.to_string()))?;
+
+        // 4. Resolve save folder
+        std::fs::create_dir_all(&base_path)?;
+
+        // 5. Generate filename
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let ext = if options.format.to_lowercase() == "jpeg" {
+            "jpg"
+        } else {
+            "png"
+        };
+        let filename = format!("appshot_{}.{}", timestamp, ext);
+        let output_path = base_path.join(&filename);
+
+        // 6. Save image using image crate codecs
+        if options.format.to_lowercase() == "jpeg" {
+            let file = std::fs::File::create(&output_path)?;
+            let ref mut writer = std::io::BufWriter::new(file);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(writer, options.quality);
+            encoder
+                .encode(
+                    &img,
+                    img.width(),
+                    img.height(),
+                    image::ExtendedColorType::Rgba8,
+                )
+                .map_err(|e| AppError::ConfigIo(format!("Failed to encode JPEG: {}", e)))?;
+        } else {
+            img.save(&output_path)
+                .map_err(|e| AppError::ConfigIo(format!("Failed to save PNG: {}", e)))?;
+        }
+
+        Ok(output_path)
+    })
+    .await
+    .map_err(|e| AppError::ConfigIo(format!("Thread join error: {}", e)))??;
 
     // 7. Restore window
-    if options.hide_window {
+    if hide_window {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.set_focus();
@@ -137,7 +172,10 @@ pub async fn capture_screen(app: AppHandle, target: String, options: CaptureOpti
 }
 
 #[tauri::command]
-pub async fn list_appshots(app: AppHandle, custom_folder: Option<String>) -> Result<Vec<AppshotFileMetadata>, AppError> {
+pub async fn list_appshots(
+    app: AppHandle,
+    custom_folder: Option<String>,
+) -> Result<Vec<AppshotFileMetadata>, AppError> {
     let base_path = match custom_folder {
         Some(ref f) if !f.is_empty() => PathBuf::from(f),
         _ => app.path().app_data_dir()?.join("appshots"),
@@ -152,11 +190,16 @@ pub async fn list_appshots(app: AppHandle, custom_folder: Option<String>) -> Res
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             if name.starts_with("appshot_") && (name.ends_with(".png") || name.ends_with(".jpg")) {
                 let metadata = entry.metadata()?;
                 let size = metadata.len();
-                let timestamp = metadata.created()
+                let timestamp = metadata
+                    .created()
                     .or_else(|_| metadata.modified())
                     .map(|system_time| {
                         let datetime: chrono::DateTime<chrono::Local> = system_time.into();
@@ -209,7 +252,11 @@ pub async fn run_appshots_clean(
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
             if name.starts_with("appshot_") && (name.ends_with(".png") || name.ends_with(".jpg")) {
                 let metadata = entry.metadata()?;
                 let size = metadata.len();
@@ -240,7 +287,7 @@ pub async fn run_appshots_clean(
             // Keep directory size under clean_value megabytes (converted to bytes)
             let max_bytes = clean_value * 1024 * 1024;
             let mut current_total_bytes: u64 = list.iter().map(|item| item.1).sum();
-            
+
             for item in &list {
                 if current_total_bytes <= max_bytes {
                     break;
@@ -255,7 +302,7 @@ pub async fn run_appshots_clean(
             // Delete files older than clean_value days
             let now = std::time::SystemTime::now();
             let max_age_duration = std::time::Duration::from_secs(clean_value * 24 * 60 * 60);
-            
+
             for item in list {
                 if let Ok(age) = now.duration_since(item.2) {
                     if age > max_age_duration {
