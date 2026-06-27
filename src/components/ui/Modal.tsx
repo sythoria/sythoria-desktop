@@ -392,10 +392,33 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
     );
     warnMessage = "This will create a new Git commit in the repository.";
   } else {
+    if (confirmation.destination) {
+      warnMessage =
+        "This MCP server is untrusted. Executing this tool may perform network requests or external operations.";
+    }
     detailsContent = (
-      <pre className="mt-2 bg-hover border border-border p-3 rounded font-mono text-xs text-text-primary overflow-x-auto text-left max-h-48 whitespace-pre-wrap break-all">
-        {JSON.stringify(args, null, 2)}
-      </pre>
+      <div className="mt-2 text-left">
+        {confirmation.destination && (
+          <div className="mb-2">
+            <span className="text-xs font-semibold text-text-secondary">Destination: </span>
+            <span className="font-mono text-xs text-accent bg-hover px-2 py-0.5 rounded border border-border">
+              {confirmation.destination}
+            </span>
+          </div>
+        )}
+        <div className="text-xs font-semibold text-text-secondary mb-1">Arguments:</div>
+        <pre className="bg-hover border border-border p-3 rounded font-mono text-xs text-text-primary overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
+          {JSON.stringify(args, null, 2)}
+        </pre>
+        {confirmation.schema && (
+          <div className="mt-3">
+            <div className="text-xs font-semibold text-text-secondary mb-1">Input Schema:</div>
+            <pre className="bg-hover border border-border p-3 rounded font-mono text-[11px] text-text-muted overflow-x-auto max-h-32 whitespace-pre-wrap break-all">
+              {JSON.stringify(confirmation.schema, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
     );
   }
 
