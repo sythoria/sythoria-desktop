@@ -19,7 +19,7 @@ const ProjectSchema = z.object({
   autoCommitMsgTemplate: z.string().optional(),
 });
 
-const ProjectsArraySchema = z.array(ProjectSchema);
+export const ProjectsArraySchema = z.array(ProjectSchema);
 
 const ToolCallSchema = z.object({
   id: z.string(),
@@ -124,7 +124,7 @@ export const KeybindsSchema = z.record(z.string(), KeybindActionSchema);
 export type KeybindsData = z.infer<typeof KeybindsSchema>;
 
 const CONVERSATIONS_KEY = "sythoria-conversations";
-const PROJECTS_KEY = "sythoria-projects";
+export const PROJECTS_KEY = "sythoria-projects";
 const PROJECTS_ENABLED_KEY = "sythoria-projects-enabled";
 const PROJECTS_DEFAULT_PERMISSION_KEY = "sythoria-projects-default-permission";
 const THEME_KEY = "sythoria-theme";
@@ -232,12 +232,7 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 
 export async function loadProjects(): Promise<Project[]> {
   try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(PROJECTS_KEY);
-    if (raw) {
-      const result = ProjectsArraySchema.safeParse(raw);
-      if (result.success) return result.data as Project[];
-    }
+    return await invoke<Project[]>("load_projects");
   } catch (e) {
     logError("storage", "Failed to load projects", { error: e });
   }
@@ -246,9 +241,7 @@ export async function loadProjects(): Promise<Project[]> {
 
 export async function saveProjects(projects: Project[]): Promise<void> {
   try {
-    const store = await getStore();
-    await store.set(PROJECTS_KEY, projects);
-    await store.save();
+    await invoke("save_projects", { projects });
   } catch (e) {
     logError("storage", "Failed to save projects", { error: e });
   }
