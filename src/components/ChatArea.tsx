@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, memo, useCallback, useDeferredValue, isValidElement } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../store/useUIStore";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -25,6 +26,7 @@ import {
   FileJson,
   Atom,
   Palette,
+  Eye,
 } from "lucide-react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState, Attachment } from "../types";
@@ -128,6 +130,17 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
     }
   }, [code]);
 
+  const isPreviewable = language === "html" || language === "svg" || language === "mermaid";
+  const setActiveArtifact = useUIStore((s) => s.setActiveArtifact);
+
+  const handlePreview = useCallback(() => {
+    setActiveArtifact({
+      title: `${language.toUpperCase()} Preview`,
+      content: code,
+      type: language as "html" | "svg" | "mermaid",
+    });
+  }, [code, language, setActiveArtifact]);
+
   return (
     <div className="code-block group relative bg-surface border border-border rounded-xl overflow-hidden shadow-sm my-3">
       <div className="flex items-center justify-between px-4 py-1.5 text-[11px] text-text-muted border-b border-border/40 select-none">
@@ -135,17 +148,32 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
           <Terminal size={12} />
           {language}
         </span>
-        <motion.button
-          onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100"
-          aria-label={copied ? "Copied" : "Copy code"}
-          whileHover={{ scale: motionTokens.scale.pop }}
-          whileTap={{ scale: motionTokens.scale.press }}
-          transition={springs.snappy}
-        >
-          {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </motion.button>
+        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {isPreviewable && (
+            <motion.button
+              onClick={handlePreview}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors cursor-pointer"
+              aria-label="Preview content"
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
+            >
+              <Eye size={12} />
+              <span>Preview</span>
+            </motion.button>
+          )}
+          <motion.button
+            onClick={handleCopy}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors cursor-pointer"
+            aria-label={copied ? "Copied" : "Copy code"}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
+          >
+            {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </motion.button>
+        </div>
       </div>
       {highlighted ? (
         <div
@@ -180,6 +208,21 @@ const markdownComponents = {
       <code className={className} {...props}>
         {children}
       </code>
+    );
+  },
+  a({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: React.ReactNode }) {
+    const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      if (href) {
+        openUrl(href).catch((err: unknown) => {
+          console.error("Failed to open link:", err);
+        });
+      }
+    };
+    return (
+      <a href={href} onClick={handleLinkClick} target="_blank" rel="noopener noreferrer" {...props}>
+        {children}
+      </a>
     );
   },
 };
