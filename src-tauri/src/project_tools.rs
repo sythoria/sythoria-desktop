@@ -1,96 +1,59 @@
 use crate::AppError;
+use crate::project::ProjectRegistry;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::process::Command;
-use tauri::Manager;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
-pub fn sanitize_and_check_path(root: &Path, user_path: &Path) -> Result<PathBuf, AppError> {
-    let root_canonical = root
-        .canonicalize()
-        .map_err(|e| AppError::AppPath(format!("Failed to canonicalize project root: {}", e)))?;
-
-    let full_path = if user_path.is_absolute() {
-        user_path.to_path_buf()
-    } else {
-        root_canonical.join(user_path)
-    };
-
-    let mut clean_path = PathBuf::new();
-    for component in full_path.components() {
-        match component {
-            Component::ParentDir => {
-                if !clean_path.pop() {
-                    return Err(AppError::AppPath("Path traversal detected".to_string()));
-                }
-            }
-            Component::CurDir => {}
+fn get_and_validate_project(
+    state: &ProjectRegistry,
+    project_id: &str,
+    relative_path: &str,
+    required_permission: &str,
+) -> Result<PathBuf, AppError> {
+    // 1. Validate active project ID
+    {
+        let active_guard = state
+            .active_project_id
+            .lock()
+            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+        match &*active_guard {
+            Some(active_id) if active_id == project_id => {}
             _ => {
-                clean_path.push(component.as_os_str());
+                return Err(AppError::AppPath(
+                    "Access denied: Project is not the active project".to_string(),
+                ))
             }
         }
     }
 
-    let resolved = if clean_path.exists() {
-        clean_path.canonicalize().map_err(|e| {
-            AppError::AppPath(format!("Failed to canonicalize resolved path: {}", e))
-        })?
-    } else {
-        let mut ancestor = clean_path.as_path();
-        let mut suffix = PathBuf::new();
-        while let Some(parent) = ancestor.parent() {
-            if ancestor.exists() {
-                break;
-            }
-            if let Some(name) = ancestor.file_name() {
-                let mut new_suffix = PathBuf::from(name);
-                new_suffix.push(suffix);
-                suffix = new_suffix;
-            }
-            ancestor = parent;
-        }
-        if ancestor.exists() {
-            let canon_ancestor = ancestor.canonicalize().map_err(|e| {
-                AppError::AppPath(format!("Failed to canonicalize ancestor: {}", e))
-            })?;
-            canon_ancestor.join(suffix)
-        } else {
-            clean_path.clone()
-        }
-    };
+    // 2. Retrieve project config
+    let projects_guard = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let project = projects_guard
+        .get(project_id)
+        .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?;
 
-    if !resolved.starts_with(&root_canonical) {
-        return Err(AppError::AppPath(format!(
-            "Access denied: path '{}' is outside workspace '{}'",
-            resolved.display(),
-            root_canonical.display()
-        )));
-    }
-
-    Ok(resolved)
+    // 3. Validate path and permission
+    crate::project::validate_project_path(project, relative_path, required_permission)
 }
 
 #[tauri::command]
 pub async fn project_read(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<String, AppError> {
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_path = get_and_validate_project(&state, &project_id, &path, "read")?;
     tokio::task::spawn_blocking(move || {
-        let validated_path = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_path.exists() {
-            return Err(AppError::AppPath(format!("File does not exist: {}", validated_path.display())));
+            return Err(AppError::AppPath(format!(
+                "File does not exist: {}",
+                validated_path.display()
+            )));
         }
         let metadata = fs::metadata(&validated_path)
             .map_err(|e| AppError::AppPath(format!("Failed to read metadata: {}", e)))?;
@@ -102,7 +65,9 @@ pub async fn project_read(
             let reader = BufReader::new(file);
             let mut lines = Vec::new();
             for line in reader.lines().take(5000) {
-                lines.push(line.map_err(|e| AppError::AppPath(format!("Failed to read line: {}", e)))?);
+                lines.push(
+                    line.map_err(|e| AppError::AppPath(format!("Failed to read line: {}", e)))?,
+                );
             }
             lines.push(format!("\n--- [WARNING: File size is {:.2}MB, which exceeds the 10MB limit. Loaded first 5000 lines only] ---", size as f64 / (1024.0 * 1024.0)));
             lines.join("\n")
@@ -113,7 +78,6 @@ pub async fn project_read(
 
         if offset.is_some() || limit.is_some() {
             let lines: Vec<&str> = content.lines().collect();
-            // 1-indexed lines
             let start = offset.unwrap_or(1).saturating_sub(1);
             let count = limit.unwrap_or(2000);
             let end = (start + count).min(lines.len());
@@ -134,23 +98,13 @@ pub async fn project_read(
 
 #[tauri::command]
 pub async fn project_write(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     content: String,
 ) -> Result<(), AppError> {
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_path = get_and_validate_project(&state, &project_id, &path, "write")?;
     tokio::task::spawn_blocking(move || {
-        let validated_path = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if let Some(parent) = validated_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| AppError::AppPath(format!("Failed to create directories: {}", e)))?;
@@ -164,22 +118,12 @@ pub async fn project_write(
 
 #[tauri::command]
 pub async fn project_list_dir(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
 ) -> Result<Vec<String>, AppError> {
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_path = get_and_validate_project(&state, &project_id, &path, "read")?;
     tokio::task::spawn_blocking(move || {
-        let validated_path = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_path.exists() || !validated_path.is_dir() {
             return Err(AppError::AppPath(format!(
                 "Directory does not exist: {}",
@@ -211,27 +155,90 @@ pub async fn project_list_dir(
 
 #[tauri::command]
 pub async fn project_bash(
+    app: AppHandle,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     command: String,
     cwd: String,
     timeout: Option<u64>,
     run_in_background: Option<bool>,
 ) -> Result<String, AppError> {
-    let cwd_path = Path::new(&cwd);
+    // 1. Validate active project and retrieve config
+    let project = {
+        {
+            let active_guard = state
+                .active_project_id
+                .lock()
+                .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+            match &*active_guard {
+                Some(active_id) if active_id == &project_id => {}
+                _ => {
+                    return Err(AppError::AppPath(
+                        "Access denied: Project is not the active project".to_string(),
+                    ))
+                }
+            }
+        }
+        let projects_guard = state
+            .projects
+            .lock()
+            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+        projects_guard
+            .get(&project_id)
+            .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?
+            .clone()
+    };
+
+    if project.permissions != "full" {
+        return Err(AppError::AppPath(
+            "Permission denied: full shell access not allowed".to_string(),
+        ));
+    }
+
+    // 2. Validate cwd is exactly the registered project root
+    let root_path = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::AppPath(format!("Failed to canonicalize project root: {}", e)))?;
+    let cwd_path = Path::new(&cwd)
+        .canonicalize()
+        .map_err(|e| AppError::AppPath(format!("Failed to canonicalize cwd: {}", e)))?;
+
+    if root_path != cwd_path {
+        return Err(AppError::AppPath(
+            "Access denied: command execution directory must be the project root".to_string(),
+        ));
+    }
+
+    // 3. Require native confirmation
+    use tauri_plugin_dialog::DialogExt;
+    let confirmed = app
+        .dialog()
+        .message(format!(
+            "The assistant wants to execute the following terminal command in the project directory '{}':\n\n$ {}\n\nWarning: Running commands can modify files or run arbitrary code.",
+            project.name, command
+        ))
+        .title("Execute Command Confirmation")
+        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+        .blocking_show();
+
+    if !confirmed {
+        return Err(AppError::AppPath("Command execution rejected by user".to_string()));
+    }
+
     let run_bg = run_in_background.unwrap_or(false);
 
     let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = Command::new("cmd");
+        let mut c = std::process::Command::new("cmd");
         c.args(["/C", &command]);
         c
     } else {
-        let mut c = Command::new("sh");
+        let mut c = std::process::Command::new("sh");
         c.arg("-c").arg(&command);
         c
     };
-    cmd.current_dir(cwd_path);
+    cmd.current_dir(&cwd_path);
 
     if run_bg {
-        // Spawn and detach
         cmd.spawn()
             .map_err(|e| AppError::AppPath(format!("Failed to spawn command: {}", e)))?;
         return Ok("Command started in background successfully.".to_string());
@@ -247,24 +254,14 @@ pub async fn project_bash(
         c.arg("-c").arg(&command);
         c
     };
-    tcmd.current_dir(cwd_path);
+    tcmd.current_dir(&cwd_path);
 
     let output_future = tcmd.output();
     let output = if let Some(t) = timeout {
         match tokio::time::timeout(std::time::Duration::from_millis(t), output_future).await {
             Ok(Ok(out)) => out,
-            Ok(Err(e)) => {
-                return Err(AppError::AppPath(format!(
-                    "Failed to execute command: {}",
-                    e
-                )))
-            }
-            Err(_) => {
-                return Err(AppError::AppPath(format!(
-                    "Command timed out after {}ms",
-                    t
-                )))
-            }
+            Ok(Err(e)) => return Err(AppError::AppPath(format!("Failed to execute command: {}", e))),
+            Err(_) => return Err(AppError::AppPath(format!("Command timed out after {}ms", t))),
         }
     } else {
         output_future
@@ -297,25 +294,15 @@ pub async fn project_bash(
 
 #[tauri::command]
 pub async fn project_edit(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     old_string: String,
     new_string: String,
     replace_all: Option<bool>,
 ) -> Result<(), AppError> {
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_path = get_and_validate_project(&state, &project_id, &path, "write")?;
     tokio::task::spawn_blocking(move || {
-        let validated_path = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
                 "File does not exist: {}",
@@ -329,9 +316,7 @@ pub async fn project_edit(
         let count = content.matches(&old_string).count();
 
         if count == 0 {
-            return Err(AppError::AppPath(
-                "Target content not found in file.".to_string(),
-            ));
+            return Err(AppError::AppPath("Target content not found in file.".to_string()));
         }
 
         if !allow_mult && count > 1 {
@@ -358,23 +343,13 @@ pub struct ReplacementChunk {
 
 #[tauri::command]
 pub async fn project_multi_replace_file_content(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     chunks: Vec<ReplacementChunk>,
 ) -> Result<(), AppError> {
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_path = get_and_validate_project(&state, &project_id, &path, "write")?;
     tokio::task::spawn_blocking(move || {
-        let validated_path = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
                 "File does not exist: {}",
@@ -429,36 +404,26 @@ pub struct GrepContentResult {
 
 #[tauri::command]
 pub async fn project_grep(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     pattern: String,
     output_mode: Option<String>,
     multiline: Option<bool>,
 ) -> Result<GrepResult, AppError> {
-    use ignore::WalkBuilder;
-    use regex::RegexBuilder;
-
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_root = get_and_validate_project(&state, &project_id, &path, "read")?;
     tokio::task::spawn_blocking(move || {
-        let validated_root = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_root.exists() || !validated_root.is_dir() {
-            return Err(AppError::AppPath(format!("Directory does not exist: {}", validated_root.display())));
+            return Err(AppError::AppPath(format!(
+                "Directory does not exist: {}",
+                validated_root.display()
+            )));
         }
 
         let is_multiline = multiline.unwrap_or(false);
         let mode = output_mode.unwrap_or_else(|| "files_with_matches".to_string());
 
-        let regex = RegexBuilder::new(&pattern)
+        let regex = regex::RegexBuilder::new(&pattern)
             .multi_line(is_multiline)
             .build()
             .map_err(|e| AppError::AppPath(format!("Invalid regex: {}", e)))?;
@@ -467,7 +432,7 @@ pub async fn project_grep(
         let mut content_results = Vec::new();
         let mut total_matches = 0;
 
-        let walker = WalkBuilder::new(&validated_root)
+        let walker = ignore::WalkBuilder::new(&validated_root)
             .hidden(false)
             .git_ignore(true)
             .build();
@@ -503,7 +468,10 @@ pub async fn project_grep(
 
                     if let Some(content) = content_opt {
                         if regex.is_match(&content) {
-                            let rel_path = entry.path().strip_prefix(&validated_root).unwrap_or(entry.path());
+                            let rel_path = entry
+                                .path()
+                                .strip_prefix(&validated_root)
+                                .unwrap_or(entry.path());
                             let rel_path_str = rel_path.to_string_lossy().into_owned();
 
                             match mode.as_str() {
@@ -547,26 +515,13 @@ pub async fn project_grep(
 
 #[tauri::command]
 pub async fn project_glob(
-    active_project: tauri::State<'_, crate::ActiveProject>,
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
     path: String,
     pattern: String,
 ) -> Result<Vec<String>, AppError> {
-    use ignore::overrides::OverrideBuilder;
-    use ignore::WalkBuilder;
-
-    let root_path = {
-        let root_guard = active_project
-            .0
-            .lock()
-            .map_err(|_| AppError::AppPath("Failed to lock active project state".to_string()))?;
-        root_guard
-            .as_ref()
-            .ok_or_else(|| AppError::AppPath("No active project/workspace loaded".to_string()))?
-            .clone()
-    };
-
+    let validated_root = get_and_validate_project(&state, &project_id, &path, "read")?;
     tokio::task::spawn_blocking(move || {
-        let validated_root = sanitize_and_check_path(&root_path, Path::new(&path))?;
         if !validated_root.exists() || !validated_root.is_dir() {
             return Err(AppError::AppPath(format!(
                 "Directory does not exist: {}",
@@ -574,7 +529,7 @@ pub async fn project_glob(
             )));
         }
 
-        let mut builder = OverrideBuilder::new(&validated_root);
+        let mut builder = ignore::overrides::OverrideBuilder::new(&validated_root);
         builder
             .add(&pattern)
             .map_err(|e| AppError::AppPath(format!("Invalid glob pattern: {}", e)))?;
@@ -582,7 +537,7 @@ pub async fn project_glob(
             .build()
             .map_err(|e| AppError::AppPath(format!("Failed to build overrides: {}", e)))?;
 
-        let walker = WalkBuilder::new(&validated_root)
+        let walker = ignore::WalkBuilder::new(&validated_root)
             .hidden(false)
             .git_ignore(true)
             .overrides(overrides)
@@ -608,7 +563,7 @@ pub async fn project_glob(
 }
 
 #[tauri::command]
-pub async fn create_project_dir(app: tauri::AppHandle, name: String) -> Result<String, AppError> {
+pub async fn create_project_dir(app: AppHandle, name: String) -> Result<String, AppError> {
     let doc_dir = app
         .path()
         .document_dir()
@@ -627,9 +582,7 @@ pub async fn create_project_dir(app: tauri::AppHandle, name: String) -> Result<S
 
     let safe_name = safe_name.trim().to_string();
     if safe_name.is_empty() {
-        return Err(AppError::AppPath(
-            "Project name cannot be empty".to_string(),
-        ));
+        return Err(AppError::AppPath("Project name cannot be empty".to_string()));
     }
 
     let project_path = doc_dir.join(safe_name);
