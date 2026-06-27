@@ -97,7 +97,6 @@ describe("sendWithToolLoop", () => {
         modelId: "test-model",
       },
       0.7,
-      {},
       {
         id: "search-1",
         name: "Search",
