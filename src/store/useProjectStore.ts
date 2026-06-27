@@ -44,11 +44,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const defaultPerm = await loadProjectsDefaultPermission();
     set({ projects: loaded, isProjectsEnabled: enabled, defaultPermission: defaultPerm });
 
-    const { activeProjectId, projects } = get();
-    const activeProj = projects.find((p) => p.id === activeProjectId);
-    const path = activeProj ? activeProj.path : null;
+    const { activeProjectId } = get();
     try {
-      await invoke("set_active_project", { path });
+      await invoke("set_active_project", { projectId: activeProjectId });
     } catch (e) {
       console.error("Failed to set active project on init:", e);
     }
@@ -87,7 +85,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }));
     get().persistProjects();
     if (wasActive) {
-      invoke("set_active_project", { path: null }).catch((e) => {
+      invoke("set_active_project", { projectId: null }).catch((e) => {
         console.error("Failed to clear active project on delete:", e);
       });
     }
@@ -95,10 +93,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setActiveProject: (id) => {
     set({ activeProjectId: id });
-    const { projects } = get();
-    const activeProj = projects.find((p) => p.id === id);
-    const path = activeProj ? activeProj.path : null;
-    invoke("set_active_project", { path }).catch((e) => {
+    invoke("set_active_project", { projectId: id }).catch((e) => {
       console.error("Failed to set active project:", e);
     });
   },
