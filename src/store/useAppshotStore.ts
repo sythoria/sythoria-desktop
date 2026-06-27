@@ -26,7 +26,7 @@ interface AppshotStore {
   updateConfig: (updates: Partial<AppshotConfig>) => Promise<void>;
   checkPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
-  triggerCapture: (target: "all" | "primary" | "window") => Promise<string>;
+  triggerCapture: (target: "all" | "primary" | "window") => Promise<{ path: string; token: string }>;
   loadRecentAppshots: () => Promise<void>;
   deleteAppshot: (path: string) => Promise<void>;
   clearAll: () => Promise<void>;
@@ -129,7 +129,7 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
     } = get().config;
     try {
       // 1. Capture screen via Tauri command
-      const savedPath = await invoke<string>("capture_screen", {
+      const result = await invoke<{ path: string; token: string }>("capture_screen", {
         target,
         options: {
           format: imageFormat,
@@ -141,7 +141,7 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         },
       });
 
-      logInfo("appshots", `Screen captured successfully and saved to: ${savedPath}`);
+      logInfo("appshots", `Screen captured successfully and saved to: ${result.path}`);
 
       // 2. Run auto cleanup if enabled
       if (autoCleanEnabled) {
@@ -162,7 +162,7 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
       // 3. Reload captures gallery
       await get().loadRecentAppshots();
       set({ isCapturing: false });
-      return savedPath;
+      return result;
     } catch (e: any) {
       logError("appshots", "Screen capture failed", { error: e });
       set({ error: e.message || String(e), isCapturing: false });
@@ -184,7 +184,8 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
 
   deleteAppshot: async (path) => {
     try {
-      await invoke("delete_appshot", { path });
+      const customFolder = get().config.captureFolder || null;
+      await invoke("delete_appshot", { path, customFolder });
       logInfo("appshots", `Deleted screenshot: ${path}`);
       await get().loadRecentAppshots();
     } catch (e: any) {
@@ -199,8 +200,9 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
     set({ loading: true });
     const { recentAppshots } = get();
     try {
+      const customFolder = get().config.captureFolder || null;
       for (const shot of recentAppshots) {
-        await invoke("delete_appshot", { path: shot.path });
+        await invoke("delete_appshot", { path: shot.path, customFolder });
       }
       logInfo("appshots", "Cleared all screenshots in gallery");
       await get().loadRecentAppshots();
@@ -219,6 +221,9 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         return;
       }
 
+      const confirm = window.confirm("Are you sure you want to capture your screen and attach it to the chat?");
+      if (!confirm) return;
+
       const hasPerm = await get().checkPermission();
       if (!hasPerm) {
         useUIStore.getState().addToast("Screen recording permission is required.", "error");
@@ -227,16 +232,16 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
 
       useUIStore.getState().addToast("Capturing screen...", "info");
 
-      // 1. Capture screen
-      const savedPath = await triggerCapture("primary");
+      // 2. Capture screen
+      const captureRes = await triggerCapture("primary");
 
-      // 2. Read file to get base64 dataUrl and size
+      // 3. Read file to get base64 dataUrl and size
       const payload = await invoke<{
         name: string;
         size: number;
         mimeType: string;
         dataUrl?: string;
-      }>("read_file_from_path", { path: savedPath });
+      }>("read_file_from_token", { token: captureRes.token });
 
       if (!payload.dataUrl) {
         throw new Error("Failed to read captured image data");
