@@ -191,6 +191,30 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
   );
 }
 
+async function openSafeUrl(href: string): Promise<void> {
+  try {
+    const url = new URL(href);
+    const scheme = url.protocol.toLowerCase();
+    if (scheme !== "http:" && scheme !== "https:" && scheme !== "mailto:") {
+      console.warn("Blocked opening disallowed scheme:", scheme);
+      return;
+    }
+    if (scheme !== "https:") {
+      const confirm = window.confirm(`Security Warning: You are about to open a non-secure link (${href}). Proceed?`);
+      if (!confirm) return;
+    }
+    await openUrl(href);
+  } catch {
+    if (href.startsWith("mailto:")) {
+      const confirm = window.confirm(`Proceed to open email client for (${href})?`);
+      if (!confirm) return;
+      await openUrl(href);
+    } else {
+      console.error("Invalid URL format:", href);
+    }
+  }
+}
+
 const markdownComponents = {
   pre({ children }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode }) {
     // Return Fragment to avoid nesting <pre> inside .markdown-body pre (double border bug)
@@ -214,9 +238,7 @@ const markdownComponents = {
     const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
       if (href) {
-        openUrl(href).catch((err: unknown) => {
-          console.error("Failed to open link:", err);
-        });
+        openSafeUrl(href);
       }
     };
     return (
