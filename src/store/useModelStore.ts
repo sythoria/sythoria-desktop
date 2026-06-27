@@ -34,8 +34,7 @@ interface StreamDonePayload {
   streamId: string;
 }
 
-let activeStreamId: string | null = null;
-let activeStreamConversationId: string | null = null;
+const activeStreams = new Map<string, string>();
 let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -51,15 +50,16 @@ async function ensureStreamListeners(
   if (streamListenerCleanup) return;
 
   const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
-    if (!activeStreamId || event.payload.streamId !== activeStreamId || !activeStreamConversationId) return;
-    onChunk(activeStreamConversationId, event.payload.content);
+    const convId = activeStreams.get(event.payload.streamId);
+    if (!convId) return;
+    onChunk(convId, event.payload.content);
   });
 
   const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
-    if (!activeStreamId || event.payload.streamId !== activeStreamId || !activeStreamConversationId) return;
-    onDone(activeStreamConversationId);
-    activeStreamId = null;
-    activeStreamConversationId = null;
+    const convId = activeStreams.get(event.payload.streamId);
+    if (!convId) return;
+    onDone(convId);
+    activeStreams.delete(event.payload.streamId);
   });
 
   streamListenerCleanup = () => {
@@ -349,23 +349,25 @@ export const useModelStore = create<ModelState>((set, get) => ({
     saveSystemPrompt(prompt);
   },
 
-  getActiveStreamId: () => activeStreamId,
+  getActiveStreamId: () => {
+    return activeStreams.keys().next().value ?? null;
+  },
   setActiveStreamId: (id, convId = null) => {
-    if (id && id !== activeStreamId) {
-      logInfo("stream", `Stream started`, {
-        details: `Stream ID: ${id}, Conversation: ${convId || "(none)"}`,
-      });
+    if (id) {
+      if (convId) {
+        logInfo("stream", `Stream started`, {
+          details: `Stream ID: ${id}, Conversation: ${convId}`,
+        });
+        activeStreams.set(id, convId);
+      }
+    } else {
+      activeStreams.clear();
     }
-    activeStreamId = id;
-    activeStreamConversationId = convId;
   },
   ensureStreamListeners,
   releaseStreamListeners,
   cancelActiveStream: () => {
-    const streamId = activeStreamId;
-    activeStreamId = null;
-    activeStreamConversationId = null;
-    if (streamId) {
+    for (const streamId of activeStreams.keys()) {
       void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
         logError("stream", "Failed to cancel stream", {
           error: err,
@@ -373,6 +375,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
         });
       });
     }
+    activeStreams.clear();
     releaseStreamListeners();
   },
 }));
