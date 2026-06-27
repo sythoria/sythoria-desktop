@@ -36,6 +36,8 @@ export interface ToolConfirmation {
   toolName: string;
   arguments: Record<string, any>;
   resolve: (approved: boolean) => void;
+  schema?: any;
+  destination?: string;
 }
 
 interface UIState {
