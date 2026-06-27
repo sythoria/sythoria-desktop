@@ -10,6 +10,7 @@ import type {
   McpTool,
   McpToolResult,
   Project,
+  McpServerConfig,
 } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
@@ -17,6 +18,7 @@ import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
+import { useMcpStore } from "../store/useMcpStore";
 import { buildUserApiContent } from "../utils/attachments";
 
 export interface ToolLoopSlice {
@@ -44,7 +46,7 @@ function setConversationGeneration(
   };
 }
 
-function isPathExcluded(p: string, projectPath: string, excludePatterns?: string[]): boolean {
+export function isPathExcluded(p: string, projectPath: string, excludePatterns?: string[]): boolean {
   if (!excludePatterns || excludePatterns.length === 0) return false;
 
   let relPath = p;
@@ -542,7 +544,6 @@ export async function sendWithToolLoop(
   convId: string,
   modelConfig: ModelConfig,
   temperature: number,
-  apiKeys: Record<string, string>,
   searchConfig: SearchApiConfig | undefined,
   searchApiKey: string,
   mcpTools: McpTool[],
@@ -567,9 +568,6 @@ export async function sendWithToolLoop(
   const collectedSources: { title: string; url: string }[] = [];
 
   try {
-    const apiUrl = modelConfig.apiBase;
-    const apiKey = apiKeys[modelConfig.id] ?? modelConfig.apiKey ?? "";
-
     const conv = get().conversations.find((c) => c.id === convId);
     const baseMessages =
       conv?.messages
@@ -586,6 +584,17 @@ export async function sendWithToolLoop(
       ...buildProjectToolDefinitions(project),
     ];
 
+    const getRelativePath = (p: string) => {
+      if (project && p.startsWith(project.path)) {
+        let rel = p.substring(project.path.length);
+        if (rel.startsWith("/") || rel.startsWith("\\")) {
+          rel = rel.substring(1);
+        }
+        return rel;
+      }
+      return p;
+    };
+
     let userSystemPrompt = useModelStore.getState().systemPrompt || "";
     if (modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()) {
       userSystemPrompt = modelConfig.systemPromptOverride;
@@ -596,6 +605,7 @@ export async function sendWithToolLoop(
       }
       try {
         const agentsMdContent = await invoke<string>("project_read", {
+          projectId: project.id,
           path: "AGENTS.md",
           offset: null,
           limit: null,
@@ -650,10 +660,7 @@ export async function sendWithToolLoop(
       const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
 
       const raw = await invoke<string>("chat_completion_tools", {
-        apiUrl,
-        apiKey,
-        model: modelConfig.modelId,
-        provider: modelConfig.provider,
+        configId: modelConfig.id,
         messages: apiMessages,
         tools: JSON.stringify(allTools),
         temperature: requestTemp,
@@ -818,6 +825,28 @@ export async function sendWithToolLoop(
             if (fnName === "unknown" && rawName.includes("__") && useMcp) {
               const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
               if (mcpTool && mcpCallTool) {
+                const mcpStore = useMcpStore.getState();
+                const serverConfig = mcpStore.mcpConfigs.find((s: McpServerConfig) => s.id === mcpTool.serverId);
+                const isTrusted = serverConfig?.trustLevel === "trusted";
+                if (!isTrusted) {
+                  if (!mcpStore.approvedTools.has(mcpTool.namespacedName)) {
+                    const approved = await new Promise<boolean>((resolve) => {
+                      useUIStore.getState().addPendingToolConfirmation({
+                        id: toolCall.id,
+                        toolName: mcpTool.name,
+                        arguments: fnArgs,
+                        resolve,
+                        schema: mcpTool.inputSchema,
+                        destination: `${mcpTool.serverName} (${serverConfig?.transport || "stdio"})`,
+                      });
+                    });
+                    if (!approved) {
+                      throw new Error("Tool execution rejected by the user.");
+                    }
+                    mcpStore.approveTool(mcpTool.namespacedName);
+                  }
+                }
+
                 logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
                   details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
                 });
@@ -835,7 +864,12 @@ export async function sendWithToolLoop(
                     filename: rawPath.split(/[/\\]/).pop() || rawPath,
                   };
                   try {
-                    mcpOldContent = await invoke<string>("project_read_file", { path: resolvedPath });
+                    mcpOldContent = await invoke<string>("project_read", {
+                      projectId: project?.id || "",
+                      path: getRelativePath(resolvedPath),
+                      offset: null,
+                      limit: null,
+                    });
                   } catch {
                     mcpIsNew = true;
                   }
@@ -848,7 +882,12 @@ export async function sendWithToolLoop(
 
                 if (mcpFileChangeInfo && !result.isError) {
                   try {
-                    const mcpNewContent = await invoke<string>("project_read_file", { path: mcpFileChangeInfo.path });
+                    const mcpNewContent = await invoke<string>("project_read", {
+                      projectId: project?.id || "",
+                      path: getRelativePath(mcpFileChangeInfo.path),
+                      offset: null,
+                      limit: null,
+                    });
                     const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
                       added: diff.added,
@@ -869,40 +908,33 @@ export async function sendWithToolLoop(
               if (!project) {
                 throw new Error("Project tool called but no project is active.");
               }
-              const resolvePath = (p: string) => {
-                if (p.startsWith("/")) return p;
-                return `${project.path}/${p}`;
-              };
 
               switch (fnName) {
                 case "project_glob": {
                   resultContent = JSON.stringify(
                     await invoke("project_glob", {
-                      path: project.path,
+                      projectId: project.id,
+                      path: "",
                       pattern: fnArgs.pattern,
                     }),
                   );
                   break;
                 }
                 case "project_list_dir": {
-                  const resolved = resolvePath(fnArgs.dir_path);
-                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                    throw new Error(`Permission denied: directory is excluded by configuration.`);
-                  }
+                  const relativeDir = getRelativePath(fnArgs.dir_path || "");
                   resultContent = JSON.stringify(
                     await invoke("project_list_dir", {
-                      path: resolved,
+                      projectId: project.id,
+                      path: relativeDir,
                     }),
                   );
                   break;
                 }
                 case "project_read": {
-                  const resolved = resolvePath(fnArgs.file_path);
-                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                    throw new Error(`Permission denied: file is excluded by configuration.`);
-                  }
+                  const relativeFile = getRelativePath(fnArgs.file_path || "");
                   resultContent = await invoke<string>("project_read", {
-                    path: resolved,
+                    projectId: project.id,
+                    path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
                   });
@@ -911,7 +943,8 @@ export async function sendWithToolLoop(
                 case "project_grep": {
                   resultContent = JSON.stringify(
                     await invoke("project_grep", {
-                      path: project.path,
+                      projectId: project.id,
+                      path: "",
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
@@ -920,21 +953,25 @@ export async function sendWithToolLoop(
                   break;
                 }
                 case "project_write": {
-                  const resolved = resolvePath(fnArgs.file_path);
-                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                    throw new Error(`Permission denied: file is excluded by configuration.`);
-                  }
-                  if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
-
+                  const relativeFile = getRelativePath(fnArgs.file_path || "");
                   let oldContent = "";
                   let isNew = false;
                   try {
-                    oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
+                    oldContent = await invoke<string>("project_read", {
+                      projectId: project.id,
+                      path: relativeFile,
+                      offset: null,
+                      limit: null,
+                    });
                   } catch {
                     isNew = true;
                   }
 
-                  await invoke("project_write", { path: resolved, content: fnArgs.content });
+                  await invoke("project_write", {
+                    projectId: project.id,
+                    path: relativeFile,
+                    content: fnArgs.content,
+                  });
                   resultContent = "File written successfully.";
 
                   const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
@@ -949,21 +986,22 @@ export async function sendWithToolLoop(
                   break;
                 }
                 case "project_edit": {
-                  const resolved = resolvePath(fnArgs.file_path);
-                  if (isPathExcluded(resolved, project.path, project.excludePatterns)) {
-                    throw new Error(`Permission denied: file is excluded by configuration.`);
-                  }
-                  if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
-
+                  const relativeFile = getRelativePath(fnArgs.file_path || "");
                   let oldContent = "";
                   try {
-                    oldContent = await invoke<string>("project_read", { path: resolved, offset: null, limit: null });
+                    oldContent = await invoke<string>("project_read", {
+                      projectId: project.id,
+                      path: relativeFile,
+                      offset: null,
+                      limit: null,
+                    });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
                   }
 
                   await invoke("project_edit", {
-                    path: resolved,
+                    projectId: project.id,
+                    path: relativeFile,
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
@@ -971,7 +1009,8 @@ export async function sendWithToolLoop(
                   resultContent = "File content replaced successfully.";
 
                   const newContent = await invoke<string>("project_read", {
-                    path: resolved,
+                    projectId: project.id,
+                    path: relativeFile,
                     offset: null,
                     limit: null,
                   });
@@ -987,8 +1026,8 @@ export async function sendWithToolLoop(
                   break;
                 }
                 case "project_bash":
-                  if (project.permissions !== "full") throw new Error("Permission denied: full shell not allowed");
                   resultContent = await invoke<string>("project_bash", {
+                    projectId: project.id,
                     command: fnArgs.command,
                     cwd: project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
@@ -996,15 +1035,15 @@ export async function sendWithToolLoop(
                   });
                   break;
                 case "project_git_status":
-                  resultContent = JSON.stringify(await invoke("git_get_status", { repoPath: project.path }));
+                  resultContent = JSON.stringify(await invoke("git_get_status", { projectId: project.id }));
                   break;
                 case "project_git_diff":
-                  resultContent = await invoke<string>("git_diff_changes", { repoPath: project.path });
+                  resultContent = await invoke<string>("git_diff_changes", { projectId: project.id });
                   break;
                 case "project_git_commit":
                   if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
                   resultContent = await invoke<string>("git_create_commit", {
-                    repoPath: project.path,
+                    projectId: project.id,
                     message: fnArgs.message,
                     files: fnArgs.files && Array.isArray(fnArgs.files) && fnArgs.files.length > 0 ? fnArgs.files : null,
                     authorName: null,
