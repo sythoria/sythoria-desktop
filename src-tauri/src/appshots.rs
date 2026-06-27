@@ -72,12 +72,21 @@ pub async fn request_screen_capture_permission(first_time: bool) -> bool {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureResult {
+    pub path: String,
+    pub token: String,
+    pub name: String,
+    pub size: u64,
+}
+
 #[tauri::command]
 pub async fn capture_screen(
     app: AppHandle,
     target: String,
     options: CaptureOptions,
-) -> Result<String, AppError> {
+) -> Result<CaptureResult, AppError> {
     let hide_window = options.hide_window;
 
     // 1. Hide/minimize main window if checked
@@ -96,7 +105,13 @@ pub async fn capture_screen(
 
     // Resolve base path on this thread
     let base_path = match &options.custom_folder {
-        Some(f) if !f.is_empty() => PathBuf::from(f),
+        Some(f) if !f.is_empty() => {
+            let p = PathBuf::from(f);
+            if !is_path_in_appshot_whitelist(&app, &p)? {
+                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+            }
+            p
+        }
         _ => app.path().app_data_dir()?.join("appshots"),
     };
 
@@ -168,7 +183,22 @@ pub async fn capture_screen(
         }
     }
 
-    Ok(output_path.to_string_lossy().into_owned())
+    let size = std::fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+    let name = output_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let token_registry = app.state::<crate::FileTokenRegistry>();
+    let token = token_registry.register(output_path.clone());
+
+    Ok(CaptureResult {
+        path: output_path.to_string_lossy().into_owned(),
+        token,
+        name,
+        size,
+    })
 }
 
 #[tauri::command]
@@ -177,7 +207,13 @@ pub async fn list_appshots(
     custom_folder: Option<String>,
 ) -> Result<Vec<AppshotFileMetadata>, AppError> {
     let base_path = match custom_folder {
-        Some(ref f) if !f.is_empty() => PathBuf::from(f),
+        Some(ref f) if !f.is_empty() => {
+            let p = PathBuf::from(f);
+            if !is_path_in_appshot_whitelist(&app, &p)? {
+                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+            }
+            p
+        }
         _ => app.path().app_data_dir()?.join("appshots"),
     };
     if !base_path.exists() {
@@ -222,12 +258,116 @@ pub async fn list_appshots(
     Ok(list)
 }
 
-#[tauri::command]
-pub async fn delete_appshot(path: String) -> Result<(), AppError> {
-    let file_path = PathBuf::from(&path);
-    if file_path.exists() {
-        std::fs::remove_file(file_path)?;
+fn is_path_in_appshot_whitelist(app: &AppHandle, path: &PathBuf) -> Result<bool, AppError> {
+    let canonical_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => path.clone(),
+    };
+
+    let whitelisted_bases = [
+        app.path().app_data_dir().ok(),
+        app.path().picture_dir().ok(),
+        app.path().document_dir().ok(),
+        app.path().download_dir().ok(),
+        app.path().desktop_dir().ok(),
+    ];
+
+    for base in whitelisted_bases.into_iter().flatten() {
+        if let Ok(canonical_base) = base.canonicalize() {
+            if canonical_path.starts_with(&canonical_base) {
+                return Ok(true);
+            }
+        } else if canonical_path.starts_with(&base) {
+            return Ok(true);
+        }
     }
+
+    Ok(false)
+}
+
+#[tauri::command]
+pub async fn select_appshot_folder(app: AppHandle) -> Result<Option<String>, AppError> {
+    use tauri_plugin_dialog::DialogExt;
+    let folder_path = app
+        .dialog()
+        .file()
+        .set_title("Select Appshot Save Folder")
+        .blocking_pick_folder();
+
+    if let Some(path) = folder_path {
+        let path_buf = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => {
+                if let Ok(p) = u.to_file_path() {
+                    p
+                } else {
+                    return Err(AppError::ConfigIo("Invalid folder path URL".to_string()));
+                }
+            }
+        };
+
+        if !is_path_in_appshot_whitelist(&app, &path_buf)? {
+            return Err(AppError::ConfigIo(
+                "Access denied: Target folder must be inside user directory (Pictures, Documents, Downloads, Desktop, or App Data).".to_string()
+            ));
+        }
+
+        Ok(Some(path_buf.to_string_lossy().into_owned()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn delete_appshot(
+    app: AppHandle,
+    path: String,
+    custom_folder: Option<String>,
+) -> Result<(), AppError> {
+    let file_path = PathBuf::from(&path);
+
+    // 1. Check filename pattern
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| AppError::ConfigIo("Invalid filename".to_string()))?;
+
+    let name_lower = filename.to_lowercase();
+    let is_valid_pattern = name_lower.starts_with("appshot_")
+        && (name_lower.ends_with(".png") || name_lower.ends_with(".jpg") || name_lower.ends_with(".jpeg"));
+
+    if !is_valid_pattern {
+        return Err(AppError::ConfigIo("Access denied: File does not match appshot pattern".to_string()));
+    }
+
+    // 2. Resolve base path and verify whitelist
+    let base_path = match custom_folder {
+        Some(ref f) if !f.is_empty() => {
+            let p = PathBuf::from(f);
+            if !is_path_in_appshot_whitelist(&app, &p)? {
+                return Err(AppError::ConfigIo("Access denied: Target folder is not whitelisted".to_string()));
+            }
+            p
+        }
+        _ => app.path().app_data_dir()?.join("appshots"),
+    };
+
+    // 3. Check folder containment
+    let canonical_file = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return Err(AppError::ConfigIo("File not found".to_string())),
+    };
+
+    let canonical_base = match base_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return Err(AppError::ConfigIo("Folder not found".to_string())),
+    };
+
+    if !canonical_file.starts_with(&canonical_base) {
+        return Err(AppError::ConfigIo("Access denied: File is outside appshots directory".to_string()));
+    }
+
+    std::fs::remove_file(canonical_file)?;
     Ok(())
 }
 
@@ -239,7 +379,13 @@ pub async fn run_appshots_clean(
     custom_folder: Option<String>,
 ) -> Result<u32, AppError> {
     let base_path = match custom_folder {
-        Some(ref f) if !f.is_empty() => PathBuf::from(f),
+        Some(ref f) if !f.is_empty() => {
+            let p = PathBuf::from(f);
+            if !is_path_in_appshot_whitelist(&app, &p)? {
+                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+            }
+            p
+        }
         _ => app.path().app_data_dir()?.join("appshots"),
     };
     if !base_path.exists() {
