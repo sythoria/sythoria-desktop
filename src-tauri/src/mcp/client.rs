@@ -10,6 +10,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::process::Command;
 
+fn is_env_key_allowed(key: &str) -> bool {
+    let key_upper = key.to_uppercase();
+    if matches!(
+        key_upper.as_str(),
+        "PATH"
+            | "HOME"
+            | "USER"
+            | "SHELL"
+            | "LANG"
+            | "LC_ALL"
+            | "LOGNAME"
+            | "PWD"
+            | "TERM"
+            | "TMPDIR"
+            | "TEMP"
+            | "TMP"
+    ) {
+        return true;
+    }
+    key_upper.ends_with("_API_KEY")
+        || key_upper.ends_with("_TOKEN")
+        || key_upper.ends_with("_SECRET")
+        || key_upper.ends_with("_PASSWORD")
+        || key_upper.ends_with("_URL")
+        || key_upper.ends_with("_URI")
+        || key_upper.ends_with("_PATH")
+}
+
 #[derive(Clone)]
 struct SythoriaMcpClient {
     info: ClientInfo,
@@ -115,100 +143,18 @@ async fn find_executable(name: &str) -> String {
 }
 
 fn create_shell_command(program: &str, args: &[String]) -> Command {
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new(program);
-        cmd.args(args);
-        cmd
-    }
-    #[cfg(not(windows))]
-    {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-
-        let is_fish = shell.ends_with("/fish") || shell == "fish";
-        let is_posix = shell.ends_with("/zsh")
-            || shell.ends_with("/bash")
-            || shell.ends_with("/sh")
-            || shell.ends_with("/dash")
-            || shell.ends_with("/ksh")
-            || shell == "zsh"
-            || shell == "bash"
-            || shell == "sh";
-
-        let actual_shell = if is_fish || is_posix {
-            shell
-        } else {
-            "/bin/sh".to_string()
-        };
-
-        let mut cmd = Command::new(&actual_shell);
-        if actual_shell.ends_with("/fish") || actual_shell == "fish" {
-            cmd.arg("-l").arg("-c").arg("exec $argv[1] $argv[2..]");
-        } else {
-            cmd.arg("-l").arg("-c").arg("exec \"$0\" \"$@\"");
-        }
-        cmd.arg(program).args(args);
-        cmd
-    }
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    cmd
 }
 
 async fn resolve_executable_via_shell(program: &str) -> Option<String> {
     if std::path::Path::new(program).is_absolute() && std::path::Path::new(program).exists() {
         return Some(program.to_string());
     }
-
-    #[cfg(windows)]
-    {
-        let output = Command::new("cmd")
-            .args(&["/c", "where", program])
-            .output()
-            .await
-            .ok()?;
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let first_path = path_str.lines().next()?.trim().to_string();
-            if !first_path.is_empty() {
-                return Some(first_path);
-            }
-        }
-        None
-    }
-    #[cfg(not(windows))]
-    {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-
-        let is_fish = shell.ends_with("/fish") || shell == "fish";
-        let is_posix = shell.ends_with("/zsh")
-            || shell.ends_with("/bash")
-            || shell.ends_with("/sh")
-            || shell.ends_with("/dash")
-            || shell.ends_with("/ksh")
-            || shell == "zsh"
-            || shell == "bash"
-            || shell == "sh";
-
-        let actual_shell = if is_fish || is_posix {
-            shell
-        } else {
-            "/bin/sh".to_string()
-        };
-
-        let mut cmd = Command::new(&actual_shell);
-        if actual_shell.ends_with("/fish") || actual_shell == "fish" {
-            cmd.arg("-l").arg("-c").arg("command -v $argv[1]");
-        } else {
-            cmd.arg("-l").arg("-c").arg("command -v \"$0\"");
-        }
-
-        let output = cmd.arg(program).output().await.ok()?;
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path_str.is_empty() {
-                return Some(path_str);
-            }
-        }
-        None
-    }
+    which::which(program)
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Probes whether the given program is resolvable to an executable.
@@ -355,7 +301,11 @@ pub async fn connect_server(
                 .stderr(std::process::Stdio::inherit());
 
             for (key, value) in &env_secrets {
-                cmd.env(key, value);
+                if is_env_key_allowed(key) {
+                    cmd.env(key, value);
+                } else {
+                    log::warn!("Filtered out disallowed environment variable: {}", key);
+                }
             }
 
             // Build the child process, translating NotFound/permission into a
@@ -462,6 +412,49 @@ pub async fn connect_server(
             let base_url = config.baseUrl.as_deref().unwrap_or("").to_string();
             if base_url.is_empty() {
                 return Err("Base URL is required for HTTP transport".to_string());
+            }
+
+            // Validate URL and restrict local networks unless allowLocalNetwork is true
+            let parsed_url = url::Url::parse(&base_url)
+                .map_err(|e| format!("Invalid base URL: {}", e))?;
+
+            if let Some(host) = parsed_url.host_str() {
+                let host_lower = host.to_lowercase();
+                let is_loopback = host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1";
+
+                let is_private_ip = if let Some(ip) = parsed_url.host().and_then(|h| match h {
+                    url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
+                    url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
+                    _ => None,
+                }) {
+                    match ip {
+                        std::net::IpAddr::V4(v4) => {
+                            let octets = v4.octets();
+                            octets[0] == 10
+                                || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                                || (octets[0] == 192 && octets[1] == 168)
+                                || (octets[0] == 169 && octets[1] == 254)
+                        }
+                        std::net::IpAddr::V6(v6) => {
+                            let segments = v6.segments();
+                            (segments[0] & 0xfe00) == 0xfc00
+                                || (segments[0] & 0xffc0) == 0xfe80
+                                || v6.is_loopback()
+                        }
+                    }
+                } else {
+                    false
+                };
+
+                if is_loopback || is_private_ip {
+                    let allowed = config.allowLocalNetwork.unwrap_or(false);
+                    if !allowed {
+                        return Err(format!(
+                            "Access denied: Local/private network access is disabled for MCP server '{}'.",
+                            config.name
+                        ));
+                    }
+                }
             }
 
             let mut transport_config =
@@ -828,51 +821,13 @@ mod tests {
     fn test_create_shell_command() {
         let cmd = create_shell_command("echo", &["hello".to_string(), "world".to_string()]);
 
-        #[cfg(windows)]
-        {
-            assert_eq!(cmd.as_std().get_program().to_string_lossy(), "echo");
-            let args: Vec<_> = cmd
-                .as_std()
-                .get_args()
-                .map(|a| a.to_string_lossy().to_string())
-                .collect();
-            assert_eq!(args, vec!["hello", "world"]);
-        }
-        #[cfg(not(windows))]
-        {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-            let is_fish = shell.ends_with("/fish") || shell == "fish";
-            let is_posix = shell.ends_with("/zsh")
-                || shell.ends_with("/bash")
-                || shell.ends_with("/sh")
-                || shell.ends_with("/dash")
-                || shell.ends_with("/ksh")
-                || shell == "zsh"
-                || shell == "bash"
-                || shell == "sh";
-            let expected_shell = if is_fish || is_posix {
-                shell
-            } else {
-                "/bin/sh".to_string()
-            };
-
-            assert_eq!(cmd.as_std().get_program().to_string_lossy(), expected_shell);
-            let args: Vec<_> = cmd
-                .as_std()
-                .get_args()
-                .map(|a| a.to_string_lossy().to_string())
-                .collect();
-            assert_eq!(args[0], "-l");
-            assert_eq!(args[1], "-c");
-            if expected_shell.ends_with("/fish") || expected_shell == "fish" {
-                assert_eq!(args[2], "exec $argv[1] $argv[2..]");
-            } else {
-                assert_eq!(args[2], "exec \"$0\" \"$@\"");
-            }
-            assert_eq!(args[3], "echo");
-            assert_eq!(args[4], "hello");
-            assert_eq!(args[5], "world");
-        }
+        assert_eq!(cmd.as_std().get_program().to_string_lossy(), "echo");
+        let args: Vec<_> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["hello", "world"]);
     }
 
     #[tokio::test]
