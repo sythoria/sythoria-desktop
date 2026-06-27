@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { springs, motionTokens } from "../../lib/motion-tokens";
+import { ToolConfirmation } from "../../store/useUIStore";
 
 interface ModalProps {
   isOpen: boolean;
@@ -300,6 +301,144 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
             className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[40px] bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Rename
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ToolConfirmationModalProps {
+  confirmation: ToolConfirmation | null;
+  onRespond: (id: string, approved: boolean) => void;
+}
+
+export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmationModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!confirmation) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onRespond(confirmation.id, false);
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    lockBodyScroll();
+
+    const previouslyFocused = document.activeElement as HTMLElement;
+    requestAnimationFrame(() => {
+      const firstBtn = modalRef.current?.querySelector<HTMLElement>("button");
+      firstBtn?.focus();
+    });
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      unlockBodyScroll();
+      previouslyFocused?.focus();
+    };
+  }, [confirmation, onRespond]);
+
+  if (!confirmation) return null;
+
+  const { id, toolName, arguments: args } = confirmation;
+
+  // Formatting content based on the tool
+  let detailsContent: React.ReactNode = null;
+  let warnMessage = "This action will execute code or modify files on your local machine.";
+
+  if (toolName === "project_write") {
+    detailsContent = (
+      <div className="mt-2 text-left">
+        <div className="text-xs font-semibold text-text-secondary mb-1">Target File:</div>
+        <div className="bg-hover border border-border px-3 py-1.5 rounded font-mono text-xs text-text-primary break-all">
+          {args.file_path}
+        </div>
+        <div className="text-xs font-semibold text-text-secondary mt-3 mb-1">Content:</div>
+        <pre className="bg-hover border border-border p-3 rounded font-mono text-[11px] text-text-primary overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
+          {args.content}
+        </pre>
+      </div>
+    );
+    warnMessage = "Writing files can modify project source code.";
+  } else if (toolName === "project_bash") {
+    detailsContent = (
+      <div className="mt-2 text-left">
+        <div className="text-xs font-semibold text-text-secondary mb-1">Command to Execute:</div>
+        <pre className="bg-hover border border-border p-3 rounded font-mono text-xs text-text-primary overflow-x-auto whitespace-pre-wrap break-all">
+          {args.command}
+        </pre>
+      </div>
+    );
+    warnMessage = "Executing commands can run arbitrary code on your system.";
+  } else if (toolName === "project_git_commit" || toolName === "git_create_commit") {
+    detailsContent = (
+      <div className="mt-2 text-left">
+        <div className="text-xs font-semibold text-text-secondary mb-1">Commit Message:</div>
+        <div className="bg-hover border border-border px-3 py-2 rounded font-medium text-xs text-text-primary">
+          {args.message}
+        </div>
+        {args.files && args.files.length > 0 && (
+          <>
+            <div className="text-xs font-semibold text-text-secondary mt-3 mb-1">Files:</div>
+            <ul className="bg-hover border border-border p-2.5 rounded font-mono text-[11px] text-text-primary max-h-24 overflow-y-auto list-disc list-inside">
+              {args.files.map((f: string, i: number) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    );
+    warnMessage = "This will create a new Git commit in the repository.";
+  } else {
+    detailsContent = (
+      <pre className="mt-2 bg-hover border border-border p-3 rounded font-mono text-xs text-text-primary overflow-x-auto text-left max-h-48 whitespace-pre-wrap break-all">
+        {JSON.stringify(args, null, 2)}
+      </pre>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="alertdialog"
+      aria-modal="true"
+      aria-label="Confirm Tool Execution"
+    >
+      <div
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ backgroundColor: "var(--theme-overlay)" }}
+        onClick={() => onRespond(id, false)}
+        aria-hidden="true"
+      />
+      <div
+        ref={modalRef}
+        className="relative z-10 w-full max-w-lg rounded-xl bg-surface border border-border"
+        style={{ boxShadow: "var(--shadow-xl)" }}
+      >
+        <div className="px-6 pt-5 pb-1">
+          <h3 className="text-sm font-semibold text-text-primary">Tool Execution Authorization</h3>
+          <p className="mt-1 text-xs text-red-500 font-medium">{warnMessage}</p>
+          <div className="mt-3 py-1 border-t border-border">
+            <div className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
+              Tool Name: <span className="font-mono text-accent">{toolName}</span>
+            </div>
+            {detailsContent}
+          </div>
+        </div>
+        <div className="flex gap-2.5 p-6 pt-4">
+          <button
+            onClick={() => onRespond(id, false)}
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px] border border-border"
+          >
+            Reject
+          </button>
+          <button
+            onClick={() => onRespond(id, true)}
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-accent text-accent-foreground hover:bg-accent-hover transition-all duration-200 min-h-[40px]"
+          >
+            Approve
           </button>
         </div>
       </div>
