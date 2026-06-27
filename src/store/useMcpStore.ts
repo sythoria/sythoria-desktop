@@ -55,6 +55,8 @@ interface McpState {
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
   checkCommand: (command: string) => Promise<ExecutableCheck>;
+  approvedTools: Set<string>;
+  approveTool: (namespacedName: string) => void;
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
@@ -63,6 +65,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
   serverStatuses: {},
   availableTools: [],
   enabledServerIds: new Set(),
+  approvedTools: new Set(),
+  approveTool: (namespacedName) => {
+    set((state) => {
+      const next = new Set(state.approvedTools);
+      next.add(namespacedName);
+      return { approvedTools: next };
+    });
+  },
 
   addMcpConfig: () => {
     const newConfig: McpServerConfig = {
