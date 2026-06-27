@@ -1,11 +1,13 @@
+mod anthropic;
+mod appshots;
+mod git;
 mod mcp;
+mod project_tools;
 mod search;
 mod stream_parser;
 mod ws_handler;
-mod anthropic;
-mod git;
-mod appshots;
-mod project_tools;
+
+pub struct ActiveProject(pub std::sync::Mutex<Option<std::path::PathBuf>>);
 
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -108,27 +110,23 @@ struct ChatResponse {
     choices: Vec<ChatChoice>,
 }
 
-static CANCELLED_STREAMS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+static CANCELLED_STREAMS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn mark_stream_cancelled(stream_id: String) -> Result<(), AppError> {
-    let mut cancelled = CANCELLED_STREAMS
-        .lock()
-        .map_err(|e| AppError::StreamError(format!("Stream cancellation lock poisoned: {}", e)))?;
+    let mut cancelled = CANCELLED_STREAMS.lock().unwrap_or_else(|e| e.into_inner());
     cancelled.insert(stream_id);
     Ok(())
 }
 
 fn clear_stream_cancelled(stream_id: &str) {
-    if let Ok(mut cancelled) = CANCELLED_STREAMS.lock() {
-        cancelled.remove(stream_id);
-    }
+    let mut cancelled = CANCELLED_STREAMS.lock().unwrap_or_else(|e| e.into_inner());
+    cancelled.remove(stream_id);
 }
 
 fn is_stream_cancelled(stream_id: &str) -> bool {
-    CANCELLED_STREAMS
-        .lock()
-        .map(|cancelled| cancelled.contains(stream_id))
-        .unwrap_or(true)
+    let cancelled = CANCELLED_STREAMS.lock().unwrap_or_else(|e| e.into_inner());
+    cancelled.contains(stream_id)
 }
 
 #[derive(Debug, thiserror::Error, Serialize)]
@@ -245,8 +243,8 @@ fn init_keyring_store() {
     );
     #[cfg(target_os = "linux")]
     keyring_core::set_default_store(
-        linux_keyutils_keyring_store::Store::new()
-            .expect("Failed to init Linux Keyutils store"),
+        dbus_secret_service_keyring_store::Store::new()
+            .expect("Failed to init Linux Secret Service store"),
     );
 }
 
@@ -430,7 +428,15 @@ async fn chat_completion(
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            return anthropic::chat_completion_anthropic(api_url, api_key, model, messages, temperature, max_tokens).await;
+            return anthropic::chat_completion_anthropic(
+                api_url,
+                api_key,
+                model,
+                messages,
+                temperature,
+                max_tokens,
+            )
+            .await;
         }
     }
     let client = Client::builder()
@@ -497,7 +503,17 @@ async fn chat_stream(
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            return anthropic::chat_stream_anthropic(api_url, api_key, model, messages, temperature, stream_id, max_tokens, app).await;
+            return anthropic::chat_stream_anthropic(
+                api_url,
+                api_key,
+                model,
+                messages,
+                temperature,
+                stream_id,
+                max_tokens,
+                app,
+            )
+            .await;
         }
     }
     clear_stream_cancelled(&stream_id);
@@ -563,10 +579,22 @@ async fn chat_stream_tools(
 ) -> Result<String, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            let parsed_messages: Vec<ChatMessage> = messages.into_iter()
+            let parsed_messages: Vec<ChatMessage> = messages
+                .into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
                 .collect();
-            return anthropic::chat_stream_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, stream_id, max_tokens, app).await;
+            return anthropic::chat_stream_tools_anthropic(
+                api_url,
+                api_key,
+                model,
+                parsed_messages,
+                tools,
+                temperature,
+                stream_id,
+                max_tokens,
+                app,
+            )
+            .await;
         }
     }
     clear_stream_cancelled(&stream_id);
@@ -639,10 +667,20 @@ async fn chat_completion_tools(
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             // Need to parse serde_json::Value back to ChatMessage for anthropic
-            let parsed_messages: Vec<ChatMessage> = messages.into_iter()
+            let parsed_messages: Vec<ChatMessage> = messages
+                .into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
                 .collect();
-            return anthropic::chat_completion_tools_anthropic(api_url, api_key, model, parsed_messages, tools, temperature, max_tokens).await;
+            return anthropic::chat_completion_tools_anthropic(
+                api_url,
+                api_key,
+                model,
+                parsed_messages,
+                tools,
+                temperature,
+                max_tokens,
+            )
+            .await;
         }
     }
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
@@ -684,7 +722,11 @@ async fn chat_completion_tools(
 }
 
 #[tauri::command]
-async fn check_api(api_url: String, api_key: String, provider: Option<String>) -> Result<bool, AppError> {
+async fn check_api(
+    api_url: String,
+    api_key: String,
+    provider: Option<String>,
+) -> Result<bool, AppError> {
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
             return anthropic::check_api_anthropic(api_url, api_key).await;
@@ -710,6 +752,54 @@ async fn check_api(api_url: String, api_key: String, provider: Option<String>) -
     let resp = request.send().await?;
 
     Ok(resp.status().is_success())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OllamaResponse {
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OllamaModel {
+    name: String,
+    model: Option<String>,
+}
+
+#[tauri::command]
+async fn check_ollama() -> Result<Vec<String>, AppError> {
+    let client = Client::new();
+    let resp = client
+        .get("http://127.0.0.1:11434/api/tags")
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await?;
+
+    if resp.status().is_success() {
+        let ollama_res: OllamaResponse = resp.json().await?;
+        let models = ollama_res.models.into_iter().map(|m| m.name).collect();
+        Ok(models)
+    } else {
+        Err(AppError::RequestFailed(format!(
+            "Ollama server returned status: {}",
+            resp.status()
+        )))
+    }
+}
+
+#[tauri::command]
+async fn mcp_list_resources(server_id: String) -> Result<String, AppError> {
+    let result = mcp::client::list_resources_on_server(&server_id)
+        .await
+        .map_err(|e| AppError::McpError(e))?;
+    Ok(serde_json::to_string(&result).unwrap_or_default())
+}
+
+#[tauri::command]
+async fn mcp_list_prompts(server_id: String) -> Result<String, AppError> {
+    let result = mcp::client::list_prompts_on_server(&server_id)
+        .await
+        .map_err(|e| AppError::McpError(e))?;
+    Ok(serde_json::to_string(&result).unwrap_or_default())
 }
 
 #[tauri::command]
@@ -770,6 +860,7 @@ async fn ws_chat(
     api_key: Option<String>,
     model: String,
     app: tauri::AppHandle,
+    session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<String, AppError> {
     let config = ws_handler::WsConfig {
         url,
@@ -778,7 +869,48 @@ async fn ws_chat(
         reconnect: true,
         max_reconnect_attempts: 5,
     };
-    ws_handler::ws_chat_stream(config, app)
+    ws_handler::ws_connect(config, app, &session)
+        .await
+        .map_err(AppError::AuthError)?;
+    Ok("Connected".to_string())
+}
+
+#[tauri::command]
+async fn ws_connect(
+    url: String,
+    api_key: Option<String>,
+    model: String,
+    app: tauri::AppHandle,
+    session: tauri::State<'_, ws_handler::WsSession>,
+) -> Result<(), AppError> {
+    let config = ws_handler::WsConfig {
+        url,
+        api_key,
+        model,
+        reconnect: true,
+        max_reconnect_attempts: 5,
+    };
+    ws_handler::ws_connect(config, app, &session)
+        .await
+        .map_err(AppError::AuthError)
+}
+
+#[tauri::command]
+async fn ws_send(
+    message: String,
+    session: tauri::State<'_, ws_handler::WsSession>,
+) -> Result<(), AppError> {
+    ws_handler::ws_send(message, &session)
+        .await
+        .map_err(AppError::AuthError)
+}
+
+#[tauri::command]
+async fn ws_disconnect(
+    app: tauri::AppHandle,
+    session: tauri::State<'_, ws_handler::WsSession>,
+) -> Result<(), AppError> {
+    ws_handler::ws_disconnect(&session, app)
         .await
         .map_err(AppError::AuthError)
 }
@@ -962,9 +1094,9 @@ async fn save_mcp_env_secrets_cmd(
     app: tauri::AppHandle,
     secrets: serde_json::Value,
 ) -> Result<(), AppError> {
-    let secrets_map = secrets
-        .as_object()
-        .ok_or_else(|| AppError::ParseError("MCP env secrets payload must be an object".to_string()))?;
+    let secrets_map = secrets.as_object().ok_or_else(|| {
+        AppError::ParseError("MCP env secrets payload must be an object".to_string())
+    })?;
 
     let existing_server_ids = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
 
@@ -976,7 +1108,8 @@ async fn save_mcp_env_secrets_cmd(
             if let Some(env_index) = store.get(&server_index_key) {
                 if let Some(arr) = env_index.as_array() {
                     for key in arr.iter().filter_map(|v| v.as_str()) {
-                        let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
+                        let _ =
+                            delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
                     }
                 }
             }
@@ -1050,7 +1183,7 @@ async fn mcp_stop_server(server_id: String) -> Result<(), AppError> {
 async fn mcp_list_tools(server_id: String) -> Result<String, AppError> {
     let manager = crate::mcp::MCP_SERVERS
         .lock()
-        .map_err(|e| AppError::McpError(format!("Manager lock poisoned: {}", e)))?;
+        .unwrap_or_else(|e| e.into_inner());
     let tools = manager.get_tools(&server_id);
     Ok(serde_json::to_string(&tools).unwrap_or_default())
 }
@@ -1081,7 +1214,12 @@ async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
         .app_data_dir()
         .map_err(|e| AppError::AppPath(e.to_string()))?;
 
-    let files = vec!["config.json", "search_config.json", "mcp_config.json", "sythoria-store.json"];
+    let files = vec![
+        "config.json",
+        "search_config.json",
+        "mcp_config.json",
+        "sythoria-store.json",
+    ];
     for file_name in files {
         let path = app_data_dir.join(file_name);
         if path.exists() {
@@ -1108,9 +1246,13 @@ async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(
         use smappservice_rs::{AppService, ServiceType};
         let service = AppService::new(ServiceType::MainApp);
         if enabled {
-            service.register().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+            service
+                .register()
+                .map_err(|e| AppError::ConfigIo(e.to_string()))?;
         } else {
-            service.unregister().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+            service
+                .unregister()
+                .map_err(|e| AppError::ConfigIo(e.to_string()))?;
         }
         Ok(())
     }
@@ -1119,9 +1261,13 @@ async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(
         use tauri_plugin_autostart::ManagerExt;
         let manager = app.autolaunch();
         if enabled {
-            manager.enable().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+            manager
+                .enable()
+                .map_err(|e| AppError::ConfigIo(e.to_string()))?;
         } else {
-            manager.disable().map_err(|e| AppError::ConfigIo(e.to_string()))?;
+            manager
+                .disable()
+                .map_err(|e| AppError::ConfigIo(e.to_string()))?;
         }
         Ok(())
     }
@@ -1132,7 +1278,7 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
     #[cfg(target_os = "macos")]
     {
         let _ = app;
-        use smappservice_rs::{AppService, ServiceType, ServiceStatus};
+        use smappservice_rs::{AppService, ServiceStatus, ServiceType};
         let service = AppService::new(ServiceType::MainApp);
         Ok(service.status() == ServiceStatus::Enabled)
     }
@@ -1140,7 +1286,9 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
     {
         use tauri_plugin_autostart::ManagerExt;
         let manager = app.autolaunch();
-        manager.is_enabled().map_err(|e| AppError::ConfigIo(e.to_string()))
+        manager
+            .is_enabled()
+            .map_err(|e| AppError::ConfigIo(e.to_string()))
     }
 }
 
@@ -1164,7 +1312,9 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
     let metadata = fs::metadata(&path)?;
     let size = metadata.len();
     if size > 10 * 1024 * 1024 {
-        return Err(AppError::ConfigIo(format!("File size exceeds the 10 MB limit")));
+        return Err(AppError::ConfigIo(format!(
+            "File size exceeds the 10 MB limit"
+        )));
     }
 
     let name = path_buf
@@ -1202,7 +1352,7 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
     } else {
         let text_content = fs::read_to_string(&path)
             .map_err(|e| AppError::ConfigIo(format!("Failed to read file as text: {}", e)))?;
-        
+
         let mime_type = match ext.as_str() {
             "txt" => "text/plain",
             "html" => "text/html",
@@ -1224,46 +1374,91 @@ async fn read_file_from_path(path: String) -> Result<FilePayload, AppError> {
     }
 }
 
+#[tauri::command]
+async fn write_exported_file(path: String, content: String) -> Result<(), AppError> {
+    let path_buf = std::path::Path::new(&path);
+    if let Some(parent) = path_buf.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path_buf, content)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_active_project(
+    active_project: tauri::State<'_, ActiveProject>,
+    path: Option<String>,
+) -> Result<(), AppError> {
+    let mut guard = active_project
+        .0
+        .lock()
+        .map_err(|_| AppError::AppPath("Lock poisoned".into()))?;
+    *guard = path.map(std::path::PathBuf::from);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 
 pub fn run() {
     init_keyring_store();
     tauri::Builder::default()
+        .manage(ActiveProject(std::sync::Mutex::new(None)))
+        .manage(ws_handler::WsSession::default())
         .setup(|app| {
-            let window = app.get_webview_window("main").unwrap();
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                let _ = app.global_shortcut().register(shortcut);
+            }
+
+            let _window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
-            let _ = window_vibrancy::apply_vibrancy(&window, window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground, None, Some(16.0));
+            let _ = window_vibrancy::apply_vibrancy(
+                &_window,
+                window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+                None,
+                Some(16.0),
+            );
 
             #[cfg(target_os = "windows")]
-            let _ = window_vibrancy::apply_blur(&window, Some((18, 18, 18, 125)));
+            let _ = window_vibrancy::apply_blur(&_window, Some((18, 18, 18, 125)));
 
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
                 let quit_i = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-                let show_i = tauri::menu::MenuItemBuilder::with_id("show", "Show Sythoria").build(app)?;
-                let menu = tauri::menu::MenuBuilder::new(app).items(&[&show_i, &quit_i]).build()?;
+                let show_i =
+                    tauri::menu::MenuItemBuilder::with_id("show", "Show Sythoria").build(app)?;
+                let menu = tauri::menu::MenuBuilder::new(app)
+                    .items(&[&show_i, &quit_i])
+                    .build()?;
 
                 let _tray = tauri::tray::TrayIconBuilder::new()
                     .icon(app.default_window_icon().unwrap().clone())
                     .menu(&menu)
-                    .on_menu_event(|app, event| {
-                        match event.id().as_ref() {
-                            "quit" => {
-                                app.exit(0);
-                            }
-                            "show" => {
-                                if let Some(window) = app.get_webview_window("main") {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                            _ => {}
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "quit" => {
+                            app.exit(0);
                         }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        _ => {}
                     })
                     .on_tray_icon_event(|tray, event| {
-                        if let tauri::tray::TrayIconEvent::Click { button, button_state, .. } = event {
-                            if button == tauri::tray::MouseButton::Left && button_state == tauri::tray::MouseButtonState::Up {
+                        if let tauri::tray::TrayIconEvent::Click {
+                            button,
+                            button_state,
+                            ..
+                        } = event
+                        {
+                            if button == tauri::tray::MouseButton::Left
+                                && button_state == tauri::tray::MouseButtonState::Up
+                            {
                                 let app = tray.app_handle();
                                 if let Some(window) = app.get_webview_window("main") {
                                     let _ = window.show();
@@ -1292,7 +1487,33 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::AppleScript, None))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::AppleScript,
+            None,
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
+                    if event.state() == ShortcutState::Pressed {
+                        if shortcut.matches(Modifiers::ALT, Code::Space) {
+                            if let Some(spotlight_win) = app.get_webview_window("spotlight") {
+                                match spotlight_win.is_visible() {
+                                    Ok(true) => {
+                                        let _ = spotlight_win.hide();
+                                    }
+                                    Ok(false) => {
+                                        let _ = spotlight_win.show();
+                                        let _ = spotlight_win.set_focus();
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                })
+                .build(),
+        )
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Warn)
@@ -1314,10 +1535,14 @@ pub fn run() {
             chat_stream_tools,
             generate_title,
             check_api,
+            check_ollama,
             web_search,
             fetch_url_content,
             ws_authenticate,
             ws_chat,
+            ws_connect,
+            ws_send,
+            ws_disconnect,
             load_mcp_config,
             save_mcp_config,
             load_mcp_env_secrets,
@@ -1326,11 +1551,15 @@ pub fn run() {
             mcp_check_command,
             mcp_stop_server,
             mcp_list_tools,
+            mcp_list_resources,
+            mcp_list_prompts,
             mcp_call_tool,
             wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
             read_file_from_path,
+            write_exported_file,
+            set_active_project,
             git::git_detect_repo,
             git::git_get_status,
             git::git_create_commit,
