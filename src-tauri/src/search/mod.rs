@@ -175,7 +175,7 @@ fn is_private_or_reserved_ip(ip: &std::net::IpAddr) -> bool {
     }
 }
 
-async fn validate_resolved_url(url: &url::Url) -> Result<(), SearchError> {
+async fn validate_resolved_url(url: &url::Url) -> Result<std::net::IpAddr, SearchError> {
     let host = url
         .host_str()
         .ok_or_else(|| SearchError::UrlValidationError("URL host is required".into()))?;
@@ -187,6 +187,7 @@ async fn validate_resolved_url(url: &url::Url) -> Result<(), SearchError> {
         SearchError::UrlValidationError(format!("Failed to resolve hostname '{}': {}", host, e))
     })?;
 
+    let mut first_ip = None;
     for addr in resolved {
         if is_private_or_reserved_ip(&addr.ip()) {
             return Err(SearchError::UrlValidationError(format!(
@@ -195,9 +196,17 @@ async fn validate_resolved_url(url: &url::Url) -> Result<(), SearchError> {
                 addr.ip()
             )));
         }
+        if first_ip.is_none() {
+            first_ip = Some(addr.ip());
+        }
     }
 
-    Ok(())
+    first_ip.ok_or_else(|| {
+        SearchError::UrlValidationError(format!(
+            "No IP addresses resolved for hostname '{}'.",
+            host
+        ))
+    })
 }
 
 pub async fn search(
@@ -220,14 +229,23 @@ pub async fn search(
 pub async fn fetch_url(url: &str) -> Result<UrlContent, SearchError> {
     let mut current_url = validate_url(url)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
-
     for redirect_count in 0..=MAX_REDIRECTS {
-        validate_resolved_url(&current_url).await?;
+        let validated_ip = validate_resolved_url(&current_url).await?;
+        let host = current_url
+            .host_str()
+            .ok_or_else(|| SearchError::UrlValidationError("URL host is required".into()))?;
+        let port = current_url
+            .port_or_known_default()
+            .ok_or_else(|| SearchError::UrlValidationError("URL port is required".into()))?;
+
+        let socket_addr = std::net::SocketAddr::new(validated_ip, port);
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve(host, socket_addr)
+            .build()
+            .map_err(|e| SearchError::RequestFailed(e.to_string()))?;
 
         let resp = client
             .get(current_url.clone())
