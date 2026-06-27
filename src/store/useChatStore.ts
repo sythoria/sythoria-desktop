@@ -181,7 +181,7 @@ interface ChatState {
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
   setDraftAttachments: (attachments: Attachment[]) => void;
-  addDraftFileFromPath: (path: string) => Promise<void>;
+  addDraftFileFromToken: (token: string) => Promise<void>;
   setConversationProject: (id: string, projectId: string | undefined) => void;
 }
 
@@ -382,7 +382,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cleanupEmptyConversations: (exceptId?: string | null) => {
     const { conversations, activeId } = get();
     const keepId = exceptId !== undefined ? exceptId : activeId;
-    const nonEmpty = conversations.filter((c) => c.messages.length > 0 || c.id === keepId);
+    const nonEmpty = conversations.filter((c) => {
+      if (c.id.startsWith("compare-")) {
+        return get().isCompareMode && c.id === get().compareId;
+      }
+      return c.messages.length > 0 || c.id === keepId;
+    });
     if (nonEmpty.length === conversations.length) return;
     const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
     set({
@@ -395,6 +400,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { activeId, navigationHistory, navigationIndex } = get();
     if (activeId === id) return;
     get().cleanupEmptyConversations(id);
+
+    // Exit compare mode when switching chats to prevent state pollution
+    set({
+      isCompareMode: false,
+      compareId: null,
+    });
 
     if (!isHistoryMove) {
       const newHistory = navigationHistory.slice(0, navigationIndex + 1);
@@ -478,11 +489,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       const nextActiveId = state.activeId === id ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
 
+      const isCompareDeleted = state.compareId === id;
+      const isActiveDeleted = state.activeId === id;
+
       return {
         conversations: state.conversations.filter((c) => c.id !== id),
         activeId: nextActiveId,
         navigationHistory: newHistory,
         navigationIndex: newIndex,
+        ...(isCompareDeleted || (isActiveDeleted && state.isCompareMode)
+          ? { compareId: null, isCompareMode: false }
+          : {}),
       };
     });
     get().persistConversations();
@@ -572,7 +589,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const runForConversation = async (cId: string, modelConfig: ModelConfig) => {
       if (!modelConfig) return;
       const currentConvs = get().conversations;
-      const isFirstForThis = currentConvs.find((c) => c.id === cId)?.messages.length === 0;
+      const isFirstForThis = (currentConvs.find((c) => c.id === cId)?.messages?.length ?? 0) === 0;
 
       set((state) => ({
         conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
@@ -592,7 +609,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           cId,
           modelConfig,
           temperature,
-          apiKeys,
           toolLoop.searchConfig,
           toolLoop.searchApiKey,
           toolLoop.mcpTools,
@@ -604,7 +620,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           activeProject,
         );
       } else {
-        await sendNormal(cId, modelConfig, temperature, apiKeys, set, get);
+        await sendNormal(cId, modelConfig, temperature, set, get);
       }
     };
 
@@ -673,7 +689,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   retryLastMessage: async (convId) => {
     const { isStreaming, conversations } = get();
-    const { selectedModel, models, temperature, apiKeys } = useModelStore.getState();
+    const { selectedModel, models, temperature } = useModelStore.getState();
 
     if (isStreaming) return;
 
@@ -722,7 +738,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         convId,
         modelConfig,
         temperature,
-        apiKeys,
         toolLoop.searchConfig,
         toolLoop.searchApiKey,
         toolLoop.mcpTools,
@@ -734,7 +749,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeProject,
       );
     } else {
-      await sendNormal(convId, modelConfig, temperature, apiKeys, set, get);
+      await sendNormal(convId, modelConfig, temperature, set, get);
     }
 
     // Auto-commit if enabled and changes exist
@@ -746,17 +761,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conv) return;
 
     try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const filePath = await save({
+      const defaultName = `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
+      const saveResult = await invoke<[string, string] | null>("select_save_file_and_get_token", {
         title: "Export Chat",
-        defaultPath: `${conv.title.replace(/[^a-zA-Z0-9]/g, "_")}.md`,
-        filters: [
-          { name: "Markdown", extensions: ["md"] },
-          { name: "JSON", extensions: ["json"] },
-        ],
+        defaultName,
       });
 
-      if (!filePath) return;
+      if (!saveResult) return;
+      const [token, filePath] = saveResult;
 
       let content = "";
       if (filePath.endsWith(".json")) {
@@ -777,7 +789,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content = lines.join("\n\n");
       }
 
-      await invoke("write_exported_file", { path: filePath, content });
+      await invoke("write_exported_file_by_token", { token, content });
       uiToast("Chat exported", "success");
     } catch (err) {
       logError("chat", "Failed to export chat", { error: err });
@@ -809,7 +821,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setDraftAttachments: (draftAttachments) => set({ draftAttachments }),
 
-  addDraftFileFromPath: async (path: string) => {
+  addDraftFileFromToken: async (token: string) => {
     const addToast = useUIStore.getState().addToast;
     const currentDrafts = get().draftAttachments;
 
@@ -820,7 +832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         mimeType: string;
         dataUrl?: string;
         textContent?: string;
-      }>("read_file_from_path", { path });
+      }>("read_file_from_token", { token });
 
       // Check for duplicate by name and size
       const isDuplicate = currentDrafts.some((a) => a.name === payload.name && a.size === payload.size);
@@ -866,7 +878,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ draftAttachments: [...currentDrafts, attachment] });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      addToast(errMsg || `Failed to read file from path: ${path}`, "error");
+      addToast(errMsg || `Failed to read file from token`, "error");
     }
   },
 
@@ -888,7 +900,6 @@ async function sendNormal(
   convId: string,
   modelConfig: ModelConfig,
   temperature: number,
-  apiKeys: Record<string, string>,
   set: (fn: (state: ChatState) => Partial<ChatState>) => void,
   get: () => ChatState,
 ) {
@@ -970,9 +981,6 @@ async function sendNormal(
   );
 
   try {
-    const apiUrl = modelConfig.apiBase;
-    const apiKey = apiKeys[modelConfig.id] ?? modelConfig.apiKey ?? "";
-
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages: { role: string; content: string | unknown[] }[] =
       conv?.messages
@@ -994,10 +1002,7 @@ async function sendNormal(
     const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
 
     await invoke("chat_stream", {
-      apiUrl,
-      apiKey,
-      model: modelConfig.modelId,
-      provider: modelConfig.provider,
+      configId: modelConfig.id,
       messages: apiMessages,
       temperature: requestTemp,
       maxTokens,
@@ -1090,7 +1095,9 @@ function generateConversationTitle(
       const trimmed = title.trim();
       if (trimmed) {
         set((state) => ({
-          conversations: state.conversations.map((c) => (c.id === convId ? { ...c, title: trimmed } : c)),
+          conversations: state.conversations.map((c) =>
+            c.id === convId ? { ...c, title: c.id.startsWith("compare-") ? `${trimmed} (Compare)` : trimmed } : c,
+          ),
         }));
         get().persistConversations();
       }
