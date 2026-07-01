@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Menu, PanelLeft, MessageSquarePlus, ChevronLeft, ChevronRight, Split, X } from "lucide-react";
+import {
+  Menu,
+  PanelLeft,
+  MessageSquarePlus,
+  ChevronLeft,
+  ChevronRight,
+  Split,
+  X,
+  Plus,
+  Link,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
+import type { Conversation } from "./types";
+import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import Settings from "./components/settings";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
@@ -73,7 +87,7 @@ function App() {
     navigationHistory,
     navigationIndex,
     isCompareMode,
-    compareId,
+    compareIds,
   } = useChatStore(
     useShallow((s) => ({
       conversations: s.conversations,
@@ -85,7 +99,7 @@ function App() {
       navigationHistory: s.navigationHistory,
       navigationIndex: s.navigationIndex,
       isCompareMode: s.isCompareMode,
-      compareId: s.compareId,
+      compareIds: s.compareIds,
     })),
   );
   const {
@@ -235,25 +249,50 @@ function App() {
   const messages = activeConversation?.messages ?? [];
   const primaryGeneration = activeId ? generationByConversation[activeId] : null;
 
-  const compareConversation = useMemo(
-    () => conversations.find((c) => c.id === compareId) ?? null,
-    [conversations, compareId],
+  const [showAddCompareDropdown, setShowAddCompareDropdown] = useState(false);
+  const [syncScrolls, setSyncScrolls] = useState(true);
+  const [isArtifactFullScreen, setIsArtifactFullScreen] = useState(false);
+
+  const compareConversations = useMemo(
+    () => compareIds.map((id) => conversations.find((c) => c.id === id)).filter(Boolean) as Conversation[],
+    [conversations, compareIds],
   );
-  const compareMessages = compareConversation?.messages ?? [];
-  const compareGeneration = compareId ? generationByConversation[compareId] : null;
+
+  const handleAddCompareModel = useCallback(
+    (modelId: string) => {
+      if (!activeId) return;
+      const activeConv = conversations.find((c) => c.id === activeId);
+      const newId = "compare-" + Date.now();
+      const clonedMessages = activeConv ? activeConv.messages.map((m) => ({ ...m })) : [];
+
+      const newConv = {
+        id: newId,
+        title: (activeConv?.title ?? "Comparison") + " (Compare)",
+        timestamp: new Date(),
+        messages: clonedMessages,
+        model: modelId,
+        projectId: activeConv?.projectId || undefined,
+      };
+
+      useChatStore.setState({
+        conversations: [newConv, ...conversations],
+        compareIds: [...compareIds, newId],
+      });
+    },
+    [activeId, conversations, compareIds],
+  );
 
   const handleToggleCompareMode = useCallback(() => {
     const nextCompareMode = !isCompareMode;
     setIsCompareMode(nextCompareMode);
 
     if (nextCompareMode) {
-      if (activeId && !compareId) {
+      if (activeId && compareIds.length === 0) {
         const activeConv = conversations.find((c) => c.id === activeId);
         const secondaryModel =
           models.find((m) => m.id !== activeConv?.model && m.enabled !== false)?.id || selectedModel;
 
         const newId = "compare-" + Date.now();
-        // Clone historical context to comparison conversation
         const clonedMessages = activeConv ? activeConv.messages.map((m) => ({ ...m })) : [];
 
         const newConv = {
@@ -267,19 +306,58 @@ function App() {
 
         useChatStore.setState({
           conversations: [newConv, ...conversations],
-          compareId: newId,
+          compareIds: [newId],
         });
       }
     } else {
-      // Clean up the temporary comparison chat on toggle off
-      if (compareId) {
+      if (compareIds.length > 0) {
         useChatStore.setState({
-          conversations: conversations.filter((c) => c.id !== compareId),
-          compareId: null,
+          conversations: conversations.filter((c) => !compareIds.includes(c.id)),
+          compareIds: [],
         });
       }
     }
-  }, [isCompareMode, activeId, compareId, conversations, models, selectedModel, setIsCompareMode]);
+  }, [isCompareMode, activeId, compareIds, conversations, models, selectedModel, setIsCompareMode]);
+
+  const {
+    virtuosoRef: primaryVirtuosoRef,
+    isAtBottom: primaryIsAtBottom,
+    setIsAtBottom: primarySetIsAtBottom,
+    scrollToBottom: primaryScrollToBottom,
+  } = useScrollButton();
+
+  const compareRefsMap = useRef<Record<string, any>>({});
+
+  const activeScrollSourceRef = useRef<string | null>(null);
+  const scrollTimeoutRef = useRef<any>(null);
+
+  const handleScrollSync = useCallback(
+    (cId: string, scrollTop: number) => {
+      if (!syncScrolls) return;
+      if (activeScrollSourceRef.current && activeScrollSourceRef.current !== cId) return;
+
+      activeScrollSourceRef.current = cId;
+
+      if (activeId !== cId && primaryVirtuosoRef.current) {
+        primaryVirtuosoRef.current.scrollTo({ top: scrollTop });
+      }
+
+      compareIds.forEach((id) => {
+        if (id !== cId) {
+          const compRef = compareRefsMap.current[id];
+          if (compRef) {
+            compRef.scrollTo({ top: scrollTop });
+          }
+        }
+      });
+
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+        activeScrollSourceRef.current = null;
+      }, 50);
+    },
+    [syncScrolls, activeId, compareIds, primaryVirtuosoRef],
+  );
 
   // Synchronize active project when active conversation changes
   useEffect(() => {
@@ -287,30 +365,39 @@ function App() {
       if (activeConversation.projectId !== activeProjectId) {
         setActiveProject(activeConversation.projectId || null);
       }
+      if (activeConversation.pendingWorktree) {
+        useProjectStore
+          .getState()
+          .setWorktree(activeConversation.pendingWorktree.path, activeConversation.pendingWorktree.branch);
+      } else {
+        useProjectStore.getState().setWorktree(null, null);
+      }
     } else {
       if (activeProjectId !== null) {
         setActiveProject(null);
       }
+      useProjectStore.getState().setWorktree(null, null);
     }
-  }, [activeId, activeConversation?.projectId, activeProjectId, setActiveProject]);
+  }, [activeId, activeConversation?.projectId, activeProjectId, setActiveProject, activeConversation?.pendingWorktree]);
 
-  const primaryScroll = useScrollButton();
-  const compareScroll = useScrollButton();
+  const primaryTracking = useScrollTracking(activeId, messages.length, primaryIsAtBottom, isStreaming);
 
-  const primaryTracking = useScrollTracking(activeId, messages.length, primaryScroll.isAtBottom, isStreaming);
-  const compareTracking = useScrollTracking(compareId, compareMessages.length, compareScroll.isAtBottom, isStreaming);
-
-  const showScrollToBottom = !primaryScroll.isAtBottom || (isCompareMode && !compareScroll.isAtBottom);
-  const hasNewMessages = primaryTracking.hasNewMessages || (isCompareMode && compareTracking.hasNewMessages);
+  const showScrollToBottom = !primaryIsAtBottom;
+  const hasNewMessages = primaryTracking.hasNewMessages;
 
   const handleScrollToBottom = useCallback(() => {
-    primaryScroll.scrollToBottom();
+    primaryScrollToBottom();
     primaryTracking.setHasNewMessages(false);
+
     if (isCompareMode) {
-      compareScroll.scrollToBottom();
-      compareTracking.setHasNewMessages(false);
+      compareIds.forEach((id) => {
+        const compRef = compareRefsMap.current[id];
+        if (compRef?.current) {
+          compRef.current.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+        }
+      });
     }
-  }, [primaryScroll, compareScroll, primaryTracking, compareTracking, isCompareMode]);
+  }, [primaryScroll, primaryTracking, isCompareMode, compareIds]);
 
   // Scroll to bottom instantly when switching conversations or going to the chat view
   useEffect(() => {
@@ -318,7 +405,12 @@ function App() {
       const scroll = () => {
         primaryScroll.scrollToBottom("auto");
         if (isCompareMode) {
-          compareScroll.scrollToBottom("auto");
+          compareIds.forEach((id) => {
+            const compRef = compareRefsMap.current[id];
+            if (compRef?.current) {
+              compRef.current.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+            }
+          });
         }
       };
 
@@ -337,7 +429,7 @@ function App() {
         clearTimeout(timer);
       };
     }
-  }, [activeId, view, isCompareMode, primaryScroll.scrollToBottom, compareScroll.scrollToBottom]);
+  }, [activeId, view, isCompareMode, primaryScroll.scrollToBottom, compareIds]);
 
   useEffect(() => {
     init();
@@ -585,6 +677,69 @@ function App() {
     );
   }
 
+  const renderArtifactContent = () => {
+    if (!activeArtifact) return null;
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden h-full">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-4">
+            <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
+            {(activeArtifact.type === "html" || activeArtifact.type === "svg") && (
+              <div className="flex items-center gap-2 border-l border-border pl-4">
+                <input
+                  id="allow-network-toggle"
+                  type="checkbox"
+                  checked={allowArtifactNetwork}
+                  onChange={(e) => setAllowArtifactNetwork(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-accent cursor-pointer rounded border-border"
+                />
+                <label
+                  htmlFor="allow-network-toggle"
+                  className="text-xs text-text-muted font-medium cursor-pointer select-none hover:text-text-secondary transition-colors"
+                >
+                  Allow Network Access
+                </label>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsArtifactFullScreen(!isArtifactFullScreen)}
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+              aria-label={isArtifactFullScreen ? "Show side panel" : "Show full screen"}
+              title={isArtifactFullScreen ? "Side Panel" : "Full Screen"}
+            >
+              {isArtifactFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+            <button
+              onClick={() => {
+                setActiveArtifact(null);
+                setIsArtifactFullScreen(false);
+              }}
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+              aria-label="Close artifact preview"
+              title="Close"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+        {activeArtifact.type === "html" || activeArtifact.type === "svg" ? (
+          <iframe
+            title={activeArtifact.title}
+            sandbox="allow-scripts"
+            srcDoc={getSafeSrcDoc(activeArtifact.content, allowArtifactNetwork)}
+            className="min-h-0 flex-1 bg-white"
+          />
+        ) : (
+          <pre className="min-h-0 flex-1 overflow-auto bg-chat p-4 font-mono text-xs text-text-primary">
+            {activeArtifact.content}
+          </pre>
+        )}
+      </div>
+    );
+  };
+
   if (!hasStarted) {
     return <StartScreen onStart={() => setHasStarted(true)} />;
   }
@@ -720,7 +875,66 @@ function App() {
                       {activeConversation?.title ?? "New chat"}
                     </motion.h2>
                   </div>
-                  <div className="flex items-center gap-2 ml-auto">
+                  <div className="flex items-center gap-2 ml-auto relative">
+                    {isCompareMode && (
+                      <>
+                        <button
+                          onClick={() => setSyncScrolls(!syncScrolls)}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            syncScrolls
+                              ? "text-accent bg-accent/10 hover:bg-accent/15"
+                              : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                          }`}
+                          aria-label={syncScrolls ? "Disable scroll synchronization" : "Enable scroll synchronization"}
+                          title={syncScrolls ? "Disable scroll sync" : "Sync scrolling"}
+                        >
+                          <Link size={16} />
+                        </button>
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowAddCompareDropdown(!showAddCompareDropdown)}
+                            className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors flex items-center justify-center"
+                            aria-label="Add model to compare"
+                            title="Add model to compare"
+                          >
+                            <Plus size={16} />
+                          </button>
+                          {showAddCompareDropdown && (
+                            <div className="absolute right-0 mt-1 w-48 rounded-md border border-border bg-surface shadow-lg z-50 py-1 overflow-auto max-h-60 text-xs">
+                              {models
+                                .filter(
+                                  (m) =>
+                                    m.enabled !== false &&
+                                    m.id !== (activeConversation?.model || selectedModel) &&
+                                    !compareConversations.some((c) => c.model === m.id),
+                                )
+                                .map((m) => (
+                                  <button
+                                    key={m.id}
+                                    onClick={() => {
+                                      handleAddCompareModel(m.id);
+                                      setShowAddCompareDropdown(false);
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-hover text-text-secondary hover:text-text-primary transition-colors"
+                                  >
+                                    {m.name}
+                                  </button>
+                                ))}
+                              {models.filter(
+                                (m) =>
+                                  m.enabled !== false &&
+                                  m.id !== (activeConversation?.model || selectedModel) &&
+                                  !compareConversations.some((c) => c.model === m.id),
+                              ).length === 0 && (
+                                <div className="px-3 py-2 text-text-muted text-center italic">
+                                  No other models enabled
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                     <button
                       onClick={handleToggleCompareMode}
                       className={`p-1.5 rounded-md transition-colors ${
@@ -736,127 +950,130 @@ function App() {
                   </div>
                 </header>
 
-                {isCompareMode && compareConversation ? (
-                  <div className="flex-1 min-h-0 grid grid-cols-2 divide-x divide-border">
-                    {/* Left Column (Primary) */}
-                    <div className="min-h-0 min-w-0 flex flex-col">
-                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border flex items-center justify-between">
-                        <span className="truncate max-w-[50%]">
-                          Primary Chat ({activeConversation?.title || "Primary"})
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-text-muted">Model:</span>
-                          <select
-                            value={activeConversation?.model || selectedModel}
-                            onChange={(e) => {
-                              const newModelId = e.target.value;
-                              setSelectedModel(newModelId);
-                              if (activeConversation) {
+                <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
+                  {/* Left Column */}
+                  <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
+                    {isCompareMode && compareConversations.length > 0 ? (
+                      <div
+                        className="flex-1 min-h-0 grid divide-x divide-border overflow-hidden bg-chat"
+                        style={{ gridTemplateColumns: `repeat(${compareConversations.length + 1}, minmax(0, 1fr))` }}
+                      >
+                        {/* Primary Column */}
+                        <ComparisonColumn
+                          conversation={activeConversation!}
+                          isPrimary={true}
+                          models={models}
+                          onModelChange={(newModelId) => {
+                            setSelectedModel(newModelId);
+                            if (activeConversation) {
+                              useChatStore.setState((state) => ({
+                                conversations: state.conversations.map((c) =>
+                                  c.id === activeConversation.id ? { ...c, model: newModelId } : c,
+                                ),
+                              }));
+                            }
+                          }}
+                          generationState={primaryGeneration?.state ?? generationState}
+                          generationLabel={primaryGeneration?.label ?? generationLabel}
+                          onRetry={handleRetry}
+                          isStreaming={isStreaming}
+                          onScroll={syncScrolls ? (top) => handleScrollSync(activeId!, top) : undefined}
+                          ref={primaryVirtuosoRef}
+                        />
+
+                        {/* Comparison Columns */}
+                        {compareConversations.map((c) => {
+                          const compGen = generationByConversation[c.id];
+                          return (
+                            <ComparisonColumn
+                              key={c.id}
+                              conversation={c}
+                              models={models}
+                              onModelChange={(newModelId) => {
                                 useChatStore.setState((state) => ({
-                                  conversations: state.conversations.map((c) =>
-                                    c.id === activeConversation.id ? { ...c, model: newModelId } : c,
+                                  conversations: state.conversations.map((conv) =>
+                                    conv.id === c.id ? { ...conv, model: newModelId } : conv,
                                   ),
                                 }));
-                              }
-                            }}
-                            className="bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text-secondary outline-none focus:border-accent hover:border-text-muted transition-colors cursor-pointer max-w-[150px] shadow-sm"
-                          >
-                            {models
-                              .filter((m) => m.enabled !== false)
-                              .map((m) => (
-                                <option key={m.id} value={m.id} className="bg-surface text-text-primary">
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
-                        </div>
+                              }}
+                              onClose={() => {
+                                useChatStore.setState((state) => {
+                                  const nextCompareIds = state.compareIds.filter((id) => id !== c.id);
+                                  return {
+                                    conversations: state.conversations.filter((conv) => conv.id !== c.id),
+                                    compareIds: nextCompareIds,
+                                    isCompareMode: nextCompareIds.length > 0,
+                                  };
+                                });
+                              }}
+                              generationState={compGen?.state ?? "idle"}
+                              generationLabel={compGen?.label ?? ""}
+                              onRetry={() => retryLastMessage(c.id)}
+                              isStreaming={isStreaming}
+                              onScroll={syncScrolls ? (top) => handleScrollSync(c.id, top) : undefined}
+                              ref={(el) => {
+                                compareRefsMap.current[c.id] = el;
+                              }}
+                            />
+                          );
+                        })}
                       </div>
+                    ) : (
                       <ChatArea
                         messages={messages}
-                        setIsAtBottom={primaryScroll.setIsAtBottom}
-                        virtuosoRef={primaryScroll.virtuosoRef}
+                        setIsAtBottom={primarySetIsAtBottom}
+                        virtuosoRef={primaryVirtuosoRef}
                         onRetry={handleRetry}
                         generationState={primaryGeneration?.state ?? generationState}
                         generationLabel={primaryGeneration?.label ?? generationLabel}
+                        conversationId={activeId || undefined}
+                        pendingWorktree={activeConversation?.pendingWorktree}
                       />
-                    </div>
+                    )}
 
-                    {/* Right Column (Comparison) */}
-                    <div className="min-h-0 min-w-0 flex flex-col">
-                      <div className="shrink-0 px-4 py-2 text-xs font-medium text-text-muted border-b border-border flex items-center justify-between">
-                        <span className="truncate max-w-[50%]">{compareConversation.title}</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-text-muted">Model:</span>
-                          <select
-                            value={compareConversation.model}
-                            onChange={(e) => {
-                              const newModelId = e.target.value;
-                              useChatStore.setState((state) => ({
-                                conversations: state.conversations.map((c) =>
-                                  c.id === compareConversation.id ? { ...c, model: newModelId } : c,
-                                ),
-                              }));
-                            }}
-                            className="bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text-secondary outline-none focus:border-accent hover:border-text-muted transition-colors cursor-pointer max-w-[150px] shadow-sm"
-                          >
-                            {models
-                              .filter((m) => m.enabled !== false)
-                              .map((m) => (
-                                <option key={m.id} value={m.id} className="bg-surface text-text-primary">
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-                      </div>
-                      <ChatArea
-                        messages={compareMessages}
-                        setIsAtBottom={compareScroll.setIsAtBottom}
-                        virtuosoRef={compareScroll.virtuosoRef}
-                        onRetry={() => {
-                          if (compareConversation.id) retryLastMessage(compareConversation.id);
-                        }}
-                        generationState={compareGeneration?.state ?? "idle"}
-                        generationLabel={compareGeneration?.label ?? ""}
-                      />
-                    </div>
+                    <motion.div
+                      className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+                      transition={{ duration: motionTokens.duration.fast }}
+                      initial={false}
+                    >
+                      <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+                    </motion.div>
+
+                    <InputBar
+                      models={models}
+                      onSend={sendMessage}
+                      selectedModel={selectedModel}
+                      onModelChange={setSelectedModel}
+                      disabled={isStreaming}
+                      modelStatuses={modelStatuses}
+                      isSearchEnabled={isSearchEnabled}
+                      onToggleSearch={toggleSearchEnabled}
+                      mcpServers={mcpConfigs}
+                      mcpServerStatuses={serverStatuses}
+                      enabledMcpServerIds={enabledServerIds}
+                      onToggleMcpServer={handleToggleMcpServer}
+                      isStreaming={isStreaming}
+                      onStop={stopStreaming}
+                      centered={messages.length === 0}
+                    />
                   </div>
-                ) : (
-                  <ChatArea
-                    messages={messages}
-                    setIsAtBottom={primaryScroll.setIsAtBottom}
-                    virtuosoRef={primaryScroll.virtuosoRef}
-                    onRetry={handleRetry}
-                    generationState={primaryGeneration?.state ?? generationState}
-                    generationLabel={primaryGeneration?.label ?? generationLabel}
-                  />
-                )}
 
-                <motion.div
-                  className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
-                  transition={{ duration: motionTokens.duration.fast }}
-                  initial={false}
-                >
-                  <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
-                </motion.div>
-
-                <InputBar
-                  models={models}
-                  onSend={sendMessage}
-                  selectedModel={selectedModel}
-                  onModelChange={setSelectedModel}
-                  disabled={isStreaming}
-                  modelStatuses={modelStatuses}
-                  isSearchEnabled={isSearchEnabled}
-                  onToggleSearch={toggleSearchEnabled}
-                  mcpServers={mcpConfigs}
-                  mcpServerStatuses={serverStatuses}
-                  enabledMcpServerIds={enabledServerIds}
-                  onToggleMcpServer={handleToggleMcpServer}
-                  isStreaming={isStreaming}
-                  onStop={stopStreaming}
-                  centered={messages.length === 0}
-                />
+                  {/* Right Column: Split Screen Artifact Panel */}
+                  <AnimatePresence>
+                    {activeArtifact && !isArtifactFullScreen && (
+                      <motion.div
+                        key="artifact-preview-split"
+                        className="w-[45%] border-l border-border bg-surface flex flex-col h-full min-h-0 min-w-[320px] relative z-20 shadow-lg"
+                        initial={{ x: "100%", opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: "100%", opacity: 0 }}
+                        transition={springs.gentle}
+                      >
+                        {renderArtifactContent()}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </motion.main>
             )}
           </AnimatePresence>
@@ -890,10 +1107,10 @@ function App() {
         onRespond={respondToToolConfirmation}
       />
       <AnimatePresence>
-        {activeArtifact && (
+        {activeArtifact && isArtifactFullScreen && (
           <motion.div
-            key="artifact-preview"
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            key="artifact-preview-fullscreen"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-transparent"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -902,7 +1119,10 @@ function App() {
             <button
               className="absolute inset-0 cursor-default"
               style={{ backgroundColor: "var(--theme-overlay)" }}
-              onClick={() => setActiveArtifact(null)}
+              onClick={() => {
+                setActiveArtifact(null);
+                setIsArtifactFullScreen(false);
+              }}
               aria-label="Close artifact preview"
             />
             <motion.div
@@ -913,48 +1133,7 @@ function App() {
               exit={{ opacity: 0, scale: 0.98, y: 8 }}
               transition={springs.gentle}
             >
-              <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                <div className="flex items-center gap-4">
-                  <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
-                  {(activeArtifact.type === "html" || activeArtifact.type === "svg") && (
-                    <div className="flex items-center gap-2 border-l border-border pl-4">
-                      <input
-                        id="allow-network-toggle"
-                        type="checkbox"
-                        checked={allowArtifactNetwork}
-                        onChange={(e) => setAllowArtifactNetwork(e.target.checked)}
-                        className="w-3.5 h-3.5 accent-accent cursor-pointer rounded border-border"
-                      />
-                      <label
-                        htmlFor="allow-network-toggle"
-                        className="text-xs text-text-muted font-medium cursor-pointer select-none hover:text-text-secondary transition-colors"
-                      >
-                        Allow Network Access
-                      </label>
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setActiveArtifact(null)}
-                  className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
-                  aria-label="Close artifact preview"
-                  title="Close"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              {activeArtifact.type === "html" || activeArtifact.type === "svg" ? (
-                <iframe
-                  title={activeArtifact.title}
-                  sandbox="allow-scripts"
-                  srcDoc={getSafeSrcDoc(activeArtifact.content, allowArtifactNetwork)}
-                  className="min-h-0 flex-1 bg-white"
-                />
-              ) : (
-                <pre className="min-h-0 flex-1 overflow-auto bg-chat p-4 font-mono text-xs text-text-primary">
-                  {activeArtifact.content}
-                </pre>
-              )}
+              {renderArtifactContent()}
             </motion.div>
           </motion.div>
         )}
