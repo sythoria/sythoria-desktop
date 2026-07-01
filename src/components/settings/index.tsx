@@ -22,6 +22,7 @@ import { LogsSection } from "./sections/LogsSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
 import { ProjectsSection } from "./sections/ProjectsSection";
 import { AppshotsSection } from "./sections/AppshotsSection";
+import { PrivacySection } from "./sections/PrivacySection";
 import { SectionId } from "./types";
 
 export default function Settings() {
@@ -168,6 +169,8 @@ export default function Settings() {
                 setAnimationsDisabled={setAnimationsDisabled}
               />
             )}
+
+            {activeSection === "privacy" && <PrivacySection />}
 
             {activeSection === "marketplace" && <MarketplaceSection />}
 
