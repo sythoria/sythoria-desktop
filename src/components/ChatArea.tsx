@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../store/useChatStore";
+import { useProjectStore } from "../store/useProjectStore";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -27,7 +29,10 @@ import {
   Atom,
   Palette,
   Eye,
+  GitBranch,
+  Trash2,
 } from "lucide-react";
+import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { Message, GenerationState, Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
@@ -60,6 +65,9 @@ interface ChatAreaProps {
   onRetry: () => void;
   generationState: GenerationState;
   generationLabel: string;
+  onScroll?: (scrollTop: number) => void;
+  conversationId?: string;
+  pendingWorktree?: { path: string; branch: string };
 }
 
 function GenerationIndicator({ state, label }: { state: GenerationState; label: string }) {
@@ -902,6 +910,30 @@ function AttachmentList({
   );
 }
 
+interface ParsedQuestion {
+  id: string;
+  title: string;
+  options: { value: string; label: string }[];
+  cleanedContent: string;
+}
+
+function parseQuestionBlock(content: string): ParsedQuestion | null {
+  const match = content.match(/<question\s+id="([^"]+)"\s+title="([^"]+)">([\s\S]+?)<\/question>/);
+  if (!match) return null;
+
+  const [fullMatch, id, title, optionsRaw] = match;
+
+  const options: { value: string; label: string }[] = [];
+  const optionMatches = optionsRaw.matchAll(/<option\s+value="([^"]+)">([\s\S]+?)<\/option>/g);
+  for (const optMatch of optionMatches) {
+    options.push({ value: optMatch[1], label: optMatch[2].trim() });
+  }
+
+  const cleanedContent = content.replace(fullMatch, "").trim();
+
+  return { id, title, options, cleanedContent };
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
@@ -1009,9 +1041,31 @@ const MessageBubble = memo(function MessageBubble({
         {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (
           <GenerationIndicator state={generationState!} label={generationLabel!} />
         )}
-        <div className={`markdown-body ${textSizeClass}`}>
-          {displayContent.length > 0 ? <MessageContent content={displayContent} isStreaming={isStreaming} /> : null}
-        </div>
+        {(() => {
+          const parsedQuestion = parseQuestionBlock(displayContent);
+          const contentToRender = parsedQuestion ? parsedQuestion.cleanedContent : displayContent;
+          const isAlreadyAnswered = !isLastAssistant;
+          return (
+            <>
+              <div className={`markdown-body ${textSizeClass}`}>
+                {contentToRender.length > 0 ? (
+                  <MessageContent content={contentToRender} isStreaming={isStreaming} />
+                ) : null}
+              </div>
+              {parsedQuestion && !isStreaming && (
+                <QuestionCard
+                  id={parsedQuestion.id}
+                  title={parsedQuestion.title}
+                  options={parsedQuestion.options}
+                  disabled={isAlreadyAnswered}
+                  onSubmit={(_val, label) => {
+                    useChatStore.getState().sendMessage(label);
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
         {!isStreaming && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
@@ -1042,7 +1096,13 @@ export default function ChatArea({
   onRetry,
   generationState,
   generationLabel,
+  onScroll,
+  conversationId,
+  pendingWorktree,
 }: ChatAreaProps) {
+  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
+  const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+
   if (messages.length === 0) {
     return (
       <motion.div
@@ -1079,6 +1139,17 @@ export default function ChatArea({
           data={messages}
           atBottomStateChange={setIsAtBottom}
           atBottomThreshold={100}
+          scrollerRef={(el) => {
+            if (el && el instanceof HTMLElement) {
+              el.addEventListener(
+                "scroll",
+                () => {
+                  onScroll?.(el.scrollTop);
+                },
+                { passive: true },
+              );
+            }
+          }}
           itemContent={(index, msg) => (
             <div className={index > 0 ? "mt-6" : ""}>
               <MessageBubble
@@ -1090,6 +1161,22 @@ export default function ChatArea({
               />
             </div>
           )}
+          components={{
+            Footer: () => (
+              <AnimatePresence>
+                {pendingWorktree && conversationId && (
+                  <div className="py-6">
+                    <PendingWorktreeCard
+                      conversationId={conversationId}
+                      pendingWorktree={pendingWorktree}
+                      onApply={applyPendingWorktree}
+                      onDiscard={discardPendingWorktree}
+                    />
+                  </div>
+                )}
+              </AnimatePresence>
+            ),
+          }}
           followOutput="smooth"
         />
       </div>
@@ -1104,6 +1191,10 @@ export default function ChatArea({
       generationState={generationState}
       generationLabel={generationLabel}
       lastAssistantMessageId={lastAssistantMessageId}
+      pendingWorktree={pendingWorktree}
+      conversationId={conversationId}
+      onApply={applyPendingWorktree}
+      onDiscard={discardPendingWorktree}
     />
   );
 }
@@ -1115,6 +1206,10 @@ function NonVirtualizedChatArea({
   generationState,
   generationLabel,
   lastAssistantMessageId,
+  pendingWorktree,
+  conversationId,
+  onApply,
+  onDiscard,
 }: {
   messages: Message[];
   setIsAtBottom: (v: boolean) => void;
@@ -1122,6 +1217,10 @@ function NonVirtualizedChatArea({
   generationState: GenerationState;
   generationLabel: string;
   lastAssistantMessageId: string | undefined;
+  pendingWorktree?: { path: string; branch: string };
+  conversationId?: string;
+  onApply: (id: string) => Promise<void>;
+  onDiscard: (id: string) => Promise<void>;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1193,8 +1292,107 @@ function NonVirtualizedChatArea({
             isLastAssistant={msg.id === lastAssistantMessageId}
           />
         ))}
+        <AnimatePresence>
+          {pendingWorktree && conversationId && (
+            <PendingWorktreeCard
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApply={onApply}
+              onDiscard={onDiscard}
+            />
+          )}
+        </AnimatePresence>
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>
+  );
+}
+
+function PendingWorktreeCard({
+  conversationId,
+  pendingWorktree,
+  onApply,
+  onDiscard,
+}: {
+  conversationId: string;
+  pendingWorktree: { path: string; branch: string };
+  onApply: (id: string) => void;
+  onDiscard: (id: string) => void;
+}) {
+  const [diffFiles, setDiffFiles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const status = await invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
+          projectId: useProjectStore.getState().activeProjectId || "",
+        });
+        const files = [...(status.unstagedFiles || []), ...(status.stagedFiles || [])];
+        setDiffFiles(files);
+      } catch (e) {
+        console.error("Failed to load worktree git status:", e);
+      }
+    };
+    loadStatus();
+  }, [conversationId, pendingWorktree]);
+
+  if (diffFiles.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 10, scale: 0.98 }}
+      className="p-4 rounded-xl border border-border bg-surface/60 backdrop-blur-md flex flex-col gap-3 shadow-md mx-auto max-w-3xl w-full"
+    >
+      <div className="flex items-center justify-between border-b border-border/50 pb-2">
+        <div className="flex items-center gap-2 text-text-primary font-semibold text-xs">
+          <GitBranch size={14} className="text-accent shrink-0" />
+          <span>Agent Workspace Sandboxed Changes</span>
+        </div>
+        <span className="text-[10px] text-text-muted bg-hover px-2 py-0.5 rounded-full font-mono shrink-0">
+          {pendingWorktree.branch}
+        </span>
+      </div>
+      <p className="text-xs text-text-muted">
+        The agent has completed changes inside an isolated Git worktree. Review the modified files below:
+      </p>
+      <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto bg-chat/30 p-2 rounded-lg border border-border/30">
+        {diffFiles.map((file) => (
+          <div key={file} className="flex items-center gap-2 text-xs text-text-secondary font-mono truncate">
+            <FileTextIcon size={12} className="text-text-muted shrink-0" />
+            <span className="truncate">{file}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 justify-end pt-2">
+        <button
+          onClick={async () => {
+            setLoading(true);
+            await onDiscard(conversationId);
+            setLoading(false);
+          }}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-text-secondary bg-hover hover:bg-hover-active border border-border hover:border-text-muted rounded-lg transition-colors cursor-pointer"
+        >
+          <Trash2 size={12} className="text-red-500 shrink-0" />
+          <span>Discard Changes</span>
+        </button>
+        <button
+          onClick={async () => {
+            setLoading(true);
+            await onApply(conversationId);
+            setLoading(false);
+          }}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-active border border-accent rounded-lg transition-all shadow-sm cursor-pointer hover:shadow"
+        >
+          <Check size={12} className="shrink-0" />
+          <span>Apply to Workspace</span>
+        </button>
+      </div>
+    </motion.div>
   );
 }
