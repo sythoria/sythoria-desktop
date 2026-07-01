@@ -43,9 +43,21 @@ fn get_and_validate_git_project(
         .projects
         .lock()
         .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
-    let project = projects_guard
+    let mut project = projects_guard
         .get(project_id)
-        .ok_or_else(|| AppError::GitError("Access denied: Project not found in registry".to_string()))?;
+        .ok_or_else(|| AppError::GitError("Access denied: Project not found in registry".to_string()))?
+        .clone();
+
+    // Check path override
+    {
+        let overrides_guard = state
+            .project_path_overrides
+            .lock()
+            .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
+        if let Some(overridden_path) = overrides_guard.get(project_id) {
+            project.path = overridden_path.clone();
+        }
+    }
 
     // 3. Check permission
     if write_required && project.permissions == "read" {
@@ -396,3 +408,165 @@ pub async fn git_diff_changes(
 
     Ok(combined_diff)
 }
+
+#[tauri::command]
+pub async fn git_worktree_create(
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+) -> Result<(String, String), AppError> {
+    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
+
+    // 1. Generate unique branch name and worktree path
+    let uuid = uuid::Uuid::new_v4().to_string();
+    let branch_name = format!("sythoria-agent-{}", &uuid[0..8]);
+    
+    let temp_dir = std::env::temp_dir().join("sythoria-worktrees").join(&uuid[0..8]);
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| AppError::GitError(format!("Failed to create worktree directory: {}", e)))?;
+    let worktree_path_str = temp_dir.to_string_lossy().into_owned();
+
+    // 2. Spawn git worktree add
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&repo_path_str)
+        .arg("worktree")
+        .arg("add")
+        .arg(&worktree_path_str)
+        .arg("-b")
+        .arg(&branch_name)
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to run git worktree add: {}", e)))?;
+
+    if !output.status.success() {
+        return Err(AppError::GitError(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
+    }
+
+    Ok((worktree_path_str, branch_name))
+}
+
+#[tauri::command]
+pub async fn git_worktree_apply(
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    worktree_path: String,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
+
+    let worktree_dir = std::path::Path::new(&worktree_path);
+    if !worktree_dir.exists() {
+        return Err(AppError::GitError("Worktree path does not exist".to_string()));
+    }
+
+    // 1. Get status --porcelain of worktree
+    let status_output = Command::new("git")
+        .arg("-C")
+        .arg(&worktree_path)
+        .arg("status")
+        .arg("--porcelain")
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to get worktree status: {}", e)))?;
+
+    let status_str = String::from_utf8_lossy(&status_output.stdout);
+    
+    // 2. Apply modifications to primary repo
+    for line in status_str.lines() {
+        if line.len() < 3 {
+            continue;
+        }
+        let status_code = &line[0..2];
+        let file_path_relative = &line[3..];
+        
+        let src_file = worktree_dir.join(file_path_relative);
+        let dest_file = repo_path.join(file_path_relative);
+
+        if status_code.contains('D') {
+            // Deleted
+            if dest_file.exists() {
+                let _ = std::fs::remove_file(&dest_file);
+            }
+        } else {
+            // Modified or Added
+            if src_file.exists() && src_file.is_file() {
+                if let Some(parent) = dest_file.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::copy(&src_file, &dest_file)
+                    .map_err(|e| AppError::GitError(format!("Failed to copy file {} back: {}", file_path_relative, e)))?;
+            }
+        }
+    }
+
+    // 3. Clean up worktree and delete temp branch
+    cleanup_worktree_internal(&repo_path_str, &worktree_path, &branch_name).await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_worktree_discard(
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    worktree_path: String,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
+
+    // Clean up worktree and delete temp branch
+    cleanup_worktree_internal(&repo_path_str, &worktree_path, &branch_name).await?;
+
+    Ok(())
+}
+
+async fn cleanup_worktree_internal(
+    repo_path: &str,
+    worktree_path: &str,
+    branch_name: &str,
+) -> Result<(), AppError> {
+    // 1. Remove the worktree using git worktree remove --force
+    let remove_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("worktree")
+        .arg("remove")
+        .arg("--force")
+        .arg(worktree_path)
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to remove git worktree: {}", e)))?;
+
+    if !remove_output.status.success() {
+        // Log warning but don't halt, try branch deletion
+    }
+
+    // 2. Delete the temporary branch using git branch -D
+    let delete_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg("-D")
+        .arg(branch_name)
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to delete temporary branch: {}", e)))?;
+
+    if !delete_output.status.success() {
+        // Soft failure, could be branch was not created
+    }
+
+    // 3. Delete directory recursively if still exists
+    let path = std::path::Path::new(worktree_path);
+    if path.exists() {
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    Ok(())
+}
+
