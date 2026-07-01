@@ -19,6 +19,7 @@ import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
 import { useMcpStore } from "../store/useMcpStore";
+import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
 
 export interface ToolLoopSlice {
@@ -569,6 +570,39 @@ export async function sendWithToolLoop(
 
   try {
     const conv = get().conversations.find((c) => c.id === convId);
+
+    if (project) {
+      try {
+        const isGit = await invoke<string | null>("git_detect_repo", { startPath: project.path });
+        if (isGit) {
+          if (conv?.pendingWorktree) {
+            await useProjectStore.getState().setWorktree(conv.pendingWorktree.path, conv.pendingWorktree.branch);
+          } else {
+            const [wPath, wBranch] = await invoke<[string, string]>("git_worktree_create", {
+              projectId: project.id,
+            });
+            await useProjectStore.getState().setWorktree(wPath, wBranch);
+
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === convId
+                  ? {
+                      ...c,
+                      pendingWorktree: {
+                        path: wPath,
+                        branch: wBranch,
+                      },
+                    }
+                  : c,
+              ),
+            }));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to setup git worktree isolation, using direct workspace path:", e);
+      }
+    }
+
     const baseMessages =
       conv?.messages
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
