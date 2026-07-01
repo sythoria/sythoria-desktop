@@ -1,15 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ChevronDown, Check, Download, Trash2 } from "lucide-react";
+import { ChevronDown, Check, Download } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Spinner } from "../../ui/Spinner";
-import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
-import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
-import { clearStoreData } from "../../../utils/storage";
 
 const textSizes = [
   { value: "small", label: "Small" },
@@ -42,8 +39,6 @@ export function GeneralSection() {
 
   const [shortcutDropdownOpen, setShortcutDropdownOpen] = useState(false);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const [isConfirmOpen1, setIsConfirmOpen1] = useState(false);
-  const [isConfirmOpen2, setIsConfirmOpen2] = useState(false);
   const [appVersion, setAppVersion] = useState("v0.1.0");
 
   useEffect(() => {
@@ -79,47 +74,6 @@ export function GeneralSection() {
       setIsCheckingUpdates(false);
       addToast("You are on the latest version of Sythoria", "success");
     }, 1500);
-  };
-
-  const handleWipeData = async () => {
-    setIsConfirmOpen2(false);
-
-    // 1. Wipe keyring secrets first (depends on active store server list/indices)
-    try {
-      await invoke("save_api_keys_cmd", { keys: {} });
-    } catch (e) {
-      console.error("Failed to clear API keys keyring:", e);
-    }
-    try {
-      await invoke("save_search_api_keys_cmd", { keys: {} });
-    } catch (e) {
-      console.error("Failed to clear Search API keys keyring:", e);
-    }
-    try {
-      await invoke("save_mcp_env_secrets_cmd", { secrets: {} });
-    } catch (e) {
-      console.error("Failed to clear MCP env secrets keyring:", e);
-    }
-
-    // 2. Wipe the Tauri plugin store (conversations, theme, config keys, etc.)
-    try {
-      await clearStoreData();
-    } catch (e) {
-      console.error("Failed to clear Tauri store data:", e);
-    }
-
-    // 3. Delete config files in AppData (config.json, search_config.json, mcp_config.json, sythoria-store.json)
-    try {
-      await invoke("wipe_config_files");
-    } catch (e) {
-      console.error("Failed to wipe config files:", e);
-    }
-
-    // 4. Wipe localStorage
-    localStorage.clear();
-
-    useUIStore.getState().setHasStarted(false);
-    window.location.reload();
   };
 
   return (
@@ -313,27 +267,6 @@ export function GeneralSection() {
               <span>Export All</span>
             </motion.button>
           </div>
-
-          <div className="h-px bg-border/50" />
-
-          {/* Reset App Data */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-2">
-            <div>
-              <span className="text-sm font-medium text-text-primary block">Reset Application Data</span>
-              <span className="text-xs text-text-muted">Wipe storage, custom connections, and cached data</span>
-            </div>
-            <motion.button
-              type="button"
-              onClick={() => setIsConfirmOpen1(true)}
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-600 dark:text-red-400 text-sm font-medium transition-colors shadow-sm min-h-[40px] shrink-0"
-            >
-              <Trash2 size={16} />
-              <span>Wipe Data</span>
-            </motion.button>
-          </div>
         </div>
       </div>
 
@@ -378,32 +311,6 @@ export function GeneralSection() {
           </div>
         </div>
       </div>
-
-      {/* Double Confirmation Modals */}
-      <ConfirmModal
-        isOpen={isConfirmOpen1}
-        title="Confirm Reset"
-        message="Are you sure you want to clear all application data? This action will log you out, delete local configurations, and clear active configurations."
-        confirmText="Proceed"
-        cancelText="Cancel"
-        onConfirm={() => {
-          setIsConfirmOpen1(false);
-          setIsConfirmOpen2(true);
-        }}
-        onCancel={() => setIsConfirmOpen1(false)}
-        variant="danger"
-      />
-
-      <ConfirmModal
-        isOpen={isConfirmOpen2}
-        title="Final Warning"
-        message="This is a permanent, non-reversible action. Your chat history, API keys, and connection credentials will be completely erased. Do you wish to continue?"
-        confirmText="Erase All Data"
-        cancelText="Keep Data"
-        onConfirm={handleWipeData}
-        onCancel={() => setIsConfirmOpen2(false)}
-        variant="danger"
-      />
     </>
   );
 }
