@@ -16,6 +16,8 @@ interface ProjectState {
   activeProjectId: string | null;
   isProjectsEnabled: boolean;
   defaultPermission: ProjectPermission;
+  activeWorktreePath: string | null;
+  activeWorktreeBranch: string | null;
 
   init: () => Promise<void>;
   setIsProjectsEnabled: (enabled: boolean) => void;
@@ -29,6 +31,7 @@ interface ProjectState {
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   setActiveProject: (id: string | null) => void;
+  setWorktree: (path: string | null, branch: string | null) => Promise<void>;
   persistProjects: () => Promise<void>;
 }
 
@@ -37,6 +40,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   activeProjectId: null,
   isProjectsEnabled: false,
   defaultPermission: "read",
+  activeWorktreePath: null,
+  activeWorktreeBranch: null,
 
   init: async () => {
     const loaded = await loadProjects();
@@ -96,6 +101,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     invoke("set_active_project", { projectId: id }).catch((e) => {
       console.error("Failed to set active project:", e);
     });
+  },
+
+  setWorktree: async (path, branch) => {
+    const { activeProjectId } = get();
+    if (activeProjectId) {
+      try {
+        await invoke("set_project_path_override", {
+          projectId: activeProjectId,
+          pathOverride: path,
+        });
+      } catch (e) {
+        console.error("Failed to set project path override:", e);
+      }
+    }
+    set({ activeWorktreePath: path, activeWorktreeBranch: branch });
   },
 
   persistProjects: async () => {
