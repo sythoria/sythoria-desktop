@@ -397,13 +397,13 @@ function App() {
         }
       });
     }
-  }, [primaryScroll, primaryTracking, isCompareMode, compareIds]);
+  }, [primaryScrollToBottom, primaryTracking, isCompareMode, compareIds]);
 
   // Scroll to bottom instantly when switching conversations or going to the chat view
   useEffect(() => {
     if (view === "chat" && activeId) {
       const scroll = () => {
-        primaryScroll.scrollToBottom("auto");
+        primaryScrollToBottom("auto");
         if (isCompareMode) {
           compareIds.forEach((id) => {
             const compRef = compareRefsMap.current[id];
@@ -429,7 +429,7 @@ function App() {
         clearTimeout(timer);
       };
     }
-  }, [activeId, view, isCompareMode, primaryScroll.scrollToBottom, compareIds]);
+  }, [activeId, view, isCompareMode, primaryScrollToBottom, compareIds]);
 
   useEffect(() => {
     init();
