@@ -56,6 +56,10 @@ export interface Conversation {
   messages: Message[];
   model: string;
   projectId?: string;
+  pendingWorktree?: {
+    path: string;
+    branch: string;
+  };
 }
 
 export type ProjectPermission = "read" | "write" | "full";
