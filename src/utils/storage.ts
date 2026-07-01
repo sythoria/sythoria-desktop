@@ -151,6 +151,7 @@ const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
+const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -1251,4 +1252,28 @@ export async function saveEnabledMcpServers(enabledIds: string[]): Promise<void>
   } catch (e) {
     logError("storage", "Failed to save enabled MCP servers to secure store", { error: e });
   }
+}
+
+export async function loadIsLoggingEnabled(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(LOGGING_ENABLED_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load logging enabled setting", { error: e });
+  }
+  const fallback = localStorage.getItem(LOGGING_ENABLED_KEY);
+  if (fallback !== null) return fallback === "true";
+  return true;
+}
+
+export async function saveIsLoggingEnabled(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(LOGGING_ENABLED_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save logging enabled setting", { error: e });
+  }
+  localStorage.setItem(LOGGING_ENABLED_KEY, String(value));
 }
