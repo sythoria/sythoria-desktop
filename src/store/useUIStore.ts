@@ -16,6 +16,7 @@ import {
   saveBaseTextSize,
   saveAutoUpdateChecking,
   saveShowContextWindow,
+  saveIsLoggingEnabled,
 } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
@@ -65,6 +66,7 @@ interface UIState {
   clearInputOnEscape: boolean;
   baseTextSize: "small" | "medium" | "large" | "xlarge";
   autoUpdateChecking: boolean;
+  isLoggingEnabled: boolean;
   isDraggingFile: boolean;
   showContextWindow: boolean;
   showProjectConfigModal: boolean;
@@ -98,6 +100,7 @@ interface UIState {
   setClearInputOnEscape: (value: boolean) => void;
   setBaseTextSize: (value: "small" | "medium" | "large" | "xlarge") => void;
   setAutoUpdateChecking: (value: boolean) => void;
+  setIsLoggingEnabled: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
   setShowContextWindow: (value: boolean) => void;
   sidebarWidth: number;
@@ -155,6 +158,7 @@ export const useUIStore = create<UIState>((set) => ({
   clearInputOnEscape: false,
   baseTextSize: "medium",
   autoUpdateChecking: true,
+  isLoggingEnabled: true,
   isDraggingFile: false,
   showContextWindow: false,
   showProjectConfigModal: false,
@@ -323,6 +327,10 @@ export const useUIStore = create<UIState>((set) => ({
   setAutoUpdateChecking: (value) => {
     set({ autoUpdateChecking: value });
     saveAutoUpdateChecking(value);
+  },
+  setIsLoggingEnabled: (value) => {
+    set({ isLoggingEnabled: value });
+    saveIsLoggingEnabled(value);
   },
   setShowContextWindow: (value) => {
     set({ showContextWindow: value });
