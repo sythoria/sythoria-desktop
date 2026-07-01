@@ -19,6 +19,7 @@ pub struct Project {
 pub struct ProjectRegistry {
     pub projects: Mutex<HashMap<String, Project>>,
     pub active_project_id: Mutex<Option<String>>,
+    pub project_path_overrides: Mutex<HashMap<String, String>>,
 }
 
 impl ProjectRegistry {
@@ -26,6 +27,7 @@ impl ProjectRegistry {
         Self {
             projects: Mutex::new(HashMap::new()),
             active_project_id: Mutex::new(None),
+            project_path_overrides: Mutex::new(HashMap::new()),
         }
     }
 
@@ -114,6 +116,24 @@ pub(crate) fn set_active_project(
         .lock()
         .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
     *active_guard = project_id;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn set_project_path_override(
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
+    path_override: Option<String>,
+) -> Result<(), AppError> {
+    let mut overrides_guard = state
+        .project_path_overrides
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    if let Some(path) = path_override {
+        overrides_guard.insert(project_id, path);
+    } else {
+        overrides_guard.remove(&project_id);
+    }
     Ok(())
 }
 
