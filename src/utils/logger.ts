@@ -42,6 +42,12 @@ function scheduleSync() {
 }
 
 function pushLog(entry: LogEntry) {
+  try {
+    const isEnabled = useUIStore.getState().isLoggingEnabled;
+    if (isEnabled === false) return;
+  } catch {
+    // UI store not ready yet
+  }
   logBuffer.push(entry);
   if (logBuffer.length > MAX_LOGS) {
     logBuffer = logBuffer.slice(-MAX_LOGS);
@@ -156,6 +162,12 @@ export function logError(
 
 async function writeToTauri(level: LogLevel, message: string) {
   if (!tauriLogAvailable) return;
+  try {
+    const isEnabled = useUIStore.getState().isLoggingEnabled;
+    if (isEnabled === false) return;
+  } catch {
+    // ignore
+  }
   try {
     const tauriLog = await import("@tauri-apps/plugin-log");
     switch (level) {
