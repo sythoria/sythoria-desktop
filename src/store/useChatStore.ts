@@ -158,10 +158,10 @@ interface ChatState {
   navigationHistory: string[];
   navigationIndex: number;
   draftAttachments: Attachment[];
-  compareId: string | null;
+  compareIds: string[];
   isCompareMode: boolean;
 
-  setCompareId: (id: string | null) => void;
+  setCompareIds: (ids: string[]) => void;
   setIsCompareMode: (val: boolean) => void;
 
   init: () => Promise<void>;
@@ -179,6 +179,8 @@ interface ChatState {
   exportChat: (id: string) => void | Promise<void>;
   persistConversations: () => Promise<void>;
   clearAllChats: () => Promise<void>;
+  applyPendingWorktree: (convId: string) => Promise<void>;
+  discardPendingWorktree: (convId: string) => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
   setDraftAttachments: (attachments: Attachment[]) => void;
@@ -214,10 +216,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   generationByConversation: {},
   navigationHistory: [],
   navigationIndex: -1,
-  compareId: null,
+  compareIds: [],
   isCompareMode: false,
 
-  setCompareId: (compareId) => set({ compareId }),
+  setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
 
   init: async () => {
@@ -388,7 +390,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const keepId = exceptId !== undefined ? exceptId : activeId;
     const nonEmpty = conversations.filter((c) => {
       if (c.id.startsWith("compare-")) {
-        return get().isCompareMode && c.id === get().compareId;
+        return get().isCompareMode && get().compareIds.includes(c.id);
       }
       return c.messages.length > 0 || c.id === keepId;
     });
@@ -408,7 +410,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Exit compare mode when switching chats to prevent state pollution
     set({
       isCompareMode: false,
-      compareId: null,
+      compareIds: [],
     });
 
     if (!isHistoryMove) {
@@ -493,17 +495,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       const nextActiveId = state.activeId === id ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
 
-      const isCompareDeleted = state.compareId === id;
+      const isCompareDeleted = state.compareIds.includes(id);
       const isActiveDeleted = state.activeId === id;
+      const nextCompareIds = state.compareIds.filter((x) => x !== id);
 
       return {
         conversations: state.conversations.filter((c) => c.id !== id),
         activeId: nextActiveId,
         navigationHistory: newHistory,
         navigationIndex: newIndex,
-        ...(isCompareDeleted || (isActiveDeleted && state.isCompareMode)
-          ? { compareId: null, isCompareMode: false }
-          : {}),
+        compareIds: nextCompareIds,
+        ...(isCompareDeleted && nextCompareIds.length === 0 ? { isCompareMode: false } : {}),
+        ...(isActiveDeleted && state.isCompareMode ? { isCompareMode: false, compareIds: [] } : {}),
       };
     });
     get().persistConversations();
@@ -532,13 +535,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text, attachments) => {
-    const { isStreaming, activeId, isCompareMode, compareId } = get();
+    const { isStreaming, activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
 
     if (isStreaming) return;
 
     let convId = activeId;
-    let compId = compareId;
+    let activeCompareIds = [...compareIds];
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
@@ -562,7 +565,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       convId = id;
     }
 
-    if (isCompareMode && !compId) {
+    if (isCompareMode && activeCompareIds.length === 0) {
       const id = generateId();
       const secondaryModel = models.find((m) => m.id !== selectedModel && m.enabled !== false)?.id || selectedModel;
       const conv: Conversation = {
@@ -575,9 +578,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
-        compareId: id,
+        compareIds: [id],
       }));
-      compId = id;
+      activeCompareIds = [id];
     }
 
     const userMsg: Message = {
@@ -597,7 +600,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set((state) => ({
         conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
-          title: isFirstForThis ? (cId === compId ? fallbackTitle + " (Compare)" : fallbackTitle) : undefined,
+          title: isFirstForThis
+            ? activeCompareIds.includes(cId)
+              ? fallbackTitle + " (Compare)"
+              : fallbackTitle
+            : undefined,
         }),
       }));
 
@@ -657,13 +664,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const promises = [runForConversation(convId, primaryModelConfig)];
 
-    if (isCompareMode && compId) {
-      const compareConv = get().conversations.find((c) => c.id === compId);
-      const compareModel =
-        compareConv?.model || models.find((m) => m.id !== selectedModel && m.enabled !== false)?.id || selectedModel;
-      const compareModelConfig = models.find((m) => m.id === compareModel) ?? models[0];
-      if (compareModelConfig) {
-        promises.push(runForConversation(compId, compareModelConfig));
+    if (isCompareMode && activeCompareIds.length > 0) {
+      for (const compId of activeCompareIds) {
+        const compareConv = get().conversations.find((c) => c.id === compId);
+        if (!compareConv) continue;
+        const compareModel = compareConv.model || selectedModel;
+        const compareModelConfig = models.find((m) => m.id === compareModel) ?? models[0];
+        if (compareModelConfig) {
+          promises.push(runForConversation(compId, compareModelConfig));
+        }
       }
     }
 
@@ -719,7 +728,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const activeProject =
       useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
-    let modelConfig = models.find((m) => m.id === selectedModel) ?? models[0];
+    let modelConfig =
+      models.find((m) => m.id === conv.model) ?? models.find((m) => m.id === selectedModel) ?? models[0];
     if (activeProject && activeProject.modelOverride) {
       const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
       if (overrideModel && overrideModel.enabled !== false) {
@@ -758,6 +768,62 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Auto-commit if enabled and changes exist
     useGitStore.getState().autoCommitIfNeeded();
+  },
+
+  applyPendingWorktree: async (convId) => {
+    const conv = get().conversations.find((c) => c.id === convId);
+    if (!conv || !conv.pendingWorktree || !conv.projectId) return;
+
+    uiLoading("toolExecution", true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("git_worktree_apply", {
+        projectId: conv.projectId,
+        worktreePath: conv.pendingWorktree.path,
+        branchName: conv.pendingWorktree.branch,
+      });
+
+      await useProjectStore.getState().setWorktree(null, null);
+
+      set((state) => ({
+        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
+      }));
+      get().persistConversations();
+      uiToast("Changes applied successfully to workspace!", "success");
+    } catch (err) {
+      logError("chat", "Failed to apply worktree changes", { error: err });
+      uiToast("Failed to apply changes: " + parseApiError(err).message, "error");
+    } finally {
+      uiLoading("toolExecution", false);
+    }
+  },
+
+  discardPendingWorktree: async (convId) => {
+    const conv = get().conversations.find((c) => c.id === convId);
+    if (!conv || !conv.pendingWorktree || !conv.projectId) return;
+
+    uiLoading("toolExecution", true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("git_worktree_discard", {
+        projectId: conv.projectId,
+        worktreePath: conv.pendingWorktree.path,
+        branchName: conv.pendingWorktree.branch,
+      });
+
+      await useProjectStore.getState().setWorktree(null, null);
+
+      set((state) => ({
+        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
+      }));
+      get().persistConversations();
+      uiToast("Changes discarded successfully.", "info");
+    } catch (err) {
+      logError("chat", "Failed to discard worktree changes", { error: err });
+      uiToast("Failed to discard changes: " + parseApiError(err).message, "error");
+    } finally {
+      uiLoading("toolExecution", false);
+    }
   },
 
   exportChat: async (id) => {
