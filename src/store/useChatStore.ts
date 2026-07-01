@@ -36,6 +36,7 @@ import {
   loadSystemPrompt,
   loadShowContextWindow,
   loadMaxToolSteps,
+  loadIsLoggingEnabled,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -246,6 +247,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedSystemPrompt,
         loadedShowContextWindow,
         loadedMaxToolSteps,
+        loadedIsLoggingEnabled,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -268,6 +270,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadSystemPrompt(),
         loadShowContextWindow(),
         loadMaxToolSteps(),
+        loadIsLoggingEnabled(),
         useProjectStore.getState().init(),
       ]);
 
@@ -333,6 +336,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         clearInputOnEscape: hasOnboarded ? loadedClearInputOnEscape : false,
         baseTextSize: hasOnboarded ? loadedBaseTextSize : "medium",
         autoUpdateChecking: hasOnboarded ? loadedAutoUpdateChecking : true,
+        isLoggingEnabled: hasOnboarded ? loadedIsLoggingEnabled : true,
         showContextWindow: hasOnboarded ? loadedShowContextWindow : false,
       });
       document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
