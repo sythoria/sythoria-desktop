@@ -11,11 +11,13 @@ import {
   Folder,
   FileText,
   Store,
+  Shield,
 } from "lucide-react";
 
 export type SectionId =
   | "general"
   | "appearance"
+  | "privacy"
   | "configuration"
   | "personalization"
   | "keybinds"
@@ -38,6 +40,7 @@ export const SECTION_GROUPS = [
     items: [
       { id: "general", label: "General", icon: SettingsIcon },
       { id: "appearance", label: "Appearance", icon: Sun },
+      { id: "privacy", label: "Privacy & Security", icon: Shield },
       { id: "configuration", label: "Configuration", icon: Sliders },
       { id: "personalization", label: "Personalization", icon: MessageSquareText },
       { id: "marketplace", label: "Theme Marketplace", icon: Store },
