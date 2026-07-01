@@ -31,12 +31,24 @@ fn get_and_validate_project(
         .projects
         .lock()
         .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-    let project = projects_guard
+    let mut project = projects_guard
         .get(project_id)
-        .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?;
+        .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?
+        .clone();
+
+    // Check path override
+    {
+        let overrides_guard = state
+            .project_path_overrides
+            .lock()
+            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+        if let Some(overridden_path) = overrides_guard.get(project_id) {
+            project.path = overridden_path.clone();
+        }
+    }
 
     // 3. Validate path and permission
-    crate::project::validate_project_path(project, relative_path, required_permission)
+    crate::project::validate_project_path(&project, relative_path, required_permission)
 }
 
 #[tauri::command]
