@@ -10,6 +10,9 @@ mod ws_handler;
 
 use futures_util::StreamExt;
 use std::sync::RwLock;
+use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingStrategy};
+use tokio::io::AsyncWriteExt;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkConfig {
@@ -1703,7 +1706,360 @@ async fn write_exported_file_by_token(
     Ok(())
 }
 
+fn convert_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
+    if channels == 1 {
+        return samples.to_vec();
+    }
+    let mut mono = Vec::with_capacity(samples.len() / channels as usize);
+    for chunk in samples.chunks_exact(channels as usize) {
+        let sum: f32 = chunk.iter().sum();
+        mono.push(sum / channels as f32);
+    }
+    mono
+}
 
+fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
+    if source_rate == target_rate || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let ratio = source_rate as f64 / target_rate as f64;
+    let new_length = (samples.len() as f64 / ratio).round() as usize;
+    let mut result = Vec::with_capacity(new_length);
+    for i in 0..new_length {
+        let orig_idx = i as f64 * ratio;
+        let index_below = orig_idx.floor() as usize;
+        let index_above = orig_idx.ceil() as usize;
+        let weight = orig_idx - index_below as f64;
+        let val_below = samples[index_below];
+        let val_above = if index_above < samples.len() { samples[index_above] } else { val_below };
+        result.push(val_below + weight as f32 * (val_above - val_below));
+    }
+    result
+}
+
+struct SendSyncStream(cpal::Stream);
+unsafe impl Send for SendSyncStream {}
+unsafe impl Sync for SendSyncStream {}
+
+static RECORDED_SAMPLES: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<Vec<f32>>>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+
+static RECORDING_STREAM: std::sync::LazyLock<std::sync::Mutex<Option<SendSyncStream>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+#[tauri::command]
+async fn start_recording() -> Result<(), AppError> {
+    if let Ok(mut samples) = RECORDED_SAMPLES.lock() {
+        samples.clear();
+    }
+
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
+
+    let config = device
+        .default_input_config()
+        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
+
+    let channels = config.channels();
+    let samples_clone = RECORDED_SAMPLES.clone();
+    
+    let error_callback = |err| {
+        log::error!("An error occurred on the audio stream: {}", err);
+    };
+
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _| {
+                if let Ok(mut samples) = samples_clone.lock() {
+                    let mono = convert_to_mono(data, channels);
+                    samples.extend_from_slice(&mono);
+                }
+            },
+            error_callback,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _| {
+                if let Ok(mut samples) = samples_clone.lock() {
+                    let mut float_data = vec![0.0f32; data.len()];
+                    for (i, &s) in data.iter().enumerate() {
+                        float_data[i] = s as f32 / 32768.0;
+                    }
+                    let mono = convert_to_mono(&float_data, channels);
+                    samples.extend_from_slice(&mono);
+                }
+            },
+            error_callback,
+            None,
+        ),
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[u16], _| {
+                if let Ok(mut samples) = samples_clone.lock() {
+                    let mut float_data = vec![0.0f32; data.len()];
+                    for (i, &s) in data.iter().enumerate() {
+                        float_data[i] = (s as f32 - 32768.0) / 32768.0;
+                    }
+                    let mono = convert_to_mono(&float_data, channels);
+                    samples.extend_from_slice(&mono);
+                }
+            },
+            error_callback,
+            None,
+        ),
+        _ => return Err(AppError::ConfigIo("Unsupported sample format".to_string())),
+    }
+    .map_err(|e| AppError::ConfigIo(format!("Failed to build input stream: {}", e)))?;
+
+    stream
+        .play()
+        .map_err(|e| AppError::ConfigIo(format!("Failed to play stream: {}", e)))?;
+
+    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
+        *active_stream = Some(SendSyncStream(stream));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_recording() -> Result<Vec<f32>, AppError> {
+    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
+        if let Some(SendSyncStream(stream)) = active_stream.take() {
+            let _ = stream.pause();
+        }
+    }
+
+    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
+        samples.clone()
+    } else {
+        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+    };
+
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
+    let config = device
+        .default_input_config()
+        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
+    let sample_rate = config.sample_rate().0;
+
+    let resampled = resample(&samples, sample_rate, 16000);
+    Ok(resampled)
+}
+
+static WHISPER_CONTEXT_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<(String, WhisperContext)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct WhisperDownloadProgress {
+    model_id: String,
+    downloaded: u64,
+    total: Option<u64>,
+    percentage: f32,
+    done: bool,
+}
+
+static DOWNLOAD_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+async fn cancel_whisper_download() -> Result<(), AppError> {
+    DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+async fn download_whisper_model(
+    app: tauri::AppHandle,
+    model_id: String,
+    url: String,
+) -> Result<String, AppError> {
+    DOWNLOAD_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let models_dir = app_data_dir.join("whisper_models");
+    fs::create_dir_all(&models_dir)?;
+
+    let file_name = url.split('/').last().unwrap_or("model.bin");
+    let dest_path = models_dir.join(file_name);
+
+    let client = client_builder()
+        .build()
+        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+    let res = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+    let total_size = res.content_length();
+
+    let mut file = tokio::fs::File::create(&dest_path).await?;
+    let mut stream = res.bytes_stream();
+    let mut downloaded = 0u64;
+
+    while let Some(chunk_result) = stream.next().await {
+        if DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            drop(file);
+            let _ = tokio::fs::remove_file(&dest_path).await;
+            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+        }
+
+        let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
+        file.write_all(&chunk).await?;
+        downloaded += chunk.len() as u64;
+
+        let percentage = total_size
+            .map(|total| (downloaded as f32 / total as f32) * 100.0)
+            .unwrap_or(0.0);
+
+        let _ = app.emit(
+            "whisper-download-progress",
+            WhisperDownloadProgress {
+                model_id: model_id.clone(),
+                downloaded,
+                total: total_size,
+                percentage,
+                done: false,
+            },
+        );
+    }
+
+    let _ = app.emit(
+        "whisper-download-progress",
+        WhisperDownloadProgress {
+            model_id: model_id.clone(),
+            downloaded,
+            total: total_size,
+            percentage: 100.0,
+            done: true,
+        },
+    );
+
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn check_downloaded_whisper_models(app: tauri::AppHandle) -> Result<Vec<String>, AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let models_dir = app_data_dir.join("whisper_models");
+    if !models_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut downloaded = Vec::new();
+    let mut entries = fs::read_dir(models_dir)?;
+    while let Some(Ok(entry)) = entries.next() {
+        if let Some(name) = entry.file_name().to_str() {
+            if name.ends_with(".bin") {
+                downloaded.push(name.to_string());
+            }
+        }
+    }
+    Ok(downloaded)
+}
+
+#[tauri::command]
+async fn delete_whisper_model(app: tauri::AppHandle, file_name: String) -> Result<(), AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let model_path = app_data_dir.join("whisper_models").join(file_name);
+    if model_path.exists() {
+        fs::remove_file(model_path)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn transcribe_audio(
+    app: tauri::AppHandle,
+    model_path: String,
+    audio_data: Vec<f32>,
+    language: Option<String>,
+) -> Result<String, AppError> {
+    let resolved_path = if std::path::Path::new(&model_path).is_absolute() {
+        std::path::PathBuf::from(&model_path)
+    } else {
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::AppPath(e.to_string()))?;
+        app_data_dir.join("whisper_models").join(&model_path)
+    };
+
+    if !resolved_path.exists() {
+        return Err(AppError::ConfigIo(format!(
+            "Model file not found at: {}",
+            resolved_path.display()
+        )));
+    }
+
+    let resolved_path_str = resolved_path.to_string_lossy().to_string();
+
+    let mut cache = WHISPER_CONTEXT_CACHE
+        .lock()
+        .map_err(|e| AppError::ParseError(format!("Cache lock poisoned: {}", e)))?;
+
+    let matches = match &*cache {
+        Some((path, _)) => path == &resolved_path_str,
+        None => false,
+    };
+
+    if !matches {
+        let ctx = WhisperContext::new_with_params(
+            &resolved_path_str,
+            WhisperContextParameters::default(),
+        )
+        .map_err(|e| AppError::ParseError(format!("Failed to load Whisper context: {}", e)))?;
+        *cache = Some((resolved_path_str.clone(), ctx));
+    }
+
+    let context = &cache.as_ref().unwrap().1;
+
+    let mut state = context
+        .create_state()
+        .map_err(|e| AppError::ParseError(format!("Failed to create state: {}", e)))?;
+
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    params.set_n_threads(4);
+    params.set_translate(false);
+    params.set_no_context(true);
+    params.set_single_segment(true);
+
+    let lang = language.as_deref().unwrap_or("en");
+    if lang != "auto" {
+        params.set_language(Some(lang));
+    } else {
+        params.set_language(None);
+    }
+
+    state
+        .full(params, &audio_data)
+        .map_err(|e| AppError::ParseError(format!("Failed to run Whisper model: {}", e)))?;
+
+    let num_segments = state.full_n_segments();
+    let mut transcription = String::new();
+    for i in 0..num_segments {
+        if let Some(segment) = state.get_segment(i) {
+            transcription.push_str(&segment.to_string());
+        }
+    }
+
+    Ok(transcription.trim().to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 
@@ -1901,6 +2257,13 @@ pub fn run() {
             read_file_from_token,
             select_save_file_and_get_token,
             write_exported_file_by_token,
+            start_recording,
+            stop_recording,
+            download_whisper_model,
+            cancel_whisper_download,
+            check_downloaded_whisper_models,
+            delete_whisper_model,
+            transcribe_audio,
             project::load_projects,
             project::save_projects,
             project::set_active_project,
