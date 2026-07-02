@@ -19,7 +19,11 @@ import {
   Shield,
   FolderOpen,
   Settings,
+  Mic,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { useWhisperStore } from "../store/useWhisperStore";
+import { WHISPER_PRESETS } from "../config/whisperPresets";
 import { STATUS_COLORS, ModelConfig, McpServerConfig, McpServerStatus, Attachment, ProjectPermission } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
@@ -107,6 +111,69 @@ export default function InputBar({
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
   const setConversationProject = useChatStore((s) => s.setConversationProject);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
+
+  const {
+    isVoiceEnabled,
+    selectedModelId,
+    customModelPath,
+    language,
+    isRecording,
+    isTranscribing,
+    setIsRecording,
+    setIsTranscribing,
+    init: initWhisper,
+  } = useWhisperStore();
+
+  useEffect(() => {
+    initWhisper();
+  }, []);
+
+  const handleToggleVoice = async () => {
+    if (isRecording) {
+      setIsRecording(false);
+      setIsTranscribing(true);
+
+      try {
+        const audioData = await invoke<number[]>("stop_recording");
+
+        let modelPath = "";
+        if (selectedModelId === "custom" && customModelPath) {
+          modelPath = customModelPath;
+        } else {
+          const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
+          if (preset) {
+            modelPath = preset.fileName;
+          }
+        }
+
+        if (!modelPath) {
+          useUIStore.getState().addToast("No Whisper model is selected. Check settings.", "error");
+          return;
+        }
+
+        const transcription = await invoke<string>("transcribe_audio", {
+          modelPath,
+          audioData,
+          language,
+        });
+
+        if (transcription.trim()) {
+          setValue((prev) => (prev ? `${prev} ${transcription}` : transcription));
+        }
+      } catch (err: any) {
+        useUIStore.getState().addToast(`Voice transcription failed: ${err.message || err}`, "error");
+      } finally {
+        setIsTranscribing(false);
+      }
+    } else {
+      try {
+        await invoke("start_recording");
+        setIsRecording(true);
+      } catch (err: any) {
+        useUIStore.getState().addToast(`Could not access microphone: ${err.message || err}`, "error");
+      }
+    }
+  };
 
   const textSizeClass =
     {
@@ -676,6 +743,27 @@ export default function InputBar({
                 )}
               </AnimatePresence>
             </div>
+
+            {/* Voice-to-Text Button */}
+            {isVoiceEnabled && (
+              <button
+                type="button"
+                onClick={handleToggleVoice}
+                disabled={isTranscribing}
+                className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
+                  isRecording
+                    ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                    : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
+                }`}
+                aria-label={isRecording ? "Stop recording" : "Start recording"}
+              >
+                {isTranscribing ? (
+                  <Loader2 size={16} className="animate-spin text-accent" />
+                ) : (
+                  <Mic size={16} className={isRecording ? "text-white" : ""} />
+                )}
+              </button>
+            )}
 
             {/* Send / Stop button */}
             <button
