@@ -12,6 +12,7 @@ import {
   FileText,
   Store,
   Shield,
+  Mic,
 } from "lucide-react";
 
 export type SectionId =
@@ -32,6 +33,7 @@ export type SectionId =
   | "worktrees"
   | "search"
   | "marketplace"
+  | "whisper"
   | "logs";
 
 export const SECTION_GROUPS = [
@@ -51,6 +53,7 @@ export const SECTION_GROUPS = [
       { id: "models", label: "Model Providers", icon: Plug },
       { id: "configuration", label: "Chat Settings", icon: Sliders },
       { id: "personalization", label: "System Prompts", icon: MessageSquareText },
+      { id: "whisper", label: "Voice Input (Whisper)", icon: Mic },
     ],
   },
   {
