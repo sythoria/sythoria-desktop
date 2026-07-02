@@ -273,32 +273,18 @@ export function matchKeybind(e: KeyboardEvent, combo: string): boolean {
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
 
   // Ctrl match (maps Ctrl to Cmd on Mac)
-  let ctrlMatched = false;
-  if (hasCtrl) {
-    ctrlMatched = isMac ? e.metaKey : e.ctrlKey;
-  } else {
-    ctrlMatched = !(e.ctrlKey || (isMac && e.metaKey));
-  }
+  const ctrlMatched = hasCtrl ? (isMac ? e.metaKey : e.ctrlKey) : !(e.ctrlKey || (isMac && e.metaKey));
 
   // Alt match
   const altMatched = hasAlt ? e.altKey : !e.altKey;
 
   // For Shift match, be lenient if the main key is zoom-in symbols '=' or '+'
-  let shiftMatched = false;
-  if (mainKey === "=" || mainKey === "+") {
-    shiftMatched = true;
-  } else {
-    shiftMatched = hasShift ? e.shiftKey : !e.shiftKey;
-  }
+  const shiftMatched = mainKey === "=" || mainKey === "+" ? true : hasShift ? e.shiftKey : !e.shiftKey;
 
   // Key match
-  let keyMatched = false;
   const pressedKey = e.key.toUpperCase();
-  if ((mainKey === "=" || mainKey === "+") && (pressedKey === "=" || pressedKey === "+")) {
-    keyMatched = true;
-  } else {
-    keyMatched = pressedKey === mainKey;
-  }
+  const keyMatched =
+    (mainKey === "=" || mainKey === "+") && (pressedKey === "=" || pressedKey === "+") ? true : pressedKey === mainKey;
 
   return ctrlMatched && altMatched && shiftMatched && keyMatched;
 }

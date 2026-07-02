@@ -1795,7 +1795,7 @@ async fn start_recording() -> Result<(), AppError> {
 
     let stream = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data: &[f32], _| {
                 if let Ok(mut samples) = samples_clone.lock() {
                     let mono = convert_to_mono(data, channels);
@@ -1806,7 +1806,7 @@ async fn start_recording() -> Result<(), AppError> {
             None,
         ),
         cpal::SampleFormat::I16 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data: &[i16], _| {
                 if let Ok(mut samples) = samples_clone.lock() {
                     let mut float_data = vec![0.0f32; data.len()];
@@ -1821,7 +1821,7 @@ async fn start_recording() -> Result<(), AppError> {
             None,
         ),
         cpal::SampleFormat::U16 => device.build_input_stream(
-            &config.into(),
+            config.into(),
             move |data: &[u16], _| {
                 if let Ok(mut samples) = samples_clone.lock() {
                     let mut float_data = vec![0.0f32; data.len()];
@@ -1871,7 +1871,7 @@ async fn stop_recording() -> Result<Vec<f32>, AppError> {
     let config = device
         .default_input_config()
         .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-    let sample_rate = config.sample_rate().0;
+    let sample_rate = config.sample_rate();
 
     let resampled = resample(&samples, sample_rate, 16000);
     Ok(resampled)

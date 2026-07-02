@@ -39,19 +39,19 @@ urlencoding = "2"
 html-escape = "0.2"
 scraper = "0.27.0"
 ego-tree = "0.11"
-log = "0.4.31"
+log = "0.4.33"
 keyring-core = "1"
-rmcp = { version = "1", features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "2", features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client-reqwest"] }
 which = "8.0.4"
 window-vibrancy = "0.6.0"
 base64 = "0.22"
 xcap = "0.9.6"
 image = "0.25.10"
 tauri-plugin-dialog = "2.7.1"
-ignore = "0.4.22"
-regex = "1.10.6"
+ignore = "0.4.27"
+regex = "1.12.4"
 whisper-rs = "0.16.0"
-cpal = "0.15"
+cpal = "0.18.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }

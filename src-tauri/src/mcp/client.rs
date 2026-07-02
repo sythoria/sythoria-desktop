@@ -561,21 +561,21 @@ async fn call_tool_via_peer(
             let mut images: Vec<crate::mcp::McpImageContent> = Vec::new();
 
             for c in result.content {
-                match c.raw {
-                    rmcp::model::RawContent::Text(text) => {
-                        text_parts.push(text.text.to_string());
+                match c {
+                    rmcp::model::ContentBlock::Text(text_content) => {
+                        text_parts.push(text_content.text.to_string());
                     }
-                    rmcp::model::RawContent::Image(img) => {
+                    rmcp::model::ContentBlock::Image(img_content) => {
                         images.push(crate::mcp::McpImageContent {
-                            mime_type: img.mime_type.clone(),
-                            data: img.data.clone(),
+                            mime_type: img_content.mime_type.clone(),
+                            data: img_content.data.clone(),
                         });
                     }
-                    rmcp::model::RawContent::Audio(audio) => {
-                        text_parts.push(format!("[Audio: {}]", audio.mime_type));
+                    rmcp::model::ContentBlock::Audio(audio_content) => {
+                        text_parts.push(format!("[Audio: {}]", audio_content.mime_type));
                     }
-                    rmcp::model::RawContent::Resource(resource) => {
-                        text_parts.push(format!("[Resource: {:?}]", resource.resource));
+                    rmcp::model::ContentBlock::Resource(resource_content) => {
+                        text_parts.push(format!("[Resource: {:?}]", resource_content.resource));
                     }
                     _ => {
                         text_parts.push("[Unknown content]".to_string());

@@ -344,7 +344,7 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
   const { id, toolName, arguments: args } = confirmation;
 
   // Formatting content based on the tool
-  let detailsContent: React.ReactNode = null;
+  let detailsContent: React.ReactNode;
   let warnMessage = "This action will execute code or modify files on your local machine.";
 
   if (toolName === "project_write") {

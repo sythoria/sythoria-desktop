@@ -112,12 +112,7 @@ export function ImagePreviewModal({
 
   const handleWheel = (e: React.WheelEvent) => {
     const zoomFactor = 1.05;
-    let newScale = scale;
-    if (e.deltaY < 0) {
-      newScale = Math.min(5, scale * zoomFactor);
-    } else {
-      newScale = Math.max(0.8, scale / zoomFactor);
-    }
+    const newScale = e.deltaY < 0 ? Math.min(5, scale * zoomFactor) : Math.max(0.8, scale / zoomFactor);
     setScale(newScale);
 
     if (newScale <= 1.05) {
