@@ -40,24 +40,9 @@ const DEFAULT_CONFIG: WhisperConfig = {
 };
 
 let downloadCancelled = false;
+let isListening = false;
 
 export const useWhisperStore = create<WhisperState>((set, get) => {
-  // Listen to Tauri download progress events
-  listen<any>("whisper-download-progress", (event) => {
-    const payload = event.payload;
-    if (downloadCancelled) return;
-    if (payload.modelId === get().downloadingModelId) {
-      set({
-        downloadProgress: Math.round(payload.percentage),
-        isDownloading: !payload.done,
-        downloadingModelId: payload.done ? null : payload.modelId,
-      });
-      if (payload.done) {
-        get().init(); // Reload downloaded list
-      }
-    }
-  });
-
   return {
     ...DEFAULT_CONFIG,
     downloadedFiles: [],
@@ -68,9 +53,31 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     isTranscribing: false,
 
     init: async () => {
+      if (!isListening) {
+        try {
+          await listen<any>("whisper-download-progress", (event) => {
+            const payload = event.payload;
+            if (downloadCancelled) return;
+            if (payload.modelId === get().downloadingModelId) {
+              set({
+                downloadProgress: Math.round(payload.percentage),
+                isDownloading: !payload.done,
+                downloadingModelId: payload.done ? null : payload.modelId,
+              });
+              if (payload.done) {
+                get().init(); // Reload downloaded list
+              }
+            }
+          });
+          isListening = true;
+        } catch (e) {
+          logError("general", `Failed to set up whisper download listener: ${e}`);
+        }
+      }
+
       try {
         let savedConfig: Partial<WhisperConfig> = {};
-        const localData = localStorage.getItem("sythoria-whisper-config");
+        const localData = typeof localStorage !== "undefined" ? localStorage.getItem("sythoria-whisper-config") : null;
         if (localData) {
           try {
             savedConfig = JSON.parse(localData);
@@ -93,54 +100,62 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     toggleVoiceEnabled: () => {
       const next = !get().isVoiceEnabled;
       set({ isVoiceEnabled: next });
-      localStorage.setItem(
-        "sythoria-whisper-config",
-        JSON.stringify({
-          isVoiceEnabled: next,
-          selectedModelId: get().selectedModelId,
-          customModelPath: get().customModelPath,
-          language: get().language,
-        }),
-      );
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          "sythoria-whisper-config",
+          JSON.stringify({
+            isVoiceEnabled: next,
+            selectedModelId: get().selectedModelId,
+            customModelPath: get().customModelPath,
+            language: get().language,
+          }),
+        );
+      }
     },
 
     selectModel: (modelId) => {
       set({ selectedModelId: modelId, customModelPath: null });
-      localStorage.setItem(
-        "sythoria-whisper-config",
-        JSON.stringify({
-          isVoiceEnabled: get().isVoiceEnabled,
-          selectedModelId: modelId,
-          customModelPath: null,
-          language: get().language,
-        }),
-      );
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          "sythoria-whisper-config",
+          JSON.stringify({
+            isVoiceEnabled: get().isVoiceEnabled,
+            selectedModelId: modelId,
+            customModelPath: null,
+            language: get().language,
+          }),
+        );
+      }
     },
 
     setCustomModelPath: (path) => {
       set({ customModelPath: path, selectedModelId: "custom" });
-      localStorage.setItem(
-        "sythoria-whisper-config",
-        JSON.stringify({
-          isVoiceEnabled: get().isVoiceEnabled,
-          selectedModelId: "custom",
-          customModelPath: path,
-          language: get().language,
-        }),
-      );
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          "sythoria-whisper-config",
+          JSON.stringify({
+            isVoiceEnabled: get().isVoiceEnabled,
+            selectedModelId: "custom",
+            customModelPath: path,
+            language: get().language,
+          }),
+        );
+      }
     },
 
     setLanguage: (lang) => {
       set({ language: lang });
-      localStorage.setItem(
-        "sythoria-whisper-config",
-        JSON.stringify({
-          isVoiceEnabled: get().isVoiceEnabled,
-          selectedModelId: get().selectedModelId,
-          customModelPath: get().customModelPath,
-          language: lang,
-        }),
-      );
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          "sythoria-whisper-config",
+          JSON.stringify({
+            isVoiceEnabled: get().isVoiceEnabled,
+            selectedModelId: get().selectedModelId,
+            customModelPath: get().customModelPath,
+            language: lang,
+          }),
+        );
+      }
     },
 
     downloadModel: async (modelId) => {

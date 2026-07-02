@@ -1439,6 +1439,30 @@ fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
     false
 }
 
+fn update_tray_visibility(app: &tauri::AppHandle) {
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    if let Some(tray) = app.tray_by_id("main") {
+        let should_show = if should_close_to_tray(app) {
+            if let Some(window) = app.get_webview_window("main") {
+                let is_visible = window.is_visible().unwrap_or(true);
+                let is_minimized = window.is_minimized().unwrap_or(false);
+                !is_visible || is_minimized
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let _ = tray.set_visible(should_show);
+    }
+}
+
+#[tauri::command]
+fn update_tray_icon(app: tauri::AppHandle) {
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    update_tray_visibility(&app);
+}
+
 #[tauri::command]
 async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
@@ -2062,12 +2086,11 @@ async fn transcribe_audio(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-
 pub fn run() {
     init_keyring_store();
     let project_registry = project::ProjectRegistry::new();
     let file_token_registry = FileTokenRegistry::new();
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(project_registry)
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
@@ -2104,7 +2127,7 @@ pub fn run() {
                     .items(&[&show_i, &quit_i])
                     .build()?;
 
-                let _tray = tauri::tray::TrayIconBuilder::new()
+                let _tray = tauri::tray::TrayIconBuilder::with_id("main")
                     .icon(app.default_window_icon().unwrap().clone())
                     .menu(&menu)
                     .on_menu_event(|app, event| match event.id().as_ref() {
@@ -2115,6 +2138,8 @@ pub fn run() {
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.set_focus();
+                                let _ = window.unminimize();
+                                update_tray_visibility(app);
                             }
                         }
                         _ => {}
@@ -2133,11 +2158,15 @@ pub fn run() {
                                 if let Some(window) = app.get_webview_window("main") {
                                     let _ = window.show();
                                     let _ = window.set_focus();
+                                    let _ = window.unminimize();
+                                    update_tray_visibility(app);
                                 }
                             }
                         }
                     })
                     .build(app)?;
+
+                update_tray_visibility(app.app_handle());
             }
 
             Ok(())
@@ -2145,12 +2174,25 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    let app = window.app_handle();
-                    if should_close_to_tray(app) {
-                        api.prevent_close();
-                        let _ = window.hide();
+                let app = window.app_handle();
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        if window.label() == "main" {
+                            if should_close_to_tray(app) {
+                                api.prevent_close();
+                                let _ = window.hide();
+                                update_tray_visibility(app);
+                            } else {
+                                app.exit(0);
+                            }
+                        }
                     }
+                    tauri::WindowEvent::Focused(_)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::Moved(_) => {
+                        update_tray_visibility(app);
+                    }
+                    _ => {}
                 }
             }
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
@@ -2253,6 +2295,7 @@ pub fn run() {
             wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
+            update_tray_icon,
             select_file_and_get_token,
             read_file_from_token,
             select_save_file_and_get_token,
@@ -2294,6 +2337,18 @@ pub fn run() {
             appshots::has_screen_capture_permission,
             appshots::request_screen_capture_permission
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+                update_tray_visibility(app_handle);
+            }
+        }
+    });
 }

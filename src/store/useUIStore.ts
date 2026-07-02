@@ -318,6 +318,15 @@ export const useUIStore = create<UIState>((set) => ({
   setCloseToTray: (value) => {
     set({ closeToTray: value });
     saveCloseToTray(value);
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        invoke("update_tray_icon").catch((e) => {
+          console.warn("Could not update tray icon:", e);
+        });
+      })
+      .catch((e) => {
+        console.warn("Could not import tauri api for tray update:", e);
+      });
   },
   setLaunchOnStartup: async (value) => {
     set({ launchOnStartup: value });
