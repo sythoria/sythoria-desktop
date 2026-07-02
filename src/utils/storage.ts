@@ -416,7 +416,8 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
   } catch (e) {
     logError("storage", "Failed to load API keys from keychain", {
       error: e,
-      action: "Check that the app has keychain access. You may need to re-enter your API keys in Settings > Models.",
+      action:
+        "Check that the app has keychain access. You may need to re-enter your API keys in Settings > Model Providers.",
     });
   }
 
@@ -433,14 +434,14 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
       if (!legacy.success)
         logWarn("storage", "Stored API keys failed validation, resetting", {
           details: legacy.error?.message,
-          action: "API keys were corrupted. Please re-enter them in Settings > Models.",
+          action: "API keys were corrupted. Please re-enter them in Settings > Model Providers.",
         });
       await store.delete(API_KEYS_KEY);
     }
   } catch (e) {
     logError("storage", "Failed to migrate legacy API keys", {
       error: e,
-      action: "Could not migrate old API keys from store. Re-enter them in Settings > Models.",
+      action: "Could not migrate old API keys from store. Re-enter them in Settings > Model Providers.",
     });
   }
   return {};
@@ -452,7 +453,7 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save API keys to keychain", {
       error: e,
-      action: "API keys may not persist. Try re-entering them in Settings > Models.",
+      action: "API keys may not persist. Try re-entering them in Settings > Model Providers.",
     });
   }
 }
@@ -466,13 +467,13 @@ export async function loadSearchConfigs(): Promise<import("../types").SearchApiC
       if (result.success) return result.data as import("../types").SearchApiConfig[];
       logWarn("storage", "Stored search configs failed validation", {
         details: result.error?.message,
-        action: "Search provider configs were corrupted. Please re-configure them in Settings > Search.",
+        action: "Search provider configs were corrupted. Please re-configure them in Settings > Web Search.",
       });
     }
   } catch (e) {
     logError("storage", "Failed to load search configs from secure store", {
       error: e,
-      action: "Search configuration could not be loaded. Re-configure in Settings > Search.",
+      action: "Search configuration could not be loaded. Re-configure in Settings > Web Search.",
     });
   }
   return null;
@@ -486,7 +487,7 @@ export async function saveSearchConfigs(configs: import("../types").SearchApiCon
   } catch (e) {
     logError("storage", "Failed to save search configs to secure store", {
       error: e,
-      action: "Search configuration may not persist. Try re-entering in Settings > Search.",
+      action: "Search configuration may not persist. Try re-entering in Settings > Web Search.",
     });
   }
 }
@@ -512,7 +513,7 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
   } catch (e) {
     logError("storage", "Failed to load search API keys from keychain", {
       error: e,
-      action: "Re-enter your search API keys in Settings > Search.",
+      action: "Re-enter your search API keys in Settings > Web Search.",
     });
   }
 
@@ -529,14 +530,14 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
       if (!legacy.success)
         logWarn("storage", "Stored search API keys failed validation, resetting", {
           details: legacy.error?.message,
-          action: "Search API keys were corrupted. Please re-enter them in Settings > Search.",
+          action: "Search API keys were corrupted. Please re-enter them in Settings > Web Search.",
         });
       await store.delete(SEARCH_API_KEYS_KEY);
     }
   } catch (e) {
     logError("storage", "Failed to migrate legacy search API keys", {
       error: e,
-      action: "Could not migrate old search API keys. Re-enter them in Settings > Search.",
+      action: "Could not migrate old search API keys. Re-enter them in Settings > Web Search.",
     });
   }
   return {};
@@ -548,7 +549,7 @@ export async function saveSearchApiKeys(keys: Record<string, string>): Promise<v
   } catch (e) {
     logError("storage", "Failed to save search API keys to keychain", {
       error: e,
-      action: "Search API keys may not persist. Re-enter them in Settings > Search.",
+      action: "Search API keys may not persist. Re-enter them in Settings > Web Search.",
     });
   }
 }
@@ -828,7 +829,7 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
   } catch (e) {
     logError("storage", "Failed to load config from system", {
       error: e,
-      action: "Model configuration could not be loaded. Re-configure in Settings > Models.",
+      action: "Model configuration could not be loaded. Re-configure in Settings > Model Providers.",
     });
   }
   return null;
@@ -840,7 +841,7 @@ export async function saveModelConfigs(configs: ModelConfig[]) {
   } catch (e) {
     logError("storage", "Failed to save config to system", {
       error: e,
-      action: "Model configuration may not persist. Re-enter in Settings > Models.",
+      action: "Model configuration may not persist. Re-enter in Settings > Model Providers.",
     });
   }
 }

@@ -153,47 +153,59 @@ const ThemeCard = ({
                 <Check size={12} className="stroke-[3]" />
                 <span>Active</span>
               </div>
-              <button
+              <motion.button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm active:scale-95"
+                whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
+                whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
+                transition={springs.snappy}
+                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
                 title="Delete theme"
               >
                 <Trash2 size={12} />
-              </button>
+              </motion.button>
             </div>
           ) : isDownloaded ? (
             <div className="flex items-center gap-2">
-              <button
+              <motion.button
                 onClick={(e) => {
                   e.stopPropagation();
                   onApply();
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all bg-surface hover:bg-hover text-text-primary border border-border shadow-sm active:scale-95"
+                whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
+                whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
+                transition={springs.snappy}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all bg-surface hover:bg-hover text-text-primary border border-border shadow-sm"
               >
                 <Palette size={12} />
                 <span>Apply</span>
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm active:scale-95"
+                whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
+                whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
+                transition={springs.snappy}
+                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
                 title="Delete theme"
               >
                 <Trash2 size={12} />
-              </button>
+              </motion.button>
             </div>
           ) : (
-            <button
+            <motion.button
               onClick={(e) => {
                 e.stopPropagation();
                 onGet();
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm hover:shadow-md active:scale-95"
+              whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
+              whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
+              transition={springs.snappy}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm hover:shadow-md"
               style={{
                 backgroundColor: theme.config.accent,
                 color: getContrastColor(theme.config.accent),
@@ -201,7 +213,7 @@ const ThemeCard = ({
             >
               <Download size={12} />
               <span>Get</span>
-            </button>
+            </motion.button>
           )}
         </div>
       </div>

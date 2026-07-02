@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { Search, Filter, Copy, X, Check } from "lucide-react";
+import { Search, Filter, Copy, X, Check, ChevronDown } from "lucide-react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { LogEntry, LogSource } from "../../../types/log";
 import { clearLogs } from "../../../utils/logger";
@@ -140,30 +140,44 @@ export const LogsSection = ({
           </div>
           <div className="flex items-center gap-1.5">
             <Filter size={14} className="text-text-muted" />
-            <select
-              value={logFilterSource}
-              onChange={(e) => setLogFilterSource(e.target.value as LogSource | "all")}
-              className="px-2 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:outline-none focus:border-accent/30 transition-colors"
-              aria-label="Filter by source"
-            >
-              {LOG_SOURCE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={logFilterLevel}
-              onChange={(e) => setLogFilterLevel(e.target.value as "all" | "info" | "warn" | "error")}
-              className="px-2 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:outline-none focus:border-accent/30 transition-colors"
-              aria-label="Filter by level"
-            >
-              {LOG_LEVEL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                value={logFilterSource}
+                onChange={(e) => setLogFilterSource(e.target.value as LogSource | "all")}
+                className="pl-2 pr-7 py-1.5 appearance-none rounded-lg border border-input-border bg-input text-xs text-text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
+                aria-label="Filter by source"
+              >
+                {LOG_SOURCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={12}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
+            <div className="relative">
+              <select
+                value={logFilterLevel}
+                onChange={(e) => setLogFilterLevel(e.target.value as "all" | "info" | "warn" | "error")}
+                className="pl-2 pr-7 py-1.5 appearance-none rounded-lg border border-input-border bg-input text-xs text-text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
+                aria-label="Filter by level"
+              >
+                {LOG_LEVEL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                size={12}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                aria-hidden="true"
+              />
+            </div>
           </div>
         </div>
 

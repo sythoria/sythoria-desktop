@@ -145,7 +145,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
         .flatMap((r) => (!r.success ? r.error.issues.map((i) => i.message) : []));
       logWarn("model", `Model validation failed: ${errors[0]}`, {
         details: errors.join("; "),
-        action: "Fix the model configuration fields highlighted in Settings > Models.",
+        action: "Fix the model configuration fields highlighted in Settings > Model Providers.",
       });
       useUIStore.getState().addToast(`Validation: ${errors[0]}`, "error");
       return;

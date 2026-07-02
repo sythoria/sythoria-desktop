@@ -669,7 +669,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (!primaryModelConfig) {
       logError("model", "No model configuration selected — user tried to send message without any model configured", {
-        action: "Go to Settings > Models and add at least one model configuration.",
+        action: "Go to Settings > Model Providers and add at least one model configuration.",
       });
       uiToast("No model configured — add one in Settings", "error");
       return;
@@ -757,7 +757,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     if (!modelConfig) {
       logError("model", "No model configuration selected — user tried to retry message without any model configured", {
-        action: "Go to Settings > Models and add at least one model configuration.",
+        action: "Go to Settings > Model Providers and add at least one model configuration.",
       });
       uiToast("No model configured — add one in Settings", "error");
       return;

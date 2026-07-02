@@ -22,9 +22,9 @@ export interface ParsedError {
 
 const ERROR_ACTIONS: Record<string, string> = {
   400: "Check that your model settings (like temperature or system prompt) are valid.",
-  401: "Go to Settings > Models and verify your API key is correct. Then click 'Check Connection'.",
+  401: "Go to Settings > Model Providers and verify your API key is correct. Then click 'Check Connection'.",
   403: "Your API key might be restricted or you may not have access to this model. Check your provider dashboard.",
-  404: "Verify the model ID in Settings > Models. It may have been renamed or deprecated.",
+  404: "Verify the model ID in Settings > Model Providers. It may have been renamed or deprecated.",
   429: "Wait a minute and try again. If this keeps happening, check your provider's rate limits.",
   500: "The API provider is experiencing issues. Wait a few minutes and try again.",
   502: "The API provider's servers are temporarily down. Wait and try again, or switch to a different model.",
@@ -196,7 +196,8 @@ function userFriendlyMessage(raw: string): ParsedError {
   if (raw.includes("Failed to fetch") || raw.includes("NetworkError") || raw.includes("error sending request")) {
     return {
       message: "Network error — check your internet connection and API base URL.",
-      action: "Verify your internet connection. If the issue persists, check the API base URL in Settings > Models.",
+      action:
+        "Verify your internet connection. If the issue persists, check the API base URL in Settings > Model Providers.",
       category: "network",
       retryable: true,
       raw,
@@ -215,7 +216,7 @@ function userFriendlyMessage(raw: string): ParsedError {
     return {
       message: "Invalid API URL — check the base URL in Settings.",
       action:
-        "Go to Settings > Models and verify the API base URL format (e.g., https://api.openai.com/v1/chat/completions).",
+        "Go to Settings > Model Providers and verify the API base URL format (e.g., https://api.openai.com/v1/chat/completions).",
       category: "config",
       retryable: false,
       raw,

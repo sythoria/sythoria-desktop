@@ -46,32 +46,7 @@ export const ModelCard = memo(function ModelCard({
           <p className="text-xs text-text-muted mt-0.5">Show in model selector & health check</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={model.enabled !== false}
-            aria-label="Toggle model enabled"
-            onClick={() => onUpdate(model.id, { enabled: !(model.enabled !== false) })}
-            onKeyDown={(e) => {
-              if (e.key === " " || e.key === "Enter") {
-                e.preventDefault();
-                onUpdate(model.id, { enabled: !(model.enabled !== false) });
-              }
-            }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
-              model.enabled !== false ? "bg-accent" : "bg-input-border"
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full transition duration-200 shadow-sm ${
-                model.enabled !== false ? "translate-x-6" : "translate-x-1"
-              }`}
-              style={{
-                backgroundColor: model.enabled !== false ? "var(--theme-accent-foreground)" : "#ffffff",
-              }}
-              aria-hidden="true"
-            />
-          </button>
+          <Switch checked={model.enabled !== false} onChange={(checked) => onUpdate(model.id, { enabled: checked })} />
           <motion.button
             onClick={() => onDelete(model.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -178,8 +153,8 @@ export const ModelCard = memo(function ModelCard({
             aria-describedby={!urlValidation.valid ? `url-error-${model.id}` : undefined}
             className={`w-full px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
               !urlValidation.valid
-                ? "border-red-500/50 focus:border-red-500"
-                : "border-input-border focus:border-accent/50"
+                ? "border-red-500/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
             }`}
           />
           {!urlValidation.valid && model.apiBase && (
@@ -230,8 +205,8 @@ export const ModelCard = memo(function ModelCard({
                 aria-describedby={!keyValidation.valid ? `key-warning-${model.id}` : undefined}
                 className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
                   !keyValidation.valid
-                    ? "border-yellow-500/50 focus:border-yellow-500"
-                    : "border-input-border focus:border-accent/50"
+                    ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
+                    : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
                 }`}
               />
               <button

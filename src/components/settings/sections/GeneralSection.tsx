@@ -85,7 +85,7 @@ export function GeneralSection() {
 
       {/* Window Behavior Section */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-medium text-text-muted">Window Behavior</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Window Behavior</h4>
         <div className="space-y-4 pt-1">
           <Switch
             checked={alwaysOnTop}
@@ -110,7 +110,7 @@ export function GeneralSection() {
 
       {/* Chat & Composition Section */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-medium text-text-muted">Chat & Composition</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Chat & Composition</h4>
         <div className="space-y-4 pt-1">
           {/* Send Message Shortcut Dropdown */}
           <div className="space-y-2">
@@ -247,7 +247,7 @@ export function GeneralSection() {
 
       {/* Data Management Section */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-medium text-text-muted">Data Management</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Data Management</h4>
         <div className="space-y-4 pt-1">
           {/* Export Conversations */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-2">
@@ -272,7 +272,7 @@ export function GeneralSection() {
 
       {/* Updates & Info Section */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-medium text-text-muted">Updates & Info</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Updates & Info</h4>
         <div className="space-y-4 pt-1">
           <Switch
             checked={autoUpdateChecking}

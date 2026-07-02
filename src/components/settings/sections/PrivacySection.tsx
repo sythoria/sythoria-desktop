@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network } from "lucide-react";
+import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network, ChevronDown } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
@@ -214,63 +214,100 @@ export function PrivacySection() {
           />
 
           {!hasAppshotPermission && (
-            <div className="flex items-start justify-between gap-3 p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-xs">
-              <div className="flex gap-2">
-                <ShieldAlert size={16} className="shrink-0 mt-0.5" />
-                <span>macOS Screen Recording permission is required for appshots. Enable it in System Settings.</span>
+            <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <ShieldAlert size={18} className="shrink-0 mt-0.5 text-amber-500" />
+                <div>
+                  <span className="font-semibold block mb-0.5 text-sm text-amber-700 dark:text-amber-300">
+                    Screen Recording Permission Required
+                  </span>
+                  <span className="opacity-90 leading-relaxed block">
+                    macOS requires screen recording permission to take screenshots of the application. Please grant
+                    permission in System Settings.
+                  </span>
+                  <span className="opacity-75 leading-relaxed block mt-1.5 font-medium">
+                    Note: If toggling permission doesn't work, disable and re-enable it in System Settings, then restart
+                    the app.
+                  </span>
+                </div>
               </div>
-              <button
-                onClick={requestAppshotPermission}
-                className="text-amber-700 dark:text-amber-300 font-semibold hover:underline"
+              <motion.button
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
+                className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm self-stretch sm:self-center text-center shrink-0"
+                onClick={async () => {
+                  const ok = await requestAppshotPermission();
+                  if (ok) {
+                    addToast("Permission granted! Please restart the app if captures fail.", "success");
+                  } else {
+                    addToast("Permission was not granted or still needs to be enabled in System Settings.", "info");
+                  }
+                }}
               >
-                Grant
-              </button>
+                Grant Permission
+              </motion.button>
             </div>
           )}
 
           <div className="h-px bg-border/50" />
 
-          <Switch
-            checked={appshotConfig.autoCleanEnabled}
-            onChange={(val) => updateAppshotConfig({ autoCleanEnabled: val })}
-            label="Automatically prune screen captures"
-            description="Prunes capture directories based on count, folder size, or age rules"
-          />
+          <div>
+            <Switch
+              checked={appshotConfig.autoCleanEnabled}
+              onChange={(val) => updateAppshotConfig({ autoCleanEnabled: val })}
+              label="Automatically prune screen captures"
+              description="Prunes capture directories based on count, folder size, or age rules"
+            />
 
-          <AnimatePresence initial={false}>
-            {appshotConfig.autoCleanEnabled && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={springs.gentle}
-                className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-4 border-l border-border/80 overflow-hidden"
-              >
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
-                  <select
-                    value={appshotConfig.autoCleanType}
-                    onChange={(e) => updateAppshotConfig({ autoCleanType: e.target.value as any })}
-                    className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent"
-                  >
-                    <option value="count">Keep Max File Count</option>
-                    <option value="size">Limit Folder Size (MB)</option>
-                    <option value="age">Limit File Age (Days)</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-text-muted">Limit Value</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={appshotConfig.autoCleanValue}
-                    onChange={(e) => updateAppshotConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                    className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none"
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            <AnimatePresence initial={false}>
+              {appshotConfig.autoCleanEnabled && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{
+                    type: "tween",
+                    ease: motionTokens.easing.smooth,
+                    duration: motionTokens.duration.normal,
+                  }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-4 border-l border-border/80 pt-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
+                      <div className="relative w-full">
+                        <select
+                          value={appshotConfig.autoCleanType}
+                          onChange={(e) => updateAppshotConfig({ autoCleanType: e.target.value as any })}
+                          className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                        >
+                          <option value="count">Keep Max File Count</option>
+                          <option value="size">Limit Folder Size (MB)</option>
+                          <option value="age">Limit File Age (Days)</option>
+                        </select>
+                        <ChevronDown
+                          size={14}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                          aria-hidden="true"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-text-muted">Limit Value</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={appshotConfig.autoCleanValue}
+                        onChange={(e) => updateAppshotConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
+                        className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div className="h-px bg-border/50" />
 
@@ -329,7 +366,7 @@ export function PrivacySection() {
               onKeyDown={handleKeyDown}
               placeholder="e.g. localhost&#10;127.0.0.1"
               rows={4}
-              className="w-full px-3 py-2 mt-1 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
+              className="w-full px-3 py-2 mt-1 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors font-mono"
             />
           </div>
           <div className="h-px bg-border/50" />

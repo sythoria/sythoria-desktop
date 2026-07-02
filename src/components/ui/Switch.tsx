@@ -7,11 +7,14 @@ interface SwitchProps {
   label?: string;
   description?: string;
   disabled?: boolean;
+  className?: string;
 }
 
-export function Switch({ checked, onChange, label, description, disabled }: SwitchProps) {
+export function Switch({ checked, onChange, label, description, disabled, className = "" }: SwitchProps) {
   return (
-    <div className={`flex items-center justify-between gap-4 ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
+    <div
+      className={`flex items-center justify-between gap-4 ${disabled ? "opacity-50 pointer-events-none" : ""} ${className}`}
+    >
       {(label || description) && (
         <div className="min-w-0">
           {label && <p className="text-sm font-medium text-text-primary">{label}</p>}

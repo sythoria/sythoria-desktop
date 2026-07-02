@@ -5,6 +5,7 @@ import { SearchApiConfig, SearchProvider } from "../../../types";
 import { SEARCH_PROVIDER_PRESETS } from "../../../config/searchPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateSearchApiKey } from "../../../utils/validation";
+import { Switch } from "../../ui/Switch";
 
 interface SearchApiCardProps {
   id?: string;
@@ -39,32 +40,7 @@ export const SearchApiCard = memo(function SearchApiCard({
           <p className="text-xs text-text-muted mt-0.5">Show in search API selector</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={config.enabled}
-            aria-label="Toggle search API enabled"
-            onClick={() => onUpdate(config.id, { enabled: !config.enabled })}
-            onKeyDown={(e) => {
-              if (e.key === " " || e.key === "Enter") {
-                e.preventDefault();
-                onUpdate(config.id, { enabled: !config.enabled });
-              }
-            }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface outline-none ${
-              config.enabled ? "bg-accent" : "bg-input-border"
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full transition duration-200 shadow-sm ${
-                config.enabled ? "translate-x-6" : "translate-x-1"
-              }`}
-              style={{
-                backgroundColor: config.enabled ? "var(--theme-accent-foreground)" : "#ffffff",
-              }}
-              aria-hidden="true"
-            />
-          </button>
+          <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
           <motion.button
             onClick={() => onDelete(config.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -185,8 +161,8 @@ export const SearchApiCard = memo(function SearchApiCard({
                 spellCheck="false"
                 className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
                   !keyValidation.valid
-                    ? "border-yellow-500/50 focus:border-yellow-500"
-                    : "border-input-border focus:border-accent/50"
+                    ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
+                    : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
                 }`}
               />
               <button

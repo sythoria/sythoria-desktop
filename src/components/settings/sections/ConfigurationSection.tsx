@@ -86,8 +86,10 @@ export const ConfigurationSection = ({
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">AI Configuration</h3>
-        <p className="text-xs text-text-muted">Defaults and generation behavior</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Chat Settings</h3>
+        <p className="text-xs text-text-muted">
+          Configure default model selection, generation parameters, and tool execution limits
+        </p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <div className="space-y-2">

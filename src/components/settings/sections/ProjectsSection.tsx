@@ -21,15 +21,12 @@ export function ProjectsSection() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/20 pb-4">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Project Workspaces</h3>
-          <p className="text-xs text-text-muted">
-            Configure local workspace management, default folder permissions, and AI code authoring behavior.
-          </p>
-        </div>
+    <>
+      <div>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Project Workspaces</h3>
+        <p className="text-xs text-text-muted">
+          Configure local workspace management, default folder permissions, and AI code authoring behavior.
+        </p>
       </div>
 
       {/* Card 1: Opt-in Toggle & Default Permission Controls */}
@@ -55,7 +52,9 @@ export function ProjectsSection() {
               className="overflow-hidden"
             >
               <div className="space-y-4 pt-4 border-t border-border/50 mt-4">
-                <h4 className="text-xs font-medium text-text-muted block">Global Default Permission</h4>
+                <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
+                  Global Default Permission
+                </h4>
                 <p className="text-xs text-text-muted">
                   The default access level granted to new workspaces when they are added.
                 </p>
@@ -116,7 +115,7 @@ export function ProjectsSection() {
 
       {/* Card 2: Commit Author overrides (preserved from GitSection) */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-medium text-text-muted">Commit Author overrides</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Commit Author overrides</h4>
         <Switch
           checked={gitConfig.overrideIdentity}
           onChange={(val) => updateGitConfig({ overrideIdentity: val })}
@@ -139,7 +138,7 @@ export function ProjectsSection() {
                   type="text"
                   value={gitConfig.gitName}
                   onChange={(e) => updateGitConfig({ gitName: e.target.value })}
-                  className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent"
+                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 />
               </div>
               <div className="space-y-1.5">
@@ -148,14 +147,14 @@ export function ProjectsSection() {
                   type="email"
                   value={gitConfig.gitEmail}
                   onChange={(e) => updateGitConfig({ gitEmail: e.target.value })}
-                  className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent"
+                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 />
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-    </div>
+    </>
   );
 }
 

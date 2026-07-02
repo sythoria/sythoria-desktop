@@ -40,7 +40,7 @@ export const PersonalizationSection = ({
           description="Automatically generate conversation titles using AI"
         />
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {titleConfig.enabled && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}

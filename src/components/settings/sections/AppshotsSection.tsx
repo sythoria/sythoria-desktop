@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
-import { Image, Trash2, Camera, AlertCircle, Copy, Check } from "lucide-react";
+import { Image, Trash2, Camera, AlertCircle, Copy, Check, ChevronDown } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
@@ -63,9 +63,8 @@ export function AppshotsSection() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/20 pb-4">
+    <>
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-1">Appshots Utility</h3>
           <p className="text-xs text-text-muted">
@@ -76,8 +75,6 @@ export function AppshotsSection() {
           checked={config.enabled && hasPermission}
           onChange={(val) => updateConfig({ enabled: val })}
           disabled={!hasPermission}
-          label=""
-          description=""
         />
       </div>
 
@@ -133,7 +130,7 @@ export function AppshotsSection() {
           className="space-y-6"
         >
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-medium text-text-muted">Save Location</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Save Location</h4>
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input
@@ -186,7 +183,9 @@ export function AppshotsSection() {
 
           {/* Card 2: Capture Preferences */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-medium text-text-muted">Capture & Encoder Preferences</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+              Capture & Encoder Preferences
+            </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-1">
               <div className="space-y-2">
@@ -228,16 +227,23 @@ export function AppshotsSection() {
 
               <div className="space-y-2">
                 <span className="text-xs font-medium text-text-primary block">Delay Timer</span>
-                <select
-                  value={config.delaySeconds}
-                  onChange={(e) => updateConfig({ delaySeconds: parseInt(e.target.value, 10) })}
-                  className="px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent w-full"
-                >
-                  <option value={0}>0s (Instant Capture)</option>
-                  <option value={1}>1s Delay</option>
-                  <option value={3}>3s Delay</option>
-                  <option value={5}>5s Delay</option>
-                </select>
+                <div className="relative w-full">
+                  <select
+                    value={config.delaySeconds}
+                    onChange={(e) => updateConfig({ delaySeconds: parseInt(e.target.value, 10) })}
+                    className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                  >
+                    <option value={0}>0s (Instant Capture)</option>
+                    <option value={1}>1s Delay</option>
+                    <option value={3}>3s Delay</option>
+                    <option value={5}>5s Delay</option>
+                  </select>
+                  <ChevronDown
+                    size={14}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                    aria-hidden="true"
+                  />
+                </div>
               </div>
 
               <div className="space-y-4 sm:col-span-2 pt-2 border-t border-border/50">
@@ -253,57 +259,70 @@ export function AppshotsSection() {
 
           {/* Card 3: Auto-Clean Rules */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-medium text-text-muted">Disk Space Auto-Cleanup</h4>
-            <Switch
-              checked={config.autoCleanEnabled}
-              onChange={(val) => updateConfig({ autoCleanEnabled: val })}
-              label="Enable Auto-Cleanup"
-              description="Automatically manage and prune old screenshot captures"
-            />
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Disk Space Auto-Cleanup</h4>
+            <div>
+              <Switch
+                checked={config.autoCleanEnabled}
+                onChange={(val) => updateConfig({ autoCleanEnabled: val })}
+                label="Enable Auto-Cleanup"
+                description="Automatically manage and prune old screenshot captures"
+              />
 
-            <AnimatePresence initial={false}>
-              {config.autoCleanEnabled && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={springs.gentle}
-                  className="space-y-4 pt-2 border-t border-border/60 overflow-hidden"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
-                      <select
-                        value={config.autoCleanType}
-                        onChange={(e) => updateConfig({ autoCleanType: e.target.value as any })}
-                        className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent"
-                      >
-                        <option value="count">Keep Max File Count</option>
-                        <option value="size">Limit Folder Size (MB)</option>
-                        <option value="age">Limit File Age (Days)</option>
-                      </select>
-                    </div>
+              <AnimatePresence initial={false}>
+                {config.autoCleanEnabled && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{
+                      type: "tween",
+                      ease: motionTokens.easing.smooth,
+                      duration: motionTokens.duration.normal,
+                    }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border/60 mt-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
+                        <div className="relative w-full">
+                          <select
+                            value={config.autoCleanType}
+                            onChange={(e) => updateConfig({ autoCleanType: e.target.value as any })}
+                            className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                          >
+                            <option value="count">Keep Max File Count</option>
+                            <option value="size">Limit Folder Size (MB)</option>
+                            <option value="age">Limit File Age (Days)</option>
+                          </select>
+                          <ChevronDown
+                            size={14}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-medium text-text-muted">Limit Threshold Value</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={config.autoCleanValue}
-                        onChange={(e) => updateConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                        className="w-full px-3 py-1.5 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none"
-                      />
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-medium text-text-muted">Limit Threshold Value</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={config.autoCleanValue}
+                          onChange={(e) => updateConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
+                          className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                        />
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           {/* Recent Appshots / Gallery */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-medium text-text-muted">Captures Gallery</h4>
+              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Captures Gallery</h4>
               <div className="flex gap-2">
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
@@ -358,10 +377,13 @@ export function AppshotsSection() {
                       </div>
                     </div>
                     <div className="flex gap-1.5 shrink-0">
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => handleCopyPath(shot.path)}
-                        className="p-1.5 rounded bg-surface hover:bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors"
+                        whileHover={{ scale: motionTokens.scale.pop }}
+                        whileTap={{ scale: motionTokens.scale.press }}
+                        transition={springs.snappy}
+                        className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors shadow-sm"
                         title="Copy absolute path"
                       >
                         {copiedPath === shot.path ? (
@@ -369,15 +391,18 @@ export function AppshotsSection() {
                         ) : (
                           <Copy size={13} />
                         )}
-                      </button>
-                      <button
+                      </motion.button>
+                      <motion.button
                         type="button"
                         onClick={() => deleteAppshot(shot.path)}
-                        className="p-1.5 rounded bg-surface hover:bg-hover border border-border text-red-500/80 hover:text-red-500 transition-colors"
+                        whileHover={{ scale: motionTokens.scale.pop }}
+                        whileTap={{ scale: motionTokens.scale.press }}
+                        transition={springs.snappy}
+                        className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-red-500/80 hover:text-red-500 transition-colors shadow-sm"
                         title="Delete image"
                       >
                         <Trash2 size={13} />
-                      </button>
+                      </motion.button>
                     </div>
                   </div>
                 ))}
@@ -386,7 +411,7 @@ export function AppshotsSection() {
           </div>
         </motion.div>
       )}
-    </div>
+    </>
   );
 }
 export default AppshotsSection;

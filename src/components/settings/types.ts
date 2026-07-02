@@ -4,7 +4,7 @@ import {
   Sliders,
   MessageSquareText,
   Keyboard,
-  Image,
+  Camera,
   Cpu,
   Search,
   Plug,
@@ -36,30 +36,35 @@ export type SectionId =
 
 export const SECTION_GROUPS = [
   {
-    category: "Personal",
+    category: "Application",
     items: [
       { id: "general", label: "General", icon: SettingsIcon },
       { id: "appearance", label: "Appearance", icon: Sun },
-      { id: "privacy", label: "Privacy & Security", icon: Shield },
-      { id: "configuration", label: "Configuration", icon: Sliders },
-      { id: "personalization", label: "Personalization", icon: MessageSquareText },
       { id: "marketplace", label: "Theme Marketplace", icon: Store },
-      { id: "keybinds", label: "Keybinds", icon: Keyboard },
+      { id: "keybinds", label: "Keyboard Shortcuts", icon: Keyboard },
+      { id: "privacy", label: "Privacy & Security", icon: Shield },
+    ],
+  },
+  {
+    category: "AI & Models",
+    items: [
+      { id: "models", label: "Model Providers", icon: Plug },
+      { id: "configuration", label: "Chat Settings", icon: Sliders },
+      { id: "personalization", label: "System Prompts", icon: MessageSquareText },
     ],
   },
   {
     category: "Integrations",
     items: [
-      { id: "appshots", label: "Appshots", icon: Image },
-      { id: "mcp", label: "MCP servers", icon: Cpu },
-      { id: "browser", label: "Browser", icon: Search },
+      { id: "mcp", label: "MCP Servers", icon: Cpu },
+      { id: "browser", label: "Web Search", icon: Search },
+      { id: "appshots", label: "Appshots", icon: Camera },
     ],
   },
   {
-    category: "Coding",
+    category: "Developer",
     items: [
-      { id: "models", label: "Connections", icon: Plug },
-      { id: "projects", label: "Projects", icon: Folder },
+      { id: "projects", label: "Workspace Projects", icon: Folder },
       { id: "logs", label: "Activity Log", icon: FileText },
     ],
   },
