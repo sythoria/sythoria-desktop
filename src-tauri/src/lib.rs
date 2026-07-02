@@ -1891,10 +1891,15 @@ struct WhisperDownloadProgress {
 }
 
 static DOWNLOAD_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DOWNLOAD_CANCEL_TX: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+    std::sync::Mutex::new(None);
 
 #[tauri::command]
 async fn cancel_whisper_download() -> Result<(), AppError> {
     DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(tx) = DOWNLOAD_CANCEL_TX.lock().unwrap().take() {
+        let _ = tx.send(());
+    }
     Ok(())
 }
 
@@ -1905,6 +1910,21 @@ async fn download_whisper_model(
     url: String,
 ) -> Result<String, AppError> {
     DOWNLOAD_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut guard = DOWNLOAD_CANCEL_TX.lock().unwrap();
+        *guard = Some(tx);
+    }
+
+    struct CancelGuard;
+    impl Drop for CancelGuard {
+        fn drop(&mut self) {
+            if let Ok(mut guard) = DOWNLOAD_CANCEL_TX.lock() {
+                *guard = None;
+            }
+        }
+    }
+    let _guard = CancelGuard;
 
     let app_data_dir = app
         .path()
@@ -1919,42 +1939,73 @@ async fn download_whisper_model(
     let client = client_builder()
         .build()
         .map_err(|e| AppError::RequestFailed(e.to_string()))?;
-    let res = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+    
+    let res = tokio::select! {
+        _ = &mut rx => {
+            let _ = tokio::fs::remove_file(&dest_path).await;
+            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+        }
+        res_result = client.get(&url).send() => {
+            res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
+        }
+    };
     let total_size = res.content_length();
 
     let mut file = tokio::fs::File::create(&dest_path).await?;
     let mut stream = res.bytes_stream();
     let mut downloaded = 0u64;
+    let mut last_emit_time = std::time::Instant::now();
+    let mut last_emitted_percentage = -1.0f32;
 
-    while let Some(chunk_result) = stream.next().await {
-        if DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-            drop(file);
-            let _ = tokio::fs::remove_file(&dest_path).await;
-            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+    loop {
+        tokio::select! {
+            _ = &mut rx => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&dest_path).await;
+                return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+            }
+            chunk_result_opt = stream.next() => {
+                match chunk_result_opt {
+                    Some(chunk_result) => {
+                        if DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+                            drop(file);
+                            let _ = tokio::fs::remove_file(&dest_path).await;
+                            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+                        }
+                        let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
+                        file.write_all(&chunk).await?;
+                        downloaded += chunk.len() as u64;
+
+                        let percentage = total_size
+                            .map(|total| (downloaded as f32 / total as f32) * 100.0)
+                            .unwrap_or(0.0);
+
+                        let now = std::time::Instant::now();
+                        let should_emit = if total_size.is_some() {
+                            (percentage - last_emitted_percentage) >= 1.0 || now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
+                        } else {
+                            now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
+                        };
+
+                        if should_emit {
+                            last_emit_time = now;
+                            last_emitted_percentage = percentage;
+                            let _ = app.emit(
+                                "whisper-download-progress",
+                                WhisperDownloadProgress {
+                                    model_id: model_id.clone(),
+                                    downloaded,
+                                    total: total_size,
+                                    percentage,
+                                    done: false,
+                                },
+                            );
+                        }
+                    }
+                    None => break,
+                }
+            }
         }
-
-        let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
-        file.write_all(&chunk).await?;
-        downloaded += chunk.len() as u64;
-
-        let percentage = total_size
-            .map(|total| (downloaded as f32 / total as f32) * 100.0)
-            .unwrap_or(0.0);
-
-        let _ = app.emit(
-            "whisper-download-progress",
-            WhisperDownloadProgress {
-                model_id: model_id.clone(),
-                downloaded,
-                total: total_size,
-                percentage,
-                done: false,
-            },
-        );
     }
 
     let _ = app.emit(
