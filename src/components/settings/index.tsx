@@ -23,6 +23,7 @@ import { KeybindsSection } from "./sections/KeybindsSection";
 import { ProjectsSection } from "./sections/ProjectsSection";
 import { AppshotsSection } from "./sections/AppshotsSection";
 import { PrivacySection } from "./sections/PrivacySection";
+import { WhisperSection } from "./sections/WhisperSection";
 import { SectionId } from "./types";
 
 export default function Settings() {
@@ -258,6 +259,8 @@ export default function Settings() {
                 setLogFilterLevel={setLogFilterLevel}
               />
             )}
+
+            {activeSection === "whisper" && <WhisperSection />}
           </motion.div>
         </div>
       </div>
