@@ -74,17 +74,7 @@ Unlike generic chat clients, Sythoria is built for developers, incorporating adv
 
 ## Contributing 🤝
 
-We welcome contributions from the community! To contribute:
-
-1.  **Fork** the repository and create your feature branch:
-    ```bash
-    git checkout -b feature/amazing-feature
-    ```
-2.  **Commit** your changes following semantic guidelines. Sythoria uses Husky and `lint-staged` to enforce code formatting (`prettier`) and linting (`eslint --fix`) rules automatically on commit.
-3.  **Test** your changes locally:
-    - Make sure typescript compiles: `npm run typecheck`
-    - Run tests: `npm run test` and `cd src-tauri && cargo test`
-4.  **Push** to your branch and open a **Pull Request** explaining your implementation details.
+We welcome contributions from the community! To get started, please check out our detailed [Contributing Guidelines](CONTRIBUTING.md) for instructions on setting up your local environment, code styling, testing, and the pull request process.
 
 ---
 
