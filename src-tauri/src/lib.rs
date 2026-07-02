@@ -9,7 +9,104 @@ mod stream_parser;
 mod ws_handler;
 
 use futures_util::StreamExt;
-use reqwest::Client;
+use std::sync::RwLock;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NetworkConfig {
+    pub strict_ssl: bool,
+    pub blocked_hosts: Vec<String>,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            strict_ssl: true,
+            blocked_hosts: vec![
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+                "0.0.0.0".to_string(),
+                "::1".to_string(),
+                "169.254.169.254".to_string(),
+                "metadata.google.internal".to_string(),
+                "metadata.azure.com".to_string(),
+                "100.100.100.200".to_string(),
+                "10.0.0.0/8".to_string(),
+                "172.16.0.0/12".to_string(),
+                "192.168.0.0/16".to_string(),
+                "169.254.0.0/16".to_string(),
+                "100.64.0.0/10".to_string(),
+                "fc00::/7".to_string(),
+                "fe80::/10".to_string(),
+            ],
+        }
+    }
+}
+
+pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> = LazyLock::new(|| RwLock::new(NetworkConfig::default()));
+
+pub fn get_strict_ssl() -> bool {
+    NETWORK_CONFIG.read().map(|c| c.strict_ssl).unwrap_or(true)
+}
+
+pub fn get_blocked_hosts() -> Vec<String> {
+    NETWORK_CONFIG.read().map(|c| c.blocked_hosts.clone()).unwrap_or_else(|_| NetworkConfig::default().blocked_hosts)
+}
+
+fn init_network_settings(app: &tauri::AppHandle) {
+    if let Ok(config) = load_network_config_internal(app) {
+        if let Ok(mut lock) = NETWORK_CONFIG.write() {
+            *lock = config;
+        }
+    }
+}
+
+fn load_network_config_internal(app: &tauri::AppHandle) -> Result<NetworkConfig, AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    let config_path = app_data_dir.join("network_config.json");
+    if config_path.exists() {
+        let content = fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        let config: NetworkConfig = serde_json::from_str(&content).map_err(|e| AppError::ParseError(e.to_string()))?;
+        Ok(config)
+    } else {
+        Ok(NetworkConfig::default())
+    }
+}
+
+pub fn client_builder() -> reqwest::ClientBuilder {
+    let mut builder = reqwest::Client::builder();
+    if !get_strict_ssl() {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    builder
+}
+
+#[tauri::command]
+async fn load_network_config(app: tauri::AppHandle) -> Result<String, AppError> {
+    let config = load_network_config_internal(&app)?;
+    serde_json::to_string(&config).map_err(|e| AppError::ParseError(e.to_string()))
+}
+
+#[tauri::command]
+async fn save_network_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
+    let config_struct: NetworkConfig = serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(e.to_string()))?;
+    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    let config_path = app_data_dir.join("network_config.json");
+    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    file.write_all(config.as_bytes())
+        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    
+    if let Ok(mut lock) = NETWORK_CONFIG.write() {
+        *lock = config_struct;
+    }
+    Ok(())
+}
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -543,7 +640,7 @@ async fn chat_completion(
             .await;
         }
     }
-    let client = Client::builder()
+    let client = client_builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
     let body = ChatRequest {
@@ -616,7 +713,7 @@ async fn chat_stream(
         }
     }
     clear_stream_cancelled(&stream_id);
-    let client = Client::builder()
+    let client = client_builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
     let body = ChatRequest {
@@ -709,7 +806,7 @@ async fn chat_stream_tools(
         max_tokens,
     };
 
-    let client = Client::builder()
+    let client = client_builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
 
@@ -794,7 +891,7 @@ async fn chat_completion_tools(
         max_tokens,
     };
 
-    let client = Client::builder()
+    let client = client_builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
 
@@ -833,7 +930,7 @@ async fn check_api(
             return anthropic::check_api_anthropic(api_url, api_key).await;
         }
     }
-    let client = Client::new();
+    let client = client_builder().build()?;
 
     let base_url = api_url
         .trim_end_matches('/')
@@ -868,7 +965,7 @@ struct OllamaModel {
 
 #[tauri::command]
 async fn check_ollama() -> Result<Vec<String>, AppError> {
-    let client = Client::new();
+    let client = client_builder().build()?;
     let resp = client
         .get("http://127.0.0.1:11434/api/tags")
         .timeout(std::time::Duration::from_secs(5))
@@ -1022,7 +1119,7 @@ async fn ws_authenticate(
     api_key: String,
     server_url: String,
 ) -> Result<String, AppError> {
-    let client = Client::new();
+    let client = client_builder().build()?;
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
 
     let body = serde_json::json!({
@@ -1061,7 +1158,7 @@ async fn generate_title(
     user_message: String,
     system_prompt: String,
 ) -> Result<String, AppError> {
-    let client = Client::builder()
+    let client = client_builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
     let body = ChatRequest {
@@ -1619,6 +1716,7 @@ pub fn run() {
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
         .setup(|app| {
+            init_network_settings(app.app_handle());
             let registry = app.state::<project::ProjectRegistry>();
             let _ = registry.load_from_disk(app.app_handle());
             #[cfg(desktop)]
@@ -1762,6 +1860,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config,
+            load_network_config,
+            save_network_config,
             load_search_config,
             save_search_config,
             load_api_keys,

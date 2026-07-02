@@ -24,7 +24,7 @@ pub async fn search(
         .and_then(|v| v.as_str())
         .unwrap_or("https://www.googleapis.com/customsearch/v1");
 
-    let client = reqwest::Client::builder()
+    let client = crate::client_builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| {

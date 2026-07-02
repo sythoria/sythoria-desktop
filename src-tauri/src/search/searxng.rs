@@ -21,7 +21,7 @@ pub async fn search(
         urlencoding::encode(query)
     );
 
-    let client = reqwest::Client::builder()
+    let client = crate::client_builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| {

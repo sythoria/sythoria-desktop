@@ -17,6 +17,10 @@ import {
   saveAutoUpdateChecking,
   saveShowContextWindow,
   saveIsLoggingEnabled,
+  saveDisableBgActivity,
+  saveStrictSsl,
+  saveBlockedHosts,
+  saveOfflineMode,
 } from "../utils/storage";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
@@ -28,6 +32,7 @@ import {
   LIGHT_PRESETS,
   DARK_PRESETS,
 } from "../config/themePresets";
+import { useModelStore } from "./useModelStore";
 export type { ThemeConfig, CustomThemeConfig };
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
@@ -72,6 +77,10 @@ interface UIState {
   showProjectConfigModal: boolean;
   projectConfigModalMode: "create" | "edit";
   projectConfigModalId: string | null;
+  disableBgActivity: boolean;
+  strictSsl: boolean;
+  blockedHosts: string[];
+  offlineMode: boolean;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -103,6 +112,10 @@ interface UIState {
   setIsLoggingEnabled: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
   setShowContextWindow: (value: boolean) => void;
+  setDisableBgActivity: (value: boolean) => void;
+  setStrictSsl: (value: boolean) => void;
+  setBlockedHosts: (value: string[]) => void;
+  setOfflineMode: (value: boolean) => void;
   sidebarWidth: number;
   setSidebarWidth: (width: number) => void;
   activeArtifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null;
@@ -164,6 +177,10 @@ export const useUIStore = create<UIState>((set) => ({
   showProjectConfigModal: false,
   projectConfigModalMode: "create",
   projectConfigModalId: null,
+  disableBgActivity: false,
+  strictSsl: true,
+  blockedHosts: [],
+  offlineMode: false,
   sidebarWidth: Number(safeLocalStorage.getItem("sythoria-sidebar-width") || 260),
   activeArtifact: null,
   pendingToolConfirmations: [],
@@ -335,6 +352,51 @@ export const useUIStore = create<UIState>((set) => ({
   setShowContextWindow: (value) => {
     set({ showContextWindow: value });
     saveShowContextWindow(value);
+  },
+  setDisableBgActivity: (value) => {
+    set({ disableBgActivity: value });
+    saveDisableBgActivity(value);
+    if (value) {
+      useModelStore.getState().stopHealthCheck();
+      useModelStore.setState({ modelStatuses: {} });
+    } else {
+      useModelStore.getState().startHealthCheck();
+      useModelStore.getState().checkModelConnections();
+    }
+  },
+  setStrictSsl: (value) => {
+    set({ strictSsl: value });
+    saveStrictSsl(value);
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        const { blockedHosts } = useUIStore.getState();
+        invoke("save_network_config", {
+          config: JSON.stringify({
+            strict_ssl: value,
+            blocked_hosts: blockedHosts,
+          }),
+        }).catch((e) => console.error("Failed to sync strict SSL to Rust:", e));
+      })
+      .catch(console.error);
+  },
+  setBlockedHosts: (value) => {
+    set({ blockedHosts: value });
+    saveBlockedHosts(value);
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        const { strictSsl } = useUIStore.getState();
+        invoke("save_network_config", {
+          config: JSON.stringify({
+            strict_ssl: strictSsl,
+            blocked_hosts: value,
+          }),
+        }).catch((e) => console.error("Failed to sync blocked hosts to Rust:", e));
+      })
+      .catch(console.error);
+  },
+  setOfflineMode: (value) => {
+    set({ offlineMode: value });
+    saveOfflineMode(value);
   },
 }));
 

@@ -101,6 +101,7 @@ export default function InputBar({
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
   const showContextWindow = useUIStore((s) => s.showContextWindow);
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
 
   const activeConversationId = useChatStore((s) => s.activeId);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
@@ -597,11 +598,13 @@ export default function InputBar({
                 aria-expanded={modelOpen}
                 aria-haspopup="listbox"
               >
-                <div
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
-                  title={STATUS_LABELS[currentStatus] ?? currentStatus}
-                  aria-hidden="true"
-                />
+                {!disableBgActivity && (
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
+                    title={STATUS_LABELS[currentStatus] ?? currentStatus}
+                    aria-hidden="true"
+                  />
+                )}
                 <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
                 <ChevronDown
                   size={14}
@@ -649,11 +652,13 @@ export default function InputBar({
                             role="option"
                             aria-selected={isSelected}
                           >
-                            <div
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                              title={STATUS_LABELS[status] ?? status}
-                              aria-label={STATUS_LABELS[status] ?? status}
-                            />
+                            {!disableBgActivity && (
+                              <div
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
+                                title={STATUS_LABELS[status] ?? status}
+                                aria-label={STATUS_LABELS[status] ?? status}
+                              />
+                            )}
                             <div className="flex-1 min-w-0">
                               <span className="block font-medium truncate">{model.name}</span>
                               <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>

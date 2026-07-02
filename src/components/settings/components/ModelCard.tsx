@@ -6,6 +6,7 @@ import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
+import { useUIStore } from "../../../store/useUIStore";
 
 interface ModelCardProps {
   id?: string;
@@ -29,6 +30,7 @@ export const ModelCard = memo(function ModelCard({
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
 
   return (
     <motion.div
@@ -84,21 +86,23 @@ export const ModelCard = memo(function ModelCard({
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              connectionStatus === "connected"
-                ? "bg-green-500"
-                : connectionStatus === "connecting"
-                  ? "bg-yellow-400 animate-pulse"
-                  : connectionStatus === "error"
-                    ? "bg-red-500"
-                    : "bg-gray-400"
-            }`}
-            aria-label={`Status: ${connectionStatus}`}
-          />
-          <span className="text-[11px] text-text-muted capitalize">{connectionStatus}</span>
-        </div>
+        {!disableBgActivity && (
+          <div className="flex items-center gap-2 mb-1">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                connectionStatus === "connected"
+                  ? "bg-green-500"
+                  : connectionStatus === "connecting"
+                    ? "bg-yellow-400 animate-pulse"
+                    : connectionStatus === "error"
+                      ? "bg-red-500"
+                      : "bg-gray-400"
+              }`}
+              aria-label={`Status: ${connectionStatus}`}
+            />
+            <span className="text-[11px] text-text-muted capitalize">{connectionStatus}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">

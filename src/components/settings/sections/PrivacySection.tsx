@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera } from "lucide-react";
+import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
@@ -15,6 +15,61 @@ export function PrivacySection() {
   const setIsLoggingEnabled = useUIStore((s) => s.setIsLoggingEnabled);
   const logBuffer = useUIStore((s) => s.logBuffer);
   const addToast = useUIStore((s) => s.addToast);
+
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
+  const setDisableBgActivity = useUIStore((s) => s.setDisableBgActivity);
+  const strictSsl = useUIStore((s) => s.strictSsl);
+  const setStrictSsl = useUIStore((s) => s.setStrictSsl);
+  const blockedHosts = useUIStore((s) => s.blockedHosts);
+  const setBlockedHosts = useUIStore((s) => s.setBlockedHosts);
+  const offlineMode = useUIStore((s) => s.offlineMode);
+  const setOfflineMode = useUIStore((s) => s.setOfflineMode);
+
+  const [blockedHostsText, setBlockedHostsText] = useState(() => blockedHosts.join("\n"));
+
+  useEffect(() => {
+    if (document.activeElement?.tagName !== "TEXTAREA") {
+      const handle = requestAnimationFrame(() => {
+        setBlockedHostsText(blockedHosts.join("\n"));
+      });
+      return () => cancelAnimationFrame(handle);
+    }
+  }, [blockedHosts]);
+
+  const handleBlockedHostsChange = (val: string) => {
+    setBlockedHostsText(val);
+    const list = val
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (JSON.stringify(list) !== JSON.stringify(blockedHosts)) {
+      setBlockedHosts(list);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === " ") {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const val = target.value;
+      const newVal = val.substring(0, start) + "\n" + val.substring(end);
+
+      setBlockedHostsText(newVal);
+      const list = newVal
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (JSON.stringify(list) !== JSON.stringify(blockedHosts)) {
+        setBlockedHosts(list);
+      }
+
+      setTimeout(() => {
+        target.selectionStart = target.selectionEnd = start + 1;
+      }, 0);
+    }
+  };
 
   const {
     config: appshotConfig,
@@ -239,6 +294,51 @@ export function PrivacySection() {
               <span>Clear Gallery</span>
             </motion.button>
           </div>
+        </div>
+      </div>
+
+      {/* Network Settings */}
+      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Network size={16} className="text-text-muted" />
+          <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">Network Settings</h4>
+        </div>
+        <div className="space-y-4 pt-1">
+          <Switch
+            checked={disableBgActivity}
+            onChange={setDisableBgActivity}
+            label="Disable background activity"
+            description="Stops periodic background connectivity checks and status polling. Hides all network labels and status indicators in the interface."
+          />
+          <div className="h-px bg-border/50" />
+          <Switch
+            checked={strictSsl}
+            onChange={setStrictSsl}
+            label="Strict SSL/TLS Verification"
+            description="Enforce valid SSL certificates for all API connections and endpoints. If disabled, certificate validity will not be checked."
+          />
+          <div className="h-px bg-border/50" />
+          <div className="space-y-1">
+            <span className="text-sm font-medium text-text-primary block">Blocked IPs / Hostnames</span>
+            <span className="text-xs text-text-muted block">
+              Specify IP addresses or hostnames that are restricted from network access (one per line).
+            </span>
+            <textarea
+              value={blockedHostsText}
+              onChange={(e) => handleBlockedHostsChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. localhost&#10;127.0.0.1"
+              rows={4}
+              className="w-full px-3 py-2 mt-1 rounded-lg bg-input border border-border text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
+            />
+          </div>
+          <div className="h-px bg-border/50" />
+          <Switch
+            checked={offlineMode}
+            onChange={setOfflineMode}
+            label="Offline Mode"
+            description="Force the app to run completely offline. Blocks all outgoing requests."
+          />
         </div>
       </div>
 

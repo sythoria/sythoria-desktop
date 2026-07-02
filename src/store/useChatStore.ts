@@ -37,6 +37,11 @@ import {
   loadShowContextWindow,
   loadMaxToolSteps,
   loadIsLoggingEnabled,
+  loadDisableBgActivity,
+  loadStrictSsl,
+  loadBlockedHosts,
+  DEFAULT_BLOCKED_HOSTS,
+  loadOfflineMode,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -250,6 +255,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedShowContextWindow,
         loadedMaxToolSteps,
         loadedIsLoggingEnabled,
+        loadedDisableBgActivity,
+        loadedStrictSsl,
+        loadedBlockedHosts,
+        loadedOfflineMode,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -273,6 +282,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadShowContextWindow(),
         loadMaxToolSteps(),
         loadIsLoggingEnabled(),
+        loadDisableBgActivity(),
+        loadStrictSsl(),
+        loadBlockedHosts(),
+        loadOfflineMode(),
         useProjectStore.getState().init(),
       ]);
 
@@ -340,6 +353,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         autoUpdateChecking: hasOnboarded ? loadedAutoUpdateChecking : true,
         isLoggingEnabled: hasOnboarded ? loadedIsLoggingEnabled : true,
         showContextWindow: hasOnboarded ? loadedShowContextWindow : false,
+        disableBgActivity: hasOnboarded ? loadedDisableBgActivity : false,
+        strictSsl: hasOnboarded ? loadedStrictSsl : true,
+        blockedHosts: hasOnboarded ? loadedBlockedHosts : DEFAULT_BLOCKED_HOSTS,
+        offlineMode: hasOnboarded ? loadedOfflineMode : false,
       });
       document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
 
@@ -370,8 +387,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         details: `Loaded ${modelsWithKeys.length} models, ${nonEmptyConvs.length} conversations, ${searchConfigs.length} search configs, ${mcpConfigs.length} MCP servers`,
       });
 
-      modelCheckConnections();
-      modelStartHealthCheck();
+      if (!loadedDisableBgActivity) {
+        modelCheckConnections();
+        modelStartHealthCheck();
+      }
 
       useMcpStore.getState().connectAllEnabled();
     } catch (err) {

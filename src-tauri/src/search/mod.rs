@@ -82,18 +82,83 @@ impl SearchError {
     }
 }
 
-static BLOCKED_HOSTNAMES: LazyLock<Vec<&str>> = LazyLock::new(|| {
-    vec![
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "::1",
-        "169.254.169.254",
-        "metadata.google.internal",
-        "metadata.azure.com",
-        "100.100.100.200",
-    ]
-});
+fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
+    let parts: Vec<&str> = cidr.split('/').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    let target_ip: std::net::IpAddr = match parts[0].parse() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let prefix_len: u8 = match parts[1].parse() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    match (ip, target_ip) {
+        (std::net::IpAddr::V4(v4), std::net::IpAddr::V4(v4_target)) => {
+            if prefix_len > 32 { return false; }
+            let mask = if prefix_len == 0 {
+                0u32
+            } else {
+                !0u32 << (32 - prefix_len)
+            };
+            let ip_u32 = u32::from_be_bytes(v4.octets());
+            let target_u32 = u32::from_be_bytes(v4_target.octets());
+            (ip_u32 & mask) == (target_u32 & mask)
+        }
+        (std::net::IpAddr::V6(v6), std::net::IpAddr::V6(v6_target)) => {
+            if prefix_len > 128 { return false; }
+            let ip_u128 = u128::from_be_bytes(v6.octets());
+            let target_u128 = u128::from_be_bytes(v6_target.octets());
+            let mask = if prefix_len == 0 {
+                0u128
+            } else {
+                !0u128 << (128 - prefix_len)
+            };
+            (ip_u128 & mask) == (target_u128 & mask)
+        }
+        _ => false,
+    }
+}
+
+fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
+    let host_chars: Vec<char> = host_or_ip.to_lowercase().chars().collect();
+    let pattern_chars: Vec<char> = pattern.to_lowercase().chars().collect();
+    
+    fn match_helper(h: &[char], p: &[char]) -> bool {
+        if p.is_empty() {
+            return h.is_empty();
+        }
+        if p[0] == '*' {
+            return match_helper(h, &p[1..]) || (!h.is_empty() && match_helper(&h[1..], p));
+        }
+        if !h.is_empty() && h[0] == p[0] {
+            return match_helper(&h[1..], &p[1..]);
+        }
+        false
+    }
+    
+    match_helper(&host_chars, &pattern_chars)
+}
+
+fn is_ip_blocked(ip: &std::net::IpAddr, blocked_hosts: &[String]) -> bool {
+    let ip_str = ip.to_string();
+    for blocked in blocked_hosts {
+        if blocked.contains('/') {
+            if ip_belongs_to_cidr(ip, blocked) {
+                return true;
+            }
+        } else if blocked.contains('*') {
+            if matches_wildcard(&ip_str, blocked) {
+                return true;
+            }
+        } else if ip_str == *blocked {
+            return true;
+        }
+    }
+    false
+}
 
 static SELECTOR_TITLE: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").unwrap());
 static SELECTOR_BODY: LazyLock<Selector> = LazyLock::new(|| Selector::parse("body").unwrap());
@@ -123,8 +188,17 @@ fn validate_url(url: &str) -> Result<url::Url, SearchError> {
 
     if let Some(host) = parsed.host_str() {
         let host_lower = host.to_lowercase();
-        for blocked in BLOCKED_HOSTNAMES.iter() {
-            if host_lower == *blocked || host_lower.ends_with(&format!(".{}", blocked)) {
+        let blocked_hosts = crate::get_blocked_hosts();
+        for blocked in blocked_hosts.iter() {
+            let blocked_lower = blocked.to_lowercase();
+            if blocked.contains('*') {
+                if matches_wildcard(&host_lower, blocked) {
+                    return Err(SearchError::UrlValidationError(format!(
+                        "Hostname '{}' is not allowed for security reasons.",
+                        host
+                    )));
+                }
+            } else if host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower)) {
                 return Err(SearchError::UrlValidationError(format!(
                     "Hostname '{}' is not allowed for security reasons.",
                     host
@@ -137,7 +211,7 @@ fn validate_url(url: &str) -> Result<url::Url, SearchError> {
             url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
             _ => None,
         }) {
-            if is_private_or_reserved_ip(&ip) {
+            if is_ip_blocked(&ip, &blocked_hosts) {
                 return Err(SearchError::UrlValidationError(format!(
                     "IP address '{}' is not allowed for security reasons.",
                     ip
@@ -147,32 +221,6 @@ fn validate_url(url: &str) -> Result<url::Url, SearchError> {
     }
 
     Ok(parsed)
-}
-
-fn is_private_or_reserved_ip(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            let octets = v4.octets();
-            octets[0] == 0
-                || octets[0] == 10
-                || octets[0] == 127
-                || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
-                || (octets[0] == 192 && octets[1] == 168)
-                || (octets[0] == 169 && octets[1] == 254)
-                || (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127)
-                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
-                || (octets[0] >= 224 && octets[0] <= 239)
-                || octets[0] >= 240
-        }
-        std::net::IpAddr::V6(v6) => {
-            let segments = v6.segments();
-            (segments[0] & 0xfe00) == 0xfc00
-                || (segments[0] & 0xffc0) == 0xfe80
-                || v6.is_loopback()
-                || v6.is_multicast()
-                || v6.is_unspecified()
-        }
-    }
 }
 
 async fn validate_resolved_url(url: &url::Url) -> Result<std::net::IpAddr, SearchError> {
@@ -187,9 +235,11 @@ async fn validate_resolved_url(url: &url::Url) -> Result<std::net::IpAddr, Searc
         SearchError::UrlValidationError(format!("Failed to resolve hostname '{}': {}", host, e))
     })?;
 
+    let blocked_hosts = crate::get_blocked_hosts();
+
     let mut first_ip = None;
     for addr in resolved {
-        if is_private_or_reserved_ip(&addr.ip()) {
+        if is_ip_blocked(&addr.ip(), &blocked_hosts) {
             return Err(SearchError::UrlValidationError(format!(
                 "Hostname '{}' resolves to blocked IP '{}'.",
                 host,
@@ -240,7 +290,7 @@ pub async fn fetch_url(url: &str) -> Result<UrlContent, SearchError> {
 
         let socket_addr = std::net::SocketAddr::new(validated_ip, port);
 
-        let client = reqwest::Client::builder()
+        let client = crate::client_builder()
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .resolve(host, socket_addr)
@@ -490,6 +540,12 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_url_wildcard_rejected() {
+        // metadata.google.internal is a default blocked hostname
+        assert!(validate_url("http://metadata.google.internal").is_err());
+    }
+
+    #[test]
     fn test_validate_url_127_rejected() {
         assert!(validate_url("http://127.0.0.1:11434").is_err());
     }
@@ -544,6 +600,16 @@ mod tests {
         assert!(!text.contains("alert"));
         assert!(!text.contains("div"));
         assert!(text.contains("Visible"));
+    }
+
+    #[test]
+    fn test_matches_wildcard() {
+        assert!(matches_wildcard("sub.google.com", "*.google.com"));
+        assert!(!matches_wildcard("google.com", "*.google.com"));
+        assert!(matches_wildcard("google.com", "*google.com"));
+        assert!(matches_wildcard("192.168.1.5", "192.168.*"));
+        assert!(matches_wildcard("10.1.2.3", "10.*.*.*"));
+        assert!(!matches_wildcard("google.com", "*.yahoo.com"));
     }
 
     #[test]

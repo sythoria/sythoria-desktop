@@ -246,6 +246,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   checkModelConnections: async (modelIds?: string[], force?: boolean) => {
+    if (useUIStore.getState().disableBgActivity && !force) return;
     const { models, modelStatuses } = get();
     if (!force) {
       if (useUIStore.getState().loading.checkConnection) return;
@@ -317,6 +318,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
   startHealthCheck: () => {
     if (healthCheckInterval) return;
+    if (useUIStore.getState().disableBgActivity) return;
     healthCheckInterval = setInterval(() => {
       get().checkModelConnections();
     }, HEALTH_CHECK_INTERVAL_MS);

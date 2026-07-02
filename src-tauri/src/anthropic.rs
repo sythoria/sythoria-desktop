@@ -1,6 +1,5 @@
-use crate::{AppError, ChatMessage, stream_parser, is_stream_cancelled, clear_stream_cancelled};
+use crate::{AppError, ChatMessage, stream_parser, is_stream_cancelled, clear_stream_cancelled, client_builder};
 use futures_util::StreamExt;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Clone)]
@@ -193,7 +192,7 @@ pub async fn chat_completion_anthropic(
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
-    let client = Client::builder().timeout(std::time::Duration::from_secs(60)).build()?;
+    let client = client_builder().timeout(std::time::Duration::from_secs(60)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     
     let body = AnthropicRequest {
@@ -246,7 +245,7 @@ pub async fn chat_completion_tools_anthropic(
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
-    let client = Client::builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -324,7 +323,7 @@ pub async fn chat_stream_anthropic(
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
-    let client = Client::builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
 
     let body = AnthropicRequest {
@@ -384,7 +383,7 @@ pub async fn chat_stream_tools_anthropic(
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
-    let client = Client::builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -434,7 +433,7 @@ pub async fn chat_stream_tools_anthropic(
 }
 
 pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<bool, AppError> {
-    let client = Client::builder().timeout(std::time::Duration::from_secs(10)).build()?;
+    let client = client_builder().timeout(std::time::Duration::from_secs(10)).build()?;
     let body = AnthropicRequest {
         model: "claude-3-haiku-20240307".to_string(),
         messages: vec![AnthropicMessage { role: "user".to_string(), content: serde_json::Value::String("hello".to_string()) }],

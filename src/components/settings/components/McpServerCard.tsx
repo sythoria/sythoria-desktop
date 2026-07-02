@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useUIStore } from "../../../store/useUIStore";
 import {
   Trash2,
   ChevronDown,
@@ -60,6 +61,7 @@ export const McpServerCard = memo(function McpServerCard({
   onToggleKey,
 }: McpServerCardProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const [exeCheck, setExeCheck] = useState<ExecutableCheck | null>(null);
   const [exeChecking, setExeChecking] = useState(false);
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,11 +162,13 @@ export const McpServerCard = memo(function McpServerCard({
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <div className={`w-2 h-2 rounded-full ${MCP_STATUS_COLORS[status]}`} aria-label={`Status: ${status}`} />
-          <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
-          {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
-        </div>
+        {!disableBgActivity && (
+          <div className="flex items-center gap-2 mb-1">
+            <div className={`w-2 h-2 rounded-full ${MCP_STATUS_COLORS[status]}`} aria-label={`Status: ${status}`} />
+            <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
+            {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
+          </div>
+        )}
 
         {config.transport === "stdio" && (
           <div className="space-y-1">

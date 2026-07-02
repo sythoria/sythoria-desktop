@@ -5478,7 +5478,7 @@ dependencies = [
 
 [[package]]
 name = "sythoria"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.22.1",

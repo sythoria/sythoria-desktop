@@ -96,6 +96,7 @@ export default function Sidebar({
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
 
   const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
@@ -698,14 +699,19 @@ export default function Sidebar({
             {/* Bottom Section */}
             <div className="px-3 py-3 border-t border-border flex flex-col gap-1 shrink-0">
               {/* Connection Status */}
-              <div
-                className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-muted"
-                role="status"
-                aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
-              >
-                <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[aggregateStatus]}`} aria-hidden="true" />
-                <span>{STATUS_LABELS[aggregateStatus]}</span>
-              </div>
+              {!disableBgActivity && (
+                <div
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-muted"
+                  role="status"
+                  aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+                >
+                  <div
+                    className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[aggregateStatus]}`}
+                    aria-hidden="true"
+                  />
+                  <span>{STATUS_LABELS[aggregateStatus]}</span>
+                </div>
+              )}
 
               {/* Settings */}
               <button

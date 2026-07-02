@@ -152,6 +152,10 @@ const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
 const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
+const DISABLE_BG_ACTIVITY_KEY = "sythoria-disable-bg-activity";
+const STRICT_SSL_KEY = "sythoria-strict-ssl";
+const BLOCKED_HOSTS_KEY = "sythoria-blocked-hosts";
+const OFFLINE_MODE_KEY = "sythoria-offline-mode";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -1276,4 +1280,124 @@ export async function saveIsLoggingEnabled(value: boolean): Promise<void> {
     logError("storage", "Failed to save logging enabled setting", { error: e });
   }
   localStorage.setItem(LOGGING_ENABLED_KEY, String(value));
+}
+
+export async function loadDisableBgActivity(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(DISABLE_BG_ACTIVITY_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load disable bg activity setting", { error: e });
+  }
+  const fallback = localStorage.getItem(DISABLE_BG_ACTIVITY_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveDisableBgActivity(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(DISABLE_BG_ACTIVITY_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save disable bg activity setting", { error: e });
+  }
+  localStorage.setItem(DISABLE_BG_ACTIVITY_KEY, String(value));
+}
+
+export async function loadStrictSsl(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(STRICT_SSL_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load strict ssl setting", { error: e });
+  }
+  const fallback = localStorage.getItem(STRICT_SSL_KEY);
+  if (fallback !== null) return fallback === "true";
+  return true;
+}
+
+export async function saveStrictSsl(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(STRICT_SSL_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save strict ssl setting", { error: e });
+  }
+  localStorage.setItem(STRICT_SSL_KEY, String(value));
+}
+
+export const DEFAULT_BLOCKED_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "::1",
+  "169.254.169.254",
+  "metadata.google.internal",
+  "metadata.azure.com",
+  "100.100.100.200",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "169.254.0.0/16",
+  "100.64.0.0/10",
+  "fc00::/7",
+  "fe80::/10",
+];
+
+export async function loadBlockedHosts(): Promise<string[]> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(BLOCKED_HOSTS_KEY);
+    if (Array.isArray(raw)) return raw.map(String);
+  } catch (e) {
+    logError("storage", "Failed to load blocked hosts setting", { error: e });
+  }
+  const fallback = localStorage.getItem(BLOCKED_HOSTS_KEY);
+  if (fallback !== null) {
+    try {
+      return JSON.parse(fallback);
+    } catch {
+      return DEFAULT_BLOCKED_HOSTS;
+    }
+  }
+  return DEFAULT_BLOCKED_HOSTS;
+}
+
+export async function saveBlockedHosts(value: string[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(BLOCKED_HOSTS_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save blocked hosts setting", { error: e });
+  }
+  localStorage.setItem(BLOCKED_HOSTS_KEY, JSON.stringify(value));
+}
+
+export async function loadOfflineMode(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(OFFLINE_MODE_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load offline mode setting", { error: e });
+  }
+  const fallback = localStorage.getItem(OFFLINE_MODE_KEY);
+  if (fallback !== null) return fallback === "true";
+  return false;
+}
+
+export async function saveOfflineMode(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(OFFLINE_MODE_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save offline mode setting", { error: e });
+  }
+  localStorage.setItem(OFFLINE_MODE_KEY, String(value));
 }

@@ -22,7 +22,7 @@ pub async fn search(
 
     let url = format!("{}/search", base_url.trim_end_matches('/'));
 
-    let client = reqwest::Client::builder()
+    let client = crate::client_builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| {
