@@ -145,6 +145,78 @@ async fn find_executable(name: &str) -> String {
 fn create_shell_command(program: &str, args: &[String]) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let paths = std::env::split_paths(&current_path);
+    let mut new_paths: Vec<std::path::PathBuf> = paths.collect();
+
+    let program_path = std::path::Path::new(program);
+    if program_path.is_absolute() {
+        if let Some(parent) = program_path.parent() {
+            let parent_buf = parent.to_path_buf();
+            if !new_paths.contains(&parent_buf) {
+                new_paths.insert(0, parent_buf);
+            }
+        }
+    }
+
+    let common_dirs = [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+
+    for dir in &common_dirs {
+        let path_buf = std::path::PathBuf::from(dir);
+        if path_buf.exists() && !new_paths.contains(&path_buf) {
+            new_paths.push(path_buf);
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let npm_dirs = [
+            format!("{}/.npm-global/bin", home),
+            format!("{}/.local/bin", home),
+            format!("{}/n/bin", home),
+        ];
+        for dir in &npm_dirs {
+            let path_buf = std::path::PathBuf::from(dir);
+            if path_buf.exists() && !new_paths.contains(&path_buf) {
+                new_paths.push(path_buf);
+            }
+        }
+
+        let nvm_dir_val = std::env::var("NVM_DIR")
+            .ok()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(&home).join(".nvm"));
+        let nvm_bin = nvm_dir_val.join("versions").join("node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
+            let mut versions: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            versions.sort_by(|a, b| {
+                let a_name = a.file_name().to_string_lossy().to_string();
+                let b_name = b.file_name().to_string_lossy().to_string();
+                b_name.cmp(&a_name)
+            });
+            for version_dir in versions {
+                let bin_path = version_dir.path().join("bin");
+                if bin_path.exists() && !new_paths.contains(&bin_path) {
+                    new_paths.push(bin_path);
+                }
+            }
+        }
+    }
+
+    if let Ok(joined) = std::env::join_paths(new_paths) {
+        cmd.env("PATH", joined);
+    }
+
     cmd
 }
 
@@ -295,7 +367,7 @@ pub async fn connect_server(
                 None => find_executable(&program).await,
             };
 
-            let mut cmd = create_shell_command(&program, &resolved_args);
+            let mut cmd = create_shell_command(&resolved_program, &resolved_args);
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
