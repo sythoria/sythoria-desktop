@@ -115,6 +115,7 @@ function App() {
     navigateBack,
     navigateForward,
     setIsCompareMode,
+    togglePinChat,
   } = useChatStore(
     useShallow((s) => ({
       init: s.init,
@@ -129,6 +130,7 @@ function App() {
       navigateBack: s.navigateBack,
       navigateForward: s.navigateForward,
       setIsCompareMode: s.setIsCompareMode,
+      togglePinChat: s.togglePinChat,
     })),
   );
 
@@ -831,6 +833,7 @@ function App() {
           onDeleteChat={handleDeleteChat}
           onRenameChat={openRenameModal}
           onExportChat={exportChat}
+          onPinChat={togglePinChat}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           modelStatuses={modelStatuses}
