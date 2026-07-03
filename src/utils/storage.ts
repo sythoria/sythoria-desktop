@@ -73,6 +73,7 @@ const ConversationSchema = z.object({
   messages: z.array(MessageSchema),
   model: z.string().default(""),
   projectId: z.string().optional(),
+  isPinned: z.boolean().optional(),
 });
 
 const CustomThemeConfigSchema = z.object({
