@@ -122,6 +122,7 @@ export default function InputBar({
     setIsRecording,
     setIsTranscribing,
     init: initWhisper,
+    downloadedFiles,
   } = useWhisperStore();
 
   useEffect(() => {
@@ -129,27 +130,48 @@ export default function InputBar({
   }, []);
 
   const handleToggleVoice = async () => {
+    // Check if Whisper model is ready (chosen, downloaded, or loaded)
+    let isModelReady = false;
+    let modelPath = "";
+    if (selectedModelId === "custom" && customModelPath) {
+      isModelReady = true;
+      modelPath = customModelPath;
+    } else {
+      const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
+      if (preset) {
+        modelPath = preset.fileName;
+        if (downloadedFiles.includes(preset.fileName)) {
+          isModelReady = true;
+        }
+      }
+    }
+
+    if (!selectedModelId || !modelPath || !isModelReady) {
+      useUIStore.getState().addToast(
+        <span>
+          Voice input model is not loaded, visit{" "}
+          <button
+            onClick={() => {
+              useUIStore.getState().setView("settings");
+              useUIStore.getState().setActiveSection("whisper");
+            }}
+            className="text-accent underline font-medium hover:text-accent-hover cursor-pointer"
+          >
+            settings/voiceinput
+          </button>{" "}
+          for more details.
+        </span>,
+        "error",
+      );
+      return;
+    }
+
     if (isRecording) {
       setIsRecording(false);
       setIsTranscribing(true);
 
       try {
         const audioData = await invoke<number[]>("stop_recording");
-
-        let modelPath = "";
-        if (selectedModelId === "custom" && customModelPath) {
-          modelPath = customModelPath;
-        } else {
-          const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
-          if (preset) {
-            modelPath = preset.fileName;
-          }
-        }
-
-        if (!modelPath) {
-          useUIStore.getState().addToast("No Whisper model is selected. Check settings.", "error");
-          return;
-        }
 
         const transcription = await invoke<string>("transcribe_audio", {
           modelPath,
