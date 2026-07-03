@@ -22,6 +22,7 @@ import {
   saveBlockedHosts,
   saveOfflineMode,
 } from "../utils/storage";
+import React from "react";
 import type { Toast } from "../components/ui/Toast";
 import type { LogEntry, LogSource } from "../types/log";
 import {
@@ -91,7 +92,7 @@ interface UIState {
   initHasStarted: () => Promise<void>;
   setConfigLoaded: (loaded: boolean) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
-  addToast: (message: string, variant?: Toast["variant"]) => void;
+  addToast: (message: React.ReactNode, variant?: Toast["variant"]) => void;
   dismissToast: (id: string) => void;
   openRenameModal: (id: string, currentTitle: string) => void;
   closeRenameModal: () => void;
