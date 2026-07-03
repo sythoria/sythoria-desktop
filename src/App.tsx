@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
-import type { Conversation } from "./types";
+import { type Conversation, STATUS_COLORS } from "./types";
 import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import Settings from "./components/settings";
@@ -23,6 +23,13 @@ import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
+
+const STATUS_LABELS: Record<string, string> = {
+  disconnected: "Disconnected",
+  connecting: "Connecting\u2026",
+  connected: "Connected",
+  error: "Connection error",
+};
 import StartScreen from "./components/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
 import ProjectConfigModal from "./components/ProjectConfigModal";
@@ -252,6 +259,19 @@ function App() {
   const primaryGeneration = activeId ? generationByConversation[activeId] : null;
 
   const [showAddCompareDropdown, setShowAddCompareDropdown] = useState(false);
+  const addCompareDropdownRef = useRef<HTMLDivElement>(null);
+  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (addCompareDropdownRef.current && !addCompareDropdownRef.current.contains(e.target as Node)) {
+        setShowAddCompareDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const [syncScrolls, setSyncScrolls] = useState(true);
   const [isArtifactFullScreen, setIsArtifactFullScreen] = useState(false);
 
@@ -289,8 +309,16 @@ function App() {
     setIsCompareMode(nextCompareMode);
 
     if (nextCompareMode) {
-      if (activeId && compareIds.length === 0) {
-        const activeConv = conversations.find((c) => c.id === activeId);
+      let currentActiveId = activeId;
+      let currentConvs = conversations;
+
+      if (!currentActiveId) {
+        currentActiveId = newChat();
+        currentConvs = useChatStore.getState().conversations;
+      }
+
+      if (currentActiveId && compareIds.length === 0) {
+        const activeConv = currentConvs.find((c) => c.id === currentActiveId);
         const secondaryModel =
           models.find((m) => m.id !== activeConv?.model && m.enabled !== false)?.id || selectedModel;
 
@@ -299,7 +327,7 @@ function App() {
 
         const newConv = {
           id: newId,
-          title: (activeConv?.title ?? "Comparison") + " (Compare)",
+          title: (activeConv?.title ?? "New chat") + " (Compare)",
           timestamp: new Date(),
           messages: clonedMessages,
           model: secondaryModel,
@@ -307,7 +335,7 @@ function App() {
         };
 
         useChatStore.setState({
-          conversations: [newConv, ...conversations],
+          conversations: [newConv, ...useChatStore.getState().conversations],
           compareIds: [newId],
         });
       }
@@ -319,7 +347,7 @@ function App() {
         });
       }
     }
-  }, [isCompareMode, activeId, compareIds, conversations, models, selectedModel, setIsCompareMode]);
+  }, [isCompareMode, activeId, compareIds, conversations, models, selectedModel, setIsCompareMode, newChat]);
 
   const {
     virtuosoRef: primaryVirtuosoRef,
@@ -334,21 +362,33 @@ function App() {
   const scrollTimeoutRef = useRef<any>(null);
 
   const handleScrollSync = useCallback(
-    (cId: string, scrollTop: number) => {
+    (cId: string, scrollTop: number, ratio: number) => {
       if (!syncScrolls) return;
       if (activeScrollSourceRef.current && activeScrollSourceRef.current !== cId) return;
 
       activeScrollSourceRef.current = cId;
 
       if (activeId !== cId && primaryVirtuosoRef.current) {
-        primaryVirtuosoRef.current.scrollTo({ top: scrollTop });
+        const scroller = (primaryVirtuosoRef.current as any).getScroller?.();
+        if (scroller) {
+          const targetTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
+          primaryVirtuosoRef.current.scrollTo({ top: targetTop });
+        } else {
+          primaryVirtuosoRef.current.scrollTo({ top: scrollTop });
+        }
       }
 
       compareIds.forEach((id) => {
         if (id !== cId) {
           const compRef = compareRefsMap.current[id];
           if (compRef) {
-            compRef.scrollTo({ top: scrollTop });
+            const scroller = compRef.getScroller?.();
+            if (scroller) {
+              const targetTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
+              compRef.scrollTo({ top: targetTop });
+            } else {
+              compRef.scrollTo({ top: scrollTop });
+            }
           }
         }
       });
@@ -356,7 +396,7 @@ function App() {
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
         activeScrollSourceRef.current = null;
-      }, 50);
+      }, 120);
     },
     [syncScrolls, activeId, compareIds, primaryVirtuosoRef],
   );
@@ -864,7 +904,7 @@ function App() {
                 transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
               >
                 <header
-                  className="shrink-0 flex items-center justify-between px-4 py-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-10 pt-6"
+                  className="shrink-0 flex items-center justify-between px-4 py-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 pt-6"
                   data-tauri-drag-region
                 >
                   <div className="absolute left-1/2 -translate-x-1/2">
@@ -893,48 +933,73 @@ function App() {
                         >
                           <Link size={16} />
                         </button>
-                        <div className="relative">
+                        <div ref={addCompareDropdownRef} className="relative">
                           <button
                             onClick={() => setShowAddCompareDropdown(!showAddCompareDropdown)}
-                            className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors flex items-center justify-center"
+                            className={`p-1.5 rounded-md transition-colors flex items-center justify-center ${
+                              showAddCompareDropdown
+                                ? "text-text-primary bg-hover"
+                                : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                            }`}
                             aria-label="Add model to compare"
                             title="Add model to compare"
                           >
                             <Plus size={16} />
                           </button>
-                          {showAddCompareDropdown && (
-                            <div className="absolute right-0 mt-1 w-48 rounded-md border border-border bg-surface shadow-lg z-50 py-1 overflow-auto max-h-60 text-xs">
-                              {models
-                                .filter(
+                          <AnimatePresence>
+                            {showAddCompareDropdown && (
+                              <motion.div
+                                className="absolute right-0 mt-1.5 w-64 bg-surface border border-border rounded-xl p-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
+                                style={{ boxShadow: "var(--shadow-xl)" }}
+                                role="listbox"
+                                aria-label="Available models to compare"
+                                initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                                transition={springs.gentle}
+                              >
+                                {models
+                                  .filter(
+                                    (m) =>
+                                      m.enabled !== false &&
+                                      m.id !== (activeConversation?.model || selectedModel) &&
+                                      !compareConversations.some((c) => c.model === m.id),
+                                  )
+                                  .map((model) => {
+                                    const status = modelStatuses[model.id] ?? "disconnected";
+                                    return (
+                                      <button
+                                        key={model.id}
+                                        onClick={() => {
+                                          handleAddCompareModel(model.id);
+                                          setShowAddCompareDropdown(false);
+                                        }}
+                                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left text-text-secondary hover:bg-hover hover:text-text-primary"
+                                      >
+                                        {!disableBgActivity && (
+                                          <div
+                                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
+                                            title={STATUS_LABELS[status] ?? status}
+                                            aria-label={STATUS_LABELS[status] ?? status}
+                                          />
+                                        )}
+                                        <span className="truncate flex-1">{model.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                {models.filter(
                                   (m) =>
                                     m.enabled !== false &&
                                     m.id !== (activeConversation?.model || selectedModel) &&
                                     !compareConversations.some((c) => c.model === m.id),
-                                )
-                                .map((m) => (
-                                  <button
-                                    key={m.id}
-                                    onClick={() => {
-                                      handleAddCompareModel(m.id);
-                                      setShowAddCompareDropdown(false);
-                                    }}
-                                    className="w-full text-left px-3 py-2 hover:bg-hover text-text-secondary hover:text-text-primary transition-colors"
-                                  >
-                                    {m.name}
-                                  </button>
-                                ))}
-                              {models.filter(
-                                (m) =>
-                                  m.enabled !== false &&
-                                  m.id !== (activeConversation?.model || selectedModel) &&
-                                  !compareConversations.some((c) => c.model === m.id),
-                              ).length === 0 && (
-                                <div className="px-3 py-2 text-text-muted text-center italic">
-                                  No other models enabled
-                                </div>
-                              )}
-                            </div>
-                          )}
+                                ).length === 0 && (
+                                  <div className="px-3 py-4 text-center text-xs text-text-muted italic">
+                                    No other models enabled
+                                  </div>
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </>
                     )}
@@ -957,10 +1022,7 @@ function App() {
                   {/* Left Column */}
                   <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
                     {isCompareMode && compareConversations.length > 0 ? (
-                      <div
-                        className="flex-1 min-h-0 grid divide-x divide-border overflow-hidden bg-chat"
-                        style={{ gridTemplateColumns: `repeat(${compareConversations.length + 1}, minmax(0, 1fr))` }}
-                      >
+                      <div className="comparison-grid-container">
                         {/* Primary Column */}
                         <ComparisonColumn
                           conversation={activeConversation!}
@@ -980,7 +1042,7 @@ function App() {
                           generationLabel={primaryGeneration?.label ?? generationLabel}
                           onRetry={handleRetry}
                           isStreaming={isStreaming}
-                          onScroll={syncScrolls ? (top) => handleScrollSync(activeId!, top) : undefined}
+                          onScroll={syncScrolls ? (top, ratio) => handleScrollSync(activeId!, top, ratio) : undefined}
                           ref={primaryVirtuosoRef}
                         />
 
@@ -1013,7 +1075,7 @@ function App() {
                               generationLabel={compGen?.label ?? ""}
                               onRetry={() => retryLastMessage(c.id)}
                               isStreaming={isStreaming}
-                              onScroll={syncScrolls ? (top) => handleScrollSync(c.id, top) : undefined}
+                              onScroll={syncScrolls ? (top, ratio) => handleScrollSync(c.id, top, ratio) : undefined}
                               ref={(el) => {
                                 compareRefsMap.current[c.id] = el;
                               }}
