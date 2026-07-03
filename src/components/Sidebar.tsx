@@ -671,18 +671,6 @@ export default function Sidebar({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenMenuId(null);
-                                    onPinChat(conv.id);
-                                  }}
-                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                                  role="menuitem"
-                                >
-                                  <Pin size={14} className="text-text-muted" />
-                                  {conv.isPinned ? "Unpin" : "Pin"}
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenMenuId(null);
                                     onExportChat(conv.id);
                                   }}
                                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
