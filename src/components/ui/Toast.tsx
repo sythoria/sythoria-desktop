@@ -6,7 +6,7 @@ import { useUIStore } from "../../store/useUIStore";
 
 export interface Toast {
   id: string;
-  message: string;
+  message: React.ReactNode;
   variant: "error" | "success" | "info";
 }
 
