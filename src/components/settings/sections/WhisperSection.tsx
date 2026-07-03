@@ -51,7 +51,13 @@ export function WhisperSection() {
       return customModelPath;
     }
     const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
-    return preset ? `whisper_models/${preset.fileName}` : "Not Selected";
+    if (preset) {
+      const isDownloaded = downloadedFiles.includes(preset.fileName);
+      if (isDownloaded) {
+        return `whisper_models/${preset.fileName}`;
+      }
+    }
+    return "Not Loaded";
   };
 
   return (
@@ -111,12 +117,22 @@ export function WhisperSection() {
                 <span className="font-medium text-text-primary">
                   {selectedModelId === "custom"
                     ? "Custom Local File"
-                    : WHISPER_PRESETS.find((p) => p.id === selectedModelId)?.name || "None"}
+                    : (() => {
+                        const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
+                        if (!preset) return "None";
+                        const isDownloaded = downloadedFiles.includes(preset.fileName);
+                        return isDownloaded ? preset.name : `${preset.name} (Not downloaded)`;
+                      })()}
                 </span>
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-text-muted">Model Path:</span>
-                <span className="font-mono text-text-muted truncate max-w-[320px]" title={activeModelPath()}>
+                <span
+                  className={`font-mono truncate max-w-[320px] ${
+                    activeModelPath() === "Not Loaded" ? "text-red-500 font-medium" : "text-text-muted"
+                  }`}
+                  title={activeModelPath()}
+                >
                   {activeModelPath()}
                 </span>
               </div>
