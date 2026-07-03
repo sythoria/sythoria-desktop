@@ -53,7 +53,7 @@ export const SECTION_GROUPS = [
       { id: "models", label: "Model Providers", icon: Plug },
       { id: "configuration", label: "Chat Settings", icon: Sliders },
       { id: "personalization", label: "System Prompts", icon: MessageSquareText },
-      { id: "whisper", label: "Voice Input (Whisper)", icon: Mic },
+      { id: "whisper", label: "Voice Input", icon: Mic },
     ],
   },
   {
