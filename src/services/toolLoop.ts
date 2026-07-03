@@ -643,6 +643,7 @@ export async function sendWithToolLoop(
           path: "AGENTS.md",
           offset: null,
           limit: null,
+          worktreePath: conv?.pendingWorktree?.path || null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
           userSystemPrompt += `\n\n=== Project Instructions (AGENTS.md) ===\n${agentsMdContent.trim()}\n========================================`;
@@ -903,6 +904,7 @@ export async function sendWithToolLoop(
                       path: getRelativePath(resolvedPath),
                       offset: null,
                       limit: null,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     });
                   } catch {
                     mcpIsNew = true;
@@ -921,6 +923,7 @@ export async function sendWithToolLoop(
                       path: getRelativePath(mcpFileChangeInfo.path),
                       offset: null,
                       limit: null,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     });
                     const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
@@ -950,6 +953,7 @@ export async function sendWithToolLoop(
                       projectId: project.id,
                       path: "",
                       pattern: fnArgs.pattern,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     }),
                   );
                   break;
@@ -960,6 +964,7 @@ export async function sendWithToolLoop(
                     await invoke("project_list_dir", {
                       projectId: project.id,
                       path: relativeDir,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     }),
                   );
                   break;
@@ -971,6 +976,7 @@ export async function sendWithToolLoop(
                     path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   break;
                 }
@@ -982,6 +988,7 @@ export async function sendWithToolLoop(
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     }),
                   );
                   break;
@@ -996,6 +1003,7 @@ export async function sendWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     });
                   } catch {
                     isNew = true;
@@ -1005,6 +1013,7 @@ export async function sendWithToolLoop(
                     projectId: project.id,
                     path: relativeFile,
                     content: fnArgs.content,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   resultContent = "File written successfully.";
 
@@ -1028,6 +1037,7 @@ export async function sendWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
+                      worktreePath: conv?.pendingWorktree?.path || null,
                     });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
@@ -1039,6 +1049,7 @@ export async function sendWithToolLoop(
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   resultContent = "File content replaced successfully.";
 
@@ -1047,6 +1058,7 @@ export async function sendWithToolLoop(
                     path: relativeFile,
                     offset: null,
                     limit: null,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   const diff = computeLineDiff(oldContent, newContent);
                   const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
@@ -1063,9 +1075,10 @@ export async function sendWithToolLoop(
                   resultContent = await invoke<string>("project_bash", {
                     projectId: project.id,
                     command: fnArgs.command,
-                    cwd: project.path,
+                    cwd: conv?.pendingWorktree?.path ?? project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   break;
                 case "project_git_status":
