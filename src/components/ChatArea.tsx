@@ -65,9 +65,10 @@ interface ChatAreaProps {
   onRetry: () => void;
   generationState: GenerationState;
   generationLabel: string;
-  onScroll?: (scrollTop: number) => void;
+  onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
   pendingWorktree?: { path: string; branch: string };
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function GenerationIndicator({ state, label }: { state: GenerationState; label: string }) {
@@ -1099,6 +1100,7 @@ export default function ChatArea({
   onScroll,
   conversationId,
   pendingWorktree,
+  scrollContainerRef,
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
@@ -1144,7 +1146,8 @@ export default function ChatArea({
               el.addEventListener(
                 "scroll",
                 () => {
-                  onScroll?.(el.scrollTop);
+                  const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight);
+                  onScroll?.(el.scrollTop, isNaN(ratio) ? 0 : ratio);
                 },
                 { passive: true },
               );
@@ -1195,6 +1198,8 @@ export default function ChatArea({
       conversationId={conversationId}
       onApply={applyPendingWorktree}
       onDiscard={discardPendingWorktree}
+      scrollContainerRef={scrollContainerRef}
+      onScroll={onScroll}
     />
   );
 }
@@ -1210,6 +1215,8 @@ function NonVirtualizedChatArea({
   conversationId,
   onApply,
   onDiscard,
+  scrollContainerRef,
+  onScroll,
 }: {
   messages: Message[];
   setIsAtBottom: (v: boolean) => void;
@@ -1221,19 +1228,22 @@ function NonVirtualizedChatArea({
   conversationId?: string;
   onApply: (id: string) => Promise<void>;
   onDiscard: (id: string) => Promise<void>;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  onScroll?: (scrollTop: number, ratio: number) => void;
 }) {
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fallbackRef = useRef<HTMLDivElement | null>(null);
+  const activeRef = scrollContainerRef || fallbackRef;
   const contentRef = useRef<HTMLDivElement>(null);
 
   const lastHeightRef = useRef(0);
   const wasAtBottomRef = useRef(true);
 
   useEffect(() => {
-    const el = scrollContainerRef.current;
+    const el = activeRef.current;
     if (!el) return;
 
     const checkAtBottom = () => {
-      const target = scrollContainerRef.current;
+      const target = activeRef.current;
       if (!target) return;
       const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
       wasAtBottomRef.current = atBottom;
@@ -1241,7 +1251,7 @@ function NonVirtualizedChatArea({
     };
 
     const handleResize = () => {
-      const target = scrollContainerRef.current;
+      const target = activeRef.current;
       if (!target) return;
 
       // If we were at the bottom and the height increased, scroll to bottom
@@ -1252,9 +1262,13 @@ function NonVirtualizedChatArea({
       checkAtBottom();
     };
 
-    const onScroll = () => checkAtBottom();
+    const handleScroll = () => {
+      checkAtBottom();
+      const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight);
+      onScroll?.(el.scrollTop, isNaN(ratio) ? 0 : ratio);
+    };
 
-    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("scroll", handleScroll, { passive: true });
 
     let observer: ResizeObserver | null = null;
     if (contentRef.current && window.ResizeObserver) {
@@ -1267,14 +1281,14 @@ function NonVirtualizedChatArea({
     checkAtBottom();
 
     return () => {
-      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("scroll", handleScroll);
       observer?.disconnect();
     };
-  }, [setIsAtBottom]);
+  }, [setIsAtBottom, onScroll, activeRef]);
 
   return (
     <div
-      ref={scrollContainerRef}
+      ref={activeRef}
       data-chat-scroll
       className="flex-1 min-h-0 overflow-y-auto relative"
       role="log"
