@@ -177,6 +177,7 @@ interface ChatState {
   newChat: () => string;
   deleteChat: (id: string) => void;
   renameChat: (id: string, newTitle: string) => void;
+  togglePinChat: (id: string) => void;
   confirmRename: (newTitle: string) => void;
   sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
   retryLastMessage: (convId: string) => Promise<void>;
@@ -534,6 +535,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   renameChat: (id, newTitle) => {
     set((state) => ({
       conversations: state.conversations.map((c) => (c.id === id ? { ...c, title: newTitle } : c)),
+    }));
+    get().persistConversations();
+  },
+
+  togglePinChat: (id) => {
+    set((state) => ({
+      conversations: state.conversations.map((c) => (c.id === id ? { ...c, isPinned: !c.isPinned } : c)),
     }));
     get().persistConversations();
   },
