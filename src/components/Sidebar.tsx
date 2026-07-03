@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowLeft,
+  Pin,
 } from "lucide-react";
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -45,6 +46,7 @@ interface SidebarProps {
   onDeleteChat: (id: string) => void;
   onRenameChat: (id: string, newTitle: string) => void;
   onExportChat: (id: string) => void;
+  onPinChat: (id: string) => void;
   isOpen: boolean;
   onClose: () => void;
   modelStatuses: ModelStatuses;
@@ -52,27 +54,27 @@ interface SidebarProps {
 }
 
 function groupConversations(conversations: Conversation[]) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86400000);
-  const lastWeek = new Date(today.getTime() - 7 * 86400000);
-
-  const groups: { label: string; items: Conversation[] }[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Last 7 days", items: [] },
-    { label: "Older", items: [] },
-  ];
+  const pinned: Conversation[] = [];
+  const recents: Conversation[] = [];
 
   for (const conv of conversations) {
-    const d = new Date(conv.timestamp);
-    if (d >= today) groups[0].items.push(conv);
-    else if (d >= yesterday) groups[1].items.push(conv);
-    else if (d >= lastWeek) groups[2].items.push(conv);
-    else groups[3].items.push(conv);
+    if (conv.isPinned) {
+      pinned.push(conv);
+    } else {
+      recents.push(conv);
+    }
   }
 
-  return groups.filter((g) => g.items.length > 0);
+  const groups: { label: string; items: Conversation[] }[] = [];
+  if (pinned.length > 0) {
+    groups.push({ label: "Pinned", items: pinned });
+  }
+
+  const hasAnyConversations = conversations.length > 0;
+  if (recents.length > 0 || (pinned.length > 0 && hasAnyConversations)) {
+    groups.push({ label: "Recents", items: recents });
+  }
+  return groups;
 }
 
 export default function Sidebar({
@@ -84,6 +86,7 @@ export default function Sidebar({
   onDeleteChat,
   onRenameChat,
   onExportChat,
+  onPinChat,
   isOpen,
   onClose,
   modelStatuses,
@@ -599,94 +602,125 @@ export default function Sidebar({
                     className="mb-2"
                   >
                     <p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">{group.label}</p>
-                    {group.items.map((conv) => (
-                      <div key={conv.id} className="relative group">
-                        <button
-                          onClick={() => onSelect(conv.id)}
-                          className={`
-                            w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
-                            text-sm text-left transition-colors duration-100
-                            ${
-                              activeId === conv.id
-                                ? "bg-active text-text-primary font-medium"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }
-                          `}
-                          aria-label={`Open conversation: ${conv.title}`}
-                          aria-current={activeId === conv.id ? "page" : undefined}
-                        >
-                          <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
-                          <span className="truncate flex-1">{conv.title}</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setMenuPosition({
-                              top: rect.bottom + 4,
-                              left: rect.left - 8,
-                            });
-                            setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                          }}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                          aria-label="Conversation actions"
-                        >
-                          <MoreVertical size={14} />
-                        </button>
-                        {openMenuId === conv.id &&
-                          menuPosition &&
-                          createPortal(
-                            <div
-                              ref={menuRef}
-                              className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
-                              style={{
-                                top: `${menuPosition.top}px`,
-                                left: `${menuPosition.left}px`,
-                                boxShadow: "var(--shadow-lg)",
+                    {group.items.length === 0 ? (
+                      <p className="px-2.5 py-1.5 text-xs text-text-muted italic">No recent chats</p>
+                    ) : (
+                      group.items.map((conv) => (
+                        <div key={conv.id} className="relative group">
+                          <button
+                            onClick={() => onSelect(conv.id)}
+                            className={`
+                              w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
+                              text-sm text-left transition-colors duration-100 pr-14
+                              ${
+                                activeId === conv.id
+                                  ? "bg-active text-text-primary font-medium"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }
+                            `}
+                            aria-label={`Open conversation: ${conv.title}`}
+                            aria-current={activeId === conv.id ? "page" : undefined}
+                          >
+                            {group.label === "Pinned" && (
+                              <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
+                            )}
+                            <span className="truncate flex-1">{conv.title}</span>
+                          </button>
+                          <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPinChat(conv.id);
                               }}
-                              role="menu"
+                              className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                              title={conv.isPinned ? "Unpin conversation" : "Pin conversation"}
+                              aria-label={conv.isPinned ? "Unpin conversation" : "Pin conversation"}
                             >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  onExportChat(conv.id);
+                              <Pin size={13} className={conv.isPinned ? "text-accent fill-accent" : ""} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setMenuPosition({
+                                  top: rect.bottom + 4,
+                                  left: rect.left - 8,
+                                });
+                                setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                              }}
+                              className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                              aria-label="Conversation actions"
+                            >
+                              <MoreVertical size={14} />
+                            </button>
+                          </div>
+                          {openMenuId === conv.id &&
+                            menuPosition &&
+                            createPortal(
+                              <div
+                                ref={menuRef}
+                                className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                                style={{
+                                  top: `${menuPosition.top}px`,
+                                  left: `${menuPosition.left}px`,
+                                  boxShadow: "var(--shadow-lg)",
                                 }}
-                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                                role="menuitem"
+                                role="menu"
                               >
-                                <Download size={14} className="text-text-muted" />
-                                Export
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  onRenameChat(conv.id, conv.title);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                                role="menuitem"
-                              >
-                                <Pencil size={14} className="text-text-muted" />
-                                Rename
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                  setChatToDelete(conv.id);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
-                                role="menuitem"
-                              >
-                                <Trash2 size={14} />
-                                Delete
-                              </button>
-                            </div>,
-                            document.body,
-                          )}
-                      </div>
-                    ))}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuId(null);
+                                    onPinChat(conv.id);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                  role="menuitem"
+                                >
+                                  <Pin size={14} className="text-text-muted" />
+                                  {conv.isPinned ? "Unpin" : "Pin"}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuId(null);
+                                    onExportChat(conv.id);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                  role="menuitem"
+                                >
+                                  <Download size={14} className="text-text-muted" />
+                                  Export
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuId(null);
+                                    onRenameChat(conv.id, conv.title);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                  role="menuitem"
+                                >
+                                  <Pencil size={14} className="text-text-muted" />
+                                  Rename
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuId(null);
+                                    setChatToDelete(conv.id);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-red-500 hover:bg-red-500/10 transition-colors"
+                                  role="menuitem"
+                                >
+                                  <Trash2 size={14} />
+                                  Delete
+                                </button>
+                              </div>,
+                              document.body,
+                            )}
+                        </div>
+                      ))
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
