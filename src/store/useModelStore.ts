@@ -35,6 +35,7 @@ interface StreamDonePayload {
 }
 
 const activeStreams = new Map<string, string>();
+let listenersPromise: Promise<void> | null = null;
 let streamListenerCleanup: (() => void) | null = null;
 let streamListenerRefCount = 0;
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -45,28 +46,33 @@ let lastCheckTime = 0;
 async function ensureStreamListeners(
   onChunk: (convId: string, content: string) => void,
   onDone: (convId: string) => void,
-) {
+): Promise<void> {
   streamListenerRefCount++;
-  if (streamListenerCleanup) return;
+  if (listenersPromise) return listenersPromise;
 
-  const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
-    const convId = activeStreams.get(event.payload.streamId);
-    if (!convId) return;
-    onChunk(convId, event.payload.content);
-  });
+  listenersPromise = (async () => {
+    const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
+      const convId = activeStreams.get(event.payload.streamId);
+      if (!convId) return;
+      onChunk(convId, event.payload.content);
+    });
 
-  const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
-    const convId = activeStreams.get(event.payload.streamId);
-    if (!convId) return;
-    onDone(convId);
-    activeStreams.delete(event.payload.streamId);
-  });
+    const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
+      const convId = activeStreams.get(event.payload.streamId);
+      if (!convId) return;
+      onDone(convId);
+      activeStreams.delete(event.payload.streamId);
+    });
 
-  streamListenerCleanup = () => {
-    unlistenChunk();
-    unlistenDone();
-    streamListenerCleanup = null;
-  };
+    streamListenerCleanup = () => {
+      unlistenChunk();
+      unlistenDone();
+      streamListenerCleanup = null;
+      listenersPromise = null;
+    };
+  })();
+
+  return listenersPromise;
 }
 
 function releaseStreamListeners() {
@@ -103,6 +109,7 @@ interface ModelState {
 
   getActiveStreamId: () => string | null;
   setActiveStreamId: (id: string | null, convId?: string | null) => void;
+  removeActiveStreamId: (id: string) => void;
   ensureStreamListeners: (
     onChunk: (convId: string, content: string) => void,
     onDone: (convId: string) => void,
@@ -362,6 +369,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
     } else {
       activeStreams.clear();
     }
+  },
+  removeActiveStreamId: (id) => {
+    activeStreams.delete(id);
   },
   ensureStreamListeners,
   releaseStreamListeners,
