@@ -60,6 +60,7 @@ export interface Conversation {
     path: string;
     branch: string;
   };
+  isPinned?: boolean;
 }
 
 export type ProjectPermission = "read" | "write" | "full";
