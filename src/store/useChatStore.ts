@@ -64,8 +64,6 @@ import {
   modelCheckConnections,
   modelStartHealthCheck,
   modelSetState,
-  modelSetActiveStream,
-  modelGetActiveStreamId,
   searchSetState,
   searchPerformSearch,
   searchFetchUrlContent,
@@ -425,13 +423,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setActiveId: (id, isHistoryMove = false) => {
     const { activeId, navigationHistory, navigationIndex } = get();
     if (activeId === id) return;
-    get().cleanupEmptyConversations(id);
 
     // Exit compare mode when switching chats to prevent state pollution
     set({
       isCompareMode: false,
       compareIds: [],
     });
+
+    get().cleanupEmptyConversations(id);
 
     if (!isHistoryMove) {
       const newHistory = navigationHistory.slice(0, navigationIndex + 1);
@@ -1025,59 +1024,59 @@ async function sendNormal(
     details: `Model: ${modelConfig.modelId}, API: ${modelConfig.apiBase}, Stream ID: ${streamId}`,
   });
 
-  await modelStore.ensureStreamListeners(
-    (cId, content) => {
-      set((state) => {
-        const newState: Partial<ChatState> = {};
-        if (state.generationState === "thinking" && !content.startsWith("<reasoning>")) {
-          newState.generationState = "responding";
-          newState.generationLabel = "Responding";
-        }
-        const nextGenerationByConversation = content.startsWith("<reasoning>")
-          ? state.generationByConversation
-          : setConversationGeneration(state, cId, "responding" as GenerationState, "Responding");
-        return {
-          ...newState,
-          generationByConversation: nextGenerationByConversation,
-          conversations: state.conversations.map((c) => {
+  try {
+    await modelStore.ensureStreamListeners(
+      (cId, content) => {
+        set((state) => {
+          const newState: Partial<ChatState> = {};
+          if (state.generationState === "thinking" && !content.startsWith("<reasoning>")) {
+            newState.generationState = "responding";
+            newState.generationLabel = "Responding";
+          }
+          const nextGenerationByConversation = content.startsWith("<reasoning>")
+            ? state.generationByConversation
+            : setConversationGeneration(state, cId, "responding" as GenerationState, "Responding");
+          return {
+            ...newState,
+            generationByConversation: nextGenerationByConversation,
+            conversations: state.conversations.map((c) => {
+              if (c.id !== cId) return c;
+              const updated = [...c.messages];
+              const last = updated[updated.length - 1];
+              if (last && last.role === "assistant") {
+                updated[updated.length - 1] = { ...last, content: last.content + content };
+              }
+              return { ...c, messages: updated };
+            }),
+          };
+        });
+      },
+      (cId) => {
+        logInfo("stream", `Stream completed`, {
+          details: `Conversation: ${cId}`,
+        });
+        set((state) => {
+          const conversations = state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
             const last = updated[updated.length - 1];
             if (last && last.role === "assistant") {
-              updated[updated.length - 1] = { ...last, content: last.content + content };
+              updated[updated.length - 1] = { ...last, isStreaming: false };
             }
             return { ...c, messages: updated };
-          }),
-        };
-      });
-    },
-    (cId) => {
-      logInfo("stream", `Stream completed`, {
-        details: `Conversation: ${cId}`,
-      });
-      set((state) => {
-        const conversations = state.conversations.map((c) => {
-          if (c.id !== cId) return c;
-          const updated = [...c.messages];
-          const last = updated[updated.length - 1];
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, isStreaming: false };
-          }
-          return { ...c, messages: updated };
+          });
+          const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
+          return {
+            conversations,
+            isStreaming: stillStreaming,
+            generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+            generationLabel: stillStreaming ? state.generationLabel : "",
+            generationByConversation: setConversationGeneration(state, cId, "idle" as GenerationState, ""),
+          };
         });
-        const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
-        return {
-          conversations,
-          isStreaming: stillStreaming,
-          generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
-          generationLabel: stillStreaming ? state.generationLabel : "",
-          generationByConversation: setConversationGeneration(state, cId, "idle" as GenerationState, ""),
-        };
-      });
-    },
-  );
+      },
+    );
 
-  try {
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages: { role: string; content: string | unknown[] }[] =
       conv?.messages
@@ -1106,9 +1105,12 @@ async function sendNormal(
       streamId,
     });
 
-    const streamStillActive = modelGetActiveStreamId() === streamId;
+    const convBeforeFinalize = get().conversations.find((c) => c.id === convId);
+    const lastMsg = convBeforeFinalize?.messages[convBeforeFinalize.messages.length - 1];
+    const streamStillActive = lastMsg && lastMsg.role === "assistant" && lastMsg.isStreaming;
+
     if (streamStillActive) {
-      modelSetActiveStream(null, null);
+      useModelStore.getState().removeActiveStreamId(streamId);
     }
 
     set((state) => ({
@@ -1125,8 +1127,7 @@ async function sendNormal(
     get().persistConversations();
   } catch (err) {
     const parsed = parseApiError(err);
-    modelSetActiveStream(null, null);
-    modelReleaseListeners();
+    useModelStore.getState().removeActiveStreamId(streamId);
     set((state) => {
       const generationLabel = `Generation failed: ${parsed.message}`;
       return {
@@ -1137,7 +1138,6 @@ async function sendNormal(
         generationByConversation: setConversationGeneration(state, convId, "error" as GenerationState, generationLabel),
       };
     });
-    uiLoading("sendMessage", false);
     uiToast(parsed.message, "error");
     logError("chat", "Failed to send message or stream response", {
       error: err,
@@ -1145,6 +1145,7 @@ async function sendNormal(
       details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
     });
   } finally {
+    modelReleaseListeners();
     uiLoading("sendMessage", false);
   }
 }
