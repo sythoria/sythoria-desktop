@@ -1,7 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Plus, Loader2 } from "lucide-react";
 import { ModelCard } from "../components/ModelCard";
+import { ConfirmModal } from "../../ui/Modal";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { ModelConfig, ConnectionStatus } from "../../../types";
 
@@ -28,6 +29,7 @@ export const ModelsSection = ({
   showKeys,
   toggleKeyVisibility,
 }: ModelsSectionProps) => {
+  const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
   const prevIdsRef = useRef<string[]>(models.map((m) => m.id));
 
   useEffect(() => {
@@ -86,7 +88,7 @@ export const ModelsSection = ({
             id={`model-card-${model.id}`}
             model={model}
             onUpdate={updateModel}
-            onDelete={deleteModel}
+            onDelete={() => setModelToDelete(model)}
             showKey={!!showKeys[model.id]}
             onToggleKey={toggleKeyVisibility}
             connectionStatus={modelStatuses[model.id] ?? "disconnected"}
@@ -104,6 +106,22 @@ export const ModelsSection = ({
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={!!modelToDelete}
+        title="Delete Model Provider"
+        message={`Are you sure you want to delete the model provider "${modelToDelete?.name || ""}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={() => {
+          if (modelToDelete) {
+            deleteModel(modelToDelete.id);
+            setModelToDelete(null);
+          }
+        }}
+        onCancel={() => setModelToDelete(null)}
+        variant="danger"
+      />
     </>
   );
 };
