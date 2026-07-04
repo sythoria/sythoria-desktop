@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Sythoria — Desktop AI chat app. Tauri v2 (Rust) + React 19 (TypeScript). Connects to OpenAI-compatible APIs with SSE streaming, WebSocket, and agentic tool loop (web search + MCP + URL fetch).
+Sythoria — Desktop AI chat app. Tauri v2 (Rust) + React 19 (TypeScript). Connects to OpenAI-compatible APIs & Anthropic with SSE streaming, WebSocket, and agentic tool loop (web search + MCP + URL fetch + Project Workspaces).
 
 ## Commands
 
@@ -24,50 +24,70 @@ Pre-commit: Husky + lint-staged (`eslint --fix` + `prettier --write`).
 ```
 src/
   main.tsx              # Entry: theme init, ErrorBoundary > App
-  App.tsx               # Wires 5 Zustand stores to components
+  App.tsx               # Wires 10 Zustand stores to components, compare mode & tool confirmation
   index.css             # Tailwind v4 @theme, CSS vars, animations, markdown styles, motion tokens
-  types/index.ts        # Core types + config helpers
+  types/index.ts        # Core types (Message, Conversation, Project, configs) + helpers
   types/log.ts          # LogEntry, LogLevel, LogSource
   store/
-    useChatStore.ts     # Conversations, streaming, generation state, init/send/retry, hasStarted
-    useModelStore.ts    # Models, temperature, API keys, health checks, stream management
+    useChatStore.ts     # Conversations, streaming, generation state, compare/pin/worktree, attachments
+    useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
     useSearchStore.ts   # Search configs, search toggle
-    useMcpStore.ts      # MCP server configs, connections, available tools, env secrets
-    useUIStore.ts       # View, theme, sidebar, toasts, loading, rename modal, log buffer/filters
+    useMcpStore.ts      # MCP server configs, available tools, env secrets keyring, server statuses
+    useUIStore.ts       # View, theme, sidebar, toasts, loading, logs, activeSection, tool confirmations
+    useProjectStore.ts  # Project configuration, active project, and worktree overrides
+    useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
+    useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
+    useGitStore.ts      # Git repo detection, commits, AI commit messages, auto-commit
+    useWhisperStore.ts  # Whisper voice recording controls, preset downloads, and model management
     helpers.ts          # Cross-store action helpers
     index.ts            # Centralized store exports
   services/
-    toolLoop.ts         # Agentic tool loop: search_query + fetch_url + MCP tools (max 5 steps)
+    toolLoop.ts         # Agentic tool loop: search_query + fetch_url + MCP + project workspace tools (default limit 25)
   config/
     constants.ts        # MAX_INPUT_LENGTH, DEFAULT_TEMPERATURE, ID_LENGTH, etc.
-    providerPresets.ts  # OpenAI, Gemini, Ollama, NVIDIA NIM, OpenRouter, Custom
+    providerPresets.ts  # OpenAI, Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
     searchPresets.ts    # Google, SearXNG, Firecrawl, Custom
     mcpPresets.ts       # MCP transport presets (stdio, sse, streamable-http)
+    themePresets.ts     # UI theme settings and default styles
+    marketplaceThemes.ts# VS Code themed stylesheets and Marketplace listings
+    whisperPresets.ts   # Whisper-compatible GGUF models check/download URLs
   hooks/
     useScrollPosition.ts
+    useScrollTracking.ts
     useDebounce.ts
+    useAttachments.ts   # File validation, MIME mapping, and size check utilities
     use-safe-motion.ts  # useSafeMotion, useSafeScale, useSafeSlideX (respects prefers-reduced-motion)
   utils/
-    storage.ts          # Tauri store + keychain + Zod validation + localStorage fallback + MCP configs
+    storage.ts          # Tauri store + keychain + Zod validation + localStorage fallback + model/project configs
     validation.ts       # Zod schemas, URL validation, API key validation, MCP config validation
     generateId.ts       # crypto.randomUUID().slice(0, 8)
     parseApiError.ts    # AppError JSON -> user messages with category, retryability, suggested actions
     logger.ts           # Structured logging: logInfo, logWarn, logError (syncs to UI store, Tauri plugin-log)
+    attachments.ts      # Base64 serialization, input parsing, attachment metadata generation
+    messageParser.ts    # Utility parsing text messages
+    highlighter.ts      # Code syntax highlighting
+    tokens.ts           # Token estimation/calculation helpers
   lib/
     motion-tokens.ts    # Animation tokens, springs, and motion config (reduced motion / low-end detection)
   components/
-    Sidebar.tsx         # Conversation list, search, date grouping, actions
-    ChatArea.tsx        # Messages, markdown, streaming, generation state, sources
-    InputBar.tsx        # Text input, model selector, search toggle, send/stop
-    Settings.tsx        # Dark mode, models, search configs, API keys, temperature, title config, MCP servers, log viewer
+    Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
+    ChatArea.tsx        # Messages, markdown, streaming, comparison columns, worktree approvals, attachments
+    InputBar.tsx        # Text input, model selector, search toggle, attachment triggers, send/stop
+    Settings.tsx        # Entry component displaying sidebar settings sections
+    settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)
     StartScreen.tsx     # Onboarding with motion entrance animations
     ScrollToBottomButton.tsx
-    ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton
+    ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
 src-tauri/src/
   main.rs               # sythoria_lib::run()
-  lib.rs                # Tauri commands (~27), AppError, keychain storage, MCP config/env keychain ops
+  lib.rs                # Tauri commands (~50+), AppError, keychain storage, initialization, event hooks
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
   ws_handler.rs         # WebSocket: types, SessionManager, reconnect (1s–30s, max 5)
+  anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
+  appshots.rs           # Screen capture, auto-cleanup, permissions check, custom path configuration
+  git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
+  project.rs            # Workspace paths registration, permissions matching, active project mapping
+  project_tools.rs      # Workspace native tools (read, write, grep, edit, bash, glob) with validation
   mcp/
     mod.rs              # McpServerConfig, McpToolInfo, McpToolResult, McpServerStatus, McpServerHandle, McpToolRequest, McpServerManager
     client.rs           # MCP client: connect/disconnect servers (stdio/SSE/streamable-http), call tools, rmcp integration
@@ -76,27 +96,32 @@ src-tauri/src/
     google.rs / searxng.rs / firecrawl.rs / custom.rs
 ```
 
-## State (5 Zustand stores)
+## State (10 Zustand stores)
 
-- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/**mcp_executing**/error), `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `exportChat()`, `hasStarted`
-- **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), stream listeners with streamId
-- **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`
-- **useMcpStore**: `mcpConfigs`, `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`
-- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, `hasStarted`, `isConfigLoaded`, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource` (general/chat/model/search/mcp/storage/stream/all), `logFilterLevel` (all/info/warn/error), rename modal
+- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`.
+- **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, default 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), active stream listener Map (`activeStreamIds`).
+- **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
+- **useMcpStore**: `mcpConfigs`, `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
+- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), `pendingToolConfirmations` (confirmations for dangerous tool execution).
+- **useProjectStore**: `projects`, `activeProjectId`, `isProjectsEnabled`, `defaultPermission`, `activeWorktreePath`, `activeWorktreeBranch`, `init()`, `addProject()`, `updateProject()`, `deleteProject()`, `setActiveProject()`, `setWorktree()`, `persistProjects()`.
+- **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
+- **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
+- **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded()`.
+- **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath`, `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
 
-## Tool Loop (MCP + Search)
+## Tool Loop (MCP + Search + Project Workspaces)
 
-- **`buildToolDefinitions(mcpTools, includeSearch)`**: Merges native tools (search_query, fetch_url) with MCP tools. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
-- **`buildToolSystemPrompt(mcpTools)`**: Injects MCP tool descriptions into the system prompt.
-- **`sendWithToolLoop()`**: If search or MCP is enabled, runs iterative `chat_completion_tools` (max 5 steps). MCP tool calls execute via `mcpCallTool(serverId, toolName, args)`, returning structured `{ content, isError }`.
-- Tool loop state: `generationState` switches dynamically through `thinking` → `searching`/`fetching`/`mcp_executing` → `responding` or `error`.
+- **`buildToolDefinitions(mcpTools, includeSearch)`**: Merges native search tools (`search_query`, `fetch_url`) and workspace tools (`project_read`, `project_grep`, `project_glob`, etc.) with MCP tools. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
+- **`buildToolSystemPrompt(mcpTools)`**: Injects MCP and project-specific tool descriptions into the system prompt.
+- **`sendWithToolLoop()`**: If search, MCP, or project workspaces are enabled, runs iterative tool execution. Loop step limit is user-configurable (`maxToolSteps`, defaults to 25). MCP tool calls execute via `mcpCallTool(serverId, toolName, args)`, returning structured `{ content, isError, images }`.
+- **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`). Subsequent file writes, edits, and commands execute in the context of this isolated path (`worktreePath`) without polluting the main directory. The changes are displayed as a pending worktree in the UI for user review.
 
 ## Logging System
 
 - **logInfo(source, message, opts)**, **logWarn(source, message, opts)**, **logError(source, message, opts)** — write to console, Tauri plugin-log, and a bounded in-memory log buffer (`MAX_LOGS = 500`).
-- **Sources**: `general`, `chat`, `model`, `search`, `mcp`, `storage`, `stream`
+- **Sources**: `general`, `chat`, `model`, `search`, `mcp`, `storage`, `stream` (and dynamically `appshots`, `git`).
 - Logs are synced to `useUIStore.logBuffer` via `requestAnimationFrame` for batched UI updates.
-- **Error parsing** (`parseApiError.ts`): Returns structured `ParsedError` with `message`, `action`, `category`, `retryable`, and `rawDetail`. Includes dedicated `userFriendlyMcpError()` for MCP-specific failures (auth, spawn, timeout, handshake, connection refused).
+- **Error parsing** (`parseApiError.ts`): Returns structured `ParsedError` with `message`, `action`, `category`, `retryable`, and `rawDetail`. Includes dedicated `userFriendlyMcpError()` for MCP-specific failures.
 
 ## Motion System
 
@@ -104,39 +129,89 @@ src-tauri/src/
 - **`motionConfig`**: Detects `prefers-reduced-motion` and low-end hardware (hardwareConcurrency <= 4) to disable non-essential animations.
 - **`use-safe-motion.ts`**: Provides `useSafeMotion`, `useSafeScale`, `useSafeSlideX` hooks that respect reduced-motion preferences.
 - **MotionButton**: Reusable `motion.button` with scale tap/hover effects.
-- Components (Sidebar, ChatArea, InputBar, Settings, StartScreen, Modal, Switch, Toast) use motion tokens for consistent entrance/exit/transitions.
 
 ## Data Flow
 
 **SSE**: `sendMessage()` → `invoke("chat_stream", { streamId })` → Rust emits `chat-stream-chunk`/`chat-stream-done` → store appends content. Cancel via `cancel_chat_stream`.
 
-**Tool loop**: If search or MCP enabled → `sendWithToolLoop()` → iterative `chat_completion_tools` (max 5 steps) → executes `search_query`/`fetch_url`/MCP tool calls → collects sources → final assistant message.
+**Tool loop**: Run tool execution (max `maxToolSteps` steps) → executes `search_query`/`fetch_url`/MCP/project workspace tools → collects sources → final assistant message.
 
-**WebSocket**: `invoke("ws_chat")` → Rust reconnects with exponential backoff → emits `ws-message`/`ws-connected`/`ws-closed`/`ws-error`.
+**Git Worktree Isolation Flow**: If writing to a project:
 
-**MCP**: `connectServer()` → `invoke("mcp_start_server", { config, envSecrets })` → Rust spawns MCP client (stdio/SSE/streamable-http) via `rmcp` → returns tools → stored in `availableTools`. Disconnect via `mcp_stop_server`. Tool calls via `mcp_call_tool`.
+1. Tool loop triggers workspace write → backend creates isolated worktree (`git_worktree_create`).
+2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
+3. Conversation gains `pendingWorktree` details → ChatArea renders a `PendingWorktreeCard` showing diff summaries.
+4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete.
+
+**Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
+
+**Whisper Transcription**: Toggle voice recording (`start_recording` / `stop_recording`) → temporary audio recorded → backend runs `transcribe_audio` against downloaded whisper model → output injected into input text.
 
 ## Key Types
 
 ```typescript
-interface Message {
+export interface Attachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "text";
+  dataUrl?: string;
+  textContent?: string;
+}
+
+export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
   toolCall?: { id: string; name: string; arguments: Record<string, string> };
-  toolResult?: { id: string; name: string; content: string };
+  toolResult?: {
+    id: string;
+    name: string;
+    content: string;
+    images?: { mimeType: string; data: string }[];
+    diffSummary?: {
+      added: number;
+      deleted: number;
+      isNew?: boolean;
+      filename?: string;
+    };
+  };
   sources?: { title: string; url: string }[];
+  attachments?: Attachment[];
 }
-interface Conversation {
+
+export interface Conversation {
   id: string;
   title: string;
   timestamp: Date;
   messages: Message[];
   model: string;
+  projectId?: string;
+  pendingWorktree?: {
+    path: string;
+    branch: string;
+  };
+  isPinned?: boolean;
 }
-interface ModelConfig {
+
+export type ProjectPermission = "read" | "write" | "full";
+
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  permissions: ProjectPermission;
+  excludePatterns?: string[];
+  systemPromptOverride?: string;
+  modelOverride?: string;
+  isAutoCommitEnabled?: boolean;
+  autoCommitMsgTemplate?: string;
+}
+
+export interface ModelConfig {
   id: string;
   name: string;
   apiBase: string;
@@ -144,84 +219,50 @@ interface ModelConfig {
   modelId: string;
   provider?: string;
   enabled?: boolean;
-}
-type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
-type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";
-type SearchProvider = "google" | "searxng" | "firecrawl" | "custom";
-interface SearchApiConfig {
-  id: string;
-  name: string;
-  provider: SearchProvider;
-  baseUrl: string;
-  apiKey?: string;
-  cx?: string;
-  maxResults: number;
-  enabled: boolean;
-}
-
-// MCP
-type McpTransport = "stdio" | "sse" | "streamable-http";
-interface McpServerConfig {
-  id: string;
-  name: string;
-  transport: McpTransport;
-  command?: string;
-  args?: string[];
-  baseUrl?: string;
-  apiKey?: string;
-  enabled: boolean;
-}
-interface McpTool {
-  name: string;
-  namespacedName: string; // "serverName__toolName"
-  description: string;
-  inputSchema: Record<string, unknown>;
-  serverId: string;
-  serverName: string;
-}
-interface McpToolResult {
-  content: string;
-  isError: boolean;
-}
-type McpServerStatus = "disconnected" | "connecting" | "connected" | "error";
-
-// Logging
-type LogLevel = "info" | "warn" | "error";
-type LogSource = "general" | "chat" | "model" | "search" | "mcp" | "storage" | "stream";
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  level: LogLevel;
-  source: LogSource;
-  message: string;
-  details?: string;
-  action?: string;
+  supportsImages?: boolean;
+  contextSize?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+  systemPromptOverride?: string;
 }
 ```
 
 ## Tauri Commands
 
-| Command                                             | Purpose                                            |
-| --------------------------------------------------- | -------------------------------------------------- |
-| `load_config` / `save_config`                       | Model configs (app data dir `config.json`)         |
-| `load_search_config` / `save_search_config`         | Search configs (`search_config.json`)              |
-| `load_api_keys` / `save_api_keys_cmd`               | API keys → OS keychain (keyring)                   |
-| `load_search_api_keys` / `save_search_api_keys_cmd` | Search API keys → OS keychain                      |
-| `chat_completion`                                   | Non-streaming completion                           |
-| `chat_stream`                                       | SSE streaming (streamId, cancelable)               |
-| `cancel_chat_stream`                                | Cancel active stream                               |
-| `chat_completion_tools` / `chat_stream_tools`       | Completion with tool support                       |
-| `generate_title`                                    | Auto-generate conversation title                   |
-| `check_api`                                         | Health-check GET /models                           |
-| `web_search`                                        | Web search (google/searxng/firecrawl/custom)       |
-| `fetch_url_content`                                 | Extract readable text from URL                     |
-| `ws_chat` / `ws_authenticate`                       | WebSocket chat + auth                              |
-| `load_mcp_config` / `save_mcp_config`               | MCP server configs (`mcp_config.json`)             |
-| `load_mcp_env_secrets` / `save_mcp_env_secrets_cmd` | MCP env secrets → OS keychain                      |
-| `mcp_start_server`                                  | Connect to an MCP server (returns available tools) |
-| `mcp_stop_server`                                   | Disconnect an MCP server                           |
-| `mcp_list_tools`                                    | List tools for a connected MCP server              |
-| `mcp_call_tool`                                     | Call a tool on a connected MCP server              |
+| Command                                              | Purpose                                            |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| `load_config` / `save_config`                        | Model configs (app data dir `config.json`)         |
+| `load_network_config` / `save_network_config`        | Network settings (SSL, offline mode, proxy)        |
+| `load_search_config` / `save_search_config`          | Search configs (`search_config.json`)              |
+| `load_api_keys` / `save_api_keys_cmd`                | API keys → OS keychain (keyring)                   |
+| `load_search_api_keys` / `save_search_api_keys_cmd`  | Search API keys → OS keychain                      |
+| `chat_completion` / `chat_stream`                    | Standard or streaming text generation              |
+| `cancel_chat_stream`                                 | Cancel active stream via `streamId`                |
+| `chat_completion_tools` / `chat_stream_tools`        | Completion/Streaming with tool calls enabled       |
+| `generate_title`                                     | Auto-generate conversation title                   |
+| `check_api` / `check_ollama`                         | Health checks on AI backends                       |
+| `web_search` / `fetch_url_content`                   | Native search presets and web page readers         |
+| `ws_connect` / `ws_send` / `ws_disconnect`           | WebSocket connection commands                      |
+| `load_mcp_config` / `save_mcp_config`                | MCP server configs (`mcp_config.json`)             |
+| `mcp_start_server` / `mcp_stop_server`               | Spawn stdio MCP client or connect to SSE/HTTP      |
+| `mcp_check_command`                                  | Probes command/args resolution on path             |
+| `mcp_list_tools` / `mcp_call_tool`                   | MCP tool discoverability and execution             |
+| `select_file_and_get_token`                          | Open dialog to import file, returns secure token   |
+| `read_file_from_token`                               | Read local file contents via secure token payload  |
+| `download_whisper_model` / `cancel_whisper_download` | Handle Whisper GGUF asset downloading              |
+| `check_downloaded_whisper_models`                    | Lists cached local Whisper files                   |
+| `transcribe_audio`                                   | Transcribes recorded audio buffer via whisper.cpp  |
+| `load_projects` / `save_projects`                    | Workspace configs storage                          |
+| `set_active_project` / `set_project_path_override`   | Maps workspace and branch context overrides        |
+| `git_detect_repo` / `git_get_status`                 | Identifies local repositories and dirty tracking   |
+| `git_create_commit` / `git_undo_last_commit`         | Creates commits, commits with AI msgs, soft-resets |
+| `git_worktree_create` / `git_worktree_apply`         | Create isolated workspace paths or apply changes   |
+| `git_worktree_discard`                               | Prunes isolated branches and deletes worktree dirs |
+| `project_read` / `project_write` / `project_edit`    | Workspace-scoped file tools                        |
+| `project_list_dir` / `project_grep` / `project_glob` | Workspace directory traversal and search tools     |
+| `project_bash`                                       | Execute system shells inside worktree directory    |
+| `capture_screen` / `list_appshots`                   | Take screenshots, query galleries                  |
+| `has_screen_capture_permission`                      | Check macOS screen recording permissions           |
 
 ## Storage
 
@@ -230,26 +271,23 @@ interface LogEntry {
 | Conversations   | Tauri plugin-store (`sythoria-conversations`)                 |
 | Model configs   | App data dir `config.json` (keys in OS keychain)              |
 | API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)        |
+| Projects        | Tauri plugin-store (`sythoria-projects`)                      |
 | Search configs  | Tauri plugin-store + app data dir `search_config.json`        |
 | MCP configs     | Tauri plugin-store (`sythoria-mcp-configs`)                   |
 | MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)             |
 | Theme           | Tauri plugin-store (`sythoria-theme`) + localStorage fallback |
-| hasStarted      | Tauri plugin-store (`sythoria-has-started`)                   |
+| Keybinds        | Tauri plugin-store (`sythoria-keybinds`)                      |
+| Appshot Config  | Tauri plugin-store (`sythoria-appshots`)                      |
+| Whisper Config  | LocalStorage (`sythoria-whisper-config`)                      |
 
 ## Notes
 
 - **Tailwind v4**: `@theme` directive, `@import "tailwindcss"` — no `tailwind.config.js`.
-- **Font**: DM Sans (UI), JetBrains Mono (code) via Google Fonts.
-- **Dark mode default**: checks `sythoria-theme` in localStorage, then `prefers-color-scheme`.
-- **CSS theming**: `:root` / `.dark` custom properties mapped to Tailwind `@theme` tokens.
-- **Stream cancellation**: Each stream has a `streamId`; `cancel_chat_stream` aborts mid-stream.
-- **URL security**: Rust `search/mod.rs` blocks private IPs, metadata endpoints (169.254.169.254), localhost.
+- **VS Code Themes**: Settings > Appearance houses customizable themes fetched from a marketplace, dynamically mapped to stylesheet CSS properties.
+- **Git Worktree Isolation**: Highly secure write actions. Modifications execute inside a worktree sandbox before confirmation, preventing accidental main-branch workspace writes.
+- **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
+- **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
 - **Keychain**: `keyring-core` with platform backends (macOS Keychain, Windows Credential Manager, Linux keyutils).
-- **MCP support**: Uses `rmcp` crate. Supports stdio (spawn child), SSE, and streamable HTTP transports. Environment variables for MCP servers are stored in the OS keychain, per-server.
-- **Vite chunks**: `markdown`, `react`, `vendor` manual splits.
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
-- **TS strict**: `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`.
-- **Motion system**: Respects `prefers-reduced-motion`. Disables animations on low-end devices. All motion tokens live in `src/lib/motion-tokens.ts`.
-- **Log system**: Max 500 logs in buffer. Synced to `useUIStore` via `requestAnimationFrame`. Viewable in Settings > Logs. Tauri plugin-log integration for native logs.
-- **Sidebar**: Collapsible (toggle via `useUIStore.toggleSidebarCollapsed()`). Motion-animated expand/collapse. Responsive behavior for mobile sidebar.
+- **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
