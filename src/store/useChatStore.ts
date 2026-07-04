@@ -23,6 +23,7 @@ import {
   loadTitleConfig,
   loadMcpConfigs,
   loadMcpEnvSecrets,
+  loadMcpApiKeys,
   loadEnabledMcpServers,
   loadHasStarted,
   loadAnimationsDisabled,
@@ -122,8 +123,7 @@ interface EnabledToolLoopConfig {
   searchApiKey: string;
   mcpTools: McpTool[];
   mcpCallTool:
-    | ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>)
-    | undefined;
+    ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>) | undefined;
 }
 
 function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
@@ -241,6 +241,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedTitleCfg,
         loadedMcpConfigs,
         loadedMcpEnvSecrets,
+        loadedMcpKeys,
         loadedMcpEnabledServers,
         loadedAnimationsDisabled,
         loadedAlwaysOnTop,
@@ -268,6 +269,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadTitleConfig(),
         loadMcpConfigs(),
         loadMcpEnvSecrets(),
+        loadMcpApiKeys(),
         loadEnabledMcpServers(),
         loadAnimationsDisabled(),
         loadAlwaysOnTop(),
@@ -320,11 +322,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         searchApiKeys: loadedSearchKeys,
       });
 
-      const mcpConfigs = loadedMcpConfigs || [];
+      const mcpConfigs = (loadedMcpConfigs || []).map((c) => ({
+        ...c,
+        apiKey: loadedMcpKeys?.[c.id] ?? c.apiKey,
+      }));
       const mcpEnabledServers = loadedMcpEnabledServers || [];
       mcpSetState({
         mcpConfigs,
         envSecrets: loadedMcpEnvSecrets,
+        mcpApiKeys: loadedMcpKeys || {},
         serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
         enabledServerIds: new Set(mcpEnabledServers.filter((id) => mcpConfigs.some((c) => c.id === id))),
       });

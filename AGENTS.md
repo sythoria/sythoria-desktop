@@ -274,6 +274,7 @@ export interface ModelConfig {
 | Projects        | Tauri plugin-store (`sythoria-projects`)                      |
 | Search configs  | Tauri plugin-store + app data dir `search_config.json`        |
 | MCP configs     | Tauri plugin-store (`sythoria-mcp-configs`)                   |
+| MCP API keys    | OS keychain (service: `com.sythoria.sythoria-desktop`)        |
 | MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)             |
 | Theme           | Tauri plugin-store (`sythoria-theme`) + localStorage fallback |
 | Keybinds        | Tauri plugin-store (`sythoria-keybinds`)                      |

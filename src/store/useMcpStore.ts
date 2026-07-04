@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../types";
 import { generateId } from "../utils/generateId";
-import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers } from "../utils/storage";
+import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers, saveMcpApiKeys } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
@@ -16,6 +16,10 @@ const debouncedSaveMcpConfigs = debounce((configs: McpServerConfig[]) => {
 
 const debouncedSaveMcpEnvSecrets = debounce((secrets: Record<string, Record<string, string>>) => {
   saveMcpEnvSecrets(secrets);
+}, 500);
+
+const debouncedSaveMcpApiKeys = debounce((keys: Record<string, string>) => {
+  saveMcpApiKeys(keys);
 }, 500);
 
 const debouncedLogConfigUpdate = debounce((name: string, fields: string[]) => {
@@ -39,6 +43,7 @@ function sanitizeName(name: string): string {
 interface McpState {
   mcpConfigs: McpServerConfig[];
   envSecrets: Record<string, Record<string, string>>;
+  mcpApiKeys: Record<string, string>;
   serverStatuses: Record<string, McpServerStatus>;
   availableTools: McpTool[];
   enabledServerIds: Set<string>;
@@ -62,6 +67,7 @@ interface McpState {
 export const useMcpStore = create<McpState>((set, get) => ({
   mcpConfigs: [],
   envSecrets: {},
+  mcpApiKeys: {},
   serverStatuses: {},
   availableTools: [],
   enabledServerIds: new Set(),
@@ -158,9 +164,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   updateMcpConfig: (id, updates) => {
-    const { mcpConfigs } = get();
+    const { mcpConfigs, mcpApiKeys } = get();
     const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     set({ mcpConfigs: updatedConfigs });
+
+    if (updates.apiKey !== undefined) {
+      const newKeys = { ...mcpApiKeys, [id]: updates.apiKey };
+      set({ mcpApiKeys: newKeys });
+      debouncedSaveMcpApiKeys(newKeys);
+    }
+
     debouncedSaveMcpConfigs(updatedConfigs);
     const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
@@ -169,7 +182,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   deleteMcpConfig: (id) => {
-    const { mcpConfigs, serverStatuses, envSecrets, availableTools } = get();
+    const { mcpConfigs, serverStatuses, envSecrets, availableTools, mcpApiKeys } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     const updated = mcpConfigs.filter((c) => c.id !== id);
     const newStatuses = { ...serverStatuses };
@@ -179,17 +192,24 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const updatedTools = availableTools.filter((t) => t.serverId !== id);
     const nextEnabled = new Set(get().enabledServerIds);
     nextEnabled.delete(id);
+
+    const newKeys = { ...mcpApiKeys };
+    delete newKeys[id];
+
     set({
       mcpConfigs: updated,
       serverStatuses: newStatuses,
       envSecrets: newEnvSecrets,
       availableTools: updatedTools,
       enabledServerIds: nextEnabled,
+      mcpApiKeys: newKeys,
     });
     debouncedSaveMcpConfigs.cancel();
     debouncedSaveMcpEnvSecrets.cancel();
+    debouncedSaveMcpApiKeys.cancel();
     saveMcpConfigs(updated);
     saveMcpEnvSecrets(newEnvSecrets);
+    saveMcpApiKeys(newKeys);
     saveEnabledMcpServers(Array.from(nextEnabled));
     logInfo("mcp", `MCP server deleted: "${config?.name ?? id}"`, {});
     useUIStore.getState().addToast("MCP server deleted", "info");

@@ -755,11 +755,30 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
     if (raw) {
       const result = McpConfigsArraySchema.safeParse(raw);
       if (result.success) {
-        const migrated = migrateMcpConfigs(result.data as import("../types").McpServerConfig[]);
-        // Persist the migrated form so subsequent loads are clean.
-        if (JSON.stringify(migrated) !== JSON.stringify(result.data)) {
+        let migrated = migrateMcpConfigs(result.data as import("../types").McpServerConfig[]);
+
+        // Migrate any plaintext apiKeys found in the config file to the keychain
+        const configsWithApiKeys = migrated.filter((c) => c.apiKey && c.apiKey.trim() !== "");
+        if (configsWithApiKeys.length > 0) {
+          logInfo("storage", `Migrating ${configsWithApiKeys.length} plaintext MCP API key(s) to keychain`, {});
+          const currentKeys = await loadMcpApiKeys();
+          const updatedKeys = { ...currentKeys };
+          for (const c of configsWithApiKeys) {
+            updatedKeys[c.id] = c.apiKey!;
+          }
+          await saveMcpApiKeys(updatedKeys);
+
+          // Strip apiKey from the stored configs
+          migrated = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
           await store.set(MCP_CONFIGS_KEY, migrated);
           await store.save();
+        } else if (JSON.stringify(migrated) !== JSON.stringify(result.data)) {
+          // Persist the migrated form so subsequent loads are clean.
+          // Strip API keys to be safe
+          const stripped = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
+          await store.set(MCP_CONFIGS_KEY, stripped);
+          await store.save();
+          migrated = stripped;
           logInfo("storage", "Migrated MCP configs to program + args format", {
             details: `${migrated.length} server(s) processed`,
           });
@@ -783,12 +802,39 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
 export async function saveMcpConfigs(configs: import("../types").McpServerConfig[]): Promise<void> {
   try {
     const store = await getStore();
-    await store.set(MCP_CONFIGS_KEY, configs);
+    // Strip apiKey from all configs before saving to disk
+    const stripped = configs.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
+    await store.set(MCP_CONFIGS_KEY, stripped);
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save MCP configs to secure store", {
       error: e,
       action: "MCP server config may not persist. Re-configure in Settings > MCP Servers.",
+    });
+  }
+}
+
+export async function loadMcpApiKeys(): Promise<Record<string, string>> {
+  try {
+    const raw = await invoke<unknown>("load_mcp_api_keys");
+    const result = ApiKeysSchema.safeParse(raw);
+    if (result.success && Object.keys(result.data).length > 0) return result.data;
+  } catch (e) {
+    logError("storage", "Failed to load MCP API keys from keychain", {
+      error: e,
+      action: "Re-enter your MCP API keys in Settings > MCP Servers.",
+    });
+  }
+  return {};
+}
+
+export async function saveMcpApiKeys(keys: Record<string, string>): Promise<void> {
+  try {
+    await invoke("save_mcp_api_keys_cmd", { keys });
+  } catch (e) {
+    logError("storage", "Failed to save MCP API keys to keychain", {
+      error: e,
+      action: "MCP API keys may not persist. Re-enter them in Settings > MCP Servers.",
     });
   }
 }

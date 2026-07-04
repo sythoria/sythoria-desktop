@@ -294,6 +294,7 @@ const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
 const API_KEY_INDEX: &str = "sythoria-api-key-index";
 const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
 const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
+const MCP_API_KEY_INDEX: &str = "sythoria-mcp-api-key-index";
 
 fn keychain_account(namespace: &str, id: &str) -> String {
     format!("{}:{}", namespace, id)
@@ -513,6 +514,19 @@ async fn save_search_api_keys_cmd(
     keys: serde_json::Value,
 ) -> Result<(), AppError> {
     save_secret_map(&app, "search", SEARCH_API_KEY_INDEX, &keys).await
+}
+
+#[tauri::command]
+async fn load_mcp_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
+    load_secret_map(&app, "mcp", MCP_API_KEY_INDEX).await
+}
+
+#[tauri::command]
+async fn save_mcp_api_keys_cmd(
+    app: tauri::AppHandle,
+    keys: serde_json::Value,
+) -> Result<(), AppError> {
+    save_secret_map(&app, "mcp", MCP_API_KEY_INDEX, &keys).await
 }
 
 #[derive(Deserialize)]
@@ -1350,11 +1364,23 @@ async fn save_mcp_env_secrets_cmd(
 }
 
 #[tauri::command]
-async fn mcp_start_server(config: String, env_secrets: String) -> Result<String, AppError> {
-    let server_config: mcp::McpServerConfig = serde_json::from_str(&config)
+async fn mcp_start_server(
+    config: String,
+    env_secrets: String,
+    _app: tauri::AppHandle,
+) -> Result<String, AppError> {
+    let mut server_config: mcp::McpServerConfig = serde_json::from_str(&config)
         .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
     let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
         .map_err(|e| AppError::ParseError(format!("Invalid MCP env secrets JSON: {}", e)))?;
+
+    if server_config.apiKey.as_deref().unwrap_or("").is_empty() {
+        if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
+            if !key.is_empty() {
+                server_config.apiKey = Some(key);
+            }
+        }
+    }
 
     let tools = mcp::client::connect_server(&server_config, env_map)
         .await
@@ -2336,6 +2362,8 @@ pub fn run() {
             save_mcp_config,
             load_mcp_env_secrets,
             save_mcp_env_secrets_cmd,
+            load_mcp_api_keys,
+            save_mcp_api_keys_cmd,
             mcp_start_server,
             mcp_check_command,
             mcp_stop_server,
