@@ -25,6 +25,7 @@ import { AppshotsSection } from "./sections/AppshotsSection";
 import { PrivacySection } from "./sections/PrivacySection";
 import { WhisperSection } from "./sections/WhisperSection";
 import { SectionId } from "./types";
+import { useTranslation } from "../../utils/i18n";
 
 export default function Settings() {
   const models = useModelStore((s) => s.models);
@@ -69,6 +70,7 @@ export default function Settings() {
   const setView = useUIStore((s) => s.setView);
   const addToast = useUIStore((s) => s.addToast);
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
+  const { t } = useTranslation();
 
   const logBuffer = useUIStore((s) => s.logBuffer);
   const logFilterSource = useUIStore((s) => s.logFilterSource);
@@ -144,10 +146,10 @@ export default function Settings() {
           whileTap={{ scale: motionTokens.scale.press }}
           transition={springs.snappy}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 border border-accent/30 text-sm font-medium transition-all"
-          aria-label="Create New Chat"
+          aria-label={t("common.newChat")}
         >
           <Plus size={16} />
-          <span>New Chat</span>
+          <span>{t("common.newChat")}</span>
         </motion.button>
       </header>
 

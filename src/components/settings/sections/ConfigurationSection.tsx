@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { springs } from "../../../lib/motion-tokens";
+import { useTranslation } from "../../../utils/i18n";
 import {
   MIN_TEMPERATURE,
   MAX_TEMPERATURE,
@@ -38,6 +39,7 @@ export const ConfigurationSection = ({
   maxToolSteps,
   setMaxToolSteps,
 }: ConfigurationSectionProps) => {
+  const { t } = useTranslation();
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,14 +53,14 @@ export const ConfigurationSection = ({
 
   const handleTemperatureChange = useCallback(
     (value: string) => {
-      const t = parseFloat(value);
-      setTemperature(t);
+      const tempVal = parseFloat(value);
+      setTemperature(tempVal);
       if (tempToastRef.current) clearTimeout(tempToastRef.current);
       tempToastRef.current = setTimeout(() => {
-        addToast(`Temperature set to ${t.toFixed(1)}`, "info");
+        addToast(t("settings.chat.tempToast", { temp: tempVal.toFixed(1) }), "info");
       }, 800);
     },
-    [setTemperature, addToast],
+    [setTemperature, addToast, t],
   );
 
   const handleMaxToolStepsChange = useCallback(
@@ -67,10 +69,10 @@ export const ConfigurationSection = ({
       setMaxToolSteps(steps);
       if (maxStepsToastRef.current) clearTimeout(maxStepsToastRef.current);
       maxStepsToastRef.current = setTimeout(() => {
-        addToast(`Maximum tool steps set to ${steps}`, "info");
+        addToast(t("settings.chat.maxStepsToast", { steps: String(steps) }), "info");
       }, 800);
     },
-    [setMaxToolSteps, addToast],
+    [setMaxToolSteps, addToast, t],
   );
 
   useEffect(() => {
@@ -86,17 +88,15 @@ export const ConfigurationSection = ({
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Chat Settings</h3>
-        <p className="text-xs text-text-muted">
-          Configure default model selection, generation parameters, and tool execution limits
-        </p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.chat.title")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.chat.subtitle")}</p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <div className="space-y-2">
           <label htmlFor="default-model-select" className="text-sm font-medium text-text-primary block">
-            Default AI Model
+            {t("settings.chat.defaultModel")}
           </label>
-          <p className="text-xs text-text-muted mb-2">Choose the model for new conversations</p>
+          <p className="text-xs text-text-muted mb-2">{t("settings.chat.defaultModelDesc")}</p>
           <div className="relative">
             <button
               id="default-model-select"
@@ -159,9 +159,9 @@ export const ConfigurationSection = ({
 
         <div className="space-y-2 pt-2">
           <label htmlFor="default-search-provider" className="text-sm font-medium text-text-primary block">
-            Default Search Provider
+            {t("settings.chat.defaultSearch")}
           </label>
-          <p className="text-xs text-text-muted mb-2">Choose the search API used when web search is enabled</p>
+          <p className="text-xs text-text-muted mb-2">{t("settings.chat.defaultSearchDesc")}</p>
           <div className="relative">
             <button
               id="default-search-provider"
@@ -173,7 +173,9 @@ export const ConfigurationSection = ({
             >
               <span>
                 {activeSearchConfig?.name ||
-                  (enabledSearchConfigs.length === 0 ? "No search APIs configured" : "Select provider")}
+                  (enabledSearchConfigs.length === 0
+                    ? t("settings.chat.noEnabledSearch")
+                    : t("settings.chat.selectSearch"))}
               </span>
               <ChevronDown
                 size={16}
@@ -233,15 +235,13 @@ export const ConfigurationSection = ({
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="flex items-center justify-between">
             <label htmlFor="temperature-slider" className="text-sm font-medium text-text-primary">
-              Temperature
+              {t("settings.chat.temperature")}
             </label>
             <span className="text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono">
               {temperature.toFixed(1)}
             </span>
           </div>
-          <p className="text-xs text-text-muted">
-            Adjust creativity: lower values produce more focused responses, higher values more creative ones
-          </p>
+          <p className="text-xs text-text-muted">{t("settings.chat.temperatureDesc")}</p>
           <div className="flex items-center gap-4">
             <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TEMPERATURE.toFixed(1)}</span>
             <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
@@ -269,25 +269,22 @@ export const ConfigurationSection = ({
             <span className="text-xs text-text-muted whitespace-nowrap">{MAX_TEMPERATURE.toFixed(1)}</span>
           </div>
           <div className="flex justify-between text-[10px] text-text-muted pt-1">
-            <span>Precise</span>
-            <span>Balanced</span>
-            <span>Creative</span>
+            <span>{t("settings.chat.tempPrecise", { defaultValue: "Precise" })}</span>
+            <span>{t("settings.chat.tempBalanced", { defaultValue: "Balanced" })}</span>
+            <span>{t("settings.chat.tempCreative", { defaultValue: "Creative" })}</span>
           </div>
         </div>
 
         <div className="space-y-3 pt-4 border-t border-border/50">
           <div className="flex items-center justify-between">
             <label htmlFor="max-tool-steps-slider" className="text-sm font-medium text-text-primary">
-              Maximum Tool Steps
+              {t("settings.chat.maxToolSteps")}
             </label>
             <span className="text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono">
               {maxToolSteps}
             </span>
           </div>
-          <p className="text-xs text-text-muted">
-            Set the maximum number of consecutive tool execution steps allowed for complex tasks (e.g. web search, file
-            fetching, or MCP tools) before returning a final answer
-          </p>
+          <p className="text-xs text-text-muted">{t("settings.chat.maxToolStepsDesc")}</p>
           <div className="flex items-center gap-4">
             <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TOOL_STEPS}</span>
             <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
@@ -315,9 +312,9 @@ export const ConfigurationSection = ({
             <span className="text-xs text-text-muted whitespace-nowrap">{MAX_TOOL_STEPS_LIMIT}</span>
           </div>
           <div className="flex justify-between text-[10px] text-text-muted pt-1">
-            <span>Minimum (1)</span>
-            <span>Default (25)</span>
-            <span>Maximum (100)</span>
+            <span>{t("settings.chat.stepsMin", { defaultValue: "Minimum (1)" })}</span>
+            <span>{t("settings.chat.stepsDefault", { defaultValue: "Default (25)" })}</span>
+            <span>{t("settings.chat.stepsMax", { defaultValue: "Maximum (100)" })}</span>
           </div>
         </div>
       </div>

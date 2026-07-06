@@ -59,6 +59,8 @@ src/
     use-safe-motion.ts  # useSafeMotion, useSafeScale, useSafeSlideX (respects prefers-reduced-motion)
   utils/
     storage.ts          # Tauri store + keychain + Zod validation + localStorage fallback + model/project configs
+    i18n/                 # Modular BCP 47 locales: en.ts, es.ts, fr.ts, de.ts, zh.ts, ja.ts
+    i18n.ts               # Consolidates locales and exports type-safe useTranslation() hook
     validation.ts       # Zod schemas, URL validation, API key validation, MCP config validation
     generateId.ts       # crypto.randomUUID().slice(0, 8)
     parseApiError.ts    # AppError JSON -> user messages with category, retryability, suggested actions
@@ -266,20 +268,21 @@ export interface ModelConfig {
 
 ## Storage
 
-| Data            | Location                                                      |
-| --------------- | ------------------------------------------------------------- |
-| Conversations   | Tauri plugin-store (`sythoria-conversations`)                 |
-| Model configs   | App data dir `config.json` (keys in OS keychain)              |
-| API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)        |
-| Projects        | Tauri plugin-store (`sythoria-projects`)                      |
-| Search configs  | Tauri plugin-store + app data dir `search_config.json`        |
-| MCP configs     | Tauri plugin-store (`sythoria-mcp-configs`)                   |
-| MCP API keys    | OS keychain (service: `com.sythoria.sythoria-desktop`)        |
-| MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)             |
-| Theme           | Tauri plugin-store (`sythoria-theme`) + localStorage fallback |
-| Keybinds        | Tauri plugin-store (`sythoria-keybinds`)                      |
-| Appshot Config  | Tauri plugin-store (`sythoria-appshots`)                      |
-| Whisper Config  | LocalStorage (`sythoria-whisper-config`)                      |
+| Data            | Location                                                         |
+| --------------- | ---------------------------------------------------------------- |
+| Conversations   | Tauri plugin-store (`sythoria-conversations`)                    |
+| Model configs   | App data dir `config.json` (keys in OS keychain)                 |
+| API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
+| Projects        | Tauri plugin-store (`sythoria-projects`)                         |
+| Search configs  | Tauri plugin-store + app data dir `search_config.json`           |
+| MCP configs     | Tauri plugin-store (`sythoria-mcp-configs`)                      |
+| MCP API keys    | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
+| MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)                |
+| Theme           | Tauri plugin-store (`sythoria-theme`) + localStorage fallback    |
+| Keybinds        | Tauri plugin-store (`sythoria-keybinds`)                         |
+| Appshot Config  | Tauri plugin-store (`sythoria-appshots`)                         |
+| Whisper Config  | LocalStorage (`sythoria-whisper-config`)                         |
+| Language        | Tauri plugin-store (`sythoria-language`) + LocalStorage fallback |
 
 ## Notes
 
@@ -292,3 +295,4 @@ export interface ModelConfig {
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
 - **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
+- **Internationalization (i18n)**: Implements dynamic locale switching for BCP 47 language keys (`en`, `es`, `fr`, `de`, `zh`, `ja`) with an automatic English fallback. State is saved persistently and updates `document.documentElement.lang`. Dictionaries are structured as modular files under `src/utils/i18n/` to keep code footprint minimal and simplify adding new locales.

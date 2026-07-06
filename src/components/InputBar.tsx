@@ -37,6 +37,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { estimateConversationTokens } from "../utils/tokens";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
+import { useTranslation } from "../utils/i18n";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -63,6 +64,13 @@ const STATUS_LABELS: Record<string, string> = {
   error: "Connection error",
 };
 
+const STATUS_KEYS: Record<string, string> = {
+  disconnected: "status.disconnected",
+  connecting: "status.connecting",
+  connected: "status.connected",
+  error: "status.error",
+};
+
 export default function InputBar({
   models,
   onSend,
@@ -80,6 +88,7 @@ export default function InputBar({
   onStop,
   centered = false,
 }: InputBarProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -464,8 +473,8 @@ export default function InputBar({
                           e.stopPropagation();
                           setAttachments((prev) => prev.filter((item) => item.id !== a.id));
                         }}
-                        className="p-0.5 rounded-md hover:bg-hover text-text-muted hover:text-text-primary transition-colors"
-                        title="Remove attachment"
+                        className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-surface-elevation border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-hover opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                        title={t("chat.removeAttachment") || "Remove attachment"}
                       >
                         <X size={12} />
                       </button>
@@ -486,7 +495,8 @@ export default function InputBar({
                     ? "text-text-primary bg-active"
                     : "text-text-muted hover:text-text-secondary hover:bg-hover"
                 }`}
-                aria-label="Attach or search"
+                aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
+                title={t("tooltip.attachOrSearch") || "Attach or search"}
                 aria-expanded={plusOpen}
                 aria-haspopup="menu"
               >
@@ -514,7 +524,7 @@ export default function InputBar({
                       role="menuitem"
                     >
                       <Paperclip size={15} className="text-text-muted" />
-                      <span>Add File</span>
+                      <span>{t("chat.addFile") || "Add File"}</span>
                     </button>
                     <button
                       onClick={() => {
@@ -530,7 +540,7 @@ export default function InputBar({
                       aria-checked={isSearchEnabled}
                     >
                       <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
-                      <span>Web Search</span>
+                      <span>{t("chat.webSearch") || "Web Search"}</span>
                       {isSearchEnabled && <Check size={14} className="text-text-primary ml-auto" />}
                     </button>
                     {connectedMcpServers.length > 0 && (
@@ -571,7 +581,7 @@ export default function InputBar({
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder="Ask for follow-up changes..."
+              placeholder={t("chat.placeholder") || "Ask for follow-up changes..."}
               rows={1}
               disabled={disabled}
               aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
@@ -690,7 +700,7 @@ export default function InputBar({
                 {!disableBgActivity && (
                   <div
                     className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
-                    title={STATUS_LABELS[currentStatus] ?? currentStatus}
+                    title={t(STATUS_KEYS[currentStatus]) || STATUS_LABELS[currentStatus] || currentStatus}
                     aria-hidden="true"
                   />
                 )}
@@ -744,8 +754,8 @@ export default function InputBar({
                             {!disableBgActivity && (
                               <div
                                 className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                title={STATUS_LABELS[status] ?? status}
-                                aria-label={STATUS_LABELS[status] ?? status}
+                                title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
                               />
                             )}
                             <div className="flex-1 min-w-0">
@@ -777,7 +787,8 @@ export default function InputBar({
                     ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
                     : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
                 }`}
-                aria-label={isRecording ? "Stop recording" : "Start recording"}
+                aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
               >
                 {isTranscribing ? (
                   <Loader2 size={16} className="animate-spin text-accent" />
@@ -796,7 +807,8 @@ export default function InputBar({
                   ? "bg-red-500/90 hover:bg-red-600 text-white"
                   : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
               }`}
-              aria-label={isStreaming ? "Stop generating" : "Send message"}
+              aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
+              title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
             >
               {isStreaming ? <Square size={16} className="fill-current" /> : <ArrowUp size={16} strokeWidth={2.5} />}
             </button>
@@ -823,11 +835,17 @@ export default function InputBar({
                         <FolderOpen size={14} className="shrink-0" />
                         <span className="truncate max-w-[120px]">{activeProject.name}</span>
                         {activeProject.permissions === "full" ? (
-                          <span title="Full Shell Access" className="shrink-0 ml-1 flex items-center">
+                          <span
+                            title={t("chat.fullShellAccess") || "Full Shell Access"}
+                            className="shrink-0 ml-1 flex items-center"
+                          >
                             <ShieldAlert size={12} className="text-red-500" />
                           </span>
                         ) : activeProject.permissions === "write" ? (
-                          <span title="Read/Write Access" className="shrink-0 ml-1 flex items-center">
+                          <span
+                            title={t("chat.readWriteAccess") || "Read/Write Access"}
+                            className="shrink-0 ml-1 flex items-center"
+                          >
                             <Shield size={12} className="text-amber-500" />
                           </span>
                         ) : null}
@@ -835,7 +853,7 @@ export default function InputBar({
                     ) : (
                       <>
                         <FolderPlus size={14} className="shrink-0" />
-                        <span>Work in a project</span>
+                        <span>{t("chat.workInProject") || "Work in a project"}</span>
                       </>
                     )}
                     <ChevronDown
@@ -998,7 +1016,7 @@ export default function InputBar({
                   <button
                     onClick={() => onToggleSearch(false)}
                     className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
-                    title="Disable Web Search"
+                    title={t("chat.disableWebSearch") || "Disable Web Search"}
                   >
                     <X size={12} />
                   </button>
@@ -1022,8 +1040,8 @@ export default function InputBar({
                     </span>
                     <button
                       onClick={() => onToggleMcpServer(server.id)}
-                      className="p-0.5 rounded hover:bg-hover text-text-muted hover:text-text-primary transition-colors"
-                      title={`Disable ${server.name}`}
+                      className="shrink-0 p-1.5 rounded-lg bg-active text-text-primary hover:bg-hover hover:text-text-secondary border border-border/20 transition-all flex items-center gap-1.5 shadow-sm text-xs"
+                      title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
                     >
                       <X size={12} />
                     </button>
@@ -1060,10 +1078,10 @@ export default function InputBar({
           ) : enabledMcpServerIds.size > 0 ? (
             <span className="flex items-center justify-center gap-1.5">
               <Cpu size={11} className="text-text-secondary" />
-              {enabledMcpServerIds.size} MCP server{enabledMcpServerIds.size !== 1 ? "s" : ""} enabled
+              {t("chat.mcp_servers_enabled", { count: String(enabledMcpServerIds.size) })}
             </span>
           ) : (
-            "Sythoria can make mistakes. Consider checking important information."
+            t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."
           )}
         </p>
       </div>

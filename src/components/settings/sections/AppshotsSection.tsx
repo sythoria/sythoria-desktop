@@ -7,8 +7,10 @@ import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useAppshotStore } from "../../../store/useAppshotStore";
 import { useUIStore } from "../../../store/useUIStore";
+import { useTranslation } from "../../../utils/i18n";
 
 export function AppshotsSection() {
+  const { t } = useTranslation();
   const {
     config,
     recentAppshots,
@@ -39,18 +41,18 @@ export function AppshotsSection() {
 
   const handleTestCapture = async () => {
     try {
-      addToast("Starting screen capture...", "info");
+      addToast(t("settings.appshots.testingStatus"), "info");
       const result = await triggerCapture("primary");
-      addToast(`Screenshot captured! Saved to ${result.path.slice(-40)}...`, "success");
+      addToast(t("settings.appshots.testSuccess", { path: result.path.slice(-40) }), "success");
     } catch (e: any) {
-      addToast(`Screen capture failed: ${e.message || String(e)}`, "error");
+      addToast(t("settings.appshots.testFailed", { error: e.message || String(e) }), "error");
     }
   };
 
   const handleCopyPath = (path: string) => {
     navigator.clipboard.writeText(path);
     setCopiedPath(path);
-    addToast("File path copied to clipboard", "info");
+    addToast(t("settings.appshots.pathCopied"), "info");
     setTimeout(() => setCopiedPath(null), 2000);
   };
 
@@ -66,10 +68,8 @@ export function AppshotsSection() {
     <>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Appshots Utility</h3>
-          <p className="text-xs text-text-muted">
-            Capture monitor frames, configure encoders, and manage disk space cleanup.
-          </p>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.appshots.title")}</h3>
+          <p className="text-xs text-text-muted">{t("settings.appshots.subtitle")}</p>
         </div>
         <Switch
           checked={config.enabled && hasPermission}
@@ -83,14 +83,10 @@ export function AppshotsSection() {
           <div className="flex items-start gap-2.5">
             <AlertCircle size={18} className="shrink-0 mt-0.5 text-amber-500" />
             <div>
-              <span className="font-semibold block mb-0.5 text-sm">Screen Recording Permission Required</span>
-              <span className="opacity-90 leading-relaxed block max-w-md">
-                macOS requires screen recording permission to take screenshots of the application. Please grant
-                permission in System Settings.
-              </span>
+              <span className="font-semibold block mb-0.5 text-sm">{t("settings.appshots.screenPermRequired")}</span>
+              <span className="opacity-90 leading-relaxed block max-w-md">{t("settings.appshots.screenPermDesc")}</span>
               <span className="opacity-75 leading-relaxed block max-w-md mt-1.5 font-medium">
-                Note: If you reinstalled or rebuilt the app and the switch in System Settings already shows as enabled,
-                toggle it <strong>OFF</strong> and then <strong>ON</strong> again, then restart the app.
+                {t("settings.appshots.screenPermNote")}
               </span>
             </div>
           </div>
@@ -101,13 +97,13 @@ export function AppshotsSection() {
             onClick={async () => {
               const ok = await requestPermission();
               if (ok) {
-                addToast("Permission granted! Please restart the app if captures fail.", "success");
+                addToast(t("settings.appshots.permGranted"), "success");
               } else {
-                addToast("Permission was not granted or still needs to be enabled in System Settings.", "info");
+                addToast(t("settings.appshots.permDenied"), "info");
               }
             }}
           >
-            Grant Permission
+            {t("settings.appshots.grantPermissionBtn")}
           </motion.button>
         </div>
       )}
@@ -116,7 +112,7 @@ export function AppshotsSection() {
         <div className="bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl p-3 text-xs flex items-start gap-2.5 shadow-sm">
           <AlertCircle size={16} className="shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold block mb-0.5">Appshot Engine Error</span>
+            <span className="font-semibold block mb-0.5">{t("settings.appshots.engineError")}</span>
             <span className="opacity-90">{error}</span>
           </div>
         </div>
@@ -130,7 +126,9 @@ export function AppshotsSection() {
           className="space-y-6"
         >
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Save Location</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+              {t("settings.appshots.saveLocation")}
+            </h4>
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input
@@ -150,14 +148,17 @@ export function AppshotsSection() {
                       if (selected) {
                         setInputFolder(selected);
                         await updateConfig({ captureFolder: selected });
-                        addToast("Appshots capture folder path updated", "success");
+                        addToast(
+                          t("settings.appshots.pathUpdated", { defaultValue: "Appshots capture folder path updated" }),
+                          "success",
+                        );
                       }
                     } catch (e: any) {
                       addToast(e.message || String(e), "error");
                     }
                   }}
                 >
-                  Browse...
+                  {t("settings.appshots.browseBtn")}
                 </motion.button>
                 {inputFolder && (
                   <motion.button
@@ -167,29 +168,33 @@ export function AppshotsSection() {
                     onClick={async () => {
                       setInputFolder("");
                       await updateConfig({ captureFolder: "" });
-                      addToast("Reset to default secure app data folder", "success");
+                      addToast(
+                        t("settings.appshots.resetFolderSuccess", {
+                          defaultValue: "Reset to default secure app data folder",
+                        }),
+                        "success",
+                      );
                     }}
                   >
-                    Clear
+                    {t("settings.appshots.clearBtn")}
                   </motion.button>
                 )}
               </div>
-              <p className="text-[10px] text-text-muted">
-                Appshot save directory must be inside whitelisted system directories (Pictures, Documents, Downloads,
-                Desktop, or App Data).
-              </p>
+              <p className="text-[10px] text-text-muted">{t("settings.appshots.saveLocationDesc")}</p>
             </div>
           </div>
 
           {/* Card 2: Capture Preferences */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
             <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              Capture & Encoder Preferences
+              {t("settings.appshots.capturePrefs")}
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-1">
               <div className="space-y-2">
-                <span className="text-xs font-medium text-text-primary block">Encoder Format</span>
+                <span className="text-xs font-medium text-text-primary block">
+                  {t("settings.appshots.encoderFormat")}
+                </span>
                 <div className="flex gap-2 bg-input/40 p-1 rounded-lg border border-border/40 w-fit">
                   {(["png", "jpeg"] as const).map((fmt) => (
                     <button
@@ -211,7 +216,7 @@ export function AppshotsSection() {
               {config.imageFormat === "jpeg" && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs">
-                    <span className="font-medium text-text-primary">JPEG Quality</span>
+                    <span className="font-medium text-text-primary">{t("settings.appshots.jpegQuality")}</span>
                     <span className="font-semibold text-accent">{config.imageQuality}%</span>
                   </div>
                   <input
@@ -226,17 +231,17 @@ export function AppshotsSection() {
               )}
 
               <div className="space-y-2">
-                <span className="text-xs font-medium text-text-primary block">Delay Timer</span>
+                <span className="text-xs font-medium text-text-primary block">{t("settings.appshots.delayTimer")}</span>
                 <div className="relative w-full">
                   <select
                     value={config.delaySeconds}
                     onChange={(e) => updateConfig({ delaySeconds: parseInt(e.target.value, 10) })}
                     className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   >
-                    <option value={0}>0s (Instant Capture)</option>
-                    <option value={1}>1s Delay</option>
-                    <option value={3}>3s Delay</option>
-                    <option value={5}>5s Delay</option>
+                    <option value={0}>{t("settings.appshots.delayInstant")}</option>
+                    <option value={1}>{t("settings.appshots.delaySec", { seconds: "1" })}</option>
+                    <option value={3}>{t("settings.appshots.delaySec", { seconds: "3" })}</option>
+                    <option value={5}>{t("settings.appshots.delaySec", { seconds: "5" })}</option>
                   </select>
                   <ChevronDown
                     size={14}
@@ -250,8 +255,8 @@ export function AppshotsSection() {
                 <Switch
                   checked={config.hideWindowOnCapture}
                   onChange={(val) => updateConfig({ hideWindowOnCapture: val })}
-                  label="Minimize App on Capture"
-                  description="Auto-minimize Sythoria window during screenshot count-down"
+                  label={t("settings.appshots.minimize")}
+                  description={t("settings.appshots.minimizeDesc")}
                 />
               </div>
             </div>
@@ -259,13 +264,15 @@ export function AppshotsSection() {
 
           {/* Card 3: Auto-Clean Rules */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Disk Space Auto-Cleanup</h4>
+            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+              {t("settings.appshots.pruneRules")}
+            </h4>
             <div>
               <Switch
                 checked={config.autoCleanEnabled}
                 onChange={(val) => updateConfig({ autoCleanEnabled: val })}
-                label="Enable Auto-Cleanup"
-                description="Automatically manage and prune old screenshot captures"
+                label={t("settings.appshots.autoClean")}
+                description={t("settings.appshots.autoCleanDesc")}
               />
 
               <AnimatePresence initial={false}>
@@ -283,16 +290,18 @@ export function AppshotsSection() {
                   >
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border/60 mt-4">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-medium text-text-muted">Pruning Rule</label>
+                        <label className="text-[10px] font-medium text-text-muted">
+                          {t("settings.appshots.cleanType")}
+                        </label>
                         <div className="relative w-full">
                           <select
                             value={config.autoCleanType}
                             onChange={(e) => updateConfig({ autoCleanType: e.target.value as any })}
                             className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                           >
-                            <option value="count">Keep Max File Count</option>
-                            <option value="size">Limit Folder Size (MB)</option>
-                            <option value="age">Limit File Age (Days)</option>
+                            <option value="count">{t("settings.appshots.cleanTypeCount")}</option>
+                            <option value="size">{t("settings.appshots.cleanTypeSize")}</option>
+                            <option value="age">{t("settings.appshots.cleanTypeAge")}</option>
                           </select>
                           <ChevronDown
                             size={14}
@@ -303,7 +312,9 @@ export function AppshotsSection() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-medium text-text-muted">Limit Threshold Value</label>
+                        <label className="text-[10px] font-medium text-text-muted">
+                          {t("settings.appshots.cleanValue")}
+                        </label>
                         <input
                           type="number"
                           min="1"
@@ -322,7 +333,9 @@ export function AppshotsSection() {
           {/* Recent Appshots / Gallery */}
           <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Captures Gallery</h4>
+              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                {t("settings.appshots.galleryTitle")}
+              </h4>
               <div className="flex gap-2">
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
@@ -332,7 +345,7 @@ export function AppshotsSection() {
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent text-accent-foreground text-xs font-semibold shadow-sm min-h-[32px]"
                 >
                   {isCapturing ? <Spinner size="sm" /> : <Camera size={13} />}
-                  <span>Test Capture</span>
+                  <span>{t("settings.appshots.testCaptureBtn")}</span>
                 </motion.button>
                 {recentAppshots.length > 0 && (
                   <motion.button
@@ -343,7 +356,7 @@ export function AppshotsSection() {
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 text-red-500 hover:bg-red-500/5 text-xs font-semibold min-h-[32px]"
                   >
                     <Trash2 size={13} />
-                    <span>Clear All</span>
+                    <span>{t("settings.appshots.clearGalleryBtn") || t("settings.appshots.clearBtn")}</span>
                   </motion.button>
                 )}
               </div>
@@ -352,7 +365,7 @@ export function AppshotsSection() {
             {recentAppshots.length === 0 ? (
               <div className="border border-dashed border-border/60 rounded-xl p-8 text-center space-y-2">
                 <Image size={24} className="mx-auto text-text-muted opacity-40 animate-pulse" />
-                <span className="text-xs text-text-muted block">No screenshot records found yet.</span>
+                <span className="text-xs text-text-muted block">{t("settings.appshots.noShots")}</span>
               </div>
             ) : (
               <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
@@ -384,7 +397,7 @@ export function AppshotsSection() {
                         whileTap={{ scale: motionTokens.scale.press }}
                         transition={springs.snappy}
                         className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors shadow-sm"
-                        title="Copy absolute path"
+                        title={t("settings.appshots.copyPathTooltip")}
                       >
                         {copiedPath === shot.path ? (
                           <Check size={13} className="text-emerald-500" />
@@ -399,7 +412,7 @@ export function AppshotsSection() {
                         whileTap={{ scale: motionTokens.scale.press }}
                         transition={springs.snappy}
                         className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-red-500/80 hover:text-red-500 transition-colors shadow-sm"
-                        title="Delete image"
+                        title={t("settings.appshots.deleteImageTooltip")}
                       >
                         <Trash2 size={13} />
                       </motion.button>

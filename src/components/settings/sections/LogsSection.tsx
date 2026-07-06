@@ -4,6 +4,7 @@ import { Search, Filter, Copy, X, Check, ChevronDown } from "lucide-react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { LogEntry, LogSource } from "../../../types/log";
 import { clearLogs } from "../../../utils/logger";
+import { useTranslation } from "../../../utils/i18n";
 
 const LOG_SOURCE_OPTIONS: { value: LogSource | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -59,6 +60,50 @@ export const LogsSection = ({
   setLogFilterSource,
   setLogFilterLevel,
 }: LogsSectionProps) => {
+  const { t } = useTranslation();
+
+  const getSourceLabel = (value: string) => {
+    switch (value) {
+      case "all":
+        return t("settings.logs.sourceAll");
+      case "chat":
+        return t("settings.logs.sourceChat");
+      case "model":
+        return t("settings.logs.sourceModels");
+      case "search":
+        return t("settings.logs.sourceSearch");
+      case "mcp":
+        return t("settings.logs.sourceMcp");
+      case "storage":
+        return t("settings.logs.sourceStorage");
+      case "stream":
+        return t("settings.logs.sourceStream");
+      case "git":
+        return t("settings.logs.sourceGit");
+      case "appshots":
+        return t("settings.logs.sourceAppshots");
+      case "general":
+        return t("settings.logs.sourceGeneral");
+      default:
+        return value;
+    }
+  };
+
+  const getLevelLabel = (value: string) => {
+    switch (value) {
+      case "all":
+        return t("settings.logs.levelAll");
+      case "error":
+        return t("settings.logs.levelErrors");
+      case "warn":
+        return t("settings.logs.levelWarnings");
+      case "info":
+        return t("settings.logs.levelInfo");
+      default:
+        return value;
+    }
+  };
+
   const [logSearch, setLogSearch] = useState("");
   const [copiedLogs, setCopiedLogs] = useState(false);
 
@@ -95,8 +140,8 @@ export const LogsSection = ({
     <>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Activity Log</h3>
-          <p className="text-xs text-text-muted">Application events and errors</p>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.logs.title")}</h3>
+          <p className="text-xs text-text-muted">{t("settings.logs.subtitle")}</p>
         </div>{" "}
         <div className="flex items-center gap-2">
           <motion.button
@@ -105,10 +150,10 @@ export const LogsSection = ({
             whileTap={{ scale: motionTokens.scale.press }}
             transition={springs.snappy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-            aria-label="Copy logs"
+            aria-label={t("settings.logs.copy")}
           >
             {copiedLogs ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-            <span>{copiedLogs ? "Copied" : "Copy"}</span>
+            <span>{copiedLogs ? t("settings.logs.copied") : t("settings.logs.copy")}</span>
           </motion.button>
           <motion.button
             onClick={() => {
@@ -118,10 +163,10 @@ export const LogsSection = ({
             whileTap={{ scale: motionTokens.scale.press }}
             transition={springs.snappy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-            aria-label="Clear logs"
+            aria-label={t("settings.logs.clear")}
           >
             <X size={14} />
-            <span>Clear</span>
+            <span>{t("settings.logs.clear")}</span>
           </motion.button>
         </div>
       </div>
@@ -134,7 +179,7 @@ export const LogsSection = ({
               type="text"
               value={logSearch}
               onChange={(e) => setLogSearch(e.target.value)}
-              placeholder="Search logs..."
+              placeholder={t("settings.logs.search")}
               className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-accent/30 transition-colors"
             />
           </div>
@@ -145,11 +190,11 @@ export const LogsSection = ({
                 value={logFilterSource}
                 onChange={(e) => setLogFilterSource(e.target.value as LogSource | "all")}
                 className="pl-2 pr-7 py-1.5 appearance-none rounded-lg border border-input-border bg-input text-xs text-text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
-                aria-label="Filter by source"
+                aria-label={t("settings.logs.filterSource")}
               >
                 {LOG_SOURCE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
-                    {o.label}
+                    {getSourceLabel(o.value)}
                   </option>
                 ))}
               </select>
@@ -164,11 +209,11 @@ export const LogsSection = ({
                 value={logFilterLevel}
                 onChange={(e) => setLogFilterLevel(e.target.value as "all" | "info" | "warn" | "error")}
                 className="pl-2 pr-7 py-1.5 appearance-none rounded-lg border border-input-border bg-input text-xs text-text-primary focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-colors"
-                aria-label="Filter by level"
+                aria-label={t("settings.logs.filterLevel")}
               >
                 {LOG_LEVEL_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
-                    {o.label}
+                    {getLevelLabel(o.value)}
                   </option>
                 ))}
               </select>
@@ -185,17 +230,17 @@ export const LogsSection = ({
           {filteredLogs.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-text-muted text-sm">
-                {logBuffer.length === 0 ? "No activity logged yet." : "No logs match your filters."}
+                {logBuffer.length === 0 ? t("settings.logs.noLogsDesc") : t("settings.logs.noLogs")}
               </p>
             </div>
           ) : (
             <div className="divide-y divide-border/30">
               {/* Grid header */}
               <div className="grid grid-cols-[140px_50px_85px_1fr] gap-2 px-3 py-1.5 bg-surface/50 text-[10px] font-medium text-text-muted uppercase tracking-wider sticky top-0">
-                <span>Time</span>
-                <span>Level</span>
-                <span>Source</span>
-                <span>Message</span>
+                <span>{t("settings.logs.timeHeader", { defaultValue: "Time" })}</span>
+                <span>{t("settings.logs.levelHeader", { defaultValue: "Level" })}</span>
+                <span>{t("settings.logs.sourceHeader", { defaultValue: "Source" })}</span>
+                <span>{t("settings.logs.messageHeader", { defaultValue: "Message" })}</span>
               </div>
               {filteredLogs.map((log: LogEntry) => (
                 <div
@@ -225,7 +270,8 @@ export const LogsSection = ({
                     )}
                     {log.action && log.level !== "info" && (
                       <p className="text-[10px] text-yellow-600 dark:text-yellow-400 mt-0.5 break-words">
-                        <span className="font-medium">Fix:</span> {log.action}
+                        <span className="font-medium">{t("settings.logs.fix", { defaultValue: "Fix:" })}</span>{" "}
+                        {log.action}
                       </p>
                     )}
                   </div>
@@ -236,7 +282,7 @@ export const LogsSection = ({
         </div>
 
         <div className="px-3 py-2 border-t border-border/50 text-xs text-text-muted">
-          {filteredLogs.length} of {logBuffer.length} log entries
+          {t("settings.logs.entriesCount", { filtered: String(filteredLogs.length), total: String(logBuffer.length) })}
         </div>
       </div>
     </>

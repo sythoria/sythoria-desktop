@@ -5,6 +5,7 @@ import { McpServerCard } from "../components/McpServerCard";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { McpServerConfig, McpServerStatus, McpTool, ExecutableCheck } from "../../../types";
 import { McpServerPreset } from "../../../config/mcpPresets";
+import { useTranslation } from "../../../utils/i18n";
 
 interface McpSectionProps {
   mcpConfigs: McpServerConfig[];
@@ -39,6 +40,7 @@ export const McpSection = ({
   toggleMcpKeyVisibility,
   addMcpConfig,
 }: McpSectionProps) => {
+  const { t } = useTranslation();
   const prevIdsRef = useRef<string[]>(mcpConfigs.map((c) => c.id));
 
   useEffect(() => {
@@ -60,8 +62,8 @@ export const McpSection = ({
     <>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">MCP Servers</h3>
-          <p className="text-xs text-text-muted">Extend AI with external tools</p>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.mcp.title")}</h3>
+          <p className="text-xs text-text-muted">{t("settings.mcp.subtitle")}</p>
         </div>{" "}
         <motion.button
           onClick={addMcpConfig}
@@ -69,10 +71,10 @@ export const McpSection = ({
           whileTap={{ scale: motionTokens.scale.press }}
           transition={springs.snappy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-          aria-label="Add MCP server"
+          aria-label={t("settings.mcp.addBtn")}
         >
           <Plus size={14} />
-          <span>Add Server</span>
+          <span>{t("settings.mcp.addBtn")}</span>
         </motion.button>
       </div>
 
@@ -100,15 +102,13 @@ export const McpSection = ({
         ))}
         {mcpConfigs.length === 0 && (
           <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
-            <p className="text-text-muted text-sm">No MCP servers configured.</p>
-            <p className="text-text-muted text-xs mt-1">
-              Add an MCP server to extend AI capabilities with external tools.
-            </p>
+            <p className="text-text-muted text-sm">{t("settings.mcp.noServers")}</p>
+            <p className="text-text-muted text-xs mt-1">{t("settings.mcp.noServersDesc")}</p>
             <button
               onClick={addMcpConfig}
               className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
             >
-              Add your first MCP server
+              {t("settings.mcp.addFirst")}
             </button>
           </div>
         )}

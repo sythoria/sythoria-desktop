@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { useTranslation } from "../../../utils/i18n";
 import { DEFAULT_TITLE_SYSTEM_PROMPT, TitleGenerationConfig, ModelConfig } from "../../../types";
 import { useModelStore } from "../../../store/useModelStore";
 
@@ -19,6 +20,7 @@ export const PersonalizationSection = ({
   models,
   enabledModels,
 }: PersonalizationSectionProps) => {
+  const { t } = useTranslation();
   const [titleModelDropdownOpen, setTitleModelDropdownOpen] = useState(false);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
   const setSystemPrompt = useModelStore((s) => s.setSystemPrompt);
@@ -26,8 +28,8 @@ export const PersonalizationSection = ({
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Title Generation</h3>
-        <p className="text-xs text-text-muted">Automatically name conversations</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.title")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.prompts.subtitle")}</p>
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
         <Switch
@@ -36,8 +38,8 @@ export const PersonalizationSection = ({
             setTitleConfig({ enabled: checked });
             if (!checked) setTitleModelDropdownOpen(false);
           }}
-          label="AI Title Generation"
-          description="Automatically generate conversation titles using AI"
+          label={t("settings.prompts.aiTitleGen")}
+          description={t("settings.prompts.aiTitleGenDesc")}
         />
 
         <AnimatePresence initial={false}>
@@ -56,11 +58,9 @@ export const PersonalizationSection = ({
               <div className="space-y-4 pt-4 border-t border-border/50 mt-4">
                 <div className="space-y-2">
                   <label htmlFor="title-model-select" className="text-sm font-medium text-text-primary block">
-                    Title Model
+                    {t("settings.prompts.titleModel")}
                   </label>
-                  <p className="text-xs text-text-muted mb-2">
-                    Choose the model used to generate titles, or use the same model as the conversation
-                  </p>
+                  <p className="text-xs text-text-muted mb-2">{t("settings.prompts.titleModelDesc")}</p>
                   <div className="relative">
                     <button
                       id="title-model-select"
@@ -71,8 +71,8 @@ export const PersonalizationSection = ({
                     >
                       <span>
                         {titleConfig.modelId === "__same__"
-                          ? "Same as selected model"
-                          : (models.find((m) => m.id === titleConfig.modelId)?.name ?? "Same as selected model")}
+                          ? t("settings.prompts.sameModel")
+                          : (models.find((m) => m.id === titleConfig.modelId)?.name ?? t("settings.prompts.sameModel"))}
                       </span>
                       <ChevronDown
                         size={16}
@@ -113,8 +113,8 @@ export const PersonalizationSection = ({
                             aria-selected={titleConfig.modelId === "__same__"}
                           >
                             <div className="flex flex-col items-start">
-                              <span className="font-medium">Same as selected model</span>
-                              <span className="text-[10px] text-text-muted">Uses the active chat model</span>
+                              <span className="font-medium">{t("settings.prompts.sameModel")}</span>
+                              <span className="text-[10px] text-text-muted">{t("settings.prompts.sameModelDesc")}</span>
                             </div>
                             {titleConfig.modelId === "__same__" && (
                               <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
@@ -152,13 +152,9 @@ export const PersonalizationSection = ({
 
                 <div className="space-y-2">
                   <label htmlFor="title-system-prompt" className="text-sm font-medium text-text-primary block">
-                    System Prompt
+                    {t("settings.prompts.systemPrompt")}
                   </label>
-                  <p className="text-xs text-text-muted mb-2">
-                    Customize the prompt used for title generation. Use{" "}
-                    <code className="text-accent text-[11px]">{"{{userMessage}}"}</code> as a placeholder for the
-                    user&apos;s message
-                  </p>
+                  <p className="text-xs text-text-muted mb-2">{t("settings.prompts.titlePromptDesc")}</p>
                   <textarea
                     id="title-system-prompt"
                     value={titleConfig.systemPrompt}
@@ -172,7 +168,7 @@ export const PersonalizationSection = ({
                       onClick={() => setTitleConfig({ systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT })}
                       className="text-xs text-accent hover:text-accent-hover transition-colors"
                     >
-                      Reset to default
+                      {t("settings.prompts.resetBtn")}
                     </button>
                   )}
                 </div>
@@ -182,23 +178,21 @@ export const PersonalizationSection = ({
         </AnimatePresence>
       </div>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">AI Behavior</h3>
-        <p className="text-xs text-text-muted">Configure the global instructions for the AI</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.behaviorTitle")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.prompts.behaviorSubtitle")}</p>
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <div className="space-y-2">
           <label htmlFor="global-system-prompt" className="text-sm font-medium text-text-primary block">
-            System Prompt
+            {t("settings.prompts.globalPrompt")}
           </label>
-          <p className="text-xs text-text-muted mb-2">
-            Customize the instructions used to define the AI assistant&apos;s persona, tone, and constraints.
-          </p>
+          <p className="text-xs text-text-muted mb-2">{t("settings.prompts.globalPromptDesc")}</p>
           <textarea
             id="global-system-prompt"
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
             rows={4}
-            placeholder="Customize the global instructions for the AI..."
+            placeholder={t("settings.prompts.globalPlaceholder")}
             className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors resize-y min-h-[80px]"
           />
           {systemPrompt !== "" && (
@@ -206,7 +200,7 @@ export const PersonalizationSection = ({
               onClick={() => setSystemPrompt("")}
               className="text-xs text-accent hover:text-accent-hover transition-colors"
             >
-              Reset to default
+              {t("settings.prompts.resetBtn")}
             </button>
           )}
         </div>

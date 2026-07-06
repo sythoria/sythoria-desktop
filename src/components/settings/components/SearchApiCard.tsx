@@ -6,6 +6,7 @@ import { SEARCH_PROVIDER_PRESETS } from "../../../config/searchPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateSearchApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
+import { useTranslation } from "../../../utils/i18n";
 
 interface SearchApiCardProps {
   id?: string;
@@ -24,6 +25,7 @@ export const SearchApiCard = memo(function SearchApiCard({
   showKey,
   onToggleKey,
 }: SearchApiCardProps) {
+  const { t } = useTranslation();
   const keyValidation = validateSearchApiKey(config.apiKey, config.provider);
 
   return (
@@ -36,8 +38,8 @@ export const SearchApiCard = memo(function SearchApiCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Enabled</p>
-          <p className="text-xs text-text-muted mt-0.5">Show in search API selector</p>
+          <p className="text-sm font-medium text-text-primary">{t("settings.search.enabled")}</p>
+          <p className="text-xs text-text-muted mt-0.5">{t("settings.search.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
@@ -47,7 +49,10 @@ export const SearchApiCard = memo(function SearchApiCard({
             whileTap={{ scale: motionTokens.scale.press }}
             transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label={`Delete search API ${config.name}`}
+            aria-label={t("settings.search.deleteTooltip", {
+              defaultValue: `Delete search API ${config.name}`,
+              name: config.name,
+            })}
           >
             <Trash2 size={16} />
           </motion.button>
@@ -58,14 +63,14 @@ export const SearchApiCard = memo(function SearchApiCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-name-${config.id}`}>
-              Name
+              {t("settings.search.name")}
             </label>
             <input
               id={`search-name-${config.id}`}
               type="text"
               value={config.name}
               onChange={(e) => onUpdate(config.id, { name: e.target.value })}
-              placeholder="e.g. Google Search"
+              placeholder={t("settings.search.namePlaceholder", { defaultValue: "e.g. Google Search" })}
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
@@ -75,7 +80,7 @@ export const SearchApiCard = memo(function SearchApiCard({
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-provider-${config.id}`}>
-              Provider
+              {t("settings.search.provider")}
             </label>
             <div className="relative">
               <select
@@ -115,7 +120,7 @@ export const SearchApiCard = memo(function SearchApiCard({
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-text-muted" htmlFor={`search-base-${config.id}`}>
-            Base URL
+            {t("settings.search.baseUrl")}
           </label>
           <input
             id={`search-base-${config.id}`}
@@ -141,7 +146,7 @@ export const SearchApiCard = memo(function SearchApiCard({
         {(config.provider === "google" || config.provider === "firecrawl" || config.provider === "custom") && (
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-key-${config.id}`}>
-              API Key{config.provider === "custom" ? " (optional)" : ""}
+              {config.provider === "custom" ? t("settings.search.apiKeyOptional") : t("settings.search.apiKey")}
             </label>
             <div className="relative">
               <input
@@ -151,10 +156,10 @@ export const SearchApiCard = memo(function SearchApiCard({
                 onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
                 placeholder={
                   config.provider === "google"
-                    ? "Google API Key"
+                    ? t("settings.search.googleApiKeyPlaceholder", { defaultValue: "Google API Key" })
                     : config.provider === "custom"
-                      ? "API Key (optional)"
-                      : "API Key"
+                      ? t("settings.search.customApiKeyPlaceholder", { defaultValue: "API Key (optional)" })
+                      : t("settings.search.apiKeyPlaceholder", { defaultValue: "API Key" })
                 }
                 autoComplete="off"
                 autoCorrect="off"
@@ -168,7 +173,11 @@ export const SearchApiCard = memo(function SearchApiCard({
               <button
                 onClick={() => onToggleKey(config.id)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
-                aria-label={showKey ? "Hide API key" : "Show API key"}
+                aria-label={
+                  showKey
+                    ? t("settings.search.hideApiKey", { defaultValue: "Hide API key" })
+                    : t("settings.search.showApiKey", { defaultValue: "Show API key" })
+                }
               >
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
@@ -185,7 +194,7 @@ export const SearchApiCard = memo(function SearchApiCard({
         {config.provider === "google" && (
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`search-cx-${config.id}`}>
-              Custom Search Engine ID (CX)
+              {t("settings.search.cx")}
             </label>
             <input
               id={`search-cx-${config.id}`}
@@ -203,7 +212,7 @@ export const SearchApiCard = memo(function SearchApiCard({
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-text-muted" htmlFor={`search-results-${config.id}`}>
-            Max Results
+            {t("settings.search.maxResults")}
           </label>
           <input
             id={`search-results-${config.id}`}

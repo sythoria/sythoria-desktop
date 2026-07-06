@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Variable, Eye, EyeOff, X, Plus } from "lucide-react";
 import { motionTokens } from "../../../lib/motion-tokens";
+import { useTranslation } from "../../../utils/i18n";
 
 interface EnvVarsEditorProps {
   envVars: Record<string, string>;
@@ -9,6 +10,7 @@ interface EnvVarsEditorProps {
 }
 
 export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: EnvVarsEditorProps) {
+  const { t } = useTranslation();
   const [envExpanded, setEnvExpanded] = useState(false);
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvValue, setNewEnvValue] = useState("");
@@ -39,10 +41,10 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
         onClick={() => setEnvExpanded(!envExpanded)}
         className="flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-text-secondary transition-colors"
         aria-expanded={envExpanded}
-        aria-label="Toggle environment variables"
+        aria-label={t("settings.mcp.toggleEnvVars", { defaultValue: "Toggle environment variables" })}
       >
         <Variable size={12} />
-        Environment Variables
+        {t("settings.mcp.envVars")}
         {Object.keys(envVars).length > 0 && (
           <span className="px-1.5 py-0.5 rounded-full bg-accent/10 text-accent text-[10px] font-medium">
             {Object.keys(envVars).length}
@@ -80,7 +82,11 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                     <button
                       onClick={() => setShowEnvValues((prev) => ({ ...prev, [key]: !prev[key] }))}
                       className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted/50 hover:text-text-muted transition-colors"
-                      aria-label={showEnvValues[key] ? "Hide value" : "Show value"}
+                      aria-label={
+                        showEnvValues[key]
+                          ? t("settings.mcp.hideValue", { defaultValue: "Hide value" })
+                          : t("settings.mcp.showValue", { defaultValue: "Show value" })
+                      }
                     >
                       {showEnvValues[key] ? <EyeOff size={11} /> : <Eye size={11} />}
                     </button>
@@ -100,23 +106,23 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                   type="text"
                   value={newEnvKey}
                   onChange={(e) => setNewEnvKey(e.target.value)}
-                  placeholder="KEY"
+                  placeholder={t("settings.mcp.envKeyPlaceholder", { defaultValue: "KEY" })}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
                   className="flex-1 min-w-[80px] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                  aria-label="New env var key"
+                  aria-label={t("settings.mcp.envKeyAria", { defaultValue: "New env var key" })}
                 />
                 <input
                   type="text"
                   value={newEnvValue}
                   onChange={(e) => setNewEnvValue(e.target.value)}
-                  placeholder="value"
+                  placeholder={t("settings.mcp.envVal", { defaultValue: "value" })}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
                   className="flex-[2] px-2.5 py-1 rounded border border-input-border bg-surface text-xs text-text-primary placeholder-text-muted/40 font-mono focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                  aria-label="New env var value"
+                  aria-label={t("settings.mcp.envValAria", { defaultValue: "New env var value" })}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") addEnvVar();
                   }}
@@ -125,7 +131,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
                   onClick={addEnvVar}
                   disabled={!newEnvKey.trim()}
                   className="p-1 rounded text-accent hover:bg-accent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-                  aria-label="Add environment variable"
+                  aria-label={t("settings.mcp.addEnv")}
                 >
                   <Plus size={14} />
                 </button>

@@ -5,6 +5,7 @@ import { useUIStore } from "../../../store/useUIStore";
 import { MARKETPLACE_THEMES, MarketplaceTheme } from "../../../config/marketplaceThemes";
 import { getContrastColor } from "../../../config/themePresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { useTranslation } from "../../../utils/i18n";
 
 // Child card component to manage local hover state and separate animations
 const ThemeCard = ({
@@ -22,6 +23,7 @@ const ThemeCard = ({
   onApply: () => void;
   onDelete: () => void;
 }) => {
+  const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const animationsDisabled = useUIStore((s) => s.animationsDisabled);
 
@@ -142,7 +144,9 @@ const ThemeCard = ({
           <p className="text-xs text-text-secondary leading-relaxed line-clamp-1 sm:line-clamp-2">
             {theme.description}
           </p>
-          <span className="text-[10px] text-text-muted mt-1">By {theme.author}</span>
+          <span className="text-[10px] text-text-muted mt-1">
+            {t("settings.marketplace.author", { author: theme.author })}
+          </span>
         </div>
 
         {/* Action Button */}
@@ -151,7 +155,7 @@ const ThemeCard = ({
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-sm">
                 <Check size={12} className="stroke-[3]" />
-                <span>Active</span>
+                <span>{t("settings.marketplace.active")}</span>
               </div>
               <motion.button
                 onClick={(e) => {
@@ -162,7 +166,7 @@ const ThemeCard = ({
                 whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
                 transition={springs.snappy}
                 className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
-                title="Delete theme"
+                title={t("settings.marketplace.deleteThemeTooltip")}
               >
                 <Trash2 size={12} />
               </motion.button>
@@ -180,7 +184,7 @@ const ThemeCard = ({
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all bg-surface hover:bg-hover text-text-primary border border-border shadow-sm"
               >
                 <Palette size={12} />
-                <span>Apply</span>
+                <span>{t("settings.marketplace.apply")}</span>
               </motion.button>
               <motion.button
                 onClick={(e) => {
@@ -191,7 +195,7 @@ const ThemeCard = ({
                 whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
                 transition={springs.snappy}
                 className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
-                title="Delete theme"
+                title={t("settings.marketplace.deleteThemeTooltip")}
               >
                 <Trash2 size={12} />
               </motion.button>
@@ -212,7 +216,7 @@ const ThemeCard = ({
               }}
             >
               <Download size={12} />
-              <span>Get</span>
+              <span>{t("settings.marketplace.get")}</span>
             </motion.button>
           )}
         </div>
@@ -222,6 +226,7 @@ const ThemeCard = ({
 };
 
 export const MarketplaceSection = () => {
+  const { t } = useTranslation();
   const downloadedThemes = useUIStore((s) => s.downloadedThemes);
   const downloadTheme = useUIStore((s) => s.downloadTheme);
   const deleteTheme = useUIStore((s) => s.deleteTheme);
@@ -243,24 +248,24 @@ export const MarketplaceSection = () => {
       },
     };
     setTheme(newTheme);
-    addToast(`Applied theme "${theme.name}"`, "success");
+    addToast(t("settings.marketplace.appliedToast", { name: theme.name }), "success");
   };
 
   const handleGet = (theme: MarketplaceTheme) => {
     downloadTheme(theme.type, theme.name, theme.config);
-    addToast(`Downloaded "${theme.name}" to your collection!`, "success");
+    addToast(t("settings.marketplace.downloadedToast", { name: theme.name }), "success");
   };
 
   const handleDelete = (theme: MarketplaceTheme) => {
     deleteTheme(theme.type, theme.name);
-    addToast(`Deleted theme "${theme.name}" from your collection`, "info");
+    addToast(t("settings.marketplace.deletedToast", { name: theme.name }), "info");
   };
 
   return (
     <>
       <div className="mb-4">
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Theme Marketplace</h3>
-        <p className="text-xs text-text-muted">Discover and apply premium community themes for Sythoria</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("section.marketplace")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.marketplace.subtitle")}</p>
       </div>
 
       {/* Glassmorphic Segmented Filter Pill */}
@@ -275,7 +280,11 @@ export const MarketplaceSection = () => {
                 : "text-text-muted hover:text-text-primary hover:bg-hover/50"
             }`}
           >
-            {f}
+            {f === "all"
+              ? t("settings.marketplace.filterAll")
+              : f === "light"
+                ? t("settings.marketplace.filterLight")
+                : t("settings.marketplace.filterDark")}
           </button>
         ))}
       </div>

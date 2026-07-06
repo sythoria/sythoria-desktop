@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
+import { useTranslation } from "../utils/i18n";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -430,6 +431,7 @@ function getNativeToolDisplayInfo(
   args: Record<string, string> | undefined,
   result: any,
   isCompleted: boolean,
+  t: (key: string, replacements?: Record<string, string>) => string,
 ) {
   if (!args) return null;
 
@@ -490,7 +492,9 @@ function getNativeToolDisplayInfo(
       type: "bash",
       IconComponent: Terminal,
       colorClass: "text-text-muted",
-      label: isCompleted ? `Ran ${commandStr}` : `Running ${commandStr}...`,
+      label: isCompleted
+        ? t("chat.tools.ranCommand", { command: commandStr })
+        : t("chat.tools.runningCommand", { command: commandStr }),
     };
   }
 
@@ -514,16 +518,16 @@ function getNativeToolDisplayInfo(
       try {
         const parsed = JSON.parse(result.content);
         if (isList && Array.isArray(parsed)) {
-          extraInfo = ` (${parsed.length} items)`;
+          extraInfo = " " + t("chat.tools.itemsCount", { count: String(parsed.length) });
         } else if (isGlob && Array.isArray(parsed)) {
-          extraInfo = ` (${parsed.length} matches)`;
+          extraInfo = " " + t("chat.tools.matchesCount", { count: String(parsed.length) });
         } else if (isGrep) {
           if (parsed.FilesWithMatches) {
-            extraInfo = ` (${parsed.FilesWithMatches.length} files)`;
+            extraInfo = " " + t("chat.tools.filesCount", { count: String(parsed.FilesWithMatches.length) });
           } else if (parsed.Content) {
-            extraInfo = ` (${parsed.Content.length} lines)`;
+            extraInfo = " " + t("chat.tools.linesCount", { count: String(parsed.Content.length) });
           } else if (typeof parsed.Count === "number") {
-            extraInfo = ` (${parsed.Count} matches)`;
+            extraInfo = " " + t("chat.tools.matchesCount", { count: String(parsed.Count) });
           }
         }
       } catch {
@@ -531,10 +535,10 @@ function getNativeToolDisplayInfo(
       }
     }
 
-    let label = isCompleted ? "Explored" : "Exploring";
-    if (isRead) label = isCompleted ? "Analyzed" : "Analyzing";
-    else if (isGrep) label = isCompleted ? "Searched" : "Searching";
-    else if (isList) label = isCompleted ? "Listed" : "Listing";
+    let label = isCompleted ? t("chat.tools.explored") : t("chat.tools.exploring");
+    if (isRead) label = isCompleted ? t("chat.tools.analyzed") : t("chat.tools.analyzing");
+    else if (isGrep) label = isCompleted ? t("chat.tools.searchedLabel") : t("chat.tools.searchingLabel");
+    else if (isList) label = isCompleted ? t("chat.tools.listed") : t("chat.tools.listing");
 
     return {
       type: "explore",
@@ -564,7 +568,11 @@ function getNativeToolDisplayInfo(
           filename,
           IconComponent,
           colorClass,
-          label: isCompleted ? (result?.diffSummary?.isNew ? "Created" : "Edited") : "Editing",
+          label: isCompleted
+            ? result?.diffSummary?.isNew
+              ? t("chat.tools.created")
+              : t("chat.tools.edited")
+            : t("chat.tools.editing"),
           isTodo,
         };
       }
@@ -575,6 +583,7 @@ function getNativeToolDisplayInfo(
 }
 
 function ToolCallDisplay({ message }: { message: Message }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -611,7 +620,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
     });
 
     const displayName = formatToolName(name);
-    const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted);
+    const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
 
     return (
       <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
@@ -622,7 +631,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
           {nativeInfo ? (
             <span className="text-sm flex items-center gap-1.5">
               {nativeInfo.type === "todo" ? (
-                <span>{isCompleted ? "Updated TODO" : "Updating TODO..."}</span>
+                <span>{isCompleted ? t("chat.tools.updatedTodo") : t("chat.tools.updatingTodo")}</span>
               ) : nativeInfo.type === "bash" ? (
                 <>
                   <nativeInfo.IconComponent
@@ -662,14 +671,18 @@ function ToolCallDisplay({ message }: { message: Message }) {
               )}
             </span>
           ) : (
-            <span className="text-sm">{isCompleted ? `Run: ${displayName}` : `Running: ${displayName}...`}</span>
+            <span className="text-sm">
+              {isCompleted
+                ? t("chat.tools.runMcp", { name: displayName })
+                : t("chat.tools.runningMcp", { name: displayName })}
+            </span>
           )}
           {!isCompleted && <Loader2 size={12} className="animate-spin text-text-muted" />}
 
           <motion.button
             onClick={() => setExpanded(!expanded)}
             className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-            aria-label={expanded ? "Collapse details" : "Expand details"}
+            aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
           >
@@ -695,7 +708,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
               <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                 {/* Arguments */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-medium text-text-muted font-mono">Arguments</span>
+                  <span className="text-[10px] font-medium text-text-muted font-mono">{t("chat.tools.arguments")}</span>
                   <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
                 </div>
 
@@ -727,7 +740,9 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 ) : (
                   isCompleted && (
                     <div className="flex flex-col gap-1">
-                      <span className="text-[10px] font-medium text-text-muted font-mono">Result</span>
+                      <span className="text-[10px] font-medium text-text-muted font-mono">
+                        {t("chat.tools.result")}
+                      </span>
                       <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
                     </div>
                   )
@@ -736,7 +751,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 {/* Images */}
                 {isCompleted && mcpImages.length > 0 && (
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-medium text-text-muted font-mono">Images</span>
+                    <span className="text-[10px] font-medium text-text-muted font-mono">{t("chat.tools.images")}</span>
                     <div className="flex flex-wrap gap-2">
                       {mcpImages.map((img, idx) => {
                         const dataUrl = `data:${img.mimeType};base64,${img.data}`;
@@ -745,7 +760,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
                             key={idx}
                             onClick={() => setPreviewImageIndex(idx)}
                             className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
-                            title={`View Image ${idx + 1}`}
+                            title={t("chat.tools.viewImageTitle", { index: String(idx + 1) })}
                           >
                             <img
                               src={dataUrl}
@@ -790,15 +805,15 @@ function ToolCallDisplay({ message }: { message: Message }) {
       <span className="text-sm">
         {isCompleted
           ? isSearch
-            ? `Searched: "${message.toolCall?.arguments?.query || ""}"`
+            ? t("chat.tools.searched", { query: message.toolCall?.arguments?.query || "" })
             : isFetch
-              ? `Fetched: ${message.toolCall?.arguments?.url || ""}`
-              : "Tool result"
+              ? t("chat.tools.fetched", { url: message.toolCall?.arguments?.url || "" })
+              : t("chat.tools.resultLabel")
           : isSearch
-            ? "Searching..."
+            ? t("chat.tools.searching")
             : isFetch
-              ? "Fetching..."
-              : "Calling tool..."}
+              ? t("chat.tools.fetching")
+              : t("chat.tools.executing")}
       </span>
       {!isCompleted && <Loader2 size={12} className="animate-spin ml-1" />}
     </motion.div>

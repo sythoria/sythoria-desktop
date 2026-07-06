@@ -45,8 +45,16 @@ import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
 import { springs, motionTokens } from "./lib/motion-tokens";
+import { useTranslation } from "./utils/i18n";
 
 import "./index.css";
+
+const STATUS_KEYS: Record<string, string> = {
+  disconnected: "status.disconnected",
+  connecting: "status.connecting",
+  connected: "status.connected",
+  error: "status.error",
+};
 
 function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
   const connectSrc = allowNetwork ? "*" : "'none'";
@@ -73,6 +81,7 @@ function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
 }
 
 function App() {
+  const { t } = useTranslation();
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -796,8 +805,8 @@ function App() {
               <button
                 onClick={toggleSidebarCollapsed}
                 className="hidden md:flex p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
-                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={sidebarCollapsed ? t("tooltip.expandSidebar") : t("tooltip.collapseSidebar")}
+                title={sidebarCollapsed ? t("tooltip.expandSidebar") : t("tooltip.collapseSidebar")}
               >
                 <PanelLeft size={16} />
               </button>
@@ -806,8 +815,8 @@ function App() {
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className="flex md:hidden p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
-                  aria-label="Open sidebar"
-                  title="Open sidebar"
+                  aria-label={t("tooltip.openSidebar") || "Open sidebar"}
+                  title={t("tooltip.openSidebar") || "Open sidebar"}
                 >
                   <Menu size={16} />
                 </button>
@@ -823,8 +832,8 @@ function App() {
                       ? "text-text-secondary hover:bg-hover cursor-pointer"
                       : "text-text-muted/30 cursor-not-allowed"
                   }`}
-                  aria-label="Navigate back"
-                  title="Back"
+                  aria-label={t("tooltip.navigateBack") || "Navigate back"}
+                  title={t("common.back") || "Back"}
                 >
                   <ChevronLeft size={16} />
                 </button>
@@ -836,8 +845,8 @@ function App() {
                       ? "text-text-secondary hover:bg-hover cursor-pointer"
                       : "text-text-muted/30 cursor-not-allowed"
                   }`}
-                  aria-label="Navigate forward"
-                  title="Forward"
+                  aria-label={t("tooltip.navigateForward") || "Navigate forward"}
+                  title={t("tooltip.navigateForward") || "Forward"}
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -853,8 +862,8 @@ function App() {
                     transition={{ duration: motionTokens.duration.fast }}
                     onClick={handleNewChat}
                     className="hidden md:flex p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
-                    aria-label="Start new chat"
-                    title="New Chat"
+                    aria-label={t("common.newChat") || "Start new chat"}
+                    title={t("common.newChat") || "New Chat"}
                   >
                     <MessageSquarePlus size={16} />
                   </motion.button>
@@ -915,7 +924,13 @@ function App() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={springs.gentle}
                     >
-                      {activeConversation?.title ?? "New chat"}
+                      {activeConversation
+                        ? activeConversation.title === "Untitled" || !activeConversation.title
+                          ? t("common.untitled")
+                          : activeConversation.title.endsWith(" (Compare)")
+                            ? `${activeConversation.title.slice(0, -10)} (${t("common.compare")})`
+                            : activeConversation.title
+                        : t("common.newChat")}
                     </motion.h2>
                   </div>
                   <div className="flex items-center gap-2 ml-auto relative">
@@ -928,8 +943,8 @@ function App() {
                               ? "text-accent bg-accent/10 hover:bg-accent/15"
                               : "text-text-muted hover:text-text-secondary hover:bg-hover"
                           }`}
-                          aria-label={syncScrolls ? "Disable scroll synchronization" : "Enable scroll synchronization"}
-                          title={syncScrolls ? "Disable scroll sync" : "Sync scrolling"}
+                          aria-label={syncScrolls ? t("tooltip.disableSyncScrolls") : t("tooltip.syncScrolls")}
+                          title={syncScrolls ? t("tooltip.disableSyncScrolls") : t("tooltip.syncScrolls")}
                         >
                           <Link size={16} />
                         </button>
@@ -941,8 +956,8 @@ function App() {
                                 ? "text-text-primary bg-hover"
                                 : "text-text-muted hover:text-text-secondary hover:bg-hover"
                             }`}
-                            aria-label="Add model to compare"
-                            title="Add model to compare"
+                            aria-label={t("tooltip.addCompareModel") || "Add model to compare"}
+                            title={t("tooltip.addCompareModel") || "Add model to compare"}
                           >
                             <Plus size={16} />
                           </button>
@@ -979,8 +994,8 @@ function App() {
                                         {!disableBgActivity && (
                                           <div
                                             className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                            title={STATUS_LABELS[status] ?? status}
-                                            aria-label={STATUS_LABELS[status] ?? status}
+                                            title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                            aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
                                           />
                                         )}
                                         <span className="truncate flex-1">{model.name}</span>
@@ -1010,8 +1025,8 @@ function App() {
                           ? "text-accent bg-accent/10 hover:bg-accent/15"
                           : "text-text-muted hover:text-text-secondary hover:bg-hover"
                       }`}
-                      aria-label={isCompareMode ? "Disable compare mode" : "Enable compare mode"}
-                      title={isCompareMode ? "Disable compare mode" : "Compare responses"}
+                      aria-label={isCompareMode ? t("tooltip.disableCompare") : t("tooltip.enableCompare")}
+                      title={isCompareMode ? t("tooltip.disableCompare") : t("tooltip.enableCompare")}
                     >
                       <Split size={16} />
                     </button>

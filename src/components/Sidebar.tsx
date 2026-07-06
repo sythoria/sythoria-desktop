@@ -29,12 +29,27 @@ import { useKeybindStore } from "../store/useKeybindStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { SECTION_GROUPS, SectionId } from "./settings/types";
 import { springs, motionTokens } from "../lib/motion-tokens";
+import { useTranslation } from "../utils/i18n";
+
+const categoryKeys: Record<string, string> = {
+  Application: "category.application",
+  "AI & Models": "category.aiModels",
+  Integrations: "category.integrations",
+  Developer: "category.developer",
+};
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {
   disconnected: "Disconnected",
   connecting: "Connecting\u2026",
   connected: "Connected",
   error: "Connection error",
+};
+
+const STATUS_KEYS: Record<ConnectionStatus, string> = {
+  disconnected: "status.disconnected",
+  connecting: "status.connecting",
+  connected: "status.connected",
+  error: "status.error",
 };
 
 interface SidebarProps {
@@ -94,6 +109,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const view = useUIStore((s) => s.view);
   const setView = useUIStore((s) => s.setView);
+  const { t } = useTranslation();
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
   const setActiveSection = useUIStore((s) => s.setActiveSection);
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
@@ -315,7 +331,7 @@ export default function Sidebar({
                 <ArrowLeft size={16} />
               </button>
               <Settings size={16} className="text-text-muted" />
-              <span className="text-sm font-medium text-text-primary">Settings</span>
+              <span className="text-sm font-medium text-text-primary">{t("common.settings")}</span>
             </div>
           </div>
         ) : (
@@ -335,7 +351,9 @@ export default function Sidebar({
           <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
             {SECTION_GROUPS.map((group) => (
               <div key={group.category} className="mb-4">
-                <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">{group.category}</h3>
+                <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">
+                  {t(categoryKeys[group.category] || group.category)}
+                </h3>
                 <div className="space-y-0.5">
                   {group.items.map((section) => {
                     const Icon = section.icon;
@@ -352,7 +370,7 @@ export default function Sidebar({
                         aria-current={isActive ? "page" : undefined}
                       >
                         <Icon size={15} className="shrink-0" />
-                        <span className="truncate">{section.label}</span>
+                        <span className="truncate">{t(`section.${section.id}`) || section.label}</span>
                       </button>
                     );
                   })}
@@ -370,7 +388,7 @@ export default function Sidebar({
                 aria-label="Start new chat"
               >
                 <MessageSquarePlus size={16} />
-                New Chat
+                {t("common.newChat")}
               </button>
             </div>
 
@@ -391,7 +409,7 @@ export default function Sidebar({
                   type="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search conversations…"
+                  placeholder={t("sidebar.searchPlaceholder") || "Search conversations…"}
                   className="w-full pl-8 pr-8 py-2 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-text-muted focus:outline-none transition-colors"
                 />
                 {searchQuery && (
@@ -410,7 +428,7 @@ export default function Sidebar({
             {isProjectsEnabled && (
               <>
                 <div className="px-3 mb-2 flex items-center justify-between">
-                  <h3 className="text-[11px] font-medium text-text-muted pl-1">Projects</h3>
+                  <h3 className="text-[11px] font-medium text-text-muted pl-1">{t("sidebar.projects")}</h3>
                   <button
                     className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
                     onClick={() => openProjectConfigModal("create")}
@@ -488,7 +506,7 @@ export default function Sidebar({
                                 className="overflow-hidden pl-6 pr-1 space-y-0.5 mt-0.5"
                               >
                                 {pChats.length === 0 ? (
-                                  <div className="py-1 px-2 text-[11px] text-text-muted">No chats</div>
+                                  <div className="py-1 px-2 text-[11px] text-text-muted">{t("sidebar.noChats")}</div>
                                 ) : (
                                   pChats.map((conv) => (
                                     <div key={conv.id} className="relative group">
@@ -505,7 +523,7 @@ export default function Sidebar({
                                         `}
                                       >
                                         <MessageSquare size={13} className="shrink-0 opacity-50" />
-                                        <span className="truncate flex-1">{conv.title}</span>
+                                        <span className="truncate flex-1">{conv.title || t("common.untitled")}</span>
                                       </button>
                                       <button
                                         onClick={(e) => {
@@ -542,7 +560,7 @@ export default function Sidebar({
                                               role="menuitem"
                                             >
                                               <Download size={14} className="text-text-muted" />
-                                              Export
+                                              {t("common.export")}
                                             </button>
                                             <button
                                               onClick={(e) => {
@@ -554,7 +572,7 @@ export default function Sidebar({
                                               role="menuitem"
                                             >
                                               <Pencil size={14} className="text-text-muted" />
-                                              Rename
+                                              {t("common.rename")}
                                             </button>
                                             <button
                                               onClick={(e) => {
@@ -566,7 +584,7 @@ export default function Sidebar({
                                               role="menuitem"
                                             >
                                               <Trash2 size={14} />
-                                              Delete
+                                              {t("common.delete")}
                                             </button>
                                           </div>,
                                           document.body,
@@ -588,7 +606,7 @@ export default function Sidebar({
             {/* Global Conversation List */}
             <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0" aria-label="Conversation list">
               {isProjectsEnabled && projects.length > 0 && (
-                <h3 className="px-2 py-1.5 text-[11px] font-medium text-text-muted">Global chats</h3>
+                <h3 className="px-2 py-1.5 text-[11px] font-medium text-text-muted">{t("sidebar.globalChats")}</h3>
               )}
               <AnimatePresence mode="popLayout">
                 {groups.map((group) => (
@@ -601,9 +619,11 @@ export default function Sidebar({
                     transition={{ duration: motionTokens.duration.fast }}
                     className="mb-2"
                   >
-                    <p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">{group.label}</p>
+                    <p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">
+                      {t(`sidebar.${group.label.toLowerCase()}`) || group.label}
+                    </p>
                     {group.items.length === 0 ? (
-                      <p className="px-2.5 py-1.5 text-xs text-text-muted italic">No recent chats</p>
+                      <p className="px-2.5 py-1.5 text-xs text-text-muted italic">{t("sidebar.noRecentChats")}</p>
                     ) : (
                       group.items.map((conv) => (
                         <div key={conv.id} className="relative group">
@@ -624,7 +644,9 @@ export default function Sidebar({
                             {group.label === "Pinned" && (
                               <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
                             )}
-                            <span className="truncate flex-1">{conv.title}</span>
+                            <span className="truncate flex-1">
+                              {conv.title === "Untitled" || !conv.title ? t("common.untitled") : conv.title}
+                            </span>
                           </button>
                           <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
                             <button
@@ -714,7 +736,7 @@ export default function Sidebar({
               </AnimatePresence>
 
               {nonEmptyConversations.length === 0 && (
-                <p className="px-2 py-4 text-sm text-text-muted text-center">No conversations yet</p>
+                <p className="px-2 py-4 text-sm text-text-muted text-center">{t("sidebar.noChats")}</p>
               )}
             </nav>
 
@@ -725,13 +747,13 @@ export default function Sidebar({
                 <div
                   className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-muted"
                   role="status"
-                  aria-label={`Connection status: ${STATUS_LABELS[aggregateStatus]}`}
+                  aria-label={`Connection status: ${t(STATUS_KEYS[aggregateStatus]) || STATUS_LABELS[aggregateStatus]}`}
                 >
                   <div
                     className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[aggregateStatus]}`}
                     aria-hidden="true"
                   />
-                  <span>{STATUS_LABELS[aggregateStatus]}</span>
+                  <span>{t(STATUS_KEYS[aggregateStatus]) || STATUS_LABELS[aggregateStatus]}</span>
                 </div>
               )}
 
@@ -742,7 +764,7 @@ export default function Sidebar({
                 aria-label="Open settings"
               >
                 <Settings size={16} aria-hidden="true" />
-                Settings
+                {t("common.settings")}
               </button>
             </div>
           </>

@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useUIStore } from "../../../store/useUIStore";
+import { useTranslation } from "../../../utils/i18n";
 import {
   Trash2,
   ChevronDown,
@@ -61,6 +62,7 @@ export const McpServerCard = memo(function McpServerCard({
   showKey,
   onToggleKey,
 }: McpServerCardProps) {
+  const { t } = useTranslation();
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const [exeCheck, setExeCheck] = useState<ExecutableCheck | null>(null);
@@ -123,8 +125,8 @@ export const McpServerCard = memo(function McpServerCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Enabled</p>
-          <p className="text-xs text-text-muted mt-0.5">Auto-connect on startup</p>
+          <p className="text-sm font-medium text-text-primary">{t("settings.mcp.enabled")}</p>
+          <p className="text-xs text-text-muted mt-0.5">{t("settings.mcp.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
@@ -134,7 +136,10 @@ export const McpServerCard = memo(function McpServerCard({
             whileTap={{ scale: motionTokens.scale.press }}
             transition={springs.snappy}
             className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            aria-label={`Delete MCP server ${config.name}`}
+            aria-label={t("settings.mcp.deleteTooltip", {
+              defaultValue: `Delete MCP server ${config.name}`,
+              name: config.name,
+            })}
           >
             <Trash2 size={16} />
           </motion.button>
@@ -152,7 +157,9 @@ export const McpServerCard = memo(function McpServerCard({
 
         {config.transport === "stdio" && (
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted flex items-center gap-1.5">Template</label>
+            <label className="text-xs font-medium text-text-muted flex items-center gap-1.5">
+              {t("settings.mcp.template")}
+            </label>
             <div className="relative">
               <select
                 value=""
@@ -165,7 +172,7 @@ export const McpServerCard = memo(function McpServerCard({
                 className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 aria-label="Apply MCP server template"
               >
-                <option value="">Choose a template to pre-fill…</option>
+                <option value="">{t("settings.mcp.chooseTemplate")}</option>
                 {MCP_SERVER_PRESETS.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} — {p.description}
@@ -184,7 +191,7 @@ export const McpServerCard = memo(function McpServerCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-name-${config.id}`}>
-              Name
+              {t("settings.mcp.name")}
             </label>
             <input
               id={`mcp-name-${config.id}`}
@@ -201,7 +208,7 @@ export const McpServerCard = memo(function McpServerCard({
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-transport-${config.id}`}>
-              Transport
+              {t("settings.mcp.transport")}
             </label>
             <div className="relative">
               <select
@@ -244,8 +251,8 @@ export const McpServerCard = memo(function McpServerCard({
                 className="text-xs font-medium text-text-muted flex items-center gap-1"
                 htmlFor={`mcp-command-${config.id}`}
               >
-                Command
-                <span className="text-text-muted/50 font-normal">(program only, e.g. npx)</span>
+                {t("settings.mcp.command")}
+                <span className="text-text-muted/50 font-normal">{t("settings.mcp.commandDesc")}</span>
               </label>
               <input
                 id={`mcp-command-${config.id}`}
@@ -265,13 +272,13 @@ export const McpServerCard = memo(function McpServerCard({
               {commandHasSpace && (
                 <p className="flex items-center gap-1 text-[11px] text-yellow-500 mt-0.5" role="alert">
                   <AlertCircle size={11} />
-                  Put the program name here and move the arguments below.
+                  {t("settings.mcp.validation.spaces")}
                 </p>
               )}
               {exeChecking && (
                 <p className="flex items-center gap-1 text-[11px] text-text-muted mt-0.5">
                   <Loader2 size={11} className="animate-spin" />
-                  Checking command…
+                  {t("settings.mcp.validation.checking")}
                 </p>
               )}
               {!exeChecking && exeCheck && (
@@ -294,8 +301,10 @@ export const McpServerCard = memo(function McpServerCard({
                 className="text-xs font-medium text-text-muted flex items-center gap-1"
                 htmlFor={`mcp-args-${config.id}`}
               >
-                Arguments
-                <span className="text-text-muted/50 font-normal">(one per chip — paths with spaces are safe)</span>
+                {t("settings.mcp.args")}
+                <span className="text-text-muted/50 font-normal">
+                  {t("settings.mcp.argsDesc", { defaultValue: "(one per chip — paths with spaces are safe)" })}
+                </span>
               </label>
               <div
                 id={`mcp-args-${config.id}`}
@@ -345,14 +354,15 @@ export const McpServerCard = memo(function McpServerCard({
                   aria-label="Add argument"
                 >
                   <Plus size={11} />
-                  Add argument
+                  {t("settings.mcp.addArg")}
                 </button>
               </div>
               {args.some((a) => a.startsWith("<") && a.endsWith(">")) && (
                 <p className="flex items-center gap-1 text-[11px] text-accent/70 mt-0.5">
                   <AlertCircle size={11} />
-                  Replace the highlighted placeholders (e.g. <span className="font-mono">&lt;PATH&gt;</span>) with real
-                  values.
+                  {t("settings.mcp.placeholdersWarning", {
+                    defaultValue: "Replace the highlighted placeholders (e.g. <PATH>) with real values.",
+                  })}
                 </p>
               )}
             </div>
@@ -365,7 +375,7 @@ export const McpServerCard = memo(function McpServerCard({
           <>
             <div className="space-y-1">
               <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-base-${config.id}`}>
-                Base URL
+                {t("settings.mcp.baseUrl", { defaultValue: "Base URL" })}
               </label>
               <input
                 id={`mcp-base-${config.id}`}
@@ -388,7 +398,7 @@ export const McpServerCard = memo(function McpServerCard({
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-key-${config.id}`}>
-                API Key (optional)
+                {t("settings.mcp.apiKeyOptional", { defaultValue: "API Key (optional)" })}
               </label>
               <div className="relative">
                 <input
@@ -405,7 +415,11 @@ export const McpServerCard = memo(function McpServerCard({
                 <button
                   onClick={() => onToggleKey(config.id)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
-                  aria-label={showKey ? "Hide API key" : "Show API key"}
+                  aria-label={
+                    showKey
+                      ? t("settings.mcp.hideApiKey", { defaultValue: "Hide API key" })
+                      : t("settings.mcp.showApiKey", { defaultValue: "Show API key" })
+                  }
                 >
                   {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
@@ -424,10 +438,10 @@ export const McpServerCard = memo(function McpServerCard({
               whileTap={{ scale: motionTokens.scale.press }}
               transition={springs.snappy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 border border-border text-xs transition-colors min-h-[36px]"
-              aria-label="Disconnect MCP server"
+              aria-label={t("settings.mcp.disconnectAria", { defaultValue: "Disconnect MCP server" })}
             >
               <PlugZap size={14} />
-              Disconnect
+              {t("settings.mcp.disconnect", { defaultValue: "Disconnect" })}
             </motion.button>
           ) : (
             <motion.button
@@ -441,23 +455,25 @@ export const McpServerCard = memo(function McpServerCard({
               whileTap={status === "connecting" ? undefined : { scale: motionTokens.scale.press }}
               transition={springs.snappy}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/10 border border-accent/30 text-xs font-medium transition-colors min-h-[36px] disabled:opacity-50"
-              aria-label="Connect MCP server"
+              aria-label={t("settings.mcp.connectAria", { defaultValue: "Connect MCP server" })}
             >
               {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
-              {status === "connecting" ? "Connecting\u2026" : "Connect"}
+              {status === "connecting"
+                ? t("settings.mcp.connecting", { defaultValue: "Connecting\u2026" })
+                : t("settings.mcp.connect", { defaultValue: "Connect" })}
             </motion.button>
           )}
 
           {config.transport === "stdio" && !config.command?.trim() && (
             <p className="flex items-center gap-1 text-[11px] text-yellow-500">
               <AlertCircle size={11} />
-              Command is required to connect
+              {t("settings.mcp.commandRequired", { defaultValue: "Command is required to connect" })}
             </p>
           )}
           {(config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim() && (
             <p className="flex items-center gap-1 text-[11px] text-yellow-500">
               <AlertCircle size={11} />
-              Base URL is required to connect
+              {t("settings.mcp.baseUrlRequired", { defaultValue: "Base URL is required to connect" })}
             </p>
           )}
 
@@ -468,10 +484,10 @@ export const McpServerCard = memo(function McpServerCard({
               whileTap={{ scale: motionTokens.scale.press }}
               transition={springs.snappy}
               className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1"
-              aria-label={toolsExpanded ? "Hide tools" : "Show tools"}
+              aria-label={toolsExpanded ? t("settings.mcp.hideTools") : t("settings.mcp.showTools")}
             >
               <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
-              {tools.length} tool{tools.length !== 1 ? "s" : ""}
+              {t("settings.mcp.toolsCount", { count: String(tools.length) })}
             </motion.button>
           )}
         </div>

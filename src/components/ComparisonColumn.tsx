@@ -9,6 +9,14 @@ import { STATUS_COLORS } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useUIStore } from "../store/useUIStore";
 import { motionTokens, springs } from "../lib/motion-tokens";
+import { useTranslation } from "../utils/i18n";
+
+const STATUS_KEYS: Record<string, string> = {
+  disconnected: "status.disconnected",
+  connecting: "status.connecting",
+  connected: "status.connected",
+  error: "status.error",
+};
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: "Disconnected",
@@ -46,6 +54,7 @@ export const ComparisonColumn = React.forwardRef<any, ComparisonColumnProps>(
     },
     ref,
   ) => {
+    const { t } = useTranslation();
     const scroll = useScrollButton();
     const nonVirtualizedRef = React.useRef<HTMLDivElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -113,7 +122,13 @@ export const ComparisonColumn = React.forwardRef<any, ComparisonColumnProps>(
           }`}
         >
           <span className="truncate max-w-[50%]">
-            {isPrimary ? `Primary Chat (${conversation.title || "Primary"})` : conversation.title}
+            {isPrimary
+              ? `${t("chat.primaryChat")} (${conversation.title || t("chat.primary")})`
+              : conversation.title?.endsWith(" (Compare)")
+                ? `${conversation.title.slice(0, -10)} (${t("common.compare")})`
+                : conversation.title === "Untitled" || !conversation.title
+                  ? t("common.untitled")
+                  : conversation.title}
           </span>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] text-text-muted">Model:</span>
@@ -176,8 +191,8 @@ export const ComparisonColumn = React.forwardRef<any, ComparisonColumnProps>(
                             {!disableBgActivity && (
                               <div
                                 className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                title={STATUS_LABELS[status] ?? status}
-                                aria-label={STATUS_LABELS[status] ?? status}
+                                title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
                               />
                             )}
                             <span className="truncate flex-1">{model.name}</span>
@@ -193,7 +208,7 @@ export const ComparisonColumn = React.forwardRef<any, ComparisonColumnProps>(
               <button
                 onClick={onClose}
                 className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors ml-1"
-                title="Remove comparison"
+                title={t("chat.removeComparison") || "Remove comparison"}
               >
                 <X size={12} />
               </button>

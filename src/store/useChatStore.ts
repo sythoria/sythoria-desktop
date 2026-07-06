@@ -43,6 +43,7 @@ import {
   loadBlockedHosts,
   DEFAULT_BLOCKED_HOSTS,
   loadOfflineMode,
+  loadLanguage,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -259,6 +260,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedStrictSsl,
         loadedBlockedHosts,
         loadedOfflineMode,
+        loadedLanguage,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -287,6 +289,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadStrictSsl(),
         loadBlockedHosts(),
         loadOfflineMode(),
+        loadLanguage(),
         useProjectStore.getState().init(),
       ]);
 
@@ -362,7 +365,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         strictSsl: hasOnboarded ? loadedStrictSsl : true,
         blockedHosts: hasOnboarded ? loadedBlockedHosts : DEFAULT_BLOCKED_HOSTS,
         offlineMode: hasOnboarded ? loadedOfflineMode : false,
+        language: hasOnboarded ? loadedLanguage : "en",
       });
+      if (typeof document !== "undefined") {
+        document.documentElement.lang = hasOnboarded ? loadedLanguage : "en";
+      }
       document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
 
       // Apply always-on-top setting

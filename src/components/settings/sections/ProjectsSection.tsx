@@ -5,15 +5,20 @@ import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useProjectStore } from "../../../store/useProjectStore";
 import { useGitStore } from "../../../store/useGitStore";
 import type { ProjectPermission } from "../../../types";
+import { useTranslation } from "../../../utils/i18n";
 
 export function ProjectsSection() {
+  const { t } = useTranslation();
   const { isProjectsEnabled, defaultPermission, setIsProjectsEnabled, setDefaultPermission } = useProjectStore();
   const { config: gitConfig, updateConfig: updateGitConfig } = useGitStore();
 
   const handleToggleDefaultPermission = (perm: ProjectPermission) => {
     if (perm === "full") {
       const confirmed = window.confirm(
-        "WARNING: Setting the global default to Full Shell gives the AI complete access to run arbitrary shell commands on your system for all new projects. Continue?",
+        t("settings.projects.fullShellWarningConfirm", {
+          defaultValue:
+            "WARNING: Setting the global default to Full Shell gives the AI complete access to run arbitrary shell commands on your system for all new projects. Continue?",
+        }),
       );
       if (!confirmed) return;
     }
@@ -23,10 +28,8 @@ export function ProjectsSection() {
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Project Workspaces</h3>
-        <p className="text-xs text-text-muted">
-          Configure local workspace management, default folder permissions, and AI code authoring behavior.
-        </p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.projects.title")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.projects.subtitle")}</p>
       </div>
 
       {/* Card 1: Opt-in Toggle & Default Permission Controls */}
@@ -34,8 +37,8 @@ export function ProjectsSection() {
         <Switch
           checked={isProjectsEnabled}
           onChange={setIsProjectsEnabled}
-          label="Enable Project Workspaces"
-          description="Allows grouping chats by projects and grants the AI direct access to read/write local folders."
+          label={t("settings.projects.enable")}
+          description={t("settings.projects.enableDesc")}
         />
 
         <AnimatePresence initial={false}>
@@ -53,11 +56,9 @@ export function ProjectsSection() {
             >
               <div className="space-y-4 pt-4 border-t border-border/50 mt-4">
                 <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
-                  Global Default Permission
+                  {t("settings.projects.globalPermission")}
                 </h4>
-                <p className="text-xs text-text-muted">
-                  The default access level granted to new workspaces when they are added.
-                </p>
+                <p className="text-xs text-text-muted">{t("settings.projects.globalPermissionDesc")}</p>
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   <button
                     type="button"
@@ -68,8 +69,8 @@ export function ProjectsSection() {
                         : "border-border bg-surface text-text-secondary hover:bg-hover"
                     }`}
                   >
-                    <span className="text-xs">Read Only</span>
-                    <span className="text-[9px] opacity-75">RO (Safe)</span>
+                    <span className="text-xs">{t("settings.projects.readOnly")}</span>
+                    <span className="text-[9px] opacity-75">{t("settings.projects.readOnlyDesc")}</span>
                   </button>
                   <button
                     type="button"
@@ -80,8 +81,8 @@ export function ProjectsSection() {
                         : "border-border bg-surface text-text-secondary hover:bg-hover"
                     }`}
                   >
-                    <span className="text-xs">Read/Write</span>
-                    <span className="text-[9px] opacity-75">RW (Editable)</span>
+                    <span className="text-xs">{t("settings.projects.readWrite")}</span>
+                    <span className="text-[9px] opacity-75">{t("settings.projects.readWriteDesc")}</span>
                   </button>
                   <button
                     type="button"
@@ -92,8 +93,8 @@ export function ProjectsSection() {
                         : "border-border bg-surface text-text-secondary hover:bg-hover"
                     }`}
                   >
-                    <span className="text-xs">Full Shell</span>
-                    <span className="text-[9px] opacity-75">Execute commands</span>
+                    <span className="text-xs">{t("settings.projects.fullShell")}</span>
+                    <span className="text-[9px] opacity-75">{t("settings.projects.fullShellDesc")}</span>
                   </button>
                 </div>
 
@@ -101,9 +102,8 @@ export function ProjectsSection() {
                   <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
                     <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" />
                     <div>
-                      <span className="font-semibold block mb-0.5">High Risk Permission Level</span>
-                      Giving full shell permission by default allows the AI to perform any actions or commands via
-                      shell.
+                      <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
+                      {t("settings.projects.warningDesc")}
                     </div>
                   </div>
                 )}
@@ -115,12 +115,14 @@ export function ProjectsSection() {
 
       {/* Card 2: Commit Author overrides (preserved from GitSection) */}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">Commit Author overrides</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+          {t("settings.projects.identityTitle")}
+        </h4>
         <Switch
           checked={gitConfig.overrideIdentity}
           onChange={(val) => updateGitConfig({ overrideIdentity: val })}
-          label="Override Git Identity"
-          description="Identify AI edits distinctly in repository logs and blame"
+          label={t("settings.projects.overrideIdentity")}
+          description={t("settings.projects.overrideIdentityDesc")}
         />
 
         <AnimatePresence initial={false}>
@@ -133,7 +135,7 @@ export function ProjectsSection() {
               className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 overflow-hidden"
             >
               <div className="space-y-1.5">
-                <label className="text-[10px] font-medium text-text-muted">Author Name</label>
+                <label className="text-[10px] font-medium text-text-muted">{t("settings.projects.authorName")}</label>
                 <input
                   type="text"
                   value={gitConfig.gitName}
@@ -142,7 +144,7 @@ export function ProjectsSection() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[10px] font-medium text-text-muted">Author Email</label>
+                <label className="text-[10px] font-medium text-text-muted">{t("settings.projects.authorEmail")}</label>
                 <input
                   type="email"
                   value={gitConfig.gitEmail}

@@ -21,6 +21,7 @@ import {
   saveStrictSsl,
   saveBlockedHosts,
   saveOfflineMode,
+  saveLanguage,
 } from "../utils/storage";
 import React from "react";
 import type { Toast } from "../components/ui/Toast";
@@ -82,6 +83,7 @@ interface UIState {
   strictSsl: boolean;
   blockedHosts: string[];
   offlineMode: boolean;
+  language: string;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -117,6 +119,7 @@ interface UIState {
   setStrictSsl: (value: boolean) => void;
   setBlockedHosts: (value: string[]) => void;
   setOfflineMode: (value: boolean) => void;
+  setLanguage: (value: string) => void;
   sidebarWidth: number;
   setSidebarWidth: (width: number) => void;
   activeArtifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null;
@@ -182,6 +185,7 @@ export const useUIStore = create<UIState>((set) => ({
   strictSsl: true,
   blockedHosts: [],
   offlineMode: false,
+  language: "en",
   sidebarWidth: Number(safeLocalStorage.getItem("sythoria-sidebar-width") || 260),
   activeArtifact: null,
   pendingToolConfirmations: [],
@@ -354,6 +358,13 @@ export const useUIStore = create<UIState>((set) => ({
   setAutoUpdateChecking: (value) => {
     set({ autoUpdateChecking: value });
     saveAutoUpdateChecking(value);
+  },
+  setLanguage: (value) => {
+    set({ language: value });
+    saveLanguage(value);
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = value;
+    }
   },
   setIsLoggingEnabled: (value) => {
     set({ isLoggingEnabled: value });

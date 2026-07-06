@@ -4,6 +4,7 @@ import { Switch } from "../../ui/Switch";
 import { ColorPickerInput } from "../components/ColorPickerInput";
 import { LIGHT_PRESETS, DARK_PRESETS, CustomThemeConfig, ThemeConfig } from "../../../config/themePresets";
 import { useUIStore } from "../../../store/useUIStore";
+import { useTranslation } from "../../../utils/i18n";
 
 interface AppearanceSectionProps {
   theme: ThemeConfig;
@@ -30,6 +31,7 @@ export const AppearanceSection = ({
   animationsDisabled,
   setAnimationsDisabled,
 }: AppearanceSectionProps) => {
+  const { t } = useTranslation();
   const downloadedThemes = useUIStore((s) => s.downloadedThemes);
   const mergedLightPresets = useMemo(() => ({ ...LIGHT_PRESETS, ...downloadedThemes.light }), [downloadedThemes.light]);
   const mergedDarkPresets = useMemo(() => ({ ...DARK_PRESETS, ...downloadedThemes.dark }), [downloadedThemes.dark]);
@@ -83,14 +85,14 @@ export const AppearanceSection = ({
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">Appearance</h3>
-        <p className="text-xs text-text-muted">Customize how Sythoria looks</p>
+        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("section.appearance")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.appearance.subtitle")}</p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-medium text-text-primary block">Appearance</span>
-            <span className="text-xs text-text-muted">Select light, dark, or inherit system settings.</span>
+            <span className="text-sm font-medium text-text-primary block">{t("section.appearance")}</span>
+            <span className="text-xs text-text-muted">{t("settings.appearance.selectMode")}</span>
           </div>
           <div className="relative w-[150px]">
             <select
@@ -103,11 +105,11 @@ export const AppearanceSection = ({
                 });
               }}
               className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label="Appearance Mode"
+              aria-label={t("settings.appearance.modeLabel")}
             >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="system">System</option>
+              <option value="light">{t("settings.appearance.light")}</option>
+              <option value="dark">{t("settings.appearance.dark")}</option>
+              <option value="system">{t("settings.appearance.system")}</option>
             </select>
             <ChevronDown
               size={14}
@@ -120,21 +122,23 @@ export const AppearanceSection = ({
         <Switch
           checked={!animationsDisabled}
           onChange={(checked) => setAnimationsDisabled(!checked)}
-          label="App Animations"
-          description="Enable transitions and spring animations (disable for better performance)"
+          label={t("settings.appearance.animations")}
+          description={t("settings.appearance.animationsDesc")}
         />
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
-        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Light Theme</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
+          {t("settings.appearance.lightTheme")}
+        </h4>
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <span className="text-sm font-medium text-text-primary">Preset</span>
+          <span className="text-sm font-medium text-text-primary">{t("settings.appearance.preset")}</span>
           <div className="relative w-[150px]">
             <select
               value={getSelectedPreset(theme.lightTheme, mergedLightPresets)}
               onChange={(e) => handlePresetChange("light", e.target.value)}
               className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label="Light Theme Preset"
+              aria-label={t("settings.appearance.preset")}
             >
               {Object.keys(mergedLightPresets).map((pName) => (
                 <option key={pName} value={pName}>
@@ -154,34 +158,36 @@ export const AppearanceSection = ({
         </div>
 
         <ColorPickerInput
-          label="Background"
+          label={t("settings.appearance.background")}
           value={theme.lightTheme.background}
           onChange={(val) => handleColorChange("light", "background", val)}
         />
 
         <ColorPickerInput
-          label="Foreground"
+          label={t("settings.appearance.foreground")}
           value={theme.lightTheme.foreground}
           onChange={(val) => handleColorChange("light", "foreground", val)}
         />
 
         <ColorPickerInput
-          label="Accent"
+          label={t("settings.appearance.accent")}
           value={theme.lightTheme.accent}
           onChange={(val) => handleColorChange("light", "accent", val)}
         />
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
-        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Dark Theme</h4>
+        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
+          {t("settings.appearance.darkTheme")}
+        </h4>
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <span className="text-sm font-medium text-text-primary">Preset</span>
+          <span className="text-sm font-medium text-text-primary">{t("settings.appearance.preset")}</span>
           <div className="relative w-[150px]">
             <select
               value={getSelectedPreset(theme.darkTheme, mergedDarkPresets)}
               onChange={(e) => handlePresetChange("dark", e.target.value)}
               className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label="Dark Theme Preset"
+              aria-label={t("settings.appearance.preset")}
             >
               {Object.keys(mergedDarkPresets).map((pName) => (
                 <option key={pName} value={pName}>
@@ -201,19 +207,19 @@ export const AppearanceSection = ({
         </div>
 
         <ColorPickerInput
-          label="Background"
+          label={t("settings.appearance.background")}
           value={theme.darkTheme.background}
           onChange={(val) => handleColorChange("dark", "background", val)}
         />
 
         <ColorPickerInput
-          label="Foreground"
+          label={t("settings.appearance.foreground")}
           value={theme.darkTheme.foreground}
           onChange={(val) => handleColorChange("dark", "foreground", val)}
         />
 
         <ColorPickerInput
-          label="Accent"
+          label={t("settings.appearance.accent")}
           value={theme.darkTheme.accent}
           onChange={(val) => handleColorChange("dark", "accent", val)}
         />

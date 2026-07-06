@@ -7,6 +7,14 @@ import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 import { useUIStore } from "../../../store/useUIStore";
+import { useTranslation } from "../../../utils/i18n";
+
+const STATUS_KEYS: Record<string, string> = {
+  disconnected: "status.disconnected",
+  connecting: "status.connecting",
+  connected: "status.connected",
+  error: "status.error",
+};
 
 interface ModelCardProps {
   id?: string;
@@ -27,6 +35,7 @@ export const ModelCard = memo(function ModelCard({
   onToggleKey,
   connectionStatus,
 }: ModelCardProps) {
+  const { t } = useTranslation();
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -42,8 +51,8 @@ export const ModelCard = memo(function ModelCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Enabled</p>
-          <p className="text-xs text-text-muted mt-0.5">Show in model selector & health check</p>
+          <p className="text-sm font-medium text-text-primary">{t("settings.models.enabled")}</p>
+          <p className="text-xs text-text-muted mt-0.5">{t("settings.models.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Switch checked={model.enabled !== false} onChange={(checked) => onUpdate(model.id, { enabled: checked })} />
@@ -75,14 +84,16 @@ export const ModelCard = memo(function ModelCard({
               }`}
               aria-label={`Status: ${connectionStatus}`}
             />
-            <span className="text-[11px] text-text-muted capitalize">{connectionStatus}</span>
+            <span className="text-[11px] text-text-muted capitalize">
+              {t(STATUS_KEYS[connectionStatus]) || connectionStatus}
+            </span>
           </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`model-name-${model.id}`}>
-              Name
+              {t("settings.models.name")}
             </label>
             <input
               id={`model-name-${model.id}`}
@@ -99,7 +110,7 @@ export const ModelCard = memo(function ModelCard({
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`model-provider-${model.id}`}>
-              Provider Preset
+              {t("settings.models.preset")}
             </label>
             <div className="relative">
               <select
@@ -138,7 +149,7 @@ export const ModelCard = memo(function ModelCard({
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-text-muted" htmlFor={`model-api-${model.id}`}>
-            API Base URL
+            {t("settings.models.apiBase")}
           </label>
           <input
             id={`model-api-${model.id}`}
@@ -172,7 +183,7 @@ export const ModelCard = memo(function ModelCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`model-id-${model.id}`}>
-              Model ID
+              {t("settings.models.modelId")}
             </label>
             <input
               id={`model-id-${model.id}`}
@@ -189,7 +200,7 @@ export const ModelCard = memo(function ModelCard({
 
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`model-key-${model.id}`}>
-              API Key
+              {t("settings.models.apiKey")}
             </label>
             <div className="relative">
               <input
@@ -197,7 +208,7 @@ export const ModelCard = memo(function ModelCard({
                 type={showKey ? "text" : "password"}
                 value={model.apiKey}
                 onChange={(e) => onUpdate(model.id, { apiKey: e.target.value })}
-                placeholder="API key (optional for local)"
+                placeholder={t("settings.models.apiKeyOptional") || "API key (optional for local)"}
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
@@ -240,7 +251,7 @@ export const ModelCard = memo(function ModelCard({
               size={14}
               className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}
             />
-            <span>Advanced Settings</span>
+            <span>{t("settings.models.advanced")}</span>
           </button>
 
           {showAdvanced && (
@@ -254,15 +265,15 @@ export const ModelCard = memo(function ModelCard({
               <Switch
                 checked={model.supportsImages !== false}
                 onChange={(checked) => onUpdate(model.id, { supportsImages: checked })}
-                label="Supports Image Inputs"
-                description="Allow sending images/files to this model"
+                label={t("settings.models.supportsImages") || "Supports Image Inputs"}
+                description={t("settings.models.supportsImagesDesc") || "Allow sending images/files to this model"}
               />
 
               {/* Context Size & Max Output Size */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-context-${model.id}`}>
-                    Context Window Size (tokens)
+                    {t("settings.models.contextSize")}
                   </label>
                   <input
                     id={`model-context-${model.id}`}
@@ -279,7 +290,7 @@ export const ModelCard = memo(function ModelCard({
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-max-output-${model.id}`}>
-                    Max Output Limit (tokens)
+                    {t("settings.models.maxOutput")}
                   </label>
                   <input
                     id={`model-max-output-${model.id}`}
@@ -299,10 +310,12 @@ export const ModelCard = memo(function ModelCard({
               <div className="space-y-1">
                 <div className="flex justify-between items-center">
                   <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-temp-${model.id}`}>
-                    Temperature Override
+                    {t("settings.models.tempOverride")}
                   </label>
                   <span className="text-[10px] font-mono text-text-muted">
-                    {model.temperature !== undefined ? model.temperature.toFixed(2) : "Default (0.70)"}
+                    {model.temperature !== undefined
+                      ? model.temperature.toFixed(2)
+                      : t("settings.models.defaultTemp", { temp: "0.70" })}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
@@ -322,7 +335,7 @@ export const ModelCard = memo(function ModelCard({
                       onClick={() => onUpdate(model.id, { temperature: undefined })}
                       className="text-[10px] text-accent hover:underline shrink-0"
                     >
-                      Reset
+                      {t("common.reset")}
                     </button>
                   )}
                 </div>
@@ -331,14 +344,16 @@ export const ModelCard = memo(function ModelCard({
               {/* System Prompt Override */}
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-text-muted" htmlFor={`model-prompt-${model.id}`}>
-                  System Prompt Override
+                  {t("settings.models.sysPromptOverride")}
                 </label>
                 <textarea
                   id={`model-prompt-${model.id}`}
                   rows={3}
                   value={model.systemPromptOverride ?? ""}
                   onChange={(e) => onUpdate(model.id, { systemPromptOverride: e.target.value || undefined })}
-                  placeholder="Leave blank to use the default system prompt"
+                  placeholder={
+                    t("settings.models.sysPromptPlaceholder") || "Leave blank to use the default system prompt"
+                  }
                   className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors resize-y font-sans leading-relaxed"
                 />
               </div>

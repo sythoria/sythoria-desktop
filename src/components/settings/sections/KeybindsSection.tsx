@@ -3,8 +3,10 @@ import { useKeybindStore, KeybindAction } from "../../../store/useKeybindStore";
 import { RotateCcw, Keyboard, Edit3, X } from "lucide-react";
 import { motion } from "motion/react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { useTranslation } from "../../../utils/i18n";
 
 export const KeybindsSection = () => {
+  const { t } = useTranslation();
   const keybinds = useKeybindStore((s) => s.keybinds);
   const isRecording = useKeybindStore((s) => s.isRecording);
   const setKeycombo = useKeybindStore((s) => s.setKeycombo);
@@ -88,8 +90,8 @@ export const KeybindsSection = () => {
     <>
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Keyboard Keybinds</h3>
-          <p className="text-xs text-text-muted">View and customize hotkeys to control Sythoria</p>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.keybinds.title")}</h3>
+          <p className="text-xs text-text-muted">{t("settings.keybinds.subtitle")}</p>
         </div>
         <motion.button
           onClick={resetAllKeybinds}
@@ -99,7 +101,7 @@ export const KeybindsSection = () => {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-xs font-medium text-text-secondary hover:text-text-primary transition-colors shadow-sm"
         >
           <RotateCcw size={14} />
-          <span>Reset All</span>
+          <span>{t("settings.keybinds.resetAll")}</span>
         </motion.button>
       </div>
 
@@ -110,7 +112,9 @@ export const KeybindsSection = () => {
 
           return (
             <div key={catName} className="space-y-3">
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider pl-1">{catName}</h4>
+              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider pl-1">
+                {t(`settings.keybinds.category.${catName}`)}
+              </h4>
 
               <div className="bg-surface border border-border rounded-xl divide-y divide-border/40 shadow-sm overflow-hidden">
                 {list.map((action) => {
@@ -124,8 +128,12 @@ export const KeybindsSection = () => {
                     >
                       {/* Action Info */}
                       <div className="space-y-1 flex-1 min-w-0">
-                        <span className="text-sm font-medium text-text-primary block">{action.label}</span>
-                        <span className="text-xs text-text-muted block leading-relaxed">{action.description}</span>
+                        <span className="text-sm font-medium text-text-primary block">
+                          {t(`settings.keybinds.action.${action.id}.label`) || action.label}
+                        </span>
+                        <span className="text-xs text-text-muted block leading-relaxed">
+                          {t(`settings.keybinds.action.${action.id}.desc`) || action.description}
+                        </span>
                       </div>
 
                       {/* Combination & Edit buttons */}
@@ -133,14 +141,14 @@ export const KeybindsSection = () => {
                         {recording ? (
                           <div className="flex items-center gap-2 text-accent font-semibold text-xs bg-accent-soft px-3 py-1.5 rounded-lg border border-accent/20 animate-pulse">
                             <Keyboard size={14} className="shrink-0" />
-                            <span>Press key combo...</span>
+                            <span>{t("settings.keybinds.pressCombo")}</span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 stopRecording();
                               }}
                               className="text-text-muted hover:text-text-primary ml-1"
-                              aria-label="Cancel recording"
+                              aria-label={t("settings.keybinds.cancelRecording")}
                             >
                               <X size={14} />
                             </button>
@@ -155,7 +163,7 @@ export const KeybindsSection = () => {
                               whileTap={{ scale: motionTokens.scale.press }}
                               transition={springs.snappy}
                               className="p-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shadow-sm"
-                              title="Edit keybind"
+                              title={t("settings.keybinds.editTooltip")}
                             >
                               <Edit3 size={14} />
                             </motion.button>
@@ -167,7 +175,7 @@ export const KeybindsSection = () => {
                                 whileTap={{ scale: motionTokens.scale.press }}
                                 transition={springs.snappy}
                                 className="p-1.5 rounded-lg border border-border bg-surface hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shadow-sm"
-                                title="Reset to default"
+                                title={t("settings.keybinds.resetTooltip")}
                               >
                                 <RotateCcw size={14} />
                               </motion.button>

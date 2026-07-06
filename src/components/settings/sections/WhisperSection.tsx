@@ -4,8 +4,10 @@ import { WHISPER_PRESETS } from "../../../config/whisperPresets";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Download, Trash2, Check, FileCheck, Info, Loader2, Globe, X } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { useTranslation } from "../../../utils/i18n";
 
 export function WhisperSection() {
+  const { t } = useTranslation();
   const {
     isVoiceEnabled,
     selectedModelId,
@@ -42,7 +44,7 @@ export function WhisperSection() {
         setCustomModelPath(selected);
       }
     } catch {
-      setErrorMsg("Failed to open file picker.");
+      setErrorMsg(t("settings.voice.pickerError"));
     }
   };
 
@@ -57,23 +59,21 @@ export function WhisperSection() {
         return `whisper_models/${preset.fileName}`;
       }
     }
-    return "Not Loaded";
+    return t("settings.voice.statusNotLoaded");
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-base font-semibold text-text-primary mb-1">Local Voice Input (Whisper)</h3>
-        <p className="text-xs text-text-muted">
-          Transcribe your voice offline using high-performance open-source Whisper models.
-        </p>
+        <h3 className="text-base font-semibold text-text-primary mb-1">{t("settings.voice.title")}</h3>
+        <p className="text-xs text-text-muted">{t("settings.voice.subtitle")}</p>
       </div>
 
       <div className="bg-surface-elevated border border-border/60 rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-medium text-text-primary block">Enable Voice-to-Text</span>
-            <span className="text-[11px] text-text-muted block">Adds a microphone button to your chat input.</span>
+            <span className="text-sm font-medium text-text-primary block">{t("settings.voice.enable")}</span>
+            <span className="text-[11px] text-text-muted block">{t("settings.voice.enableDesc")}</span>
           </div>
           <Switch checked={isVoiceEnabled} onChange={toggleVoiceEnabled} />
         </div>
@@ -83,21 +83,21 @@ export function WhisperSection() {
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
                 <Globe size={13} />
-                <span>Transcription Language</span>
+                <span>{t("settings.voice.language")}</span>
               </label>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 className="w-full text-xs bg-surface border border-border/85 rounded-lg p-2 text-text-primary outline-none focus:border-accent"
               >
-                <option value="en">English (default)</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
-                <option value="it">Italian</option>
-                <option value="ja">Japanese</option>
-                <option value="zh">Chinese</option>
-                <option value="auto">Auto-Detect</option>
+                <option value="en">{t("settings.voice.langEn", { defaultValue: "English (default)" })}</option>
+                <option value="es">{t("settings.voice.langEs", { defaultValue: "Spanish" })}</option>
+                <option value="fr">{t("settings.voice.langFr", { defaultValue: "French" })}</option>
+                <option value="de">{t("settings.voice.langDe", { defaultValue: "German" })}</option>
+                <option value="it">{t("settings.voice.langIt", { defaultValue: "Italian" })}</option>
+                <option value="ja">{t("settings.voice.langJa", { defaultValue: "Japanese" })}</option>
+                <option value="zh">{t("settings.voice.langZh", { defaultValue: "Chinese" })}</option>
+                <option value="auto">{t("settings.voice.languageAuto")}</option>
               </select>
             </div>
           </div>
@@ -109,27 +109,33 @@ export function WhisperSection() {
           {/* Active Model Status */}
           <div className="bg-surface-elevated border border-border/60 rounded-xl p-4">
             <h4 className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">
-              Active Configuration
+              {t("settings.voice.activeConfig", { defaultValue: "Active Configuration" })}
             </h4>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-1 border-b border-border/30">
-                <span className="text-text-muted">Selected Mode:</span>
+                <span className="text-text-muted">
+                  {t("settings.voice.selectedMode", { defaultValue: "Selected Mode:" })}
+                </span>
                 <span className="font-medium text-text-primary">
                   {selectedModelId === "custom"
-                    ? "Custom Local File"
+                    ? t("settings.voice.customLocalFile", { defaultValue: "Custom Local File" })
                     : (() => {
                         const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
-                        if (!preset) return "None";
+                        if (!preset) return t("settings.voice.none", { defaultValue: "None" });
                         const isDownloaded = downloadedFiles.includes(preset.fileName);
-                        return isDownloaded ? preset.name : `${preset.name} (Not downloaded)`;
+                        return isDownloaded ? preset.name : `${preset.name} (${t("settings.voice.notDownloaded")})`;
                       })()}
                 </span>
               </div>
               <div className="flex justify-between py-1">
-                <span className="text-text-muted">Model Path:</span>
+                <span className="text-text-muted">
+                  {t("settings.voice.modelPath", { defaultValue: "Model Path:" })}
+                </span>
                 <span
                   className={`font-mono truncate max-w-[320px] ${
-                    activeModelPath() === "Not Loaded" ? "text-red-500 font-medium" : "text-text-muted"
+                    activeModelPath() === t("settings.voice.statusNotLoaded")
+                      ? "text-red-500 font-medium"
+                      : "text-text-muted"
                   }`}
                   title={activeModelPath()}
                 >
@@ -142,13 +148,15 @@ export function WhisperSection() {
           {/* Model Management Lists */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Available Models</h4>
+              <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                {t("settings.voice.availableModels", { defaultValue: "Available Models" })}
+              </h4>
               <button
                 onClick={handlePickLocal}
                 className="text-xs text-accent hover:underline flex items-center gap-1 font-medium bg-transparent border-0 cursor-pointer"
               >
                 <FileCheck size={13} />
-                <span>Load local file (.bin)</span>
+                <span>{t("settings.voice.customPath")}</span>
               </button>
             </div>
 
@@ -181,7 +189,7 @@ export function WhisperSection() {
                           <div className="flex flex-col items-end gap-1.5">
                             <div className="flex items-center gap-1.5 text-xs text-accent font-medium">
                               <Loader2 size={13} className="animate-spin" />
-                              <span>Downloading {downloadProgress}%</span>
+                              <span>{t("settings.voice.downloading", { progress: String(downloadProgress) })}</span>
                             </div>
                             <div className="w-24 bg-chat h-1.5 rounded-full overflow-hidden flex justify-start">
                               <div className="bg-accent h-full" style={{ width: `${downloadProgress}%` }} />
@@ -190,7 +198,7 @@ export function WhisperSection() {
                           <button
                             onClick={() => cancelDownload()}
                             className="p-1.5 rounded-lg border border-border text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                            title="Cancel download"
+                            title={t("settings.voice.cancelBtn")}
                           >
                             <X size={14} />
                           </button>
@@ -207,18 +215,27 @@ export function WhisperSection() {
                             }`}
                           >
                             {isSelected && <Check size={12} className="text-accent" />}
-                            <span>{isSelected ? "Active" : "Select"}</span>
+                            <span>
+                              {isSelected
+                                ? t("settings.marketplace.active")
+                                : t("settings.voice.selectBtn", { defaultValue: "Select" })}
+                            </span>
                           </button>
                           <button
                             onClick={() => {
                               if (
-                                window.confirm(`Delete ${model.name}? You will need to redownload it to use it again.`)
+                                window.confirm(
+                                  t("settings.voice.deleteConfirm", {
+                                    name: model.name,
+                                    defaultValue: `Delete ${model.name}? You will need to redownload it to use it again.`,
+                                  }),
+                                )
                               ) {
                                 deleteModel(model.fileName);
                               }
                             }}
                             className="p-2 rounded-lg border border-border text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                            title="Delete model file"
+                            title={t("settings.voice.deleteBtn")}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -230,7 +247,7 @@ export function WhisperSection() {
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white hover:bg-accent/80 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         >
                           <Download size={13} />
-                          <span>Download</span>
+                          <span>{t("settings.voice.downloadBtn")}</span>
                         </button>
                       )}
                     </div>

@@ -5,6 +5,7 @@ import { ModelCard } from "../components/ModelCard";
 import { ConfirmModal } from "../../ui/Modal";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { ModelConfig, ConnectionStatus } from "../../../types";
+import { useTranslation } from "../../../utils/i18n";
 
 interface ModelsSectionProps {
   models: ModelConfig[];
@@ -29,6 +30,7 @@ export const ModelsSection = ({
   showKeys,
   toggleKeyVisibility,
 }: ModelsSectionProps) => {
+  const { t } = useTranslation();
   const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
   const prevIdsRef = useRef<string[]>(models.map((m) => m.id));
 
@@ -51,8 +53,8 @@ export const ModelsSection = ({
     <>
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">Model Providers</h3>
-          <p className="text-xs text-text-muted">Configure API endpoints, provider credentials, and model keys</p>
+          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.models.title")}</h3>
+          <p className="text-xs text-text-muted">{t("settings.models.subtitle")}</p>
         </div>{" "}
         <div className="flex items-center gap-2">
           <motion.button
@@ -65,7 +67,7 @@ export const ModelsSection = ({
             aria-label="Refresh connection status"
           >
             {loadingCheckConnection ? <Loader2 size={14} className="animate-spin" /> : null}
-            Refresh
+            {t("settings.models.refresh")}
           </motion.button>
           <motion.button
             onClick={addModel}
@@ -76,7 +78,7 @@ export const ModelsSection = ({
             aria-label="Add provider"
           >
             <Plus size={14} />
-            <span>Add Provider</span>
+            <span>{t("settings.models.addProvider")}</span>
           </motion.button>
         </div>
       </div>
@@ -96,12 +98,12 @@ export const ModelsSection = ({
         ))}
         {models.length === 0 && (
           <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
-            <p className="text-text-muted text-sm">No model providers configured.</p>
+            <p className="text-text-muted text-sm">{t("settings.models.noProviders")}</p>
             <button
               onClick={addModel}
               className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
             >
-              Add Provider
+              {t("settings.models.addProvider")}
             </button>
           </div>
         )}
@@ -109,10 +111,10 @@ export const ModelsSection = ({
 
       <ConfirmModal
         isOpen={!!modelToDelete}
-        title="Delete Model Provider"
-        message={`Are you sure you want to delete the model provider "${modelToDelete?.name || ""}"? This action cannot be undone.`}
-        confirmText="Delete"
-        cancelText="Cancel"
+        title={t("settings.models.deleteTitle")}
+        message={t("settings.models.deleteMessage", { name: modelToDelete?.name || "" })}
+        confirmText={t("common.delete")}
+        cancelText={t("common.cancel")}
         onConfirm={() => {
           if (modelToDelete) {
             deleteModel(modelToDelete.id);

@@ -157,6 +157,7 @@ const DISABLE_BG_ACTIVITY_KEY = "sythoria-disable-bg-activity";
 const STRICT_SSL_KEY = "sythoria-strict-ssl";
 const BLOCKED_HOSTS_KEY = "sythoria-blocked-hosts";
 const OFFLINE_MODE_KEY = "sythoria-offline-mode";
+const LANGUAGE_KEY = "sythoria-language";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -1035,6 +1036,30 @@ export async function saveBaseTextSize(value: "small" | "medium" | "large" | "xl
     logError("storage", "Failed to save base text size setting", { error: e });
   }
   localStorage.setItem(BASE_TEXT_SIZE_KEY, value);
+}
+
+export async function loadLanguage(): Promise<string> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(LANGUAGE_KEY);
+    if (typeof raw === "string") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load language setting", { error: e });
+  }
+  const fallback = localStorage.getItem(LANGUAGE_KEY);
+  if (fallback !== null) return fallback;
+  return "en";
+}
+
+export async function saveLanguage(value: string): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(LANGUAGE_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save language setting", { error: e });
+  }
+  localStorage.setItem(LANGUAGE_KEY, value);
 }
 
 export async function loadAutoUpdateChecking(): Promise<boolean> {
