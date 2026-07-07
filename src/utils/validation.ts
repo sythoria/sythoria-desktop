@@ -29,13 +29,12 @@ export const ModelConfigSchema = z.object({
           const url = new URL(val);
           if (!["http:", "https:"].includes(url.protocol)) return false;
           if (BLOCKED_PROTOCOLS.includes(url.protocol)) return false;
-          if (isPrivateHostname(url.hostname)) return false;
           return true;
         } catch {
           return false;
         }
       },
-      { message: "Must be a valid public HTTP or HTTPS URL" },
+      { message: "Must be a valid HTTP or HTTPS URL" },
     ),
   apiKey: z.string(),
   modelId: z.string().min(1, "Model ID is required"),

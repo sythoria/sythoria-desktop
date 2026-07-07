@@ -82,7 +82,7 @@ impl SearchError {
     }
 }
 
-fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
+pub fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
     let parts: Vec<&str> = cidr.split('/').collect();
     if parts.len() != 2 {
         return false;
@@ -122,7 +122,7 @@ fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
     }
 }
 
-fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
+pub fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
     let host_chars: Vec<char> = host_or_ip.to_lowercase().chars().collect();
     let pattern_chars: Vec<char> = pattern.to_lowercase().chars().collect();
     
@@ -142,7 +142,7 @@ fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
     match_helper(&host_chars, &pattern_chars)
 }
 
-fn is_ip_blocked(ip: &std::net::IpAddr, blocked_hosts: &[String]) -> bool {
+pub fn is_ip_blocked(ip: &std::net::IpAddr, blocked_hosts: &[String]) -> bool {
     let ip_str = ip.to_string();
     for blocked in blocked_hosts {
         if blocked.contains('/') {

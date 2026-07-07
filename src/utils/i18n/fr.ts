@@ -258,6 +258,7 @@ export const fr = {
   "settings.privacy.strictSslDesc": "Force les certificats SSL valides. Si désactivé, le SSL invalide sera accepté.",
   "settings.privacy.blockedHosts": "IP / Noms d'hôtes bloqués",
   "settings.privacy.blockedHostsDesc": "Spécifier les adresses bloquées (une par ligne).",
+  "settings.privacy.resetBlockedHostsBtn": "Réinitialiser par défaut",
   "settings.privacy.blockedHostsPlaceholder": "ex: localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "Mode Hors Ligne",
   "settings.privacy.offlineModeDesc": "Force l'application à fonctionner sans accès Internet.",

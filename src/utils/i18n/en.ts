@@ -256,6 +256,7 @@ export const en = {
   "settings.privacy.blockedHosts": "Blocked IPs / Hostnames",
   "settings.privacy.blockedHostsDesc":
     "Specify IP addresses or hostnames that are restricted from network access (one per line).",
+  "settings.privacy.resetBlockedHostsBtn": "Reset to Defaults",
   "settings.privacy.blockedHostsPlaceholder": "e.g. localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "Offline Mode",
   "settings.privacy.offlineModeDesc": "Force the app to run completely offline. Blocks all outgoing requests.",

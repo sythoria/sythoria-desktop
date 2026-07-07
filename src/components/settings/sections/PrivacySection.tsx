@@ -6,7 +6,7 @@ import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useAppshotStore } from "../../../store/useAppshotStore";
 import { clearLogs } from "../../../utils/logger";
-import { clearStoreData } from "../../../utils/storage";
+import { clearStoreData, DEFAULT_BLOCKED_HOSTS } from "../../../utils/storage";
 import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
@@ -359,7 +359,16 @@ export function PrivacySection() {
           />
           <div className="h-px bg-border/50" />
           <div className="space-y-1">
-            <span className="text-sm font-medium text-text-primary block">{t("settings.privacy.blockedHosts")}</span>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-text-primary block">{t("settings.privacy.blockedHosts")}</span>
+              <button
+                type="button"
+                onClick={() => handleBlockedHostsChange(DEFAULT_BLOCKED_HOSTS.join("\n"))}
+                className="text-xs text-accent hover:text-accent-hover font-semibold transition-colors flex items-center gap-1 cursor-pointer select-none"
+              >
+                {t("settings.privacy.resetBlockedHostsBtn") || "Reset to Defaults"}
+              </button>
+            </div>
             <span className="text-xs text-text-muted block">{t("settings.privacy.blockedHostsDesc")}</span>
             <textarea
               value={blockedHostsText}

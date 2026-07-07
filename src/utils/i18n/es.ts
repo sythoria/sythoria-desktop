@@ -264,6 +264,7 @@ export const es = {
     "Exige certificados SSL válidos para todas las conexiones. Si se desactiva, no se comprobará la validez de los certificados.",
   "settings.privacy.blockedHosts": "Hosts / IPs Bloqueados",
   "settings.privacy.blockedHostsDesc": "Especifica direcciones IP o nombres de host restringidos (uno por línea).",
+  "settings.privacy.resetBlockedHostsBtn": "Restablecer valores predeterminados",
   "settings.privacy.blockedHostsPlaceholder": "ej. localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "Modo Sin Conexión",
   "settings.privacy.offlineModeDesc":

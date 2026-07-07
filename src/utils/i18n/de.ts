@@ -265,6 +265,7 @@ export const de = {
   "settings.privacy.blockedHosts": "Blockierte IPs / Hostnamen",
   "settings.privacy.blockedHostsDesc":
     "Gib IP-Adressen oder Hostnamen an, die vom Netzwerkzugriff ausgeschlossen sind (einer pro Zeile).",
+  "settings.privacy.resetBlockedHostsBtn": "Auf Standard zurücksetzen",
   "settings.privacy.blockedHostsPlaceholder": "z.B. localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "Offline-Modus",
   "settings.privacy.offlineModeDesc":

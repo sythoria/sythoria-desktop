@@ -259,6 +259,7 @@ export const ja = {
     "すべての接続先に有効なSSL証明書を要求します。無効にすると、無効な証明書も許容されます。",
   "settings.privacy.blockedHosts": "ブロック対象の IP / ホスト名",
   "settings.privacy.blockedHostsDesc": "接続を制限するIPアドレスまたはホスト名を指定します（1行に1つ）。",
+  "settings.privacy.resetBlockedHostsBtn": "デフォルトにリセット",
   "settings.privacy.blockedHostsPlaceholder": "例: localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "オフラインモード",
   "settings.privacy.offlineModeDesc": "完全にオフラインで動作させます。すべての外部リクエストをブロックします。",

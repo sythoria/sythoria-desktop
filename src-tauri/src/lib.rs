@@ -597,8 +597,6 @@ struct ModelConfig {
     #[serde(rename = "modelId")]
     model_id: String,
     provider: Option<String>,
-    #[serde(rename = "allowLocalNetwork")]
-    allow_local_network: Option<bool>,
 }
 
 async fn get_model_config_and_key(
@@ -630,51 +628,32 @@ async fn get_model_config_and_key(
 
     if let Some(host) = parsed_url.host_str() {
         let host_lower = host.to_lowercase();
+        let blocked_hosts = get_blocked_hosts();
 
-        let is_loopback = host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1";
+        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
+            let blocked_lower = blocked.to_lowercase();
+            if blocked.contains('*') {
+                search::matches_wildcard(&host_lower, &blocked_lower)
+            } else {
+                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
+            }
+        });
 
-        let is_private_ip = if let Some(ip) = parsed_url.host().and_then(|h| match h {
+        let is_blocked_ip = if let Some(ip) = parsed_url.host().and_then(|h| match h {
             url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
             url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
             _ => None,
         }) {
-            match ip {
-                std::net::IpAddr::V4(v4) => {
-                    let octets = v4.octets();
-                    octets[0] == 10
-                        || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
-                        || (octets[0] == 192 && octets[1] == 168)
-                        || (octets[0] == 169 && octets[1] == 254)
-                }
-                std::net::IpAddr::V6(v6) => {
-                    let segments = v6.segments();
-                    (segments[0] & 0xfe00) == 0xfc00
-                        || (segments[0] & 0xffc0) == 0xfe80
-                        || v6.is_loopback()
-                }
-            }
+            search::is_ip_blocked(&ip, &blocked_hosts)
         } else {
             false
         };
 
-        if is_loopback || is_private_ip {
-            let is_ollama = config
-                .provider
-                .as_deref()
-                .map(|p| p.to_lowercase() == "ollama")
-                .unwrap_or(false)
-                || config.api_base.contains("11434");
-
-            if is_ollama {
-                if !config.allow_local_network.unwrap_or(false) {
-                    return Err(AppError::ConfigIo("Access denied: Local/private network access is disabled for Ollama. Enable 'allowLocalNetwork' in model config.".to_string()));
-                }
-            } else {
-                return Err(AppError::ConfigIo(format!(
-                    "Access denied: Local/private network endpoint '{}' is not allowed.",
-                    host
-                )));
-            }
+        if is_blocked_host || is_blocked_ip {
+            return Err(AppError::ConfigIo(format!(
+                "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
+                host
+            )));
         }
     }
 

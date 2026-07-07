@@ -250,6 +250,7 @@ export const zh = {
   "settings.privacy.strictSslDesc": "对所有 API 连接和端点强制执行有效的 SSL 证书。如果禁用，将不检查证书有效性。",
   "settings.privacy.blockedHosts": "阻止的 IP / 主机名",
   "settings.privacy.blockedHostsDesc": "指定限制网络访问的 IP 地址或主机名（每行一个）。",
+  "settings.privacy.resetBlockedHostsBtn": "重置为默认值",
   "settings.privacy.blockedHostsPlaceholder": "例如 localhost\n127.0.0.1",
   "settings.privacy.offlineMode": "离线模式",
   "settings.privacy.offlineModeDesc": "强制应用程序完全离线运行。阻止所有传出请求。",
