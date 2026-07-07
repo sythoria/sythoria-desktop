@@ -214,7 +214,14 @@ export default function Sidebar({
     );
   }, [nonEmptyConversations, debouncedQuery]);
 
-  const globalConversations = useMemo(() => filteredConversations.filter((c) => !c.projectId), [filteredConversations]);
+  const globalConversations = useMemo(() => {
+    return filteredConversations.filter((c) => {
+      if (!c.projectId) return true;
+      if (!isProjectsEnabled) return true;
+      const projectExists = projects.some((p) => p.id === c.projectId);
+      return !projectExists;
+    });
+  }, [filteredConversations, isProjectsEnabled, projects]);
 
   const groups = useMemo(() => groupConversations(globalConversations), [globalConversations]);
 

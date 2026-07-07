@@ -1474,3 +1474,26 @@ export async function saveOfflineMode(value: boolean): Promise<void> {
   }
   localStorage.setItem(OFFLINE_MODE_KEY, String(value));
 }
+
+export async function loadLegacyProjects(): Promise<Project[] | null> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(PROJECTS_KEY);
+    if (raw && Array.isArray(raw)) {
+      return raw as Project[];
+    }
+  } catch (e) {
+    logError("storage", "Failed to load legacy projects from secure store", { error: e });
+  }
+  return null;
+}
+
+export async function clearLegacyProjects(): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.delete(PROJECTS_KEY);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to clear legacy projects from secure store", { error: e });
+  }
+}

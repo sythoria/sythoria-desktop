@@ -141,10 +141,10 @@ function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
           useMcpStore.getState().callTool(serverId, toolName, args)
       : undefined;
 
-  const { activeProjectId } = useProjectStore.getState();
+  const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
 
   return {
-    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0 || Boolean(activeProjectId),
+    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0 || Boolean(isProjectsEnabled && activeProjectId),
     searchConfig,
     searchApiKey,
     mcpTools,
@@ -191,6 +191,7 @@ interface ChatState {
   setDraftAttachments: (attachments: Attachment[]) => void;
   addDraftFileFromToken: (token: string) => Promise<void>;
   setConversationProject: (id: string, projectId: string | undefined) => void;
+  deleteProjectChats: (projectId: string) => Promise<void>;
 }
 
 let initInProgress = false;
@@ -486,7 +487,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   newChat: () => {
     const { selectedModel, models } = useModelStore.getState();
-    const { activeProjectId } = useProjectStore.getState();
+    const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = generateId();
     const modelConfig = models.find((m) => m.id === selectedModel);
     const conv: Conversation = {
@@ -495,7 +496,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date(),
       messages: [],
       model: modelConfig?.id || selectedModel,
-      projectId: activeProjectId || undefined,
+      projectId: (isProjectsEnabled && activeProjectId) || undefined,
     };
     set((state) => {
       const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
@@ -513,6 +514,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteChat: (id) => {
+    const conv = get().conversations.find((c) => c.id === id);
+    if (conv?.pendingWorktree && conv.projectId) {
+      const projectId = conv.projectId;
+      const worktreePath = conv.pendingWorktree.path;
+      const branchName = conv.pendingWorktree.branch;
+      import("@tauri-apps/api/core")
+        .then(({ invoke }) => {
+          invoke("git_worktree_discard", {
+            projectId,
+            worktreePath,
+            branchName,
+          }).catch((err) => {
+            logError("chat", "Failed to discard worktree on chat deletion", { error: err });
+          });
+        })
+        .catch((err) => {
+          logError("chat", "Failed to import core Tauri API on chat deletion", { error: err });
+        });
+
+      const projectStore = useProjectStore.getState();
+      if (projectStore.activeWorktreePath === worktreePath) {
+        projectStore.setWorktree(null, null).catch((err) => {
+          logError("chat", "Failed to clear active worktree path on chat deletion", { error: err });
+        });
+      }
+    }
+
     set((state) => {
       const newHistory = state.navigationHistory.filter((x) => x !== id);
       let newIndex = state.navigationIndex;
@@ -542,6 +570,69 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
     get().persistConversations();
+  },
+
+  deleteProjectChats: async (projectId) => {
+    const projectConvs = get().conversations.filter((c) => c.projectId === projectId);
+    if (projectConvs.length === 0) return;
+
+    for (const conv of projectConvs) {
+      if (conv.pendingWorktree) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("git_worktree_discard", {
+            projectId,
+            worktreePath: conv.pendingWorktree.path,
+            branchName: conv.pendingWorktree.branch,
+          });
+        } catch (err) {
+          logError("chat", `Failed to discard worktree for chat ${conv.id} on project deletion`, { error: err });
+        }
+      }
+    }
+
+    const projectStore = useProjectStore.getState();
+    const hasActiveWorktreeDeleted = projectConvs.some(
+      (c) => c.pendingWorktree && projectStore.activeWorktreePath === c.pendingWorktree.path,
+    );
+    if (hasActiveWorktreeDeleted) {
+      try {
+        await projectStore.setWorktree(null, null);
+      } catch (err) {
+        logError("chat", "Failed to clear active worktree path on project deletion", { error: err });
+      }
+    }
+
+    const convIdsToRemove = new Set(projectConvs.map((c) => c.id));
+
+    set((state) => {
+      const remainingConversations = state.conversations.filter((c) => !convIdsToRemove.has(c.id));
+      const newHistory = state.navigationHistory.filter((id) => !convIdsToRemove.has(id));
+
+      let newIndex = state.navigationIndex;
+      const isActiveDeleted = convIdsToRemove.has(state.activeId || "");
+      if (isActiveDeleted) {
+        newIndex = newHistory.length - 1;
+      } else if (state.activeId) {
+        newIndex = newHistory.indexOf(state.activeId);
+      }
+
+      const nextActiveId = isActiveDeleted ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
+      const nextCompareIds = state.compareIds.filter((id) => !convIdsToRemove.has(id));
+      const isCompareDeleted = state.compareIds.some((id) => convIdsToRemove.has(id));
+
+      return {
+        conversations: remainingConversations,
+        activeId: nextActiveId,
+        navigationHistory: newHistory,
+        navigationIndex: newIndex,
+        compareIds: nextCompareIds,
+        ...(isCompareDeleted && nextCompareIds.length === 0 ? { isCompareMode: false } : {}),
+        ...(isActiveDeleted && state.isCompareMode ? { isCompareMode: false, compareIds: [] } : {}),
+      };
+    });
+
+    await get().persistConversations();
   },
 
   renameChat: (id, newTitle) => {
@@ -584,7 +675,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
-    const { activeProjectId } = useProjectStore.getState();
+    const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
 
     if (!convId) {
       const id = generateId();
@@ -595,7 +686,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
-        projectId: activeProjectId || undefined,
+        projectId: (isProjectsEnabled && activeProjectId) || undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -613,7 +704,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: secondaryModel,
-        projectId: activeProjectId || undefined,
+        projectId: (isProjectsEnabled && activeProjectId) || undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -653,8 +744,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const toolLoop = getEnabledToolLoopConfig();
       if (toolLoop.shouldUseTools) {
-        const activeProject =
-          useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+        const {
+          activeProjectId: runActiveProjectId,
+          isProjectsEnabled: runProjectsEnabled,
+          projects: runProjects,
+        } = useProjectStore.getState();
+        const activeProject = runProjectsEnabled ? runProjects.find((p) => p.id === runActiveProjectId) || null : null;
         await sendWithToolLoop(
           cId,
           modelConfig,
@@ -678,8 +773,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const primaryModel = primaryConv?.model || selectedModel;
     let primaryModelConfig = models.find((m) => m.id === primaryModel) ?? models[0];
 
-    const activeProject =
-      useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+    const {
+      activeProjectId: sendActiveProjectId,
+      isProjectsEnabled: sendProjectsEnabled,
+      projects: sendProjects,
+    } = useProjectStore.getState();
+    const activeProject = sendProjectsEnabled ? sendProjects.find((p) => p.id === sendActiveProjectId) || null : null;
     if (activeProject && activeProject.modelOverride) {
       const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
       if (overrideModel && overrideModel.enabled !== false) {
@@ -765,8 +864,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     }));
 
-    const activeProject =
-      useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+    const {
+      activeProjectId: retryActiveProjectId,
+      isProjectsEnabled: retryProjectsEnabled,
+      projects: retryProjects,
+    } = useProjectStore.getState();
+    const activeProject = retryProjectsEnabled
+      ? retryProjects.find((p) => p.id === retryActiveProjectId) || null
+      : null;
     let modelConfig =
       models.find((m) => m.id === conv.model) ?? models.find((m) => m.id === selectedModel) ?? models[0];
     if (activeProject && activeProject.modelOverride) {
@@ -785,8 +890,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const toolLoop = getEnabledToolLoopConfig();
     if (toolLoop.shouldUseTools) {
-      const activeProject =
-        useProjectStore.getState().projects.find((p) => p.id === useProjectStore.getState().activeProjectId) || null;
+      const {
+        activeProjectId: retryToolActiveProjectId,
+        isProjectsEnabled: retryToolProjectsEnabled,
+        projects: retryToolProjects,
+      } = useProjectStore.getState();
+      const activeProject = retryToolProjectsEnabled
+        ? retryToolProjects.find((p) => p.id === retryToolActiveProjectId) || null
+        : null;
       await sendWithToolLoop(
         convId,
         modelConfig,

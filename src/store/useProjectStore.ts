@@ -8,6 +8,8 @@ import {
   saveProjectsEnabled,
   loadProjectsDefaultPermission,
   saveProjectsDefaultPermission,
+  loadLegacyProjects,
+  clearLegacyProjects,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 
@@ -44,7 +46,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   activeWorktreeBranch: null,
 
   init: async () => {
-    const loaded = await loadProjects();
+    let loaded = await loadProjects();
+
+    // Migration: If projects.json is empty, check for legacy projects in sythoria-store.json
+    if (loaded.length === 0) {
+      try {
+        const legacyProjects = await loadLegacyProjects();
+        if (legacyProjects && legacyProjects.length > 0) {
+          loaded = legacyProjects;
+          await saveProjects(loaded);
+          await clearLegacyProjects();
+        }
+      } catch (e) {
+        console.error("Failed to migrate legacy projects:", e);
+      }
+    }
+
     const enabled = await loadProjectsEnabled();
     const defaultPerm = await loadProjectsDefaultPermission();
     set({ projects: loaded, isProjectsEnabled: enabled, defaultPermission: defaultPerm });
@@ -94,6 +111,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         console.error("Failed to clear active project on delete:", e);
       });
     }
+    import("./useChatStore")
+      .then(({ useChatStore }) => {
+        useChatStore.getState().deleteProjectChats(id);
+      })
+      .catch((e) => {
+        console.error("Failed to load useChatStore dynamically during deleteProject:", e);
+      });
   },
 
   setActiveProject: (id) => {
