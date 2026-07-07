@@ -524,4 +524,13 @@ export const zh = {
   "chat.tools.matchesCount": "（{count} 个匹配）",
   "chat.tools.filesCount": "（{count} 个文件）",
   "chat.tools.linesCount": "（{count} 行）",
+  "updates.title": "有新更新可用",
+  "updates.newVersion": "Sythoria 的新版本已可用。",
+  "updates.current": "当前版本",
+  "updates.latest": "最新版本",
+  "updates.releaseNotes": "更新日志",
+  "updates.download": "下载并安装",
+  "updates.remindLater": "稍后提醒",
+  "updates.error": "检查更新失败。",
+  "general.latestVersion": "您已是 Sythoria 的最新版本",
 };

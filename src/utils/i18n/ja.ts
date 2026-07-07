@@ -544,4 +544,13 @@ export const ja = {
   "chat.tools.matchesCount": "（{count} 件の該当）",
   "chat.tools.filesCount": "（{count} 個のファイル）",
   "chat.tools.linesCount": "（{count} 行）",
+  "updates.title": "アップデートがあります",
+  "updates.newVersion": "Sythoriaの新しいバージョンが利用可能です。",
+  "updates.current": "現在のバージョン",
+  "updates.latest": "最新バージョン",
+  "updates.releaseNotes": "リリースノート",
+  "updates.download": "ダウンロードとインストール",
+  "updates.remindLater": "後で通知",
+  "updates.error": "アップデートの確認に失敗しました。",
+  "general.latestVersion": "最新バージョンのSythoriaを使用しています",
 };

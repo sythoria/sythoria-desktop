@@ -20,7 +20,7 @@ import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import Settings from "./components/settings";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
-import { RenameChatModal, ToolConfirmationModal } from "./components/ui/Modal";
+import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 
@@ -204,6 +204,9 @@ function App() {
     isDraggingFile,
     pendingToolConfirmations,
     activeArtifact,
+    showUpdateModal,
+    updateInfo,
+    autoUpdateChecking,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -218,6 +221,9 @@ function App() {
       isDraggingFile: s.isDraggingFile,
       pendingToolConfirmations: s.pendingToolConfirmations,
       activeArtifact: s.activeArtifact,
+      showUpdateModal: s.showUpdateModal,
+      updateInfo: s.updateInfo,
+      autoUpdateChecking: s.autoUpdateChecking,
     })),
   );
   const {
@@ -230,6 +236,8 @@ function App() {
     setHasStarted,
     respondToToolConfirmation,
     setActiveArtifact,
+    setShowUpdateModal,
+    checkForUpdates,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
@@ -241,6 +249,8 @@ function App() {
       setHasStarted: s.setHasStarted,
       respondToToolConfirmation: s.respondToToolConfirmation,
       setActiveArtifact: s.setActiveArtifact,
+      setShowUpdateModal: s.setShowUpdateModal,
+      checkForUpdates: s.checkForUpdates,
     })),
   );
 
@@ -487,6 +497,12 @@ function App() {
     useUIStore.getState().initDownloadedThemes();
     useKeybindStore.getState().initKeybinds();
   }, [init]);
+
+  useEffect(() => {
+    if (isConfigLoaded && autoUpdateChecking) {
+      checkForUpdates(true);
+    }
+  }, [isConfigLoaded, autoUpdateChecking, checkForUpdates]);
 
   useEffect(() => {
     let active = true;
@@ -1185,6 +1201,14 @@ function App() {
           pendingToolConfirmations && pendingToolConfirmations.length > 0 ? pendingToolConfirmations[0] : null
         }
         onRespond={respondToToolConfirmation}
+      />
+      <UpdateModal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        currentVersion={updateInfo?.currentVersion || ""}
+        latestVersion={updateInfo?.latestVersion || ""}
+        releaseUrl={updateInfo?.releaseUrl || ""}
+        releaseNotes={updateInfo?.releaseNotes}
       />
       <AnimatePresence>
         {activeArtifact && isArtifactFullScreen && (

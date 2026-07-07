@@ -129,6 +129,51 @@ interface UIState {
   pendingToolConfirmations: ToolConfirmation[];
   addPendingToolConfirmation: (conf: ToolConfirmation) => void;
   respondToToolConfirmation: (id: string, approved: boolean) => void;
+  isCheckingUpdates: boolean;
+  updateInfo: { latestVersion: string; currentVersion: string; releaseUrl: string; releaseNotes?: string } | null;
+  showUpdateModal: boolean;
+  setShowUpdateModal: (show: boolean) => void;
+  checkForUpdates: (silent?: boolean) => Promise<void>;
+}
+
+function isNewerVersion(current: string, latest: string): boolean {
+  const cleanCurrent = current.replace(/^v/, "").trim();
+  const cleanLatest = latest.replace(/^v/, "").trim();
+
+  if (cleanCurrent === cleanLatest) return false;
+
+  const currentParts = cleanCurrent.split(/[-.]/);
+  const latestParts = cleanLatest.split(/[-.]/);
+
+  const length = Math.max(currentParts.length, latestParts.length);
+  for (let i = 0; i < length; i++) {
+    const currPart = currentParts[i];
+    const latePart = latestParts[i];
+
+    if (latePart === undefined) {
+      return true;
+    }
+    if (currPart === undefined) {
+      return false;
+    }
+
+    const currNum = parseInt(currPart, 10);
+    const lateNum = parseInt(latePart, 10);
+
+    const isCurrNum = !isNaN(currNum);
+    const isLateNum = !isNaN(lateNum);
+
+    if (isCurrNum && isLateNum) {
+      if (lateNum > currNum) return true;
+      if (currNum > lateNum) return false;
+    } else {
+      if (currPart !== latePart) {
+        return latePart > currPart;
+      }
+    }
+  }
+
+  return false;
 }
 
 const safeLocalStorage =
@@ -189,6 +234,9 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarWidth: Number(safeLocalStorage.getItem("sythoria-sidebar-width") || 260),
   activeArtifact: null,
   pendingToolConfirmations: [],
+  isCheckingUpdates: false,
+  updateInfo: null,
+  showUpdateModal: false,
 
   setSidebarWidth: (sidebarWidth) => {
     safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
@@ -419,6 +467,47 @@ export const useUIStore = create<UIState>((set) => ({
     set({ offlineMode: value });
     saveOfflineMode(value);
   },
+  checkForUpdates: async (silent = false) => {
+    const { addToast } = useUIStore.getState();
+    set({ isCheckingUpdates: true });
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { getVersion } = await import("@tauri-apps/api/app");
+
+      const currentVersion = await getVersion();
+      const result = await invoke<{
+        latestVersion: string;
+        releaseUrl: string;
+        releaseNotes?: string;
+      }>("check_for_updates");
+
+      const hasUpdate = isNewerVersion(currentVersion, result.latestVersion);
+
+      if (hasUpdate) {
+        set({
+          updateInfo: {
+            currentVersion,
+            latestVersion: result.latestVersion,
+            releaseUrl: result.releaseUrl,
+            releaseNotes: result.releaseNotes,
+          },
+          showUpdateModal: true,
+        });
+      } else {
+        if (!silent) {
+          addToast("You are on the latest version of Sythoria", "success");
+        }
+      }
+    } catch (error) {
+      console.error("Failed to check for updates:", error);
+      if (!silent) {
+        addToast(`Failed to check for updates: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    } finally {
+      set({ isCheckingUpdates: false });
+    }
+  },
+  setShowUpdateModal: (show) => set({ showUpdateModal: show }),
 }));
 
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {

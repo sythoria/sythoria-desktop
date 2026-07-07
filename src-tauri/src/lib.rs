@@ -110,6 +110,66 @@ async fn save_network_config(app: tauri::AppHandle, config: String) -> Result<()
     }
     Ok(())
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub latest_version: String,
+    pub release_url: String,
+    pub release_notes: Option<String>,
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
+    let url = "https://api.github.com/repos/sythoria/sythoria-desktop/releases/latest";
+
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+
+    let user_agent = format!("Sythoria/{} (Desktop AI Assistant)", env!("CARGO_PKG_VERSION"));
+    let resp = client
+        .get(url)
+        .header("User-Agent", &user_agent)
+        .send()
+        .await
+        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        return Err(AppError::ApiError {
+            status: resp.status().as_u16(),
+            message: format!("GitHub API returned error: {}", resp.status()),
+        });
+    }
+
+    let release_info: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+
+    let tag_name = release_info["tag_name"]
+        .as_str()
+        .ok_or_else(|| AppError::ParseError("Missing tag_name in release info".to_string()))?
+        .trim()
+        .to_string();
+
+    let release_url = release_info["html_url"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    let release_notes = release_info["body"]
+        .as_str()
+        .map(|s| s.to_string());
+
+    Ok(UpdateCheckResult {
+        latest_version: tag_name,
+        release_url,
+        release_notes,
+    })
+}
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -2353,6 +2413,7 @@ pub fn run() {
             check_ollama,
             web_search,
             fetch_url_content,
+            check_for_updates,
             ws_authenticate,
             ws_chat,
             ws_connect,
@@ -2431,3 +2492,6 @@ pub fn run() {
         }
     });
 }
+
+
+

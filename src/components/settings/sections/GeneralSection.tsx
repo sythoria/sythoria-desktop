@@ -30,13 +30,14 @@ export function GeneralSection() {
 
   const autoUpdateChecking = useUIStore((s) => s.autoUpdateChecking);
   const setAutoUpdateChecking = useUIStore((s) => s.setAutoUpdateChecking);
+  const isCheckingUpdates = useUIStore((s) => s.isCheckingUpdates);
+  const checkForUpdates = useUIStore((s) => s.checkForUpdates);
 
   const setLanguage = useUIStore((s) => s.setLanguage);
   const addToast = useUIStore((s) => s.addToast);
 
   const [shortcutDropdownOpen, setShortcutDropdownOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [appVersion, setAppVersion] = useState("v0.1.0");
 
   const textSizes = [
@@ -74,11 +75,7 @@ export function GeneralSection() {
   };
 
   const handleCheckUpdates = () => {
-    setIsCheckingUpdates(true);
-    setTimeout(() => {
-      setIsCheckingUpdates(false);
-      addToast("You are on the latest version of Sythoria", "success");
-    }, 1500);
+    checkForUpdates(false);
   };
 
   return (

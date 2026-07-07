@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X } from "lucide-react";
+import { X, ArrowUpCircle, ExternalLink } from "lucide-react";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { springs, motionTokens } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
+import { useTranslation } from "../../utils/i18n";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface ModalProps {
   isOpen: boolean;
@@ -466,5 +468,192 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
         </div>
       </div>
     </div>
+  );
+}
+
+interface UpdateModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  releaseNotes?: string;
+}
+
+export function UpdateModal({
+  isOpen,
+  onClose,
+  currentVersion,
+  latestVersion,
+  releaseUrl,
+  releaseNotes,
+}: UpdateModalProps) {
+  const { t } = useTranslation();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  const handleTabTrap = useCallback((e: KeyboardEvent) => {
+    if (e.key !== "Tab" || !modalRef.current) return;
+    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleTabTrap);
+    lockBodyScroll();
+
+    const previouslyFocused = document.activeElement as HTMLElement;
+    requestAnimationFrame(() => {
+      const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      firstFocusable?.focus();
+    });
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("keydown", handleTabTrap);
+      unlockBodyScroll();
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, onClose, handleTabTrap]);
+
+  const handleDownload = async () => {
+    try {
+      await openUrl(releaseUrl);
+    } catch (e) {
+      console.error("Failed to open release URL:", e);
+      // Fallback
+      window.open(releaseUrl, "_blank");
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("updates.title")}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: motionTokens.duration.fast }}
+        >
+          <motion.div
+            className="absolute inset-0 backdrop-blur-sm"
+            style={{ backgroundColor: "var(--theme-overlay)" }}
+            onClick={onClose}
+            aria-hidden="true"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            ref={modalRef}
+            className="relative z-10 w-full max-w-lg rounded-2xl bg-surface border border-border"
+            style={{ boxShadow: "var(--shadow-xl)" }}
+            initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
+            transition={springs.gentle}
+          >
+            {/* Header Area */}
+            <div className="flex items-start justify-between p-6 border-b border-border">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-accent-soft text-accent">
+                  <ArrowUpCircle size={24} className="animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-primary">{t("updates.title")}</h3>
+                  <p className="text-xs text-text-muted mt-0.5">{t("updates.newVersion")}</p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+                aria-label="Close dialog"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Content Area */}
+            <div className="p-6 space-y-4">
+              {/* Version Info Badge Comparison */}
+              <div className="grid grid-cols-2 gap-4 bg-hover/40 border border-border/60 rounded-xl p-3.5">
+                <div className="text-center space-y-1">
+                  <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                    {t("updates.current")}
+                  </span>
+                  <span className="text-sm font-mono font-medium text-text-secondary">{currentVersion}</span>
+                </div>
+                <div className="text-center space-y-1 border-l border-border/80">
+                  <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
+                    {t("updates.latest")}
+                  </span>
+                  <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full bg-accent-soft text-accent text-xs font-mono font-bold">
+                    {latestVersion}
+                  </span>
+                </div>
+              </div>
+
+              {/* Release Notes */}
+              {releaseNotes && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-semibold text-text-primary block">{t("updates.releaseNotes")}</span>
+                  <div className="bg-hover border border-border rounded-xl p-4 overflow-y-auto max-h-48 scrollbar-thin">
+                    <pre className="font-sans text-xs text-text-secondary leading-relaxed whitespace-pre-wrap break-words">
+                      {releaseNotes}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Actions Footer */}
+            <div className="flex gap-3 p-6 pt-0">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-all duration-200 min-h-[44px]"
+              >
+                {t("updates.remindLater")}
+              </button>
+              <button
+                onClick={handleDownload}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-all duration-200 min-h-[44px] flex items-center justify-center gap-1.5 shadow-sm shadow-accent-soft"
+              >
+                <span>{t("updates.download")}</span>
+                <ExternalLink size={14} />
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

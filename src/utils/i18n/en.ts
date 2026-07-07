@@ -541,4 +541,13 @@ export const en = {
   "chat.tools.matchesCount": "({count} matches)",
   "chat.tools.filesCount": "({count} files)",
   "chat.tools.linesCount": "({count} lines)",
+  "updates.title": "Update Available",
+  "updates.newVersion": "A new version of Sythoria is available.",
+  "updates.current": "Current Version",
+  "updates.latest": "Latest Version",
+  "updates.releaseNotes": "Release Notes",
+  "updates.download": "Download & Install",
+  "updates.remindLater": "Remind Me Later",
+  "updates.error": "Failed to check for updates.",
+  "general.latestVersion": "You are on the latest version of Sythoria",
 };
