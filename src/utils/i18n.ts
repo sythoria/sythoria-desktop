@@ -31,11 +31,13 @@ export function useTranslation() {
 
   const t = (key: string, replacements?: Record<string, string>): string => {
     const dict = translations[language] || translations["en"];
-    let value = dict?.[key] || translations["en"]?.[key] || key;
+    let value = dict?.[key] ?? translations["en"]?.[key] ?? (replacements?.defaultValue || key);
 
     if (replacements) {
       Object.entries(replacements).forEach(([k, v]) => {
-        value = value.replace(new RegExp(`{${k}}`, "g"), String(v));
+        if (k !== "defaultValue") {
+          value = value.replace(new RegExp(`{${k}}`, "g"), String(v));
+        }
       });
     }
 

@@ -487,7 +487,7 @@ export const McpServerCard = memo(function McpServerCard({
               aria-label={toolsExpanded ? t("settings.mcp.hideTools") : t("settings.mcp.showTools")}
             >
               <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
-              {t("settings.mcp.toolsCount", { count: String(tools.length) })}
+              {t("settings.mcp.tools", { count: String(tools.length) })}
             </motion.button>
           )}
         </div>
