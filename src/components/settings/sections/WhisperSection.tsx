@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useWhisperStore } from "../../../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../../../config/whisperPresets";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Download, Trash2, Check, FileCheck, Info, Loader2, Globe, X } from "lucide-react";
+import { Download, Trash2, Check, FileCheck, Info, Loader2, Globe, X, Cloud, Cpu, Settings2, Sparkles } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { useTranslation } from "../../../utils/i18n";
+import { useModelStore } from "../../../store/useModelStore";
 
 export function WhisperSection() {
   const { t } = useTranslation();
@@ -25,7 +26,19 @@ export function WhisperSection() {
     cancelDownload,
     deleteModel,
     init,
+    sttProvider,
+    cloudApiKey,
+    cloudApiUrl,
+    cloudModel,
+    refinementModelId,
+    setSttProvider,
+    setCloudApiKey,
+    setCloudApiUrl,
+    setCloudModel,
+    setRefinementModelId,
   } = useWhisperStore();
+
+  const models = useModelStore((s) => s.models);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -100,11 +113,92 @@ export function WhisperSection() {
                 <option value="auto">{t("settings.voice.languageAuto")}</option>
               </select>
             </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+                <Sparkles size={13} />
+                <span>Refinement Model (Instant LLM Polish)</span>
+              </label>
+              <select
+                value={refinementModelId || ""}
+                onChange={(e) => setRefinementModelId(e.target.value || null)}
+                className="w-full text-xs bg-surface border border-border/85 rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+              >
+                <option value="">Same as Active Chat Model</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+                <Settings2 size={13} />
+                <span>Speech-to-Text Engine</span>
+              </label>
+              <div className="flex bg-surface border border-border/85 rounded-lg p-1 gap-1">
+                <button
+                  onClick={() => setSttProvider("cloud")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                    sttProvider === "cloud" ? "bg-accent text-white" : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                  }`}
+                >
+                  <Cloud size={14} />
+                  <span>Cloud API (Fast)</span>
+                </button>
+                <button
+                  onClick={() => setSttProvider("local")}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                    sttProvider === "local" ? "bg-accent text-white" : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                  }`}
+                >
+                  <Cpu size={14} />
+                  <span>Local CPU</span>
+                </button>
+              </div>
+            </div>
+
+            {sttProvider === "cloud" && (
+              <div className="bg-surface border border-border/60 rounded-xl p-3 space-y-3 mt-2">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-text-secondary">OpenAI-Compatible API URL</label>
+                  <input
+                    type="text"
+                    value={cloudApiUrl}
+                    onChange={(e) => setCloudApiUrl(e.target.value)}
+                    placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
+                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-text-secondary">API Key</label>
+                  <input
+                    type="password"
+                    value={cloudApiKey}
+                    onChange={(e) => setCloudApiKey(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-text-secondary">STT Model ID</label>
+                  <input
+                    type="text"
+                    value={cloudModel}
+                    onChange={(e) => setCloudModel(e.target.value)}
+                    placeholder="whisper-large-v3"
+                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {isVoiceEnabled && (
+      {isVoiceEnabled && sttProvider === "local" && (
         <>
           {/* Active Model Status */}
           <div className="bg-surface-elevated border border-border/60 rounded-xl p-4">
