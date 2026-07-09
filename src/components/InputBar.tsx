@@ -109,6 +109,11 @@ export default function InputBar({
 
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
+  const [voiceDraft, setVoiceDraft] = useState<string>("");
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRecordingActiveRef = useRef<boolean>(false);
+  const initialValueRef = useRef<string>("");
+  const recognitionRef = useRef<any>(null);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -132,10 +137,27 @@ export default function InputBar({
     setIsTranscribing,
     init: initWhisper,
     downloadedFiles,
+    sttProvider,
+    cloudApiKey,
+    cloudApiUrl,
+    cloudModel,
+    refinementModelId,
   } = useWhisperStore();
 
   useEffect(() => {
     initWhisper();
+    return () => {
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (_e) {
+          // ignore
+        }
+      }
+    };
   }, []);
 
   const handleToggleVoice = async () => {
@@ -155,51 +177,169 @@ export default function InputBar({
       }
     }
 
-    if (!selectedModelId || !modelPath || !isModelReady) {
-      useUIStore.getState().addToast(
-        <span>
-          Voice input model is not loaded, visit{" "}
-          <button
-            onClick={() => {
-              useUIStore.getState().setView("settings");
-              useUIStore.getState().setActiveSection("whisper");
-            }}
-            className="text-accent underline font-medium hover:text-accent-hover cursor-pointer"
-          >
-            settings/voiceinput
-          </button>{" "}
-          for more details.
-        </span>,
-        "error",
-      );
-      return;
+    if (sttProvider === "local") {
+      if (!selectedModelId || !modelPath || !isModelReady) {
+        useUIStore.getState().addToast(
+          <span>
+            Voice input model is not loaded, visit{" "}
+            <button
+              onClick={() => {
+                useUIStore.getState().setView("settings");
+                useUIStore.getState().setActiveSection("whisper");
+              }}
+              className="text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer"
+            >
+              settings/voiceinput
+            </button>{" "}
+            for more details.
+          </span>,
+          "error",
+        );
+        return;
+      }
+    } else if (sttProvider === "cloud") {
+      if (!cloudApiKey || !cloudApiUrl) {
+        useUIStore.getState().addToast("Cloud STT API Key or URL is not configured.", "error");
+        return;
+      }
     }
 
     if (isRecording) {
+      isRecordingActiveRef.current = false;
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.warn("Speech recognition stop error:", e);
+        }
+        recognitionRef.current = null;
+      }
       setIsRecording(false);
       setIsTranscribing(true);
 
       try {
-        const audioData = await invoke<number[]>("stop_recording");
+        await invoke("stop_recording");
 
-        const transcription = await invoke<string>("transcribe_audio", {
-          modelPath,
-          audioData,
-          language,
-        });
+        let transcription = "";
+        if (sttProvider === "cloud") {
+          transcription = await invoke<string>("transcribe_audio_cloud", {
+            apiUrl: cloudApiUrl,
+            apiKey: cloudApiKey,
+            model: cloudModel,
+            language,
+          });
+        } else {
+          transcription = await invoke<string>("transcribe_audio", {
+            modelPath,
+            audioData: [],
+            language,
+          });
+        }
 
-        if (transcription.trim()) {
-          setValue((prev) => (prev ? `${prev} ${transcription}` : transcription));
+        const rawText = transcription.trim();
+        if (rawText) {
+          const combinedRaw = initialValueRef.current
+            ? `${initialValueRef.current} ${rawText}`
+            : rawText;
+          setValue(combinedRaw);
+          setVoiceDraft(combinedRaw);
+
+          useUIStore.getState().addToast("Refining speech...", "info");
+          
+          const streamId = "refine-" + Math.random().toString().slice(2, 10);
+          let accumulated = "";
+          
+          const { listen } = await import("@tauri-apps/api/event");
+          
+          const unlistenChunk = await listen<{ streamId: string; content: string }>("chat-stream-chunk", (event) => {
+            if (event.payload.streamId === streamId) {
+              accumulated += event.payload.content;
+              const combinedRefined = initialValueRef.current
+                ? `${initialValueRef.current} ${accumulated}`
+                : accumulated;
+              setValue(combinedRefined);
+            }
+          });
+
+          const modelStore = useModelStore.getState();
+          const targetModelId = refinementModelId || modelStore.selectedModel || modelStore.models[0]?.id;
+          const currentModel = modelStore.models.find((m) => m.id === targetModelId) || modelStore.models[0];
+            
+          if (currentModel) {
+            setValue(initialValueRef.current);
+            
+            await invoke<string>("chat_stream", {
+              configId: currentModel.id,
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "Clean filler words (uh, um, then, like) and speech bugs from this transcript. Output ONLY refined sentences. Do not add intro/outro.",
+                },
+                { role: "user", content: combinedRaw },
+              ],
+              temperature: 0.1,
+              streamId,
+              maxTokens: 500,
+            });
+            
+            unlistenChunk();
+          }
         }
       } catch (err: any) {
         useUIStore.getState().addToast(`Voice transcription failed: ${err.message || err}`, "error");
       } finally {
         setIsTranscribing(false);
+        setVoiceDraft("");
       }
     } else {
       try {
+        initialValueRef.current = value;
         await invoke("start_recording");
         setIsRecording(true);
+
+        isRecordingActiveRef.current = true;
+        const pollTranscription = async () => {
+          if (!isRecordingActiveRef.current) return;
+          try {
+            if (isRecordingActiveRef.current) {
+              let transcription = "";
+              if (sttProvider === "cloud") {
+                transcription = await invoke<string>("transcribe_audio_cloud", {
+                  apiUrl: cloudApiUrl,
+                  apiKey: cloudApiKey,
+                  model: cloudModel,
+                  language,
+                });
+              } else {
+                transcription = await invoke<string>("transcribe_audio", {
+                  modelPath,
+                  audioData: [],
+                  language,
+                });
+              }
+              
+              if (isRecordingActiveRef.current && transcription.trim()) {
+                const combined = initialValueRef.current
+                  ? `${initialValueRef.current} ${transcription.trim()}`
+                  : transcription.trim();
+                setValue(combined);
+                setVoiceDraft(combined);
+              }
+            }
+          } catch (e) {
+            console.warn("Live transcription error:", e);
+          }
+          if (isRecordingActiveRef.current) {
+            recordingTimeoutRef.current = setTimeout(pollTranscription, 1200) as any;
+          }
+        };
+
+        recordingTimeoutRef.current = setTimeout(pollTranscription, 1200) as any;
       } catch (err: any) {
         useUIStore.getState().addToast(`Could not access microphone: ${err.message || err}`, "error");
       }
@@ -231,10 +371,11 @@ export default function InputBar({
 
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const newHeight = Math.min(textareaRef.current.scrollHeight, MAX_TEXTAREA_HEIGHT);
+      textareaRef.current.style.height = "0px";
+      const scrollHeight = textareaRef.current.scrollHeight;
+      const newHeight = Math.max(20, Math.min(scrollHeight, MAX_TEXTAREA_HEIGHT));
       textareaRef.current.style.height = newHeight + "px";
-      textareaRef.current.style.overflowY = textareaRef.current.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+      textareaRef.current.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
     }
   }, [value]);
 
@@ -343,10 +484,97 @@ export default function InputBar({
     }
   }, [focusedIndex]);
 
+  const handleClipboardPaste = useCallback(
+    async (clipboardData: DataTransfer | null) => {
+      const files: File[] = [];
+
+      // 1. Try to extract images from files
+      if (clipboardData && clipboardData.files && clipboardData.files.length > 0) {
+        for (let i = 0; i < clipboardData.files.length; i++) {
+          const file = clipboardData.files[i];
+          if (file.type && file.type.startsWith("image/")) {
+            files.push(file);
+          }
+        }
+      }
+
+      // 2. Fall back to items (handles screenshots, copied browser images, Linux clipboard placeholders)
+      if (files.length === 0 && clipboardData && clipboardData.items && clipboardData.items.length > 0) {
+        for (let i = 0; i < clipboardData.items.length; i++) {
+          const item = clipboardData.items[i];
+          if (item.type && item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              files.push(file);
+            }
+          }
+        }
+      }
+
+      // 3. Fall back to direct Navigator Clipboard API if event-based data is restricted/empty (WebKit2GTK/Linux edge cases)
+      if (files.length === 0 && typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.read === "function") {
+        try {
+          const clipboardItems = await navigator.clipboard.read();
+          for (const item of clipboardItems) {
+            for (const type of item.types) {
+              if (type.startsWith("image/")) {
+                const blob = await item.getType(type);
+                const file = new File([blob], "image.png", { type });
+                files.push(file);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Navigator clipboard read failed:", err);
+        }
+      }
+
+      if (files.length > 0) {
+        await handleAddFiles(files);
+        return true;
+      }
+      return false;
+    },
+    [handleAddFiles],
+  );
+
+  useEffect(() => {
+    const handleGlobalPaste = async (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInputOrTextarea = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      if (isInputOrTextarea && target.id !== "chat-input") {
+        return;
+      }
+
+      if (disabled || isStreaming) return;
+
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+
+      // Check synchronously to call preventDefault
+      const types = clipboardData.types;
+      const isFileOrImage = types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
+
+      if (isFileOrImage) {
+        e.preventDefault();
+        await handleClipboardPaste(clipboardData);
+        textareaRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("paste", handleGlobalPaste);
+    return () => {
+      document.removeEventListener("paste", handleGlobalPaste);
+    };
+  }, [disabled, isStreaming, handleClipboardPaste]);
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     if (val.length <= MAX_INPUT_LENGTH + 100) {
       setValue(val);
+      if (voiceDraft && val.trim() !== voiceDraft.trim()) {
+        setVoiceDraft("");
+      }
     }
   };
 
@@ -393,15 +621,11 @@ export default function InputBar({
           onDragLeave={() => {
             setIsDragging(false);
           }}
-          onDrop={async (e) => {
+          onDrop={(e) => {
             e.preventDefault();
             setIsDragging(false);
-            if (disabled || isStreaming) return;
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-              await handleAddFiles(Array.from(e.dataTransfer.files));
-            }
           }}
-          className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-3 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
+          className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-2.5 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
             isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
           } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
             isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""
@@ -429,57 +653,80 @@ export default function InputBar({
                 transition={springs.gentle}
                 className="w-full overflow-hidden"
               >
-                <div className="flex flex-wrap gap-2 w-full pb-1 border-b border-border/40">
-                  {attachments.map((a) => (
-                    <motion.div
-                      layout
-                      key={a.id}
-                      initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      transition={springs.gentle}
-                      onClick={() => {
-                        if (a.kind === "image" && a.dataUrl) {
-                          const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-                          if (imgIdx !== -1) {
-                            setPreviewImageIndex(imgIdx);
-                          }
-                        }
-                      }}
-                      className={`flex items-center gap-1.5 rounded-md border border-border bg-surface pl-2 pr-0.5 py-0.5 text-xs text-text-secondary select-none ${
-                        a.kind === "image" && a.dataUrl
-                          ? "cursor-pointer hover:bg-active/10 hover:border-active transition-colors"
-                          : ""
-                      }`}
-                      title={a.kind === "image" && a.dataUrl ? `View ${a.name}` : undefined}
-                    >
-                      {a.kind === "image" && a.dataUrl ? (
-                        <img
-                          src={a.dataUrl}
-                          alt={a.name}
-                          className="w-3.5 h-3.5 rounded-sm object-cover shrink-0 select-none"
-                        />
-                      ) : a.kind === "image" ? (
-                        <ImageIcon size={13} className="text-text-muted" />
-                      ) : (
-                        <FileTextIcon size={13} className="text-text-muted" />
-                      )}
-                      <span className="max-w-[120px] truncate font-medium" title={a.name}>
-                        {a.name}
-                      </span>
-                      <span className="text-[10px] text-text-muted">({formatFileSize(a.size)})</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                        }}
-                        className="absolute -top-1.5 -right-1.5 p-0.5 rounded-full bg-surface-elevation border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-hover opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                        title={t("chat.removeAttachment") || "Remove attachment"}
+                <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
+                  {attachments.map((a) => {
+                    const isImg = a.kind === "image" && a.dataUrl;
+                    if (isImg) {
+                      return (
+                        <motion.div
+                          layout
+                          key={a.id}
+                          initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                          transition={springs.gentle}
+                          onClick={() => {
+                            const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
+                            if (imgIdx !== -1) {
+                              setPreviewImageIndex(imgIdx);
+                            }
+                          }}
+                          className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
+                          title={`View ${a.name}`}
+                        >
+                          <img
+                            src={a.dataUrl}
+                            alt={a.name}
+                            className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <span className="sr-only">{a.name}</span>
+                          <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                            }}
+                            className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
+                            title={t("chat.removeAttachment") || "Remove attachment"}
+                          >
+                            <X size={12} />
+                          </button>
+                        </motion.div>
+                      );
+                    }
+
+                    return (
+                      <motion.div
+                        layout
+                        key={a.id}
+                        initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                        transition={springs.gentle}
+                        className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                       >
-                        <X size={12} />
-                      </button>
-                    </motion.div>
-                  ))}
+                        {a.kind === "image" ? (
+                          <ImageIcon size={13} className="text-text-muted shrink-0" />
+                        ) : (
+                          <FileTextIcon size={13} className="text-text-muted shrink-0" />
+                        )}
+                        <span className="max-w-[120px] truncate font-medium" title={a.name}>
+                          {a.name}
+                        </span>
+                        <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                          }}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
+                          title={t("chat.removeAttachment") || "Remove attachment"}
+                        >
+                          <X size={12} />
+                        </button>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </motion.div>
             )}
@@ -581,12 +828,25 @@ export default function InputBar({
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
+              onPaste={(e) => {
+                if (disabled || isStreaming) return;
+                const clipboardData = e.clipboardData;
+                const types = clipboardData.types;
+                const isFileOrImage = types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
+
+                if (isFileOrImage) {
+                  e.preventDefault();
+                  handleClipboardPaste(clipboardData);
+                }
+              }}
               placeholder={t("chat.placeholder") || "Ask for follow-up changes..."}
               rows={1}
               disabled={disabled}
               aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
               aria-invalid={isOverLimit}
-              className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""}`}
+              className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
+              }`}
             />
 
             {/* Context Window Radial Indicator */}
