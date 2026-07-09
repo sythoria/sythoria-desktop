@@ -12,9 +12,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  maxWidth?: string;
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   const handleTabTrap = useCallback((e: KeyboardEvent) => {
@@ -91,7 +92,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
           />
           <motion.div
             ref={modalRef}
-            className="relative z-10 w-full max-w-md rounded-xl bg-surface border border-border"
+            className={`relative z-10 w-full ${maxWidth} rounded-xl bg-surface border border-border`}
             style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
