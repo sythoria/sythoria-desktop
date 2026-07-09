@@ -61,6 +61,11 @@ export interface Conversation {
     branch: string;
   };
   isPinned?: boolean;
+  // Subagent fields
+  parentId?: string;
+  role?: string;
+  isSubagent?: boolean;
+  status?: "running" | "idle" | "error" | "completed";
 }
 
 export type ProjectPermission = "read" | "write" | "full";
