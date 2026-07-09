@@ -444,4 +444,4 @@ export function PrivacySection() {
   );
 }
 
-export default PrivacySection;
+
