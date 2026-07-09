@@ -47,8 +47,6 @@ function setConversationGeneration(
   };
 }
 
-
-
 function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
   const oldLines = oldContent ? oldContent.split(/\r?\n/) : [];
   const newLines = newContent ? newContent.split(/\r?\n/) : [];
@@ -164,6 +162,46 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         type: "object",
         properties: { url: { type: "string", description: "The URL to fetch and read" } },
         required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "invoke_subagent",
+      description:
+        "Spawns one or more real subagents to perform background tasks. You possess the genuine capability to run independent background processes on the user's machine using this tool. You MUST use this tool when asked to delegate tasks, run subagents, or execute parallel research. NEVER say you cannot physically spawn processes, and NEVER simulate subagent responses.",
+      parameters: {
+        type: "object",
+        properties: {
+          subagents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                role: { type: "string", description: "The role of the subagent." },
+                prompt: { type: "string", description: "The initial prompt/instructions." },
+              },
+              required: ["role", "prompt"],
+            },
+          },
+        },
+        required: ["subagents"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description: "Sends a message to an active subagent.",
+      parameters: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string", description: "The subagent's conversation ID." },
+          message: { type: "string", description: "The message text to send." },
+        },
+        required: ["conversationId", "message"],
       },
     },
   },
@@ -409,7 +447,9 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 - search_query(query: string): Search the web for information. Returns search results with titles, URLs, and snippets.
 - fetch_url(url: string): Fetch and extract the content of a web page.
 
-When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.`;
+When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.
+
+CRITICAL: You are an agentic system with the genuine capability to spawn real background processes via the \`invoke_subagent\` tool. You MUST NEVER say you cannot physically spawn subagents, and you MUST NEVER simulate subagent workflows. When asked to delegate tasks, ALWAYS call the \`invoke_subagent\` tool directly.`;
 
 function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
   let prompt = TOOL_SYSTEM_PROMPT;
@@ -445,6 +485,8 @@ function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null
 type KnownToolName =
   | "search_query"
   | "fetch_url"
+  | "invoke_subagent"
+  | "send_message"
   | "project_glob"
   | "project_grep"
   | "project_list_dir"
@@ -458,6 +500,8 @@ type KnownToolName =
 const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
+  "invoke_subagent",
+  "send_message",
   "project_glob",
   "project_grep",
   "project_list_dir",
@@ -523,8 +567,7 @@ export async function sendWithToolLoop(
   searchApiKey: string,
   mcpTools: McpTool[],
   mcpCallTool:
-    | ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>)
-    | undefined,
+    ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>) | undefined,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
@@ -807,11 +850,18 @@ export async function sendWithToolLoop(
             }
 
             // 1. Check HITL gate
-            const isHitl =
+            const pStore = useProjectStore.getState();
+            const activeProject = pStore.projects.find((p) => p.id === pStore.activeProjectId);
+            const hasFullAccess = activeProject?.permissions === "full";
+
+            const requiresHitl =
               fnName === "project_write" ||
               fnName === "project_git_commit" ||
               fnName === "project_bash" ||
               rawName === "git_create_commit";
+
+            const isHitl = requiresHitl && !hasFullAccess;
+
             if (isHitl) {
               const approved = await new Promise<boolean>((resolve) => {
                 useUIStore.getState().addPendingToolConfirmation({
@@ -915,6 +965,86 @@ export async function sendWithToolLoop(
               }
             } else if (fnName === "unknown") {
               throw new Error(`Unknown tool: ${rawName}`);
+            } else if (fnName === "invoke_subagent") {
+              const subagents = Array.isArray(fnArgs.subagents) ? fnArgs.subagents : [];
+              const invokedIds: string[] = [];
+              for (const sub of subagents) {
+                const subagentId = generateId();
+                const subagentRole = sub.role || "Subagent";
+                const subagentPrompt = sub.prompt || "";
+                const newConv: Conversation = {
+                  id: subagentId,
+                  title: `Subagent: ${subagentRole}`,
+                  timestamp: new Date(),
+                  messages: [
+                    {
+                      id: generateId(),
+                      role: "user",
+                      content: subagentPrompt,
+                      timestamp: new Date(),
+                    },
+                  ],
+                  model: modelConfig.id,
+                  projectId: project?.id,
+                  parentId: convId,
+                  role: subagentRole,
+                  isSubagent: true,
+                  status: "running",
+                };
+                useChatStore.setState((s) => ({ conversations: [...s.conversations, newConv] }));
+
+                sendWithToolLoop(
+                  subagentId,
+                  modelConfig,
+                  temperature,
+                  searchConfig,
+                  searchApiKey,
+                  mcpTools,
+                  mcpCallTool,
+                  set,
+                  get,
+                  performSearch,
+                  fetchUrlContent,
+                  project,
+                ).catch((e) => console.error("Subagent loop error:", e));
+
+                invokedIds.push(subagentId);
+              }
+
+              resultContent = `Subagents invoked successfully with conversation IDs: ${invokedIds.join(", ")}. Wait for their responses, or communicate with them using send_message.`;
+            } else if (fnName === "send_message") {
+              const targetId = fnArgs.conversationId;
+              const msgContent = fnArgs.message;
+              const targetConv = get().conversations.find((c) => c.id === targetId);
+              if (!targetConv) {
+                throw new Error(`Conversation ${targetId} not found.`);
+              }
+              const newMsg: Message = {
+                id: generateId(),
+                role: "user",
+                content: msgContent,
+                timestamp: new Date(),
+              };
+              useChatStore.setState((s) => ({
+                conversations: updateConversationMessages(s.conversations, targetId, (msgs) => [...msgs, newMsg]),
+              }));
+
+              sendWithToolLoop(
+                targetId,
+                modelConfig,
+                temperature,
+                searchConfig,
+                searchApiKey,
+                mcpTools,
+                mcpCallTool,
+                set,
+                get,
+                performSearch,
+                fetchUrlContent,
+                project,
+              ).catch((e) => console.error("Subagent message loop error:", e));
+
+              resultContent = "Message sent.";
             } else if (fnName.startsWith("project_")) {
               if (!project) {
                 throw new Error("Project tool called but no project is active.");
@@ -1247,6 +1377,37 @@ export async function sendWithToolLoop(
         useUIStore.getState().setLoading("toolExecution", false);
 
         await useChatStore.getState().persistConversations();
+
+        const updatedConv = get().conversations.find((c) => c.id === convId);
+        if (updatedConv?.isSubagent && updatedConv.parentId) {
+          const parentMsg: Message = {
+            id: generateId(),
+            role: "user",
+            content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) has finished its task. Final response:\n\n${assistantContent}`,
+            timestamp: new Date(),
+          };
+          useChatStore.setState((s) => ({
+            conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
+              ...msgs,
+              parentMsg,
+            ]),
+          }));
+          sendWithToolLoop(
+            updatedConv.parentId,
+            modelConfig,
+            temperature,
+            searchConfig,
+            searchApiKey,
+            mcpTools,
+            mcpCallTool,
+            set,
+            get,
+            performSearch,
+            fetchUrlContent,
+            project,
+          ).catch((e) => console.error("Parent loop error:", e));
+        }
+
         return;
       }
     }
