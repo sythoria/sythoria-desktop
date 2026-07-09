@@ -47,35 +47,9 @@ function setConversationGeneration(
   };
 }
 
-export function isPathExcluded(p: string, projectPath: string, excludePatterns?: string[]): boolean {
-  if (!excludePatterns || excludePatterns.length === 0) return false;
 
-  let relPath = p;
-  if (p.startsWith(projectPath)) {
-    relPath = p.slice(projectPath.length).replace(/^[/\\]+/, "");
-  }
-  relPath = relPath.replace(/\\/g, "/");
 
-  for (const pattern of excludePatterns) {
-    const trimmed = pattern.trim();
-    if (!trimmed) continue;
-
-    try {
-      const escaped = trimmed.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-      const regex = new RegExp(`(^|/)${escaped}(/|$)`, "i");
-      if (regex.test(relPath)) {
-        return true;
-      }
-    } catch {
-      if (relPath.toLowerCase().includes(trimmed.toLowerCase())) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-export function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
+function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
   const oldLines = oldContent ? oldContent.split(/\r?\n/) : [];
   const newLines = newContent ? newContent.split(/\r?\n/) : [];
 
@@ -127,7 +101,7 @@ export function computeLineDiff(oldContent: string, newContent: string): { added
   };
 }
 
-export function isFileWriteTool(
+function isFileWriteTool(
   name: string,
   args: Record<string, string> | undefined,
 ): { isWrite: boolean; pathKey?: string } {
@@ -195,7 +169,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
+function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
   const tools = includeSearch ? [...TOOL_DEFINITIONS] : [];
   for (const mcpTool of mcpTools) {
     const inputSchema = (mcpTool.inputSchema ?? { properties: {} }) as Record<string, unknown>;
@@ -215,7 +189,7 @@ export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = t
   return tools;
 }
 
-export function buildProjectToolDefinitions(project: Project | null) {
+function buildProjectToolDefinitions(project: Project | null) {
   if (!project) return [];
   const tools: ToolDefinition[] = [];
 
@@ -437,7 +411,7 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 
 When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.`;
 
-export function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
+function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
   let prompt = TOOL_SYSTEM_PROMPT;
 
   if (project) {
