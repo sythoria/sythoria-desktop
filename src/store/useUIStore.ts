@@ -22,6 +22,8 @@ import {
   saveBlockedHosts,
   saveOfflineMode,
   saveLanguage,
+  loadSkipExternalLinkWarning,
+  saveSkipExternalLinkWarning,
 } from "../utils/storage";
 import React from "react";
 import type { Toast } from "../components/ui/Toast";
@@ -84,6 +86,9 @@ interface UIState {
   blockedHosts: string[];
   offlineMode: boolean;
   language: string;
+  skipExternalLinkWarning: boolean;
+  showLinkWarningModal: boolean;
+  pendingLinkUrl: string | null;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -134,6 +139,9 @@ interface UIState {
   showUpdateModal: boolean;
   setShowUpdateModal: (show: boolean) => void;
   checkForUpdates: (silent?: boolean) => Promise<void>;
+  setSkipExternalLinkWarning: (skip: boolean) => void;
+  setShowLinkWarningModal: (show: boolean, url?: string | null) => void;
+  initSkipExternalLinkWarning: () => Promise<void>;
 }
 
 function isNewerVersion(current: string, latest: string): boolean {
@@ -237,6 +245,9 @@ export const useUIStore = create<UIState>((set) => ({
   isCheckingUpdates: false,
   updateInfo: null,
   showUpdateModal: false,
+  skipExternalLinkWarning: false,
+  showLinkWarningModal: false,
+  pendingLinkUrl: null,
 
   setSidebarWidth: (sidebarWidth) => {
     safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
@@ -508,6 +519,17 @@ export const useUIStore = create<UIState>((set) => ({
     }
   },
   setShowUpdateModal: (show) => set({ showUpdateModal: show }),
+  setSkipExternalLinkWarning: (skip) => {
+    set({ skipExternalLinkWarning: skip });
+    saveSkipExternalLinkWarning(skip);
+  },
+  setShowLinkWarningModal: (show, url = null) => {
+    set({ showLinkWarningModal: show, pendingLinkUrl: show ? url : null });
+  },
+  initSkipExternalLinkWarning: async () => {
+    const skip = await loadSkipExternalLinkWarning();
+    set({ skipExternalLinkWarning: skip });
+  },
 }));
 
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
