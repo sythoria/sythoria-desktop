@@ -49,6 +49,8 @@ import { useTranslation } from "./utils/i18n";
 
 import "./index.css";
 
+let activeListenerId = "";
+
 const STATUS_KEYS: Record<string, string> = {
   disconnected: "status.disconnected",
   connecting: "status.connecting",
@@ -506,6 +508,9 @@ function App() {
 
   useEffect(() => {
     let active = true;
+    const currentListenerId = Math.random().toString();
+    activeListenerId = currentListenerId;
+
     let unlistenDragEnter: (() => void) | undefined;
     let unlistenDragOver: (() => void) | undefined;
     let unlistenDragLeave: (() => void) | undefined;
@@ -515,6 +520,7 @@ function App() {
       const { listen } = await import("@tauri-apps/api/event");
 
       const enter = await listen("tauri://drag-enter", () => {
+        if (activeListenerId !== currentListenerId) return;
         const uiState = useUIStore.getState();
         if (uiState.view === "chat") {
           uiState.setIsDraggingFile(true);
@@ -527,6 +533,7 @@ function App() {
       unlistenDragEnter = enter;
 
       const over = await listen("tauri://drag-over", () => {
+        if (activeListenerId !== currentListenerId) return;
         const uiState = useUIStore.getState();
         if (uiState.view === "chat" && !uiState.isDraggingFile) {
           uiState.setIsDraggingFile(true);
@@ -539,6 +546,7 @@ function App() {
       unlistenDragOver = over;
 
       const leave = await listen("tauri://drag-leave", () => {
+        if (activeListenerId !== currentListenerId) return;
         useUIStore.getState().setIsDraggingFile(false);
       });
       if (!active) {
@@ -550,6 +558,7 @@ function App() {
       const drop = await listen<{ token: string; name: string; size: number }[]>(
         "sythoria://drag-drop-tokens",
         async (event) => {
+          if (activeListenerId !== currentListenerId) return;
           useUIStore.getState().setIsDraggingFile(false);
           const uiState = useUIStore.getState();
           if (uiState.view !== "chat") return;
@@ -558,7 +567,7 @@ function App() {
           if (payload && payload.length > 0) {
             const chatStore = useChatStore.getState();
             for (const item of payload) {
-              await chatStore.addDraftFileFromToken(item.token);
+              await chatStore.addDraftFileFromToken(item.token, item.name, item.size);
             }
           }
         },
