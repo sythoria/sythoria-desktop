@@ -632,3 +632,17 @@ pre,
   z-index: 10;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
+
+/* Close button progressive hover opacity for image attachments */
+@media (min-width: 768px) {
+  .image-close-btn {
+    opacity: 0;
+  }
+  .group:hover .image-close-btn {
+    opacity: 0.6;
+  }
+  .group:hover .image-close-btn:hover {
+    opacity: 1 !important;
+  }
+}
+
