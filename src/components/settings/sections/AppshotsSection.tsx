@@ -427,4 +427,4 @@ export function AppshotsSection() {
     </>
   );
 }
-export default AppshotsSection;
+
