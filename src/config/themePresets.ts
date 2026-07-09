@@ -78,12 +78,12 @@ export const DARK_PRESETS: Record<string, CustomThemeConfig> = {
 };
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {
-  mode: "light",
-  lightTheme: { ...LIGHT_PRESETS["Solarized Light"] },
+  mode: "system",
+  lightTheme: { ...LIGHT_PRESETS["Default Light"] },
   darkTheme: { ...DARK_PRESETS["Default Dark"] },
 };
 
-export function hexToRgba(hex: string, alpha: number): string {
+function hexToRgba(hex: string, alpha: number): string {
   let cleanHex = hex.trim().replace("#", "");
   if (cleanHex.length === 3) {
     cleanHex = cleanHex
@@ -97,7 +97,7 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function lightenColor(hex: string, percent: number): string {
+function lightenColor(hex: string, percent: number): string {
   let cleanHex = hex.trim().replace("#", "");
   if (cleanHex.length === 3) {
     cleanHex = cleanHex
@@ -118,6 +118,18 @@ export function lightenColor(hex: string, percent: number): string {
   return "#" + (0x1000000 + rClamped * 0x10000 + gClamped * 0x100 + bClamped).toString(16).slice(1);
 }
 
+function normalizeHex(color: string, defaultColor: string): string {
+  let cleaned = color.trim();
+  if (cleaned && !cleaned.startsWith("#")) {
+    cleaned = "#" + cleaned;
+  }
+  const hexPattern = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+  if (hexPattern.test(cleaned)) {
+    return cleaned;
+  }
+  return defaultColor;
+}
+
 export function getContrastColor(hex: string): string {
   let cleanHex = hex.trim().replace("#", "");
   if (cleanHex.length === 3) {
@@ -131,18 +143,6 @@ export function getContrastColor(hex: string): string {
   const b = parseInt(cleanHex.slice(4, 6), 16) || 0;
   const yiq = (r * 299 + g * 587 + b * 114) / 1000;
   return yiq >= 128 ? "#000000" : "#ffffff";
-}
-
-export function normalizeHex(color: string, defaultColor: string): string {
-  let cleaned = color.trim();
-  if (cleaned && !cleaned.startsWith("#")) {
-    cleaned = "#" + cleaned;
-  }
-  const hexPattern = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-  if (hexPattern.test(cleaned)) {
-    return cleaned;
-  }
-  return defaultColor;
 }
 
 export function applyTheme(config: ThemeConfig) {
@@ -160,6 +160,8 @@ export function applyTheme(config: ThemeConfig) {
   const bg = normalizeHex(colors.background, isDark ? "#161616" : "#ffffff");
   const fg = normalizeHex(colors.foreground, isDark ? "#f4f4f5" : "#0f172a");
   const accent = normalizeHex(colors.accent, isDark ? "#ffffff" : "#0f172a");
+
+  document.documentElement.style.backgroundColor = bg;
 
   const style = document.documentElement.style;
 
