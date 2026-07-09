@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message, GenerationState, Attachment } from "../types";
+import type { Message, GenerationState, Attachment, Conversation } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
@@ -61,9 +61,9 @@ const messageVariants = {
 
 interface ChatAreaProps {
   messages: Message[];
-  setIsAtBottom: (v: boolean) => void;
-  virtuosoRef: React.RefObject<VirtuosoHandle | null>;
-  onRetry: () => void;
+  setIsAtBottom?: (v: boolean) => void;
+  virtuosoRef?: React.RefObject<VirtuosoHandle | null>;
+  onRetry?: () => void;
   generationState: GenerationState;
   generationLabel: string;
   onScroll?: (scrollTop: number, ratio: number) => void;
@@ -248,7 +248,12 @@ const markdownComponents = {
     const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
       if (href) {
-        openSafeUrl(href);
+        const { skipExternalLinkWarning, setShowLinkWarningModal } = useUIStore.getState();
+        if (skipExternalLinkWarning) {
+          openSafeUrl(href);
+        } else {
+          setShowLinkWarningModal(true, href);
+        }
       }
     };
     return (
@@ -582,6 +587,106 @@ function getNativeToolDisplayInfo(
   return null;
 }
 
+function SubagentLiveCard({ message }: { message: Message }) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const content = message.toolResult?.content || "";
+  const match = content.match(/conversation IDs?:\s*([a-zA-Z0-9-, ]+)/);
+  const ids = match
+    ? match[1]
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [];
+
+  const conversations = useChatStore(
+    (s) => ids.map((id) => s.conversations.find((c) => c.id === id)).filter(Boolean) as Conversation[],
+  );
+
+  const toggleExpand = (id: string) => {
+    const next = new Set(expandedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpandedIds(next);
+  };
+
+  const isCompleted = !!message.toolResult;
+  const generationByConversation = useChatStore((s) => s.generationByConversation);
+
+  if (!isCompleted) {
+    return (
+      <div className="flex flex-col mb-1.5 max-w-full">
+        <div className="flex items-center gap-1.5 text-text-muted select-none">
+          <Wrench size={14} className="shrink-0" aria-hidden="true" />
+          <span className="text-sm text-text-primary">Invoking subagents...</span>
+          <Loader2 size={12} className="animate-spin text-text-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 mb-2 w-full">
+      <div className="flex items-center gap-1.5 text-text-muted select-none text-sm font-medium">
+        <Wrench size={14} className="shrink-0" aria-hidden="true" />
+        <span>Subagents Invoked ({conversations.length})</span>
+      </div>
+      {conversations.map((conv) => {
+        const isExpanded = expandedIds.has(conv.id);
+        const generationState = generationByConversation[conv.id];
+
+        return (
+          <div key={conv.id} className="border border-border/40 rounded-xl overflow-hidden bg-input/20">
+            <button
+              onClick={() => toggleExpand(conv.id)}
+              className="w-full flex items-center justify-between p-3 hover:bg-hover transition-colors cursor-pointer text-left"
+            >
+              <div className="flex items-center gap-2 overflow-hidden">
+                <span className="font-medium text-text-primary truncate">{conv.title || "Subagent"}</span>
+                {conv.status === "running" ? (
+                  <span className="flex items-center gap-1 text-[10px] text-accent/80 font-medium px-1.5 py-0.5 bg-accent/10 rounded-full shrink-0">
+                    <Loader2 size={10} className="animate-spin" />
+                    RUNNING
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-emerald-500 font-medium px-1.5 py-0.5 bg-emerald-500/10 rounded-full shrink-0">
+                    DONE
+                  </span>
+                )}
+              </div>
+              <ChevronDown
+                size={14}
+                className={`text-text-muted transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`}
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {isExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ type: "tween", ease: "easeInOut", duration: 0.2 }}
+                  className="w-full border-t border-border/40"
+                >
+                  <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
+                    <ChatArea
+                      messages={conv.messages || []}
+                      onRetry={() => {}}
+                      generationState={generationState?.state || "idle"}
+                      generationLabel={generationState?.label || ""}
+                      conversationId={conv.id}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ToolCallDisplay({ message }: { message: Message }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -592,8 +697,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const isFetch = name === "fetch_url";
   const isProject = name.startsWith("project_");
   const isMcp = name.includes("__");
+  const isInvokeSubagent = name === "invoke_subagent";
   const isCompleted = !!message.toolResult;
-  const isCollapsible = isMcp || isProject;
+  const isCollapsible = isMcp || isProject || isInvokeSubagent;
+
+  if (isInvokeSubagent) {
+    return <SubagentLiveCard message={message} />;
+  }
 
   if (isCollapsible) {
     const formattedArgs = JSON.stringify(message.toolCall?.arguments || {}, null, 2);
@@ -1234,7 +1344,7 @@ function NonVirtualizedChatArea({
   onScroll,
 }: {
   messages: Message[];
-  setIsAtBottom: (v: boolean) => void;
+  setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
   generationState: GenerationState;
   generationLabel: string;
@@ -1262,7 +1372,7 @@ function NonVirtualizedChatArea({
       if (!target) return;
       const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
       wasAtBottomRef.current = atBottom;
-      setIsAtBottom(atBottom);
+      setIsAtBottom?.(atBottom);
     };
 
     const handleResize = () => {
