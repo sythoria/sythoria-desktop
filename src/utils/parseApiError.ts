@@ -130,14 +130,18 @@ function tryParseStructuredError(raw: string): ParsedError | null {
     if (parsed.McpError) {
       return userFriendlyMcpError(parsed.McpError, raw);
     }
-    if (parsed.ConfigIo)
+    if (parsed.ConfigIo) {
+      const isUtf8Err = parsed.ConfigIo.toLowerCase().includes("utf-8") || parsed.ConfigIo.toLowerCase().includes("utf8");
       return {
-        message: "Configuration error — try restarting the app.",
-        action: "Restart the app. If the issue persists, check app permissions or reinstall.",
+        message: parsed.ConfigIo,
+        action: isUtf8Err
+          ? "Check that the file is a valid UTF-8 text document, or convert it to a supported format."
+          : "Restart the app. If the issue persists, check file permissions or reinstall.",
         category: "config",
         retryable: false,
         raw,
       };
+    }
     if (parsed.StreamError)
       return {
         message: "Stream error — the connection was interrupted.",
