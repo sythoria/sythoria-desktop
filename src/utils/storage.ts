@@ -158,6 +158,7 @@ const STRICT_SSL_KEY = "sythoria-strict-ssl";
 const BLOCKED_HOSTS_KEY = "sythoria-blocked-hosts";
 const OFFLINE_MODE_KEY = "sythoria-offline-mode";
 const LANGUAGE_KEY = "sythoria-language";
+const SKIP_LINK_WARNING_KEY = "sythoria-skip-link-warning";
 const STORE_FILE = "sythoria-store.json";
 
 let storeInstance: Store | null = null;
@@ -647,6 +648,27 @@ export async function saveAnimationsDisabled(disabled: boolean): Promise<void> {
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save animationsDisabled to store", { error: e });
+  }
+}
+
+export async function loadSkipExternalLinkWarning(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<boolean>(SKIP_LINK_WARNING_KEY);
+    if (raw === true) return true;
+  } catch (e) {
+    logError("storage", "Failed to load skipExternalLinkWarning from store", { error: e });
+  }
+  return false;
+}
+
+export async function saveSkipExternalLinkWarning(skip: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SKIP_LINK_WARNING_KEY, skip);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save skipExternalLinkWarning to store", { error: e });
   }
 }
 
