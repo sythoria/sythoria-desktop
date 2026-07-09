@@ -20,10 +20,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-opener = "2"
-tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13", features = ["json", "stream", "rustls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "stream", "rustls", "multipart"], default-features = false }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "process"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = "0.3"
@@ -33,7 +32,6 @@ chrono = { version = "0.4", features = ["serde", "clock"], default-features = fa
 uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-store = "2.4.3"
 tauri-plugin-log = "2.8.0"
-tauri-plugin-autostart = "2"
 thiserror = "2"
 urlencoding = "2"
 html-escape = "0.2"
@@ -52,6 +50,8 @@ ignore = "0.4.27"
 regex = "1.12.4"
 whisper-rs = "0.16.0"
 cpal = "0.18.1"
+tauri-plugin-global-shortcut = "2.0.0"
+tauri-plugin-autostart = "2.0.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
