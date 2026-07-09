@@ -1916,13 +1916,18 @@ async fn start_recording() -> Result<(), AppError> {
 }
 
 #[tauri::command]
-async fn stop_recording() -> Result<Vec<f32>, AppError> {
+async fn stop_recording() -> Result<(), AppError> {
     if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
         if let Some(SendSyncStream(stream)) = active_stream.take() {
             let _ = stream.pause();
         }
     }
+    Ok(())
+}
 
+
+#[tauri::command]
+async fn get_recorded_samples() -> Result<Vec<f32>, AppError> {
     let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
         samples.clone()
     } else {
@@ -2149,56 +2154,174 @@ async fn transcribe_audio(
 
     let resolved_path_str = resolved_path.to_string_lossy().to_string();
 
-    let mut cache = WHISPER_CONTEXT_CACHE
-        .lock()
-        .map_err(|e| AppError::ParseError(format!("Cache lock poisoned: {}", e)))?;
-
-    let matches = match &*cache {
-        Some((path, _)) => path == &resolved_path_str,
-        None => false,
+    let actual_audio_data = if audio_data.is_empty() {
+        let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
+            samples.clone()
+        } else {
+            return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+        };
+        let host = cpal::default_host();
+        let device = host.default_input_device().unwrap();
+        let config = device.default_input_config().unwrap();
+        resample(&samples, config.sample_rate(), 16000)
+    } else {
+        audio_data
     };
 
-    if !matches {
-        let ctx = WhisperContext::new_with_params(
-            &resolved_path_str,
-            WhisperContextParameters::default(),
-        )
-        .map_err(|e| AppError::ParseError(format!("Failed to load Whisper context: {}", e)))?;
-        *cache = Some((resolved_path_str.clone(), ctx));
+    let ctx_clone = resolved_path_str.clone();
+    let audio_clone = actual_audio_data;
+    let lang_clone = language.unwrap_or("auto".to_string());
+    
+    let transcription = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
+        let mut cache = WHISPER_CONTEXT_CACHE
+            .lock()
+            .map_err(|e| AppError::ParseError(format!("Cache lock poisoned: {}", e)))?;
+
+        let matches = match &*cache {
+            Some((path, _)) => path == &ctx_clone,
+            None => false,
+        };
+
+        if !matches {
+            let ctx = WhisperContext::new_with_params(
+                &ctx_clone,
+                WhisperContextParameters::default(),
+            )
+            .map_err(|e| AppError::ParseError(format!("Failed to load Whisper context: {}", e)))?;
+            *cache = Some((ctx_clone.clone(), ctx));
+        }
+
+        let context = &cache.as_ref().unwrap().1;
+
+        let mut state = context
+            .create_state()
+            .map_err(|e| AppError::ParseError(format!("Failed to create state: {}", e)))?;
+
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        params.set_n_threads(4);
+        params.set_translate(false);
+        params.set_no_context(true);
+        params.set_single_segment(false); // Fix: allow multiple segments
+
+        if lang_clone != "auto" {
+            params.set_language(Some(&lang_clone));
+        } else {
+            params.set_language(None);
+        }
+
+        state
+            .full(params, &audio_clone)
+            .map_err(|e| AppError::ParseError(format!("Failed to run Whisper model: {}", e)))?;
+
+        let num_segments = state.full_n_segments();
+        let mut text = String::new();
+        for i in 0..num_segments {
+            if let Some(segment) = state.get_segment(i) {
+                text.push_str(&segment.to_string());
+            }
+        }
+        Ok(text)
+    })
+    .await
+    .map_err(|e| AppError::ParseError(format!("Task panicked: {}", e)))??;
+
+    Ok(transcription)
+}
+
+fn encode_wav_f32(samples: &[f32], sample_rate: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let data_len = samples.len() * 4;
+    let file_len = 36 + data_len;
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(file_len as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size
+    out.extend_from_slice(&3u16.to_le_bytes()); // audio format (3 = IEEE float)
+    out.extend_from_slice(&1u16.to_le_bytes()); // num channels
+    out.extend_from_slice(&sample_rate.to_le_bytes()); // sample rate
+    let byte_rate = sample_rate * 1 * 4;
+    out.extend_from_slice(&byte_rate.to_le_bytes()); // byte rate
+    out.extend_from_slice(&4u16.to_le_bytes()); // block align
+    out.extend_from_slice(&32u16.to_le_bytes()); // bits per sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(data_len as u32).to_le_bytes());
+    for &sample in samples {
+        out.extend_from_slice(&sample.to_le_bytes());
     }
+    out
+}
 
-    let context = &cache.as_ref().unwrap().1;
+#[derive(serde::Deserialize)]
+struct CloudWhisperResponse {
+    text: String,
+}
 
-    let mut state = context
-        .create_state()
-        .map_err(|e| AppError::ParseError(format!("Failed to create state: {}", e)))?;
-
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_n_threads(4);
-    params.set_translate(false);
-    params.set_no_context(true);
-    params.set_single_segment(true);
-
-    let lang = language.as_deref().unwrap_or("en");
-    if lang != "auto" {
-        params.set_language(Some(lang));
+#[tauri::command]
+async fn transcribe_audio_cloud(
+    _app: tauri::AppHandle,
+    api_url: String,
+    api_key: String,
+    model: String,
+    language: Option<String>,
+) -> Result<String, AppError> {
+    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
+        samples.clone()
     } else {
-        params.set_language(None);
+        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+    };
+
+    if samples.is_empty() {
+        return Ok(String::new());
     }
 
-    state
-        .full(params, &audio_data)
-        .map_err(|e| AppError::ParseError(format!("Failed to run Whisper model: {}", e)))?;
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
+    let config = device
+        .default_input_config()
+        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
+    let sample_rate = config.sample_rate();
 
-    let num_segments = state.full_n_segments();
-    let mut transcription = String::new();
-    for i in 0..num_segments {
-        if let Some(segment) = state.get_segment(i) {
-            transcription.push_str(&segment.to_string());
+    let resampled = resample(&samples, sample_rate, 16000);
+    let wav_bytes = encode_wav_f32(&resampled, 16000);
+
+    let client = reqwest::Client::new();
+    let part = reqwest::multipart::Part::bytes(wav_bytes)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| AppError::ParseError(format!("Failed to create multipart part: {}", e)))?;
+
+    let mut form = reqwest::multipart::Form::new()
+        .part("file", part)
+        .text("model", model);
+        
+    if let Some(lang) = language {
+        if lang != "auto" {
+            form = form.text("language", lang);
         }
     }
 
-    Ok(transcription.trim().to_string())
+    let res = client
+        .post(&api_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| AppError::ParseError(format!("Network Error: {}", e)))?;
+
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    
+    if !status.is_success() {
+        return Err(AppError::ParseError(format!("API Error {}: {}", status, body)));
+    }
+
+    let json: CloudWhisperResponse = serde_json::from_str(&body)
+        .map_err(|e| AppError::ParseError(format!("Failed to parse JSON response: {}", e)))?;
+
+    Ok(json.text)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2421,10 +2544,12 @@ pub fn run() {
             write_exported_file_by_token,
             start_recording,
             stop_recording,
+            get_recorded_samples,
             download_whisper_model,
             cancel_whisper_download,
             check_downloaded_whisper_models,
             delete_whisper_model,
+            transcribe_audio_cloud,
             transcribe_audio,
             project::load_projects,
             project::save_projects,
@@ -2459,14 +2584,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
+    app.run(|_app_handle, _event| {
         #[cfg(target_os = "macos")]
-        if let tauri::RunEvent::Reopen { .. } = event {
-            if let Some(window) = app_handle.get_webview_window("main") {
+        if let tauri::RunEvent::Reopen { .. } = _event {
+            if let Some(window) = _app_handle.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
                 let _ = window.unminimize();
-                update_tray_visibility(app_handle);
+                update_tray_visibility(_app_handle);
             }
         }
     });
