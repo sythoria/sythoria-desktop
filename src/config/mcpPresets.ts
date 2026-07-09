@@ -25,8 +25,6 @@ export const MCP_TRANSPORT_PRESETS = [
   },
 ] as const;
 
-/** A token in an arg list the user is expected to replace (e.g. a path). */
-export const MCP_TEMPLATE_TOKENS = ["<PATH>", "<DB_PATH>", "<API_KEY>"] as const;
 
 export interface McpServerPreset {
   id: string;
