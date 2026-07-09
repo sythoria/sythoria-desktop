@@ -201,7 +201,7 @@ export default function Sidebar({
   const searchRef = useRef<HTMLInputElement>(null);
 
   const nonEmptyConversations = useMemo(
-    () => conversations.filter((c) => c.messages.length > 0 && !c.id.startsWith("compare-")),
+    () => conversations.filter((c) => c.messages.length > 0 && !c.id.startsWith("compare-") && !c.isSubagent),
     [conversations],
   );
 
@@ -521,29 +521,46 @@ export default function Sidebar({
                                         onClick={() => onSelect(conv.id)}
                                         className={`
                                           w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
-                                          text-sm text-left transition-colors duration-100
+                                          text-sm text-left transition-colors duration-100 pr-14
                                           ${
                                             activeId === conv.id
-                                              ? "bg-active text-text-primary font-medium"
+                                              ? "bg-active text-text-primary"
                                               : "text-text-secondary hover:bg-hover hover:text-text-primary"
                                           }
                                         `}
+                                        aria-label={`Open conversation: ${conv.title}`}
+                                        aria-current={activeId === conv.id ? "page" : undefined}
                                       >
-                                        <MessageSquare size={13} className="shrink-0 opacity-50" />
+                                        {conv.isPinned && (
+                                          <MessageSquare size={14} className="shrink-0" aria-hidden="true" />
+                                        )}
                                         <span className="truncate flex-1">{conv.title || t("common.untitled")}</span>
                                       </button>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const rect = e.currentTarget.getBoundingClientRect();
-                                          setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
-                                          setOpenMenuId(openMenuId === conv.id ? null : conv.id);
-                                        }}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                                        aria-label="Conversation actions"
-                                      >
-                                        <MoreVertical size={13} />
-                                      </button>
+                                      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onPinChat(conv.id);
+                                          }}
+                                          className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                                          title={conv.isPinned ? "Unpin conversation" : "Pin conversation"}
+                                          aria-label={conv.isPinned ? "Unpin conversation" : "Pin conversation"}
+                                        >
+                                          <Pin size={13} className={conv.isPinned ? "text-accent fill-accent" : ""} />
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setMenuPosition({ top: rect.bottom + 4, left: rect.left - 8 });
+                                            setOpenMenuId(openMenuId === conv.id ? null : conv.id);
+                                          }}
+                                          className="p-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors"
+                                          aria-label="Conversation actions"
+                                        >
+                                          <MoreVertical size={13} />
+                                        </button>
+                                      </div>
                                       {openMenuId === conv.id &&
                                         menuPosition &&
                                         createPortal(
@@ -612,9 +629,6 @@ export default function Sidebar({
 
             {/* Global Conversation List */}
             <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0" aria-label="Conversation list">
-              {isProjectsEnabled && projects.length > 0 && (
-                <h3 className="px-2 py-1.5 text-[11px] font-medium text-text-muted">{t("sidebar.globalChats")}</h3>
-              )}
               <AnimatePresence mode="popLayout">
                 {groups.map((group) => (
                   <motion.div
@@ -641,7 +655,7 @@ export default function Sidebar({
                               text-sm text-left transition-colors duration-100 pr-14
                               ${
                                 activeId === conv.id
-                                  ? "bg-active text-text-primary font-medium"
+                                  ? "bg-active text-text-primary"
                                   : "text-text-secondary hover:bg-hover hover:text-text-primary"
                               }
                             `}
