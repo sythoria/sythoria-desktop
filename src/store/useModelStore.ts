@@ -25,6 +25,10 @@ const debouncedLogModelUpdate = debounce((name: string, fields: string[]) => {
   });
 }, 500);
 
+const debouncedCheckModelConnections = debounce((id: string) => {
+  useModelStore.getState().checkModelConnections([id], true);
+}, 1000);
+
 interface StreamChunkPayload {
   streamId: string;
   content: string;
@@ -184,6 +188,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
 
     if (updates.enabled === false) {
+      debouncedCheckModelConnections.cancel();
       const newStatuses = { ...modelStatuses, [id]: "disconnected" as const };
       set({ modelStatuses: newStatuses });
     } else if (updates.enabled === true) {
@@ -196,6 +201,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     ) {
       const newStatuses = { ...modelStatuses, [id]: "disconnected" as const };
       set({ modelStatuses: newStatuses });
+      debouncedCheckModelConnections(id);
     }
 
     const { selectedModel } = get();
@@ -213,6 +219,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   deleteModel: (id) => {
+    debouncedCheckModelConnections.cancel();
     const { models, selectedModel, apiKeys, modelStatuses } = get();
     const updated = models.filter((m) => m.id !== id);
     const newKeys = { ...apiKeys };
