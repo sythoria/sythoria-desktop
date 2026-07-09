@@ -9,6 +9,11 @@ interface WhisperConfig {
   selectedModelId: string;
   customModelPath: string | null;
   language: string;
+  sttProvider: "local" | "cloud";
+  cloudApiKey: string;
+  cloudApiUrl: string;
+  cloudModel: string;
+  refinementModelId: string | null;
 }
 
 interface WhisperState extends WhisperConfig {
@@ -24,6 +29,11 @@ interface WhisperState extends WhisperConfig {
   selectModel: (modelId: string) => void;
   setCustomModelPath: (path: string | null) => void;
   setLanguage: (lang: string) => void;
+  setSttProvider: (provider: "local" | "cloud") => void;
+  setCloudApiKey: (key: string) => void;
+  setCloudApiUrl: (url: string) => void;
+  setCloudModel: (model: string) => void;
+  setRefinementModelId: (id: string | null) => void;
   downloadModel: (modelId: string) => Promise<void>;
   cancelDownload: () => Promise<void>;
   deleteModel: (fileName: string) => Promise<void>;
@@ -33,14 +43,38 @@ interface WhisperState extends WhisperConfig {
 }
 
 const DEFAULT_CONFIG: WhisperConfig = {
-  isVoiceEnabled: false,
+  isVoiceEnabled: true,
   selectedModelId: "tiny.en",
   customModelPath: null,
   language: "en",
+  sttProvider: "local",
+  cloudApiKey: "",
+  cloudApiUrl: "https://api.groq.com/openai/v1/audio/transcriptions",
+  cloudModel: "whisper-large-v3",
+  refinementModelId: null,
 };
 
 let downloadCancelled = false;
 let isListening = false;
+
+const saveConfig = (state: WhisperConfig) => {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(
+      "sythoria-whisper-config",
+      JSON.stringify({
+        isVoiceEnabled: state.isVoiceEnabled,
+        selectedModelId: state.selectedModelId,
+        customModelPath: state.customModelPath,
+        language: state.language,
+        sttProvider: state.sttProvider,
+        cloudApiKey: state.cloudApiKey,
+        cloudApiUrl: state.cloudApiUrl,
+        cloudModel: state.cloudModel,
+        refinementModelId: state.refinementModelId,
+      }),
+    );
+  }
+};
 
 export const useWhisperStore = create<WhisperState>((set, get) => {
   return {
@@ -100,62 +134,47 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     toggleVoiceEnabled: () => {
       const next = !get().isVoiceEnabled;
       set({ isVoiceEnabled: next });
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(
-          "sythoria-whisper-config",
-          JSON.stringify({
-            isVoiceEnabled: next,
-            selectedModelId: get().selectedModelId,
-            customModelPath: get().customModelPath,
-            language: get().language,
-          }),
-        );
-      }
+      saveConfig(get());
     },
 
     selectModel: (modelId) => {
       set({ selectedModelId: modelId, customModelPath: null });
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(
-          "sythoria-whisper-config",
-          JSON.stringify({
-            isVoiceEnabled: get().isVoiceEnabled,
-            selectedModelId: modelId,
-            customModelPath: null,
-            language: get().language,
-          }),
-        );
-      }
+      saveConfig(get());
     },
 
     setCustomModelPath: (path) => {
       set({ customModelPath: path, selectedModelId: "custom" });
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(
-          "sythoria-whisper-config",
-          JSON.stringify({
-            isVoiceEnabled: get().isVoiceEnabled,
-            selectedModelId: "custom",
-            customModelPath: path,
-            language: get().language,
-          }),
-        );
-      }
+      saveConfig(get());
     },
 
     setLanguage: (lang) => {
       set({ language: lang });
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(
-          "sythoria-whisper-config",
-          JSON.stringify({
-            isVoiceEnabled: get().isVoiceEnabled,
-            selectedModelId: get().selectedModelId,
-            customModelPath: get().customModelPath,
-            language: lang,
-          }),
-        );
-      }
+      saveConfig(get());
+    },
+
+    setSttProvider: (provider) => {
+      set({ sttProvider: provider });
+      saveConfig(get());
+    },
+
+    setCloudApiKey: (key) => {
+      set({ cloudApiKey: key });
+      saveConfig(get());
+    },
+
+    setCloudApiUrl: (url) => {
+      set({ cloudApiUrl: url });
+      saveConfig(get());
+    },
+
+    setCloudModel: (model) => {
+      set({ cloudModel: model });
+      saveConfig(get());
+    },
+
+    setRefinementModelId: (id) => {
+      set({ refinementModelId: id });
+      saveConfig(get());
     },
 
     downloadModel: async (modelId) => {
@@ -209,4 +228,3 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     setIsTranscribing: (transcribing) => set({ isTranscribing: transcribing }),
   };
 });
-export default useWhisperStore;
