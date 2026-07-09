@@ -1,3 +1,4 @@
+import React from "react";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -78,6 +79,8 @@ import { useUIStore } from "./useUIStore";
 import { useProjectStore } from "./useProjectStore";
 import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
+
+const processingTokens = new Set<string>();
 
 function truncateTitle(text: string): string {
   return text.length > TITLE_MAX_LENGTH ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026" : text;
@@ -189,7 +192,7 @@ interface ChatState {
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
   setDraftAttachments: (attachments: Attachment[]) => void;
-  addDraftFileFromToken: (token: string) => Promise<void>;
+  addDraftFileFromToken: (token: string, name?: string, size?: number) => Promise<void>;
   setConversationProject: (id: string, projectId: string | undefined) => void;
   deleteProjectChats: (projectId: string) => Promise<void>;
 }
@@ -790,7 +793,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       logError("model", "No model configuration selected — user tried to send message without any model configured", {
         action: "Go to Settings > Model Providers and add at least one model configuration.",
       });
-      uiToast("No model configured — add one in Settings", "error");
+      uiToast(
+        React.createElement(
+          "span",
+          null,
+          "No model configured — add one in ",
+          React.createElement(
+            "button",
+            {
+              onClick: () => {
+                useUIStore.getState().setView("settings");
+                useUIStore.getState().setActiveSection("models");
+              },
+              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
+            },
+            "settings/model-providers"
+          )
+        ),
+        "error"
+      );
       return;
     }
 
@@ -884,7 +905,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       logError("model", "No model configuration selected — user tried to retry message without any model configured", {
         action: "Go to Settings > Model Providers and add at least one model configuration.",
       });
-      uiToast("No model configured — add one in Settings", "error");
+      uiToast(
+        React.createElement(
+          "span",
+          null,
+          "No model configured — add one in ",
+          React.createElement(
+            "button",
+            {
+              onClick: () => {
+                useUIStore.getState().setView("settings");
+                useUIStore.getState().setActiveSection("models");
+              },
+              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
+            },
+            "settings/model-providers"
+          )
+        ),
+        "error"
+      );
       return;
     }
 
@@ -1041,9 +1080,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setDraftAttachments: (draftAttachments) => set({ draftAttachments }),
 
-  addDraftFileFromToken: async (token: string) => {
+  addDraftFileFromToken: async (token: string, name?: string, size?: number) => {
+    if (processingTokens.has(token)) {
+      return;
+    }
+    processingTokens.add(token);
+
     const addToast = useUIStore.getState().addToast;
     const currentDrafts = get().draftAttachments;
+
+    if (name && typeof size === "number") {
+      const isDuplicate = currentDrafts.some((a) => a.name === name && a.size === size);
+      if (isDuplicate) {
+        processingTokens.delete(token);
+        return;
+      }
+    }
 
     try {
       const payload = await invoke<{
@@ -1054,7 +1106,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         textContent?: string;
       }>("read_file_from_token", { token });
 
-      // Check for duplicate by name and size
+      // Fallback check in case metadata wasn't passed to addDraftFileFromToken
       const isDuplicate = currentDrafts.some((a) => a.name === payload.name && a.size === payload.size);
       if (isDuplicate) {
         return;
@@ -1097,8 +1149,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set({ draftAttachments: [...currentDrafts, attachment] });
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      addToast(errMsg || `Failed to read file from token`, "error");
+      const errMsg = parseApiError(err).message;
+      addToast(errMsg, "error");
+    } finally {
+      setTimeout(() => {
+        processingTokens.delete(token);
+      }, 5000);
     }
   },
 
