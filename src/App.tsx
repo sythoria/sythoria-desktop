@@ -23,6 +23,7 @@ import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
+import { LinkWarningModal } from "./components/LinkWarningModal";
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: "Disconnected",
@@ -498,6 +499,7 @@ function App() {
     init();
     useUIStore.getState().initDownloadedThemes();
     useKeybindStore.getState().initKeybinds();
+    useUIStore.getState().initSkipExternalLinkWarning();
   }, [init]);
 
   useEffect(() => {
@@ -1219,6 +1221,7 @@ function App() {
         releaseUrl={updateInfo?.releaseUrl || ""}
         releaseNotes={updateInfo?.releaseNotes}
       />
+      <LinkWarningModal />
       <AnimatePresence>
         {activeArtifact && isArtifactFullScreen && (
           <motion.div
