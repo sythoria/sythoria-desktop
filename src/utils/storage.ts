@@ -300,6 +300,12 @@ export async function loadTheme(): Promise<ThemeConfig> {
 
 export async function saveTheme(theme: ThemeConfig): Promise<void> {
   try {
+    localStorage.setItem(THEME_KEY, theme.mode);
+  } catch (e) {
+    console.warn("Failed to save theme mode to localStorage:", e);
+  }
+
+  try {
     const store = await getStore();
     await store.set(THEME_KEY, theme);
     await store.save();
