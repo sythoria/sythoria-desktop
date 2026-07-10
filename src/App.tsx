@@ -24,6 +24,7 @@ import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./component
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import { LinkWarningModal } from "./components/LinkWarningModal";
+import { FakeTrafficLights } from "./components/ui/FakeTrafficLights";
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: "Disconnected",
@@ -86,6 +87,7 @@ function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
 function App() {
   const { t } = useTranslation();
   const [isMobile, setIsMobile] = useState(false);
+  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
 
   useEffect(() => {
     const checkMobile = () => {
@@ -825,6 +827,7 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-transparent">
       <div className="flex flex-1 overflow-hidden rounded-[18px] border-[12px] border-white/5 relative glass-app-container">
+        {!isMac && <FakeTrafficLights />}
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
           <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-[80px]" data-tauri-drag-region>

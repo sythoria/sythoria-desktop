@@ -160,9 +160,6 @@ export function applyTheme(config: ThemeConfig) {
   const bg = normalizeHex(colors.background, isDark ? "#161616" : "#ffffff");
   const fg = normalizeHex(colors.foreground, isDark ? "#f4f4f5" : "#0f172a");
   const accent = normalizeHex(colors.accent, isDark ? "#ffffff" : "#0f172a");
-
-  document.documentElement.style.backgroundColor = bg;
-
   const style = document.documentElement.style;
 
   style.setProperty("--theme-chat", bg);

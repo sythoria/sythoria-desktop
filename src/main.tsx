@@ -17,17 +17,12 @@ if (rawTheme && (rawTheme.startsWith("{") || rawTheme.startsWith("["))) {
 }
 
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-const isDark =
-  themeMode === "dark" ||
-  (themeMode === "system" && prefersDark) ||
-  (!themeMode && prefersDark);
+const isDark = themeMode === "dark" || (themeMode === "system" && prefersDark) || (!themeMode && prefersDark);
 
 if (isDark) {
   document.documentElement.classList.add("dark");
-  document.documentElement.style.backgroundColor = "#000000";
 } else {
   document.documentElement.classList.remove("dark");
-  document.documentElement.style.backgroundColor = "#ffffff";
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

@@ -2347,6 +2347,9 @@ pub fn run() {
 
             let _window = app.get_webview_window("main").unwrap();
 
+            #[cfg(not(target_os = "macos"))]
+            let _ = _window.set_decorations(false);
+
             #[cfg(target_os = "macos")]
             let _ = window_vibrancy::apply_vibrancy(
                 &_window,
