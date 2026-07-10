@@ -35,7 +35,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
   };
 
   return (
-    <div className="space-y-1.5">
+    <div>
       <button
         type="button"
         onClick={() => setEnvExpanded(!envExpanded)}
@@ -65,7 +65,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
             }}
             className="overflow-hidden"
           >
-            <div className="p-2.5 rounded-lg bg-input border border-input-border space-y-2">
+            <div className="mt-1.5 p-2.5 rounded-lg bg-input border border-input-border space-y-2">
               {Object.entries(envVars).map(([key, value]) => (
                 <div key={key} className="flex items-center gap-1.5">
                   <span className="text-xs font-mono font-medium text-text-primary bg-surface px-2 py-1 rounded border border-border min-w-[80px] truncate">

@@ -430,94 +430,96 @@ export const McpServerCard = memo(function McpServerCard({
           </>
         )}
 
-        <div className="flex items-center gap-2 pt-2 flex-wrap">
-          {status === "connected" ? (
-            <motion.button
-              onClick={() => onDisconnect(config.id)}
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 border border-border text-xs transition-colors min-h-[36px]"
-              aria-label={t("settings.mcp.disconnectAria", { defaultValue: "Disconnect MCP server" })}
-            >
-              <PlugZap size={14} />
-              {t("settings.mcp.disconnect", { defaultValue: "Disconnect" })}
-            </motion.button>
-          ) : (
-            <motion.button
-              onClick={() => onConnect(config.id)}
-              disabled={
-                status === "connecting" ||
-                (config.transport === "stdio" && !config.command?.trim()) ||
-                ((config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim())
-              }
-              whileHover={status === "connecting" ? undefined : { scale: motionTokens.scale.pop }}
-              whileTap={status === "connecting" ? undefined : { scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/10 border border-accent/30 text-xs font-medium transition-colors min-h-[36px] disabled:opacity-50"
-              aria-label={t("settings.mcp.connectAria", { defaultValue: "Connect MCP server" })}
-            >
-              {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
-              {status === "connecting"
-                ? t("settings.mcp.connecting", { defaultValue: "Connecting\u2026" })
-                : t("settings.mcp.connect", { defaultValue: "Connect" })}
-            </motion.button>
-          )}
+        <div>
+          <div className="flex items-center gap-2 pt-2 flex-wrap">
+            {status === "connected" ? (
+              <motion.button
+                onClick={() => onDisconnect(config.id)}
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 border border-border text-xs transition-colors min-h-[36px]"
+                aria-label={t("settings.mcp.disconnectAria", { defaultValue: "Disconnect MCP server" })}
+              >
+                <PlugZap size={14} />
+                {t("settings.mcp.disconnect", { defaultValue: "Disconnect" })}
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={() => onConnect(config.id)}
+                disabled={
+                  status === "connecting" ||
+                  (config.transport === "stdio" && !config.command?.trim()) ||
+                  ((config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim())
+                }
+                whileHover={status === "connecting" ? undefined : { scale: motionTokens.scale.pop }}
+                whileTap={status === "connecting" ? undefined : { scale: motionTokens.scale.press }}
+                transition={springs.snappy}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-accent hover:bg-accent/10 border border-accent/30 text-xs font-medium transition-colors min-h-[36px] disabled:opacity-50"
+                aria-label={t("settings.mcp.connectAria", { defaultValue: "Connect MCP server" })}
+              >
+                {status === "connecting" ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+                {status === "connecting"
+                  ? t("settings.mcp.connecting", { defaultValue: "Connecting\u2026" })
+                  : t("settings.mcp.connect", { defaultValue: "Connect" })}
+              </motion.button>
+            )}
 
-          {config.transport === "stdio" && !config.command?.trim() && (
-            <p className="flex items-center gap-1 text-[11px] text-yellow-500">
-              <AlertCircle size={11} />
-              {t("settings.mcp.commandRequired", { defaultValue: "Command is required to connect" })}
-            </p>
-          )}
-          {(config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim() && (
-            <p className="flex items-center gap-1 text-[11px] text-yellow-500">
-              <AlertCircle size={11} />
-              {t("settings.mcp.baseUrlRequired", { defaultValue: "Base URL is required to connect" })}
-            </p>
-          )}
+            {config.transport === "stdio" && !config.command?.trim() && (
+              <p className="flex items-center gap-1 text-[11px] text-yellow-500">
+                <AlertCircle size={11} />
+                {t("settings.mcp.commandRequired", { defaultValue: "Command is required to connect" })}
+              </p>
+            )}
+            {(config.transport === "sse" || config.transport === "streamable-http") && !config.baseUrl?.trim() && (
+              <p className="flex items-center gap-1 text-[11px] text-yellow-500">
+                <AlertCircle size={11} />
+                {t("settings.mcp.baseUrlRequired", { defaultValue: "Base URL is required to connect" })}
+              </p>
+            )}
 
-          {tools.length > 0 && (
-            <motion.button
-              onClick={() => setToolsExpanded(!toolsExpanded)}
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-              className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1"
-              aria-label={toolsExpanded ? t("settings.mcp.hideTools") : t("settings.mcp.showTools")}
-            >
-              <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
-              {t("settings.mcp.tools", { count: String(tools.length) })}
-            </motion.button>
-          )}
+            {tools.length > 0 && (
+              <motion.button
+                onClick={() => setToolsExpanded(!toolsExpanded)}
+                whileHover={{ scale: motionTokens.scale.pop }}
+                whileTap={{ scale: motionTokens.scale.press }}
+                transition={springs.snappy}
+                className="text-text-muted hover:text-text-secondary text-xs flex items-center gap-1"
+                aria-label={toolsExpanded ? t("settings.mcp.hideTools") : t("settings.mcp.showTools")}
+              >
+                <ChevronDown size={12} className={`transition-transform ${toolsExpanded ? "rotate-180" : ""}`} />
+                {t("settings.mcp.tools", { count: String(tools.length) })}
+              </motion.button>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {toolsExpanded && tools.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{
+                  type: "tween",
+                  ease: motionTokens.easing.smooth,
+                  duration: motionTokens.duration.normal,
+                }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
+                  {tools.map((tool, i) => (
+                    <div key={i} className="py-1.5 border-b border-border/30 last:border-0">
+                      <p className="text-xs font-medium text-text-primary font-mono">{tool.name}</p>
+                      {tool.description && (
+                        <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{tool.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-
-        <AnimatePresence>
-          {toolsExpanded && tools.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{
-                type: "tween",
-                ease: motionTokens.easing.smooth,
-                duration: motionTokens.duration.normal,
-              }}
-              className="overflow-hidden"
-            >
-              <div className="mt-1 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
-                {tools.map((tool, i) => (
-                  <div key={i} className="py-1.5 border-b border-border/30 last:border-0">
-                    <p className="text-xs font-medium text-text-primary font-mono">{tool.name}</p>
-                    {tool.description && (
-                      <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">{tool.description}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </motion.div>
   );
