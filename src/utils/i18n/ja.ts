@@ -190,6 +190,33 @@ export const ja = {
   "settings.projects.title": "ワークスペースプロジェクト",
   "settings.projects.subtitle": "ローカルディレクトリを隔離された安全な Git ワークスペースとして登録",
 
+  // Settings: Skills
+  "section.skills": "エージェントスキル",
+  "settings.skills.title": "エージェントスキル",
+  "settings.skills.subtitle": "AIエージェントに指示やコンテキストを提供するカスタムスキルを管理します。",
+  "settings.skills.newSkill": "新規スキル",
+  "settings.skills.createNew": "新規スキルの作成",
+  "settings.skills.edit": "スキルの編集",
+  "settings.skills.description":
+    "スキルは、エージェントが特定のタスクの実行方法を学習するために読み込むことができる、指示文が含まれたMarkdownファイルです。",
+  "settings.skills.idLabel": "フォルダ名 (ID)",
+  "settings.skills.idPlaceholder": "例: react-best-practices",
+  "settings.skills.idHelper": "これは ~/.agents/skills/ 内のフォルダ名になります",
+  "settings.skills.nameLabel": "スキル名",
+  "settings.skills.namePlaceholder": "例: React Best Practices",
+  "settings.skills.descLabel": "説明",
+  "settings.skills.descPlaceholder": "スキルが教える内容の簡単な説明",
+  "settings.skills.contentLabel": "Markdownコンテンツ",
+  "settings.skills.contentPlaceholder": "ここに指示文を入力してください...",
+  "settings.skills.save": "スキルを保存",
+  "settings.skills.cancel": "キャンセル",
+  "settings.skills.noSkills": "スキルが見つかりません",
+  "settings.skills.noSkillsDesc": "スキルを作成して、AIエージェントに特化した指示、例、および知識を提供します。",
+  "settings.skills.loading": "スキルを読み込み中...",
+  "settings.skills.deleteConfirm": "このスキルを削除してもよろしいですか？",
+  "settings.skills.errIdRequired": "ID (フォルダ名) は必須です。",
+  "settings.skills.errNameRequired": "スキル名は必須です。",
+
   // Settings: Activity Log
   "settings.logs.title": "アクティビティログ",
   "settings.logs.subtitle": "システム操作ログ、ツール実行内容、ネットワーク要求ペイロードを監査",

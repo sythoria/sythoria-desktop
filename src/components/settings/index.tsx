@@ -24,6 +24,7 @@ import { ProjectsSection } from "./sections/ProjectsSection";
 import { AppshotsSection } from "./sections/AppshotsSection";
 import { PrivacySection } from "./sections/PrivacySection";
 import { WhisperSection } from "./sections/WhisperSection";
+import { SkillsSection } from "./sections/SkillsSection";
 import { SectionId } from "./types";
 import { useTranslation } from "../../utils/i18n";
 
@@ -263,6 +264,8 @@ export default function Settings() {
             )}
 
             {activeSection === "whisper" && <WhisperSection />}
+
+            {activeSection === "skills" && <SkillsSection />}
           </motion.div>
         </div>
       </div>

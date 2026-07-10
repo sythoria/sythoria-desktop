@@ -195,6 +195,35 @@ export const fr = {
   "settings.projects.subtitle":
     "Enregistrez les répertoires locaux en tant qu'espaces de codage isolés avec sécurité auto-git",
 
+  // Settings: Skills
+  "section.skills": "Compétences de l'Agent",
+  "settings.skills.title": "Compétences de l'Agent",
+  "settings.skills.subtitle":
+    "Gérerez les compétences personnalisées qui fournissent des instructions et du contexte à vos agents IA.",
+  "settings.skills.newSkill": "Nouvelle Compétence",
+  "settings.skills.createNew": "Créer une Nouvelle Compétence",
+  "settings.skills.edit": "Modifier la Compétence",
+  "settings.skills.description":
+    "Les compétences sont des fichiers markdown contenant des instructions que les agents peuvent lire pour apprendre à effectuer des tâches spécifiques.",
+  "settings.skills.idLabel": "Nom du Dossier (ID)",
+  "settings.skills.idPlaceholder": "ex: react-best-practices",
+  "settings.skills.idHelper": "Ce sera le nom du dossier dans ~/.agents/skills/",
+  "settings.skills.nameLabel": "Nom de la Compétence",
+  "settings.skills.namePlaceholder": "ex: React Best Practices",
+  "settings.skills.descLabel": "Description",
+  "settings.skills.descPlaceholder": "Brève description de ce que la compétence enseigne",
+  "settings.skills.contentLabel": "Contenu Markdown",
+  "settings.skills.contentPlaceholder": "Écrivez les instructions ici...",
+  "settings.skills.save": "Enregistrer la Compétence",
+  "settings.skills.cancel": "Annuler",
+  "settings.skills.noSkills": "Aucune compétence trouvée",
+  "settings.skills.noSkillsDesc":
+    "Créez une compétence pour fournir des instructions spécialisées, des exemples et des connaissances à vos agents IA.",
+  "settings.skills.loading": "Chargement des compétences...",
+  "settings.skills.deleteConfirm": "Êtes-vous sûr de vouloir supprimer cette compétence ?",
+  "settings.skills.errIdRequired": "Le nom du dossier (ID) est requis.",
+  "settings.skills.errNameRequired": "Le nom de la compétence est requis.",
+
   // Settings: Activity Log
   "settings.logs.title": "Journal d'activité",
   "settings.logs.subtitle":

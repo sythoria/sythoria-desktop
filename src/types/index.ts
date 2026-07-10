@@ -208,3 +208,10 @@ export const MCP_STATUS_LABELS: Record<McpServerStatus, string> = {
 };
 
 export type ModelStatuses = Record<string, ConnectionStatus>;
+
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+}

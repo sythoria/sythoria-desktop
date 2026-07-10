@@ -13,6 +13,7 @@ import {
   Store,
   Shield,
   Mic,
+  BookOpen,
 } from "lucide-react";
 
 export type SectionId =
@@ -34,6 +35,7 @@ export type SectionId =
   | "search"
   | "marketplace"
   | "whisper"
+  | "skills"
   | "logs";
 
 export const SECTION_GROUPS = [
@@ -68,6 +70,7 @@ export const SECTION_GROUPS = [
     category: "Developer",
     items: [
       { id: "projects", label: "Workspace Projects", icon: Folder },
+      { id: "skills", label: "Agent Skills", icon: BookOpen },
       { id: "logs", label: "Activity Log", icon: FileText },
     ],
   },

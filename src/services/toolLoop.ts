@@ -15,6 +15,7 @@ import type {
 import { generateId } from "../utils/generateId";
 import { logError, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
+import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
@@ -202,6 +203,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           message: { type: "string", description: "The message text to send." },
         },
         required: ["conversationId", "message"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_skill",
+      description: "Reads the content of a specific skill by its ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The ID of the skill to read." },
+        },
+        required: ["id"],
       },
     },
   },
@@ -446,6 +461,7 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 
 - search_query(query: string): Search the web for information. Returns search results with titles, URLs, and snippets.
 - fetch_url(url: string): Fetch and extract the content of a web page.
+- read_skill(id: string): Read the content of a specific skill to learn how to perform a task.
 
 When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.
 
@@ -453,6 +469,12 @@ CRITICAL: You are an agentic system with the genuine capability to spawn real ba
 
 function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
   let prompt = TOOL_SYSTEM_PROMPT;
+
+  const skills = useSkillStore.getState().skills;
+  if (skills.length > 0) {
+    const skillsList = skills.map((s) => `- ${s.name} (ID: ${s.id}): ${s.description}`).join("\n");
+    prompt += `\n\nYou have access to the following skills. You can read them using the read_skill tool:\n${skillsList}`;
+  }
 
   if (project) {
     prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
@@ -496,7 +518,8 @@ type KnownToolName =
   | "project_bash"
   | "project_git_status"
   | "project_git_diff"
-  | "project_git_commit";
+  | "project_git_commit"
+  | "read_skill";
 const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
@@ -512,6 +535,7 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "project_git_status",
   "project_git_diff",
   "project_git_commit",
+  "read_skill",
 ]);
 
 function toKnownToolName(name: string): KnownToolName | "unknown" {
@@ -767,6 +791,7 @@ export async function sendWithToolLoop(
           let toolDesc: string = fnName;
           if (fnName === "search_query") toolDesc = `Searching: ${fnArgs.query}`;
           else if (fnName === "fetch_url") toolDesc = `Fetching: ${fnArgs.url}`;
+          else if (fnName === "read_skill") toolDesc = `Reading Skill: ${fnArgs.id}`;
           else if (isProjectTool) toolDesc = `Project: ${fnName.replace("project_", "")}`;
           else if (fnName === "unknown" && rawName.includes("__") && useMcp) {
             const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
@@ -820,6 +845,7 @@ export async function sendWithToolLoop(
           .map((td) => {
             if (td.fnName === "search_query") return `Searching: ${td.fnArgs.query}`;
             if (td.fnName === "fetch_url") return `Fetching: ${td.fnArgs.url}`;
+            if (td.fnName === "read_skill") return `Reading Skill: ${td.fnArgs.id}`;
             if (td.fnName.startsWith("project_")) return `Project: ${td.fnName.replace("project_", "")}`;
             return td.fnName;
           })
@@ -1210,6 +1236,15 @@ export async function sendWithToolLoop(
               const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
               resultContent = JSON.stringify(results);
               results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
+            } else if (fnName === "read_skill") {
+              const skillId = fnArgs.id;
+              logInfo("chat", `Tool loop read skill: ${skillId}`);
+              try {
+                resultContent = await invoke<string>("read_skill", { id: skillId });
+              } catch (err: any) {
+                isError = true;
+                resultContent = err.message || String(err);
+              }
             } else if (fnName === "fetch_url" && useSearch) {
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
                 details: `Step ${step + 1}`,

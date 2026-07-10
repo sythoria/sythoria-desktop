@@ -196,6 +196,35 @@ export const es = {
   "settings.projects.subtitle":
     "Registra directorios locales como espacios de trabajo de código aislados con seguridad auto-git",
 
+  // Settings: Skills
+  "section.skills": "Habilidades de Agente",
+  "settings.skills.title": "Habilidades de Agente",
+  "settings.skills.subtitle":
+    "Administra habilidades personalizadas que proporcionan instrucciones y contexto a tus agentes de IA.",
+  "settings.skills.newSkill": "Nueva Habilidad",
+  "settings.skills.createNew": "Crear Nueva Habilidad",
+  "settings.skills.edit": "Editar Habilidad",
+  "settings.skills.description":
+    "Las habilidades son archivos markdown que contienen instrucciones que los agentes pueden leer para aprender a realizar tareas específicas.",
+  "settings.skills.idLabel": "Nombre de Carpeta (ID)",
+  "settings.skills.idPlaceholder": "ej. react-best-practices",
+  "settings.skills.idHelper": "Este será el nombre de la carpeta en ~/.agents/skills/",
+  "settings.skills.nameLabel": "Nombre de la Habilidad",
+  "settings.skills.namePlaceholder": "ej. React Best Practices",
+  "settings.skills.descLabel": "Descripción",
+  "settings.skills.descPlaceholder": "Breve descripción de lo que enseña la habilidad",
+  "settings.skills.contentLabel": "Contenido Markdown",
+  "settings.skills.contentPlaceholder": "Escribe las instrucciones aquí...",
+  "settings.skills.save": "Guardar Habilidad",
+  "settings.skills.cancel": "Cancelar",
+  "settings.skills.noSkills": "No se encontraron habilidades",
+  "settings.skills.noSkillsDesc":
+    "Crea una habilidad para proporcionar instrucciones especializadas, ejemplos y conocimiento a tus agentes de IA.",
+  "settings.skills.loading": "Cargando habilidades...",
+  "settings.skills.deleteConfirm": "¿Estás seguro de que deseas eliminar esta habilidad?",
+  "settings.skills.errIdRequired": "Se requiere el ID (Nombre de Carpeta).",
+  "settings.skills.errNameRequired": "Se requiere el Nombre de la Habilidad.",
+
   // Settings: Activity Log
   "settings.logs.title": "Registro de Actividad",
   "settings.logs.subtitle":

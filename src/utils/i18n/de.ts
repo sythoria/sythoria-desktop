@@ -194,6 +194,35 @@ export const de = {
   "settings.projects.subtitle":
     "Lokale Verzeichnisse als isolierte Codierungsbereiche mit Auto-Git-Absicherung registrieren",
 
+  // Settings: Skills
+  "section.skills": "Agenten-Skills",
+  "settings.skills.title": "Agenten-Skills",
+  "settings.skills.subtitle":
+    "Verwalte benutzerdefinierte Skills, die deinen KI-Agenten Anweisungen und Kontext bereitstellen.",
+  "settings.skills.newSkill": "Neuer Skill",
+  "settings.skills.createNew": "Neuen Skill erstellen",
+  "settings.skills.edit": "Skill bearbeiten",
+  "settings.skills.description":
+    "Skills sind Markdown-Dateien mit Anweisungen, die Agenten lesen können, um zu lernen, wie man bestimmte Aufgaben ausführt.",
+  "settings.skills.idLabel": "Ordnername (ID)",
+  "settings.skills.idPlaceholder": "z.B. react-best-practices",
+  "settings.skills.idHelper": "Dies wird der Ordnername in ~/.agents/skills/ sein",
+  "settings.skills.nameLabel": "Skill-Name",
+  "settings.skills.namePlaceholder": "z.B. React Best Practices",
+  "settings.skills.descLabel": "Beschreibung",
+  "settings.skills.descPlaceholder": "Kurze Beschreibung dessen, was der Skill vermittelt",
+  "settings.skills.contentLabel": "Markdown-Inhalt",
+  "settings.skills.contentPlaceholder": "Schreibe die Anweisungen hier...",
+  "settings.skills.save": "Skill speichern",
+  "settings.skills.cancel": "Abbrechen",
+  "settings.skills.noSkills": "Keine Skills gefunden",
+  "settings.skills.noSkillsDesc":
+    "Erstelle einen Skill, um deinen KI-Agenten spezialisierte Anweisungen, Beispiele und Wissen bereitzustellen.",
+  "settings.skills.loading": "Skills werden geladen...",
+  "settings.skills.deleteConfirm": "Bist du sicher, dass du diesen Skill löschen möchtest?",
+  "settings.skills.errIdRequired": "ID (Ordnername) ist erforderlich.",
+  "settings.skills.errNameRequired": "Skill-Name ist erforderlich.",
+
   // Settings: Activity Log
   "settings.logs.title": "Aktivitätsprotokoll",
   "settings.logs.subtitle": "Systemoperationen, Werkzeugausführung und Netzwerkprotokolle untersuchen",

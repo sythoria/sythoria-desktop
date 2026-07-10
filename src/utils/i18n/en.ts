@@ -191,6 +191,34 @@ export const en = {
   "settings.projects.title": "Workspace Projects",
   "settings.projects.subtitle": "Register local directories as isolated coding workspaces with auto-git safety",
 
+  // Settings: Skills
+  "section.skills": "Agent Skills",
+  "settings.skills.title": "Agent Skills",
+  "settings.skills.subtitle": "Manage custom skills that provide instructions and context to your AI agents.",
+  "settings.skills.newSkill": "New Skill",
+  "settings.skills.createNew": "Create New Skill",
+  "settings.skills.edit": "Edit Skill",
+  "settings.skills.description":
+    "Skills are markdown files containing instructions that agents can read to learn how to do specific tasks.",
+  "settings.skills.idLabel": "Folder Name (ID)",
+  "settings.skills.idPlaceholder": "e.g. react-best-practices",
+  "settings.skills.idHelper": "This will be the folder name in ~/.agents/skills/",
+  "settings.skills.nameLabel": "Skill Name",
+  "settings.skills.namePlaceholder": "e.g. React Best Practices",
+  "settings.skills.descLabel": "Description",
+  "settings.skills.descPlaceholder": "Short description of what the skill teaches",
+  "settings.skills.contentLabel": "Markdown Content",
+  "settings.skills.contentPlaceholder": "Write the instructions here...",
+  "settings.skills.save": "Save Skill",
+  "settings.skills.cancel": "Cancel",
+  "settings.skills.noSkills": "No skills found",
+  "settings.skills.noSkillsDesc":
+    "Create a skill to provide specialized instructions, examples, and knowledge to your AI agents.",
+  "settings.skills.loading": "Loading skills...",
+  "settings.skills.deleteConfirm": "Are you sure you want to delete this skill?",
+  "settings.skills.errIdRequired": "ID (Folder Name) is required.",
+  "settings.skills.errNameRequired": "Skill Name is required.",
+
   // Settings: Activity Log
   "settings.logs.title": "Activity Log",
   "settings.logs.subtitle": "Inspect system operations, tool execution details, and network payloads",

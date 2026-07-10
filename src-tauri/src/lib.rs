@@ -7,6 +7,7 @@ mod project_tools;
 mod search;
 mod stream_parser;
 mod ws_handler;
+mod skills;
 
 use futures_util::StreamExt;
 use std::sync::RwLock;
@@ -2579,7 +2580,12 @@ pub fn run() {
             appshots::run_appshots_clean,
             appshots::select_appshot_folder,
             appshots::has_screen_capture_permission,
-            appshots::request_screen_capture_permission
+            appshots::request_screen_capture_permission,
+            skills::list_skills,
+            skills::read_skill,
+            skills::create_skill,
+            skills::update_skill,
+            skills::delete_skill
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
