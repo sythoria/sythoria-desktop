@@ -51,6 +51,13 @@ export default function Settings() {
   const deleteSearchConfig = useSearchStore((s) => s.deleteSearchConfig);
   const addSearchConfig = useSearchStore((s) => s.addSearchConfig);
 
+  const fetchConfigs = useSearchStore((s) => s.fetchConfigs);
+  const activeFetchId = useSearchStore((s) => s.activeFetchId);
+  const setActiveFetchId = useSearchStore((s) => s.setActiveFetchId);
+  const updateFetchConfig = useSearchStore((s) => s.updateFetchConfig);
+  const deleteFetchConfig = useSearchStore((s) => s.deleteFetchConfig);
+  const addFetchConfig = useSearchStore((s) => s.addFetchConfig);
+
   const mcpConfigs = useMcpStore((s) => s.mcpConfigs);
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
   const availableTools = useMcpStore((s) => s.availableTools);
@@ -83,6 +90,7 @@ export default function Settings() {
 
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
+  const [showFetchKeys, setShowFetchKeys] = useState<Record<string, boolean>>({});
   const [showMcpKeys, setShowMcpKeys] = useState<Record<string, boolean>>({});
 
   const toggleKeyVisibility = (id: string) => {
@@ -91,6 +99,10 @@ export default function Settings() {
 
   const toggleSearchKeyVisibility = (id: string) => {
     setShowSearchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleFetchKeyVisibility = (id: string) => {
+    setShowFetchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const toggleMcpKeyVisibility = (id: string) => {
@@ -190,6 +202,9 @@ export default function Settings() {
                 searchConfigs={searchConfigs}
                 activeSearchId={activeSearchId}
                 setActiveSearchId={setActiveSearchId}
+                fetchConfigs={fetchConfigs}
+                activeFetchId={activeFetchId}
+                setActiveFetchId={setActiveFetchId}
                 temperature={temperature}
                 setTemperature={setTemperature}
                 addToast={addToast}
@@ -231,6 +246,12 @@ export default function Settings() {
                 addSearchConfig={addSearchConfig}
                 showSearchKeys={showSearchKeys}
                 toggleSearchKeyVisibility={toggleSearchKeyVisibility}
+                fetchConfigs={fetchConfigs}
+                updateFetchConfig={updateFetchConfig}
+                deleteFetchConfig={deleteFetchConfig}
+                addFetchConfig={addFetchConfig}
+                showFetchKeys={showFetchKeys}
+                toggleFetchKeyVisibility={toggleFetchKeyVisibility}
               />
             )}
 

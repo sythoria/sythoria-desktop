@@ -161,7 +161,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         "Fetch and extract the readable content of a web page. Use this when you want to read the full content of a URL found in search results.",
       parameters: {
         type: "object",
-        properties: { url: { type: "string", description: "The URL to fetch and read" } },
+        properties: {
+          url: { type: "string", description: "The URL to fetch and read" },
+          format: {
+            type: "string",
+            description: "Optional format to fetch. 'markdown' (default), 'raw_html', or 'text'.",
+          },
+        },
         required: ["url"],
       },
     },
@@ -595,7 +601,7 @@ export async function sendWithToolLoop(
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
-  fetchUrlContent: (url: string) => Promise<UrlContent>,
+  fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
   project: Project | null,
 ) {
   set((state) => ({
@@ -1249,7 +1255,7 @@ export async function sendWithToolLoop(
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
                 details: `Step ${step + 1}`,
               });
-              const urlContent = await fetchUrlContent(fnArgs.url!);
+              const urlContent = await fetchUrlContent(fnArgs.url!, fnArgs.format);
               resultContent = JSON.stringify(urlContent);
               if (urlContent.status === "ok") {
                 collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });

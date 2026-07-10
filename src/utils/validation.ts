@@ -58,6 +58,15 @@ const SearchApiConfigSchema = z.object({
   enabled: z.boolean(),
 });
 
+const FetchApiConfigSchema = z.object({
+  id: z.string().min(1, "Fetch config ID is required"),
+  name: z.string().min(1, "Name is required").max(60, "Name is too long"),
+  provider: z.enum(["firecrawl", "jina"]),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  enabled: z.boolean(),
+});
+
 const McpServerConfigSchema = z.object({
   id: z.string().min(1, "MCP server ID is required"),
   name: z.string().min(1, "Name is required").max(60, "Name is too long"),
@@ -75,6 +84,10 @@ export function validateModelConfig(config: unknown) {
 
 export function validateSearchConfig(config: unknown) {
   return SearchApiConfigSchema.safeParse(config);
+}
+
+export function validateFetchConfig(config: unknown) {
+  return FetchApiConfigSchema.safeParse(config);
 }
 
 export function validateMcpServerConfig(config: unknown) {
@@ -115,6 +128,17 @@ export function validateApiKey(key: string, provider?: string): { valid: boolean
 
 export function validateSearchApiKey(key: string | undefined, provider: string): { valid: boolean; warning?: string } {
   const noKeyProviders = ["searxng", "custom"];
+  if (noKeyProviders.includes(provider)) {
+    return { valid: true };
+  }
+  if (!key || key.trim().length === 0) {
+    return { valid: false, warning: "API key is required for this provider" };
+  }
+  return { valid: true };
+}
+
+export function validateFetchApiKey(key: string | undefined, provider: string): { valid: boolean; warning?: string } {
+  const noKeyProviders: string[] = ["jina"];
   if (noKeyProviders.includes(provider)) {
     return { valid: true };
   }

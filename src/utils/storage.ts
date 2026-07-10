@@ -113,6 +113,17 @@ const SearchConfigSchema = z.object({
 
 const SearchConfigsArraySchema = z.array(SearchConfigSchema);
 
+const FetchConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.enum(["firecrawl", "jina"]),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  enabled: z.boolean(),
+});
+
+const FetchConfigsArraySchema = z.array(FetchConfigSchema);
+
 const KeybindActionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -131,6 +142,7 @@ const PROJECTS_DEFAULT_PERMISSION_KEY = "sythoria-projects-default-permission";
 const THEME_KEY = "sythoria-theme";
 const API_KEYS_KEY = "sythoria-api-keys";
 const SEARCH_CONFIGS_KEY = "sythoria-search-configs";
+const FETCH_CONFIGS_KEY = "sythoria-fetch-configs";
 const SEARCH_API_KEYS_KEY = "sythoria-search-api-keys";
 const TITLE_CONFIG_KEY = "sythoria-title-config";
 const MCP_CONFIGS_KEY = "sythoria-mcp-configs";
@@ -497,6 +509,40 @@ export async function saveSearchConfigs(configs: import("../types").SearchApiCon
     logError("storage", "Failed to save search configs to secure store", {
       error: e,
       action: "Search configuration may not persist. Try re-entering in Settings > Web Search.",
+    });
+  }
+}
+
+export async function loadFetchConfigs(): Promise<import("../types").FetchApiConfig[] | null> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(FETCH_CONFIGS_KEY);
+    if (raw) {
+      const result = FetchConfigsArraySchema.safeParse(raw);
+      if (result.success) return result.data as import("../types").FetchApiConfig[];
+      logWarn("storage", "Stored fetch configs failed validation", {
+        details: result.error?.message,
+        action: "Fetch provider configs were corrupted. Please re-configure them in Settings > Web Search.",
+      });
+    }
+  } catch (e) {
+    logError("storage", "Failed to load fetch configs from secure store", {
+      error: e,
+      action: "Fetch configuration could not be loaded. Re-configure in Settings > Web Search.",
+    });
+  }
+  return null;
+}
+
+export async function saveFetchConfigs(configs: import("../types").FetchApiConfig[]): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(FETCH_CONFIGS_KEY, configs);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save fetch configs to secure store", {
+      error: e,
+      action: "Fetch configuration may not persist. Try re-entering in Settings > Web Search.",
     });
   }
 }

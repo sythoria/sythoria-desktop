@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { validateApiUrl, validateApiKey, validateModelConfig, ModelConfigSchema } from "../utils/validation";
+import {
+  validateApiUrl,
+  validateApiKey,
+  validateSearchApiKey,
+  validateFetchApiKey,
+  validateModelConfig,
+  ModelConfigSchema,
+} from "../utils/validation";
 
 describe("validateApiUrl", () => {
   it("accepts valid HTTPS URLs", () => {
@@ -41,6 +48,44 @@ describe("validateApiKey", () => {
 
   it("accepts empty key for Local provider", () => {
     expect(validateApiKey("", "Local")).toEqual({ valid: true });
+  });
+});
+
+describe("validateSearchApiKey", () => {
+  it("accepts non-empty key for firecrawl", () => {
+    expect(validateSearchApiKey("key123", "firecrawl")).toEqual({ valid: true });
+  });
+
+  it("requires key for firecrawl", () => {
+    expect(validateSearchApiKey("", "firecrawl")).toEqual({
+      valid: false,
+      warning: "API key is required for this provider",
+    });
+  });
+
+  it("accepts empty key for searxng", () => {
+    expect(validateSearchApiKey("", "searxng")).toEqual({ valid: true });
+  });
+
+  it("accepts empty key for custom", () => {
+    expect(validateSearchApiKey("", "custom")).toEqual({ valid: true });
+  });
+});
+
+describe("validateFetchApiKey", () => {
+  it("accepts non-empty key for firecrawl", () => {
+    expect(validateFetchApiKey("key123", "firecrawl")).toEqual({ valid: true });
+  });
+
+  it("requires key for firecrawl", () => {
+    expect(validateFetchApiKey("", "firecrawl")).toEqual({
+      valid: false,
+      warning: "API key is required for this provider",
+    });
+  });
+
+  it("accepts empty key for jina", () => {
+    expect(validateFetchApiKey("", "jina")).toEqual({ valid: true });
   });
 });
 

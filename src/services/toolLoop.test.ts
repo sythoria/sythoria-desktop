@@ -30,8 +30,8 @@ beforeEach(() => {
 });
 
 describe("TOOL_DEFINITIONS", () => {
-  it("defines exactly 2 tools", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(2);
+  it("defines exactly 5 tools", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(5);
   });
 
   it("includes search_query tool", () => {
@@ -42,6 +42,13 @@ describe("TOOL_DEFINITIONS", () => {
   it("includes fetch_url tool", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.function.name);
     expect(names).toContain("fetch_url");
+  });
+
+  it("includes subagent and skill tools", () => {
+    const names = TOOL_DEFINITIONS.map((t) => t.function.name);
+    expect(names).toContain("invoke_subagent");
+    expect(names).toContain("send_message");
+    expect(names).toContain("read_skill");
   });
 
   it("all tools have required parameters", () => {

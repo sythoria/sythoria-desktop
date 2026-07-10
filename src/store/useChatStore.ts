@@ -19,6 +19,7 @@ import {
   loadTheme,
   loadApiKeys,
   loadSearchConfigs,
+  loadFetchConfigs,
   loadSearchApiKeys,
   clearConversations,
   loadTitleConfig,
@@ -242,6 +243,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedTheme,
         loadedKeys,
         loadedSearchConfigs,
+        loadedFetchConfigs,
         loadedSearchKeys,
         loadedTitleCfg,
         loadedMcpConfigs,
@@ -271,6 +273,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadTheme(),
         loadApiKeys(),
         loadSearchConfigs(),
+        loadFetchConfigs(),
         loadSearchApiKeys(),
         loadTitleConfig(),
         loadMcpConfigs(),
@@ -312,6 +315,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const nonEmptyConvs = hasOnboarded ? (loadedConvs || []).filter((c) => c.messages.length > 0) : [];
       const searchConfigs = loadedSearchConfigs || [];
+      const fetchConfigs = loadedFetchConfigs || [];
 
       modelSetState({
         models: modelsWithKeys,
@@ -326,6 +330,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       searchSetState({
         searchConfigs,
         activeSearchId: searchConfigs.find((c) => c.enabled)?.id ?? null,
+        fetchConfigs,
+        activeFetchId: fetchConfigs.find((c) => c.enabled)?.id ?? null,
         searchApiKeys: loadedSearchKeys,
       });
 
@@ -807,10 +813,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               },
               className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
             },
-            "settings/model-providers"
-          )
+            "settings/model-providers",
+          ),
         ),
-        "error"
+        "error",
       );
       return;
     }
@@ -919,10 +925,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               },
               className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
             },
-            "settings/model-providers"
-          )
+            "settings/model-providers",
+          ),
         ),
-        "error"
+        "error",
       );
       return;
     }

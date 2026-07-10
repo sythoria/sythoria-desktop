@@ -1100,8 +1100,45 @@ async fn web_search(
 }
 
 #[tauri::command]
-async fn fetch_url_content(url: String) -> Result<String, AppError> {
-    let content = search::fetch_url(&url).await.map_err(|e| {
+async fn fetch_url_content(
+    url: String,
+    provider: Option<String>,
+    config: Option<String>,
+    config_id: Option<String>,
+    format: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<String, AppError> {
+    let mut config_json: Option<serde_json::Value> = None;
+    if let Some(cfg) = config {
+        let mut parsed: serde_json::Value = serde_json::from_str(&cfg)
+            .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
+        
+        if let Some(id) = config_id {
+            if parsed
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .is_empty()
+            {
+                match get_search_api_key(&app, &id).await {
+                    Ok(key) => {
+                        parsed["apiKey"] = serde_json::Value::String(key);
+                    }
+                    Err(_) => {
+                        log::warn!("No API key found in secure store for search config '{}'", id);
+                    }
+                }
+            }
+        }
+        config_json = Some(parsed);
+    }
+
+    let content = search::fetch(
+        &url,
+        provider.as_deref(),
+        config_json.as_ref(),
+        format.as_deref(),
+    ).await.map_err(|e| {
         log::error!("Fetch URL failed for '{}': {}", url, e);
         AppError::from(e)
     })?;

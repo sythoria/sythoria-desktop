@@ -19,6 +19,9 @@ interface ConfigurationSectionProps {
   searchConfigs: SearchApiConfig[];
   activeSearchId: string | null;
   setActiveSearchId: (id: string) => void;
+  fetchConfigs: import("../../../types").FetchApiConfig[];
+  activeFetchId: string | null;
+  setActiveFetchId: (id: string) => void;
   temperature: number;
   setTemperature: (temp: number) => void;
   addToast: (msg: string, variant: "info" | "success" | "error") => void;
@@ -33,6 +36,9 @@ export const ConfigurationSection = ({
   searchConfigs,
   activeSearchId,
   setActiveSearchId,
+  fetchConfigs,
+  activeFetchId,
+  setActiveFetchId,
   temperature,
   setTemperature,
   addToast,
@@ -42,6 +48,7 @@ export const ConfigurationSection = ({
   const { t } = useTranslation();
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [searchProviderDropdownOpen, setSearchProviderDropdownOpen] = useState(false);
+  const [fetchProviderDropdownOpen, setFetchProviderDropdownOpen] = useState(false);
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxStepsToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -50,6 +57,9 @@ export const ConfigurationSection = ({
 
   const enabledSearchConfigs = searchConfigs.filter((c) => c.enabled);
   const activeSearchConfig = enabledSearchConfigs.find((c) => c.id === activeSearchId);
+
+  const enabledFetchConfigs = fetchConfigs.filter((c) => c.enabled);
+  const activeFetchConfig = enabledFetchConfigs.find((c) => c.id === activeFetchId);
 
   const handleTemperatureChange = useCallback(
     (value: string) => {
@@ -222,6 +232,81 @@ export const ConfigurationSection = ({
                         <span className="text-[10px] text-text-muted">{config.provider}</span>
                       </div>
                       {activeSearchId === config.id && (
+                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
+                      )}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        <div className="space-y-2 pt-2">
+          <label htmlFor="default-fetch-provider" className="text-sm font-medium text-text-primary block">
+            Default Fetch Provider
+          </label>
+          <p className="text-xs text-text-muted mb-2">
+            Select the default provider used when fetching web page contents directly.
+          </p>
+          <div className="relative">
+            <button
+              id="default-fetch-provider"
+              onClick={() => setFetchProviderDropdownOpen(!fetchProviderDropdownOpen)}
+              disabled={enabledFetchConfigs.length === 0}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-expanded={fetchProviderDropdownOpen}
+              aria-haspopup="listbox"
+            >
+              <span>
+                {activeFetchConfig?.name ||
+                  (enabledFetchConfigs.length === 0 ? "No enabled fetch APIs" : "Select fetch provider")}
+              </span>
+              <ChevronDown
+                size={16}
+                className={`text-text-muted transition-transform ${fetchProviderDropdownOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+            {fetchProviderDropdownOpen && enabledFetchConfigs.length > 0 && (
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setFetchProviderDropdownOpen(false)}
+                aria-hidden="true"
+              />
+            )}
+            <AnimatePresence>
+              {fetchProviderDropdownOpen && enabledFetchConfigs.length > 0 && (
+                <motion.div
+                  key="fetch-provider-dropdown"
+                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={springs.snappy}
+                  className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto"
+                  role="listbox"
+                  aria-label="Available fetch providers"
+                >
+                  {enabledFetchConfigs.map((config) => (
+                    <button
+                      key={config.id}
+                      onClick={() => {
+                        setActiveFetchId(config.id);
+                        setFetchProviderDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
+                        activeFetchId === config.id
+                          ? "bg-accent-soft text-accent"
+                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                      }`}
+                      role="option"
+                      aria-selected={activeFetchId === config.id}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span className="font-medium">{config.name}</span>
+                        <span className="text-[10px] text-text-muted">{config.provider}</span>
+                      </div>
+                      {activeFetchId === config.id && (
                         <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
                       )}
                     </button>

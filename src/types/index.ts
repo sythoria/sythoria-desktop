@@ -110,6 +110,17 @@ export interface SearchApiConfig {
   enabled: boolean;
 }
 
+export type FetchProvider = "firecrawl" | "jina";
+
+export interface FetchApiConfig {
+  id: string;
+  name: string;
+  provider: FetchProvider;
+  baseUrl?: string;
+  apiKey?: string;
+  enabled: boolean;
+}
+
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";

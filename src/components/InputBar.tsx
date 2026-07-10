@@ -153,7 +153,7 @@ export default function InputBar({
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
-        } catch (_e) {
+        } catch {
           // ignore
         }
       }
@@ -242,19 +242,17 @@ export default function InputBar({
 
         const rawText = transcription.trim();
         if (rawText) {
-          const combinedRaw = initialValueRef.current
-            ? `${initialValueRef.current} ${rawText}`
-            : rawText;
+          const combinedRaw = initialValueRef.current ? `${initialValueRef.current} ${rawText}` : rawText;
           setValue(combinedRaw);
           setVoiceDraft(combinedRaw);
 
           useUIStore.getState().addToast("Refining speech...", "info");
-          
+
           const streamId = "refine-" + Math.random().toString().slice(2, 10);
           let accumulated = "";
-          
+
           const { listen } = await import("@tauri-apps/api/event");
-          
+
           const unlistenChunk = await listen<{ streamId: string; content: string }>("chat-stream-chunk", (event) => {
             if (event.payload.streamId === streamId) {
               accumulated += event.payload.content;
@@ -268,10 +266,10 @@ export default function InputBar({
           const modelStore = useModelStore.getState();
           const targetModelId = refinementModelId || modelStore.selectedModel || modelStore.models[0]?.id;
           const currentModel = modelStore.models.find((m) => m.id === targetModelId) || modelStore.models[0];
-            
+
           if (currentModel) {
             setValue(initialValueRef.current);
-            
+
             await invoke<string>("chat_stream", {
               configId: currentModel.id,
               messages: [
@@ -286,7 +284,7 @@ export default function InputBar({
               streamId,
               maxTokens: 500,
             });
-            
+
             unlistenChunk();
           }
         }
@@ -322,7 +320,7 @@ export default function InputBar({
                   language,
                 });
               }
-              
+
               if (isRecordingActiveRef.current && transcription.trim()) {
                 const combined = initialValueRef.current
                   ? `${initialValueRef.current} ${transcription.trim()}`
@@ -512,7 +510,12 @@ export default function InputBar({
       }
 
       // 3. Fall back to direct Navigator Clipboard API if event-based data is restricted/empty (WebKit2GTK/Linux edge cases)
-      if (files.length === 0 && typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.read === "function") {
+      if (
+        files.length === 0 &&
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.read === "function"
+      ) {
         try {
           const clipboardItems = await navigator.clipboard.read();
           for (const item of clipboardItems) {
@@ -832,7 +835,8 @@ export default function InputBar({
                 if (disabled || isStreaming) return;
                 const clipboardData = e.clipboardData;
                 const types = clipboardData.types;
-                const isFileOrImage = types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
+                const isFileOrImage =
+                  types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
 
                 if (isFileOrImage) {
                   e.preventDefault();
