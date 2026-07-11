@@ -367,15 +367,26 @@ export default function InputBar({
     }
   }, [isStreaming]);
 
-  useEffect(() => {
+  const adjustHeight = useCallback(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "0px";
+      textareaRef.current.style.height = "auto";
       const scrollHeight = textareaRef.current.scrollHeight;
       const newHeight = Math.max(20, Math.min(scrollHeight, MAX_TEXTAREA_HEIGHT));
       textareaRef.current.style.height = newHeight + "px";
       textareaRef.current.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
     }
-  }, [value]);
+  }, []);
+
+  useEffect(() => {
+    adjustHeight();
+  }, [value, adjustHeight]);
+
+  useEffect(() => {
+    window.addEventListener("resize", adjustHeight);
+    return () => {
+      window.removeEventListener("resize", adjustHeight);
+    };
+  }, [adjustHeight]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -1296,15 +1307,15 @@ export default function InputBar({
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
                     transition={springs.gentle}
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg border border-border bg-surface text-text-primary text-xs font-medium select-none"
+                    className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                   >
-                    <Cpu size={12} className="shrink-0" />
-                    <span className="truncate max-w-[100px]" title={server.name}>
+                    <Cpu size={13} className="text-text-muted shrink-0" />
+                    <span className="truncate max-w-[100px] font-medium" title={server.name}>
                       {server.name}
                     </span>
                     <button
                       onClick={() => onToggleMcpServer(server.id)}
-                      className="shrink-0 p-1.5 rounded-lg bg-active text-text-primary hover:bg-hover hover:text-text-secondary border border-border/20 transition-all flex items-center gap-1.5 shadow-sm text-xs"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
                       title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
                     >
                       <X size={12} />
