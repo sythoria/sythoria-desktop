@@ -27,7 +27,7 @@ export default defineConfig(async () => ({
   },
 
   build: {
-    target: "esnext",
+    target: ["es2021", "chrome105", "safari15"],
     minify: "esbuild",
     cssMinify: true,
     sourcemap: false,
@@ -45,12 +45,17 @@ export default defineConfig(async () => ({
             id.includes("remark-math") ||
             id.includes("rehype-katex") ||
             id.includes("lowlight") ||
-            id.includes("highlight.js/lib/core")
+            id.includes("highlight.js/lib/core") ||
+            id.includes("micromark") ||
+            id.includes("unified") ||
+            id.includes("unist") ||
+            id.includes("vfile") ||
+            id.includes("mdast")
           ) {
             return "markdown";
           }
 
-          if (id.includes("react") || id.includes("react-dom")) {
+          if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/")) {
             return "react";
           }
 
