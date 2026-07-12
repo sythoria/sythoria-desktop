@@ -684,7 +684,7 @@ function SubagentLiveCard({ message }: { message: Message }) {
                   className="w-full border-t border-border/40"
                 >
                   <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
-                    <ChatArea
+                    <ChatAreaBase
                       messages={conv.messages || []}
                       onRetry={() => {}}
                       generationState={generationState?.state || "idle"}
@@ -1081,12 +1081,14 @@ const MessageBubble = memo(function MessageBubble({
   generationState,
   generationLabel,
   isLastAssistant,
+  conversationId,
 }: {
   message: Message;
   onRetry?: () => void;
   generationState?: GenerationState;
   generationLabel?: string;
   isLastAssistant?: boolean;
+  conversationId?: string;
 }) {
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
@@ -1235,7 +1237,7 @@ const MessageBubble = memo(function MessageBubble({
 
 const VIRTUALIZED_THRESHOLD = 50;
 
-export default memo(function ChatArea({
+function ChatAreaBase({
   messages,
   setIsAtBottom,
   virtuosoRef,
@@ -1306,6 +1308,7 @@ export default memo(function ChatArea({
                 generationState={generationState}
                 generationLabel={generationLabel}
                 isLastAssistant={msg.id === lastAssistantMessageId}
+                conversationId={conversationId}
               />
             </div>
           )}
@@ -1347,7 +1350,7 @@ export default memo(function ChatArea({
       onScroll={onScroll}
     />
   );
-});
+}
 
 function NonVirtualizedChatArea({
   messages,
@@ -1449,6 +1452,7 @@ function NonVirtualizedChatArea({
             generationState={generationState}
             generationLabel={generationLabel}
             isLastAssistant={msg.id === lastAssistantMessageId}
+            conversationId={conversationId}
           />
         ))}
         <AnimatePresence>
@@ -1555,3 +1559,5 @@ function PendingWorktreeCard({
     </motion.div>
   );
 }
+
+export default memo(ChatAreaBase);
