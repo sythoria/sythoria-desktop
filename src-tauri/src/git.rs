@@ -225,7 +225,7 @@ pub async fn git_create_commit(
     if let Some(file_list) = files {
         if !file_list.is_empty() {
             let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(&repo_path_str).arg("add");
+            cmd.arg("-C").arg(&repo_path_str).arg("add").arg("--");
             for f in file_list {
                 cmd.arg(f);
             }
@@ -306,12 +306,16 @@ pub async fn git_undo_last_commit(
 
     // Require native confirmation dialog for destructive action
     use tauri_plugin_dialog::DialogExt;
-    let confirmed = app
-        .dialog()
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
         .message("Are you sure you want to undo the last commit? This will perform a soft reset, preserving your changes in the staging area.")
         .title("Undo Last Commit Confirmation")
         .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-        .blocking_show();
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+
+    let confirmed = rx.await.unwrap_or(false);
 
     if !confirmed {
         return Err(AppError::GitError("Undo commit cancelled by user".to_string()));
@@ -349,6 +353,7 @@ pub async fn git_checkout_branch(
         .arg("-C")
         .arg(&repo_path_str)
         .arg("checkout")
+        .arg("--")
         .arg(branch)
         .output()
         .await
@@ -463,30 +468,48 @@ pub async fn git_worktree_apply(
         return Err(AppError::GitError("Worktree path does not exist".to_string()));
     }
 
-    // 1. Get status --porcelain of worktree
+    // 1. Get status -z of worktree
     let status_output = Command::new("git")
         .arg("-C")
         .arg(&worktree_path)
         .arg("status")
-        .arg("--porcelain")
+        .arg("-z")
         .output()
         .await
         .map_err(|e| AppError::GitError(format!("Failed to get worktree status: {}", e)))?;
 
-    let status_str = String::from_utf8_lossy(&status_output.stdout);
+    let stdout = status_output.stdout;
     
     // 2. Apply modifications to primary repo
-    for line in status_str.lines() {
-        if line.len() < 3 {
-            continue;
+    let mut i = 0;
+    while i < stdout.len() {
+        if i + 2 >= stdout.len() {
+            break;
         }
-        let status_code = &line[0..2];
-        let file_path_relative = &line[3..];
+        let x = stdout[i] as char;
+        let y = stdout[i + 1] as char;
+        i += 3; // skip XY and space
         
-        let src_file = worktree_dir.join(file_path_relative);
-        let dest_file = repo_path.join(file_path_relative);
+        let start = i;
+        while i < stdout.len() && stdout[i] != 0 {
+            i += 1;
+        }
+        let path_bytes = &stdout[start..i];
+        let file_path_relative = String::from_utf8_lossy(path_bytes).into_owned();
+        i += 1; // skip \0
 
-        if status_code.contains('D') {
+        if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
+            // skip the old path
+            while i < stdout.len() && stdout[i] != 0 {
+                i += 1;
+            }
+            i += 1;
+        }
+
+        let src_file = worktree_dir.join(&file_path_relative);
+        let dest_file = repo_path.join(&file_path_relative);
+
+        if x == 'D' || y == 'D' {
             // Deleted
             if dest_file.exists() {
                 let _ = std::fs::remove_file(&dest_file);
@@ -537,6 +560,7 @@ async fn cleanup_worktree_internal(
         .arg("worktree")
         .arg("remove")
         .arg("--force")
+        .arg("--")
         .arg(worktree_path)
         .output()
         .await
@@ -552,6 +576,7 @@ async fn cleanup_worktree_internal(
         .arg(repo_path)
         .arg("branch")
         .arg("-D")
+        .arg("--")
         .arg(branch_name)
         .output()
         .await
