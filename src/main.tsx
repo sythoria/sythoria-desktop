@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { SpotlightArea } from "./components/SpotlightArea";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const rawTheme = localStorage.getItem("sythoria-theme");
 let themeMode: string | null = rawTheme;
@@ -25,10 +27,11 @@ if (isDark) {
   document.documentElement.classList.remove("dark");
 }
 
+// Detect if we're rendering inside the spotlight window or the main app window
+const isSpotlight = getCurrentWindow().label === "spotlight";
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <ErrorBoundary>{isSpotlight ? <SpotlightArea /> : <App />}</ErrorBoundary>
   </React.StrictMode>,
 );
