@@ -24,7 +24,6 @@ import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./component
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import { LinkWarningModal } from "./components/LinkWarningModal";
-import { FakeTrafficLights } from "./components/ui/FakeTrafficLights";
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: "Disconnected",
@@ -34,6 +33,8 @@ const STATUS_LABELS: Record<string, string> = {
 };
 import StartScreen from "./components/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
+import { TitleBar } from "./components/TitleBar";
+import { CommandPalette } from "./components/CommandPalette";
 import ProjectConfigModal from "./components/ProjectConfigModal";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
@@ -50,8 +51,6 @@ import { springs, motionTokens } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 
 import "./index.css";
-
-let activeListenerId = "";
 
 const STATUS_KEYS: Record<string, string> = {
   disconnected: "status.disconnected",
@@ -87,7 +86,7 @@ function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
 function App() {
   const { t } = useTranslation();
   const [isMobile, setIsMobile] = useState(false);
-  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
+  const activeListenerIdRef = useRef("");
 
   useEffect(() => {
     const checkMobile = () => {
@@ -235,6 +234,7 @@ function App() {
     setSidebarOpen,
     toggleSidebarCollapsed,
     setView,
+    setActiveSection,
     openRenameModal,
     closeRenameModal,
     dismissToast,
@@ -243,11 +243,13 @@ function App() {
     setActiveArtifact,
     setShowUpdateModal,
     checkForUpdates,
+    toggleCommandPalette,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
       toggleSidebarCollapsed: s.toggleSidebarCollapsed,
       setView: s.setView,
+      setActiveSection: s.setActiveSection,
       openRenameModal: s.openRenameModal,
       closeRenameModal: s.closeRenameModal,
       dismissToast: s.dismissToast,
@@ -256,6 +258,7 @@ function App() {
       setActiveArtifact: s.setActiveArtifact,
       setShowUpdateModal: s.setShowUpdateModal,
       checkForUpdates: s.checkForUpdates,
+      toggleCommandPalette: s.toggleCommandPalette,
     })),
   );
 
@@ -513,7 +516,7 @@ function App() {
   useEffect(() => {
     let active = true;
     const currentListenerId = Math.random().toString();
-    activeListenerId = currentListenerId;
+    activeListenerIdRef.current = currentListenerId;
 
     let unlistenDragEnter: (() => void) | undefined;
     let unlistenDragOver: (() => void) | undefined;
@@ -524,7 +527,7 @@ function App() {
       const { listen } = await import("@tauri-apps/api/event");
 
       const enter = await listen("tauri://drag-enter", () => {
-        if (activeListenerId !== currentListenerId) return;
+        if (activeListenerIdRef.current !== currentListenerId) return;
         const uiState = useUIStore.getState();
         if (uiState.view === "chat") {
           uiState.setIsDraggingFile(true);
@@ -537,7 +540,7 @@ function App() {
       unlistenDragEnter = enter;
 
       const over = await listen("tauri://drag-over", () => {
-        if (activeListenerId !== currentListenerId) return;
+        if (activeListenerIdRef.current !== currentListenerId) return;
         const uiState = useUIStore.getState();
         if (uiState.view === "chat" && !uiState.isDraggingFile) {
           uiState.setIsDraggingFile(true);
@@ -550,7 +553,7 @@ function App() {
       unlistenDragOver = over;
 
       const leave = await listen("tauri://drag-leave", () => {
-        if (activeListenerId !== currentListenerId) return;
+        if (activeListenerIdRef.current !== currentListenerId) return;
         useUIStore.getState().setIsDraggingFile(false);
       });
       if (!active) {
@@ -562,7 +565,7 @@ function App() {
       const drop = await listen<{ token: string; name: string; size: number }[]>(
         "sythoria://drag-drop-tokens",
         async (event) => {
-          if (activeListenerId !== currentListenerId) return;
+          if (activeListenerIdRef.current !== currentListenerId) return;
           useUIStore.getState().setIsDraggingFile(false);
           const uiState = useUIStore.getState();
           if (uiState.view !== "chat") return;
@@ -690,6 +693,29 @@ function App() {
       } else if (matchKeybind(e, keys.toggleModel.currentCombo)) {
         e.preventDefault();
         document.getElementById("model-selector-button")?.click();
+      } else if (matchKeybind(e, keys.commandPalette.currentCombo)) {
+        e.preventDefault();
+        toggleCommandPalette();
+      } else if (matchKeybind(e, keys.renameChat.currentCombo)) {
+        e.preventDefault();
+        if (activeId) {
+          useUIStore.getState().setRenameId(activeId);
+          openRenameModal(useChatStore.getState().conversations.find((c) => c.id === activeId)?.title || "");
+        }
+      } else if (matchKeybind(e, keys.exportChat.currentCombo)) {
+        e.preventDefault();
+        if (activeId) {
+          exportChat(activeId);
+        }
+      } else if (matchKeybind(e, keys.togglePinChat.currentCombo)) {
+        e.preventDefault();
+        if (activeId) {
+          togglePinChat(activeId);
+        }
+      } else if (matchKeybind(e, keys.openWorkspaces.currentCombo)) {
+        e.preventDefault();
+        setView("settings");
+        setActiveSection("projects");
       }
     }
 
@@ -705,6 +731,12 @@ function App() {
     navigateBack,
     navigateForward,
     setActiveId,
+    toggleCommandPalette,
+    openRenameModal,
+    exportChat,
+    togglePinChat,
+    setActiveSection,
+    activeId,
   ]);
 
   useEffect(() => {
@@ -741,21 +773,6 @@ function App() {
   const handleRetry = useCallback(() => {
     if (activeId) retryLastMessage(activeId);
   }, [activeId, retryLastMessage]);
-
-  if (!isConfigLoaded || loading.init) {
-    return (
-      <div
-        className="flex h-screen w-screen items-center justify-center bg-chat"
-        role="status"
-        aria-label="Loading application"
-      >
-        <div className="flex flex-col items-center gap-3">
-          <Spinner size="lg" />
-          <p className="text-sm text-text-muted">Loading Sythoria...</p>
-        </div>
-      </div>
-    );
-  }
 
   const renderArtifactContent = () => {
     if (!activeArtifact) return null;
@@ -820,17 +837,83 @@ function App() {
     );
   };
 
+  const handlePrimaryModelChange = useCallback(
+    (newModelId: string) => {
+      setSelectedModel(newModelId);
+      if (activeId) {
+        useChatStore.setState((state) => ({
+          conversations: state.conversations.map((c) => (c.id === activeId ? { ...c, model: newModelId } : c)),
+        }));
+      }
+    },
+    [activeId, setSelectedModel],
+  );
+
+  const handleCompareModelChange = useCallback((cId: string, newModelId: string) => {
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((conv) => (conv.id === cId ? { ...conv, model: newModelId } : conv)),
+    }));
+  }, []);
+
+  const handleCompareClose = useCallback((cId: string) => {
+    useChatStore.setState((state) => {
+      const nextCompareIds = state.compareIds.filter((id) => id !== cId);
+      return {
+        conversations: state.conversations.filter((conv) => conv.id !== cId),
+        compareIds: nextCompareIds,
+        isCompareMode: nextCompareIds.length > 0,
+      };
+    });
+  }, []);
+
+  const handleCompareRetry = useCallback(
+    (cId: string) => {
+      retryLastMessage(cId);
+    },
+    [retryLastMessage],
+  );
+
+  const handlePrimaryScroll = useCallback(
+    (top: number, ratio: number) => {
+      if (activeId) handleScrollSync(activeId, top, ratio);
+    },
+    [activeId, handleScrollSync],
+  );
+
+  const handleCompareScroll = useCallback(
+    (cId: string, top: number, ratio: number) => {
+      handleScrollSync(cId, top, ratio);
+    },
+    [handleScrollSync],
+  );
+
+  if (!isConfigLoaded || loading.init) {
+    return (
+      <div
+        className="flex h-screen w-screen items-center justify-center bg-chat"
+        role="status"
+        aria-label="Loading application"
+      >
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <p className="text-sm text-text-muted">Loading Sythoria...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!hasStarted) {
     return <StartScreen onStart={() => setHasStarted(true)} />;
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-transparent">
-      <div className="flex flex-1 overflow-hidden rounded-[18px] border-[12px] border-white/5 relative glass-app-container">
-        {!isMac && <FakeTrafficLights />}
+    <div className="flex h-screen w-screen overflow-hidden flex-col bg-surface">
+      <TitleBar />
+      <CommandPalette />
+      <div className="flex flex-1 overflow-hidden relative glass-app-container">
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
-          <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-[80px]" data-tauri-drag-region>
+          <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-4" data-tauri-drag-region>
             <div className="flex items-center gap-1 h-full">
               <button
                 onClick={toggleSidebarCollapsed}
@@ -1073,21 +1156,12 @@ function App() {
                           conversation={activeConversation!}
                           isPrimary={true}
                           models={models}
-                          onModelChange={(newModelId) => {
-                            setSelectedModel(newModelId);
-                            if (activeConversation) {
-                              useChatStore.setState((state) => ({
-                                conversations: state.conversations.map((c) =>
-                                  c.id === activeConversation.id ? { ...c, model: newModelId } : c,
-                                ),
-                              }));
-                            }
-                          }}
+                          onModelChange={handlePrimaryModelChange}
                           generationState={primaryGeneration?.state ?? generationState}
                           generationLabel={primaryGeneration?.label ?? generationLabel}
                           onRetry={handleRetry}
                           isStreaming={isStreaming}
-                          onScroll={syncScrolls ? (top, ratio) => handleScrollSync(activeId!, top, ratio) : undefined}
+                          onScroll={syncScrolls ? handlePrimaryScroll : undefined}
                           ref={primaryVirtuosoRef}
                         />
 
@@ -1099,28 +1173,13 @@ function App() {
                               key={c.id}
                               conversation={c}
                               models={models}
-                              onModelChange={(newModelId) => {
-                                useChatStore.setState((state) => ({
-                                  conversations: state.conversations.map((conv) =>
-                                    conv.id === c.id ? { ...conv, model: newModelId } : conv,
-                                  ),
-                                }));
-                              }}
-                              onClose={() => {
-                                useChatStore.setState((state) => {
-                                  const nextCompareIds = state.compareIds.filter((id) => id !== c.id);
-                                  return {
-                                    conversations: state.conversations.filter((conv) => conv.id !== c.id),
-                                    compareIds: nextCompareIds,
-                                    isCompareMode: nextCompareIds.length > 0,
-                                  };
-                                });
-                              }}
+                              onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
+                              onClose={() => handleCompareClose(c.id)}
                               generationState={compGen?.state ?? "idle"}
                               generationLabel={compGen?.label ?? ""}
-                              onRetry={() => retryLastMessage(c.id)}
+                              onRetry={() => handleCompareRetry(c.id)}
                               isStreaming={isStreaming}
-                              onScroll={syncScrolls ? (top, ratio) => handleScrollSync(c.id, top, ratio) : undefined}
+                              onScroll={syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined}
                               ref={(el) => {
                                 compareRefsMap.current[c.id] = el;
                               }}
