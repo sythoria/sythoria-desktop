@@ -24,7 +24,7 @@
         "label": "spotlight",
         "title": "Spotlight",
         "width": 700,
-        "height": 60,
+        "height": 420,
         "transparent": true,
         "decorations": false,
         "visible": false,
