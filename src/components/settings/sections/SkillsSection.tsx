@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Pencil, Save, X } from "lucide-react";
+import { ConfirmModal } from "../../ui/Modal";
 import { useSkillStore } from "../../../store/useSkillStore";
 import { SkillInfo } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
@@ -24,6 +25,7 @@ export function SkillsSection() {
   const [formDesc, setFormDesc] = useState("");
   const [formContent, setFormContent] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [skillToDelete, setSkillToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     loadSkills();
@@ -86,15 +88,15 @@ export function SkillsSection() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm(t("settings.skills.deleteConfirm") || "Are you sure you want to delete this skill?")) {
-      try {
-        await deleteSkill(id);
-        if (editingSkill?.id === id) {
-          handleCancel();
-        }
-      } catch (e: any) {
-        console.error(e);
+    try {
+      await deleteSkill(id);
+      if (editingSkill?.id === id) {
+        handleCancel();
       }
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setSkillToDelete(null);
     }
   };
 
@@ -265,7 +267,7 @@ export function SkillsSection() {
                   <Pencil size={15} />
                 </motion.button>
                 <motion.button
-                  onClick={() => handleDelete(skill.id)}
+                  onClick={() => setSkillToDelete(skill.id)}
                   whileHover={{ scale: motionTokens.scale.pop }}
                   whileTap={{ scale: motionTokens.scale.press }}
                   transition={springs.snappy}
@@ -279,6 +281,20 @@ export function SkillsSection() {
           ))
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={!!skillToDelete}
+        onCancel={() => setSkillToDelete(null)}
+        onConfirm={() => skillToDelete && handleDelete(skillToDelete)}
+        title={t("settings.skills.deleteTitle", { defaultValue: "Delete Skill" })}
+        message={
+          t("settings.skills.deleteConfirm", {
+            defaultValue: "Are you sure you want to delete this skill? This action cannot be undone.",
+          }) + (skillToDelete ? `\n\nSkill ID: ${skillToDelete}` : "")
+        }
+        confirmText={t("common.delete", { defaultValue: "Delete" })}
+        variant="danger"
+      />
     </>
   );
 }
