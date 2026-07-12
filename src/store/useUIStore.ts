@@ -89,6 +89,7 @@ interface UIState {
   skipExternalLinkWarning: boolean;
   showLinkWarningModal: boolean;
   pendingLinkUrl: string | null;
+  showCommandPalette: boolean;
 
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
@@ -140,6 +141,8 @@ interface UIState {
   setShowUpdateModal: (show: boolean) => void;
   checkForUpdates: (silent?: boolean) => Promise<void>;
   setSkipExternalLinkWarning: (skip: boolean) => void;
+  setShowCommandPalette: (show: boolean) => void;
+  toggleCommandPalette: () => void;
   setShowLinkWarningModal: (show: boolean, url?: string | null) => void;
   initSkipExternalLinkWarning: () => Promise<void>;
 }
@@ -248,6 +251,7 @@ export const useUIStore = create<UIState>((set) => ({
   skipExternalLinkWarning: false,
   showLinkWarningModal: false,
   pendingLinkUrl: null,
+  showCommandPalette: false,
 
   setSidebarWidth: (sidebarWidth) => {
     safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
@@ -520,9 +524,11 @@ export const useUIStore = create<UIState>((set) => ({
   },
   setShowUpdateModal: (show) => set({ showUpdateModal: show }),
   setSkipExternalLinkWarning: (skip) => {
-    set({ skipExternalLinkWarning: skip });
     saveSkipExternalLinkWarning(skip);
+    set({ skipExternalLinkWarning: skip });
   },
+  setShowCommandPalette: (show) => set({ showCommandPalette: show }),
+  toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),
   setShowLinkWarningModal: (show, url = null) => {
     set({ showLinkWarningModal: show, pendingLinkUrl: show ? url : null });
   },
