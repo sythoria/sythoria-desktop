@@ -32,6 +32,7 @@
 @layer base {
   /* Light mode — warm neutral */
   :root {
+    color-scheme: light;
     --theme-sidebar: rgba(248, 250, 252, 0.92);
     --theme-chat: #ffffff;
     --theme-input: rgba(241, 245, 249, 0.85);
@@ -52,6 +53,7 @@
   }
   /* Dark mode — primary, near-black neutral */
   .dark {
+    color-scheme: dark;
     --theme-sidebar: rgba(8, 8, 10, 0.45);
     --theme-chat: rgba(22, 22, 22, 0.96);
     --theme-input: rgba(38, 38, 38, 0.6);
@@ -91,6 +93,10 @@
     transition:
       background-color 0.4s ease,
       color 0.4s ease;
+  }
+  option {
+    background-color: var(--theme-input);
+    color: var(--theme-text-primary);
   }
   ::-webkit-scrollbar {
     width: 8px;
