@@ -13,11 +13,12 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "sythoria",
+        "title": "Sythoria",
         "width": 1400,
         "height": 900,
         "transparent": false,
-        "decorations": false
+        "decorations": false,
+        "visible": true
       },
       {
         "label": "spotlight",
