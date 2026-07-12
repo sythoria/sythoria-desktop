@@ -28,7 +28,6 @@ export const ModelConfigSchema = z.object({
         try {
           const url = new URL(val);
           if (!["http:", "https:"].includes(url.protocol)) return false;
-          if (BLOCKED_PROTOCOLS.includes(url.protocol)) return false;
           return true;
         } catch {
           return false;
@@ -73,7 +72,12 @@ const McpServerConfigSchema = z.object({
   transport: z.enum(["stdio", "sse", "streamable-http"]),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  baseUrl: z.string().optional(),
+  baseUrl: z
+    .string()
+    .optional()
+    .refine((val) => (val ? validateApiUrl(val, false).valid : true), {
+      message: "Must be a valid HTTP or HTTPS URL (no private IPs)",
+    }),
   apiKey: z.string().optional(),
   enabled: z.boolean(),
 });
