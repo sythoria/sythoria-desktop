@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Menu,
@@ -94,6 +95,13 @@ function App() {
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
+
+    // Show window after React has mounted to prevent white flash
+    // We delay it slightly to ensure the first frame is painted
+    setTimeout(() => {
+      getCurrentWindow().show();
+    }, 100);
+
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
@@ -699,8 +707,8 @@ function App() {
       } else if (matchKeybind(e, keys.renameChat.currentCombo)) {
         e.preventDefault();
         if (activeId) {
-          useUIStore.getState().setRenameId(activeId);
-          openRenameModal(useChatStore.getState().conversations.find((c) => c.id === activeId)?.title || "");
+          const title = useChatStore.getState().conversations.find((c) => c.id === activeId)?.title || "";
+          openRenameModal(activeId, title);
         }
       } else if (matchKeybind(e, keys.exportChat.currentCombo)) {
         e.preventDefault();
