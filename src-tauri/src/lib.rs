@@ -1542,6 +1542,8 @@ fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
     false
 }
 
+static TRAY_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 fn update_tray_visibility(app: &tauri::AppHandle) {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     if let Some(tray) = app.tray_by_id("main") {
@@ -1556,7 +1558,11 @@ fn update_tray_visibility(app: &tauri::AppHandle) {
         } else {
             false
         };
-        let _ = tray.set_visible(should_show);
+        
+        if TRAY_VISIBLE.load(std::sync::atomic::Ordering::Relaxed) != should_show {
+            let _ = tray.set_visible(should_show);
+            TRAY_VISIBLE.store(should_show, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 }
 
