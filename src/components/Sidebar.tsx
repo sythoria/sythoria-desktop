@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Pin,
 } from "lucide-react";
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import type { Conversation } from "../types";
@@ -92,7 +92,7 @@ function groupConversations(conversations: Conversation[]) {
   return groups;
 }
 
-export default function Sidebar({
+export default memo(function Sidebar({
   conversations,
   activeId,
   onSelect,
@@ -328,7 +328,7 @@ export default function Sidebar({
         {/* Header */}
         {view === "settings" ? (
           <div className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30" data-tauri-drag-region>
-            <div className="flex items-center h-[32px] pl-[80px] pr-3 gap-2.5">
+            <div className="flex items-center h-[32px] pl-4 pr-3 gap-2.5">
               <button
                 onClick={() => setView("chat")}
                 className="p-1 rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors flex items-center justify-center cursor-pointer"
@@ -834,4 +834,4 @@ export default function Sidebar({
       />
     </>
   );
-}
+});
