@@ -168,6 +168,7 @@ interface ChatState {
   draftAttachments: Attachment[];
   compareIds: string[];
   isCompareMode: boolean;
+  activeStreamContent: Record<string, string>;
 
   setCompareIds: (ids: string[]) => void;
   setIsCompareMode: (val: boolean) => void;
@@ -228,6 +229,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   navigationIndex: -1,
   compareIds: [],
   isCompareMode: false,
+  activeStreamContent: {},
 
   setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
@@ -682,6 +684,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
     let convId = activeId;
     let activeCompareIds = [...compareIds];
 
+    const primaryConv = get().conversations.find((c) => c.id === convId);
+    const primaryModel = primaryConv?.model || selectedModel;
+    let primaryModelConfig = models.find((m) => m.id === primaryModel) ?? models[0];
+
+    const {
+      activeProjectId: sendActiveProjectId,
+      isProjectsEnabled: sendProjectsEnabled,
+      projects: sendProjects,
+    } = useProjectStore.getState();
+    const activeProject = sendProjectsEnabled ? sendProjects.find((p) => p.id === sendActiveProjectId) || null : null;
+    if (activeProject && activeProject.modelOverride) {
+      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
+      if (overrideModel && overrideModel.enabled !== false) {
+        primaryModelConfig = overrideModel;
+      }
+    }
+
+    if (!primaryModelConfig) {
+      logError("model", "No model configuration selected — user tried to send message without any model configured", {
+        action: "Go to Settings > Model Providers and add at least one model configuration.",
+      });
+      uiToast(
+        React.createElement(
+          "span",
+          null,
+          "No model configured — add one in ",
+          React.createElement(
+            "button",
+            {
+              onClick: () => {
+                useUIStore.getState().setView("settings");
+                useUIStore.getState().setActiveSection("models");
+              },
+              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
+            },
+            "settings/model-providers",
+          ),
+        ),
+        "error",
+      );
+      return;
+    }
+
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
@@ -777,49 +822,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await sendNormal(cId, modelConfig, temperature, set, get);
       }
     };
-
-    const primaryConv = get().conversations.find((c) => c.id === convId);
-    const primaryModel = primaryConv?.model || selectedModel;
-    let primaryModelConfig = models.find((m) => m.id === primaryModel) ?? models[0];
-
-    const {
-      activeProjectId: sendActiveProjectId,
-      isProjectsEnabled: sendProjectsEnabled,
-      projects: sendProjects,
-    } = useProjectStore.getState();
-    const activeProject = sendProjectsEnabled ? sendProjects.find((p) => p.id === sendActiveProjectId) || null : null;
-    if (activeProject && activeProject.modelOverride) {
-      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
-      if (overrideModel && overrideModel.enabled !== false) {
-        primaryModelConfig = overrideModel;
-      }
-    }
-
-    if (!primaryModelConfig) {
-      logError("model", "No model configuration selected — user tried to send message without any model configured", {
-        action: "Go to Settings > Model Providers and add at least one model configuration.",
-      });
-      uiToast(
-        React.createElement(
-          "span",
-          null,
-          "No model configured — add one in ",
-          React.createElement(
-            "button",
-            {
-              onClick: () => {
-                useUIStore.getState().setView("settings");
-                useUIStore.getState().setActiveSection("models");
-              },
-              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
-            },
-            "settings/model-providers",
-          ),
-        ),
-        "error",
-      );
-      return;
-    }
 
     set({
       isStreaming: true,
@@ -1222,18 +1224,16 @@ async function sendNormal(
           const nextGenerationByConversation = content.startsWith("<reasoning>")
             ? state.generationByConversation
             : setConversationGeneration(state, cId, "responding" as GenerationState, "Responding");
+
+          const currentStreamContent = state.activeStreamContent[cId] || "";
+
           return {
             ...newState,
             generationByConversation: nextGenerationByConversation,
-            conversations: state.conversations.map((c) => {
-              if (c.id !== cId) return c;
-              const updated = [...c.messages];
-              const last = updated[updated.length - 1];
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = { ...last, content: last.content + content };
-              }
-              return { ...c, messages: updated };
-            }),
+            activeStreamContent: {
+              ...state.activeStreamContent,
+              [cId]: currentStreamContent + content,
+            },
           };
         });
       },
@@ -1242,18 +1242,24 @@ async function sendNormal(
           details: `Conversation: ${cId}`,
         });
         set((state) => {
+          const streamContent = state.activeStreamContent[cId] || "";
           const conversations = state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
             const last = updated[updated.length - 1];
             if (last && last.role === "assistant") {
-              updated[updated.length - 1] = { ...last, isStreaming: false };
+              updated[updated.length - 1] = { ...last, content: last.content + streamContent, isStreaming: false };
             }
             return { ...c, messages: updated };
           });
           const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
+
+          const nextActiveStreamContent = { ...state.activeStreamContent };
+          delete nextActiveStreamContent[cId];
+
           return {
             conversations,
+            activeStreamContent: nextActiveStreamContent,
             isStreaming: stillStreaming,
             generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
             generationLabel: stillStreaming ? state.generationLabel : "",
