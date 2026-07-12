@@ -192,12 +192,33 @@ export default memo(function Sidebar({
   }, [resize, stopResize]);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounce(searchQuery);
+
+  const filteredSectionGroups = useMemo(() => {
+    const query = settingsSearchQuery.trim().toLowerCase();
+    if (!query) return SECTION_GROUPS;
+
+    return SECTION_GROUPS.map((group) => {
+      const items = group.items.filter((item) => {
+        const matchesLabel = item.label.toLowerCase().includes(query);
+        const matchesCategory = group.category.toLowerCase().includes(query);
+        const matchesTranslatedLabel = (t(`section.${item.id}`) || item.label).toLowerCase().includes(query);
+        const matchesKeywords = item.keywords.some((keyword) => keyword.toLowerCase().includes(query));
+        return matchesLabel || matchesCategory || matchesTranslatedLabel || matchesKeywords;
+      });
+
+      return {
+        ...group,
+        items,
+      };
+    }).filter((group) => group.items.length > 0);
+  }, [settingsSearchQuery, t]);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const nonEmptyConversations = useMemo(
@@ -355,36 +376,87 @@ export default memo(function Sidebar({
           </div>
         )}{" "}
         {view === "settings" ? (
-          <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
-            {SECTION_GROUPS.map((group) => (
-              <div key={group.category} className="mb-4">
-                <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">
-                  {t(categoryKeys[group.category] || group.category)}
-                </h3>
-                <div className="space-y-0.5">
-                  {group.items.map((section) => {
-                    const Icon = section.icon;
-                    const isActive = activeSection === section.id;
-                    return (
-                      <button
-                        key={section.id}
-                        onClick={() => setActiveSection(section.id as SectionId)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
-                          isActive
-                            ? "bg-active text-text-primary font-medium"
-                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                        }`}
-                        aria-current={isActive ? "page" : undefined}
-                      >
-                        <Icon size={15} className="shrink-0" />
-                        <span className="truncate">{t(`section.${section.id}`) || section.label}</span>
-                      </button>
-                    );
-                  })}
+          <>
+            {/* Settings Search */}
+            {!isSidebarCollapsed && (
+              <div className="px-3 py-2 border-b border-border/10">
+                <div className="relative">
+                  <Search
+                    size={15}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+                    aria-hidden="true"
+                  />
+                  <label htmlFor="settings-search" className="sr-only">
+                    Search settings
+                  </label>
+                  <input
+                    id="settings-search"
+                    type="search"
+                    value={settingsSearchQuery}
+                    onChange={(e) => setSettingsSearchQuery(e.target.value)}
+                    placeholder={t("settings.searchPlaceholder", { defaultValue: "Search settings…" })}
+                    className="w-full pl-8 pr-8 py-1.5 rounded-lg bg-input border border-input-border text-sm text-text-primary placeholder-text-muted focus:border-text-muted focus:outline-none transition-colors"
+                  />
+                  {settingsSearchQuery && (
+                    <button
+                      onClick={() => setSettingsSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
               </div>
-            ))}
-          </nav>
+            )}
+
+            <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
+              {filteredSectionGroups.length > 0 ? (
+                filteredSectionGroups.map((group) => (
+                  <div key={group.category} className="mb-4">
+                    {!isSidebarCollapsed && (
+                      <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">
+                        {t(categoryKeys[group.category] || group.category)}
+                      </h3>
+                    )}
+                    <div className="space-y-0.5">
+                      {group.items.map((section) => {
+                        const Icon = section.icon;
+                        const isActive = activeSection === section.id;
+                        return (
+                          <button
+                            key={section.id}
+                            onClick={() => setActiveSection(section.id as SectionId)}
+                            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                              isActive
+                                ? "bg-active text-text-primary font-medium"
+                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                            }`}
+                            aria-current={isActive ? "page" : undefined}
+                            title={isSidebarCollapsed ? t(`section.${section.id}`) || section.label : undefined}
+                          >
+                            <Icon size={15} className="shrink-0" />
+                            {!isSidebarCollapsed && (
+                              <span className="truncate">{t(`section.${section.id}`) || section.label}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                  <p className="text-sm font-medium text-text-secondary">
+                    {t("settings.searchNoResults", { defaultValue: "No settings found" })}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1">
+                    {t("settings.searchNoResultsDesc", { defaultValue: "Try a different search term" })}
+                  </p>
+                </div>
+              )}
+            </nav>
+          </>
         ) : (
           <>
             {/* New Chat Button */}
