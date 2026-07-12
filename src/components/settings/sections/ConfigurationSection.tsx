@@ -102,7 +102,7 @@ export const ConfigurationSection = ({
         <p className="text-xs text-text-muted">{t("settings.chat.subtitle")}</p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <div className="space-y-2">
+        <div id="setting-configuration-model" className="space-y-2">
           <label htmlFor="default-model-select" className="text-sm font-medium text-text-primary block">
             {t("settings.chat.defaultModel")}
           </label>
@@ -317,7 +317,7 @@ export const ConfigurationSection = ({
           </div>
         </div>
 
-        <div className="space-y-3 pt-2 border-t border-border/50">
+        <div id="setting-configuration-temperature" className="space-y-3 pt-2 border-t border-border/50">
           <div className="flex items-center justify-between">
             <label htmlFor="temperature-slider" className="text-sm font-medium text-text-primary">
               {t("settings.chat.temperature")}
@@ -360,7 +360,7 @@ export const ConfigurationSection = ({
           </div>
         </div>
 
-        <div className="space-y-3 pt-4 border-t border-border/50">
+        <div id="setting-configuration-max-steps" className="space-y-3 pt-4 border-t border-border/50">
           <div className="flex items-center justify-between">
             <label htmlFor="max-tool-steps-slider" className="text-sm font-medium text-text-primary">
               {t("settings.chat.maxToolSteps")}

@@ -14,3 +14,10 @@ if (typeof window !== "undefined") {
 }
 
 HTMLElement.prototype.scrollIntoView = function () {};
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = ResizeObserverMock;

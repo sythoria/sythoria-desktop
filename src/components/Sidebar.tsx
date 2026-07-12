@@ -27,7 +27,7 @@ import { COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
 import { useUIStore } from "../store/useUIStore";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useProjectStore } from "../store/useProjectStore";
-import { SECTION_GROUPS, SectionId } from "./settings/types";
+import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } from "./settings/types";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { useTranslation } from "../utils/i18n";
 
@@ -220,6 +220,43 @@ export default memo(function Sidebar({
       };
     }).filter((group) => group.items.length > 0);
   }, [settingsSearchQuery, t]);
+
+  const filteredIndividualSettings = useMemo(() => {
+    const query = settingsSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+
+    return SEARCHABLE_SETTINGS.filter((setting) => {
+      const matchesLabel = setting.label.toLowerCase().includes(query);
+      const matchesDesc = setting.description?.toLowerCase().includes(query) ?? false;
+      const matchesKeywords = setting.keywords.some((keyword) => keyword.toLowerCase().includes(query));
+      return matchesLabel || matchesDesc || matchesKeywords;
+    }).slice(0, 5);
+  }, [settingsSearchQuery]);
+
+  const handleSelectSetting = useCallback(
+    (setting: SearchableSetting) => {
+      setActiveSection(setting.sectionId);
+
+      let attempts = 0;
+      const findAndHighlight = () => {
+        const el = document.getElementById(setting.id);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("setting-highlighted");
+          setTimeout(() => {
+            el.classList.remove("setting-highlighted");
+          }, 2000);
+        } else if (attempts < 8) {
+          attempts++;
+          setTimeout(findAndHighlight, 50);
+        }
+      };
+
+      setTimeout(findAndHighlight, 50);
+    },
+    [setActiveSection],
+  );
+
   const searchRef = useRef<HTMLInputElement>(null);
 
   const nonEmptyConversations = useMemo(
@@ -412,50 +449,78 @@ export default memo(function Sidebar({
             )}
 
             <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
-              {filteredSectionGroups.length > 0 ? (
-                filteredSectionGroups.map((group) => (
-                  <div key={group.category} className="mb-4">
-                    {!isSidebarCollapsed && (
-                      <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">
-                        {t(categoryKeys[group.category] || group.category)}
-                      </h3>
-                    )}
-                    <div className="space-y-0.5">
-                      {group.items.map((section) => {
-                        const Icon = section.icon;
-                        const isActive = activeSection === section.id;
-                        return (
-                          <button
-                            key={section.id}
-                            onClick={() => setActiveSection(section.id as SectionId)}
-                            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
-                              isActive
-                                ? "bg-active text-text-primary font-medium"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                            aria-current={isActive ? "page" : undefined}
-                            title={isSidebarCollapsed ? t(`section.${section.id}`) || section.label : undefined}
-                          >
-                            <Icon size={15} className="shrink-0" />
-                            {!isSidebarCollapsed && (
-                              <span className="truncate">{t(`section.${section.id}`) || section.label}</span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+              {/* Individual Settings Results */}
+              {settingsSearchQuery.trim() && filteredIndividualSettings.length > 0 && (
+                <div className="mb-4 space-y-2 border-b border-border/10 pb-3">
+                  <h3 className="text-[11px] font-semibold text-accent uppercase tracking-wider px-3 mb-1">
+                    Matching Settings
+                  </h3>
+                  <div className="space-y-0.5">
+                    {filteredIndividualSettings.map((setting) => (
+                      <button
+                        key={setting.id}
+                        onClick={() => handleSelectSetting(setting)}
+                        className="w-full flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg text-left text-text-secondary hover:bg-hover hover:text-text-primary transition-all duration-150 border border-transparent hover:border-border/30"
+                      >
+                        <span className="text-xs font-semibold text-text-primary">{setting.label}</span>
+                        {setting.description && (
+                          <span className="text-[10px] text-text-muted leading-tight line-clamp-1">
+                            {setting.description}
+                          </span>
+                        )}
+                        <span className="text-[9px] font-medium text-accent bg-accent-soft px-1.5 py-0.5 rounded mt-1">
+                          in {setting.sectionLabel}
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                  <p className="text-sm font-medium text-text-secondary">
-                    {t("settings.searchNoResults", { defaultValue: "No settings found" })}
-                  </p>
-                  <p className="text-xs text-text-muted mt-1">
-                    {t("settings.searchNoResultsDesc", { defaultValue: "Try a different search term" })}
-                  </p>
                 </div>
               )}
+
+              {filteredSectionGroups.length > 0
+                ? filteredSectionGroups.map((group) => (
+                    <div key={group.category} className="mb-4">
+                      {!isSidebarCollapsed && (
+                        <h3 className="text-[11px] font-medium text-text-muted mb-1 px-3">
+                          {t(categoryKeys[group.category] || group.category)}
+                        </h3>
+                      )}
+                      <div className="space-y-0.5">
+                        {group.items.map((section) => {
+                          const Icon = section.icon;
+                          const isActive = activeSection === section.id;
+                          return (
+                            <button
+                              key={section.id}
+                              onClick={() => setActiveSection(section.id as SectionId)}
+                              className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-left ${
+                                isActive
+                                  ? "bg-active text-text-primary font-medium"
+                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                              }`}
+                              aria-current={isActive ? "page" : undefined}
+                              title={isSidebarCollapsed ? t(`section.${section.id}`) || section.label : undefined}
+                            >
+                              <Icon size={15} className="shrink-0" />
+                              {!isSidebarCollapsed && (
+                                <span className="truncate">{t(`section.${section.id}`) || section.label}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                : filteredIndividualSettings.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                      <p className="text-sm font-medium text-text-secondary">
+                        {t("settings.searchNoResults", { defaultValue: "No settings found" })}
+                      </p>
+                      <p className="text-xs text-text-muted mt-1">
+                        {t("settings.searchNoResultsDesc", { defaultValue: "Try a different search term" })}
+                      </p>
+                    </div>
+                  )}
             </nav>
           </>
         ) : (

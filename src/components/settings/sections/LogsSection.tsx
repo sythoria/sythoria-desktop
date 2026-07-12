@@ -137,7 +137,7 @@ export const LogsSection = ({
   }, [filteredLogs]);
 
   return (
-    <>
+    <div id="setting-logs-viewer" className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.logs.title")}</h3>
@@ -285,6 +285,6 @@ export const LogsSection = ({
           {t("settings.logs.entriesCount", { filtered: String(filteredLogs.length), total: String(logBuffer.length) })}
         </div>
       </div>
-    </>
+    </div>
   );
 };

@@ -609,3 +609,32 @@ pre,
     opacity: 1 !important;
   }
 }
+
+/* Settings spotlight search highlighting animation */
+@keyframes setting-highlight-pulse {
+  0% {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    background-color: transparent;
+  }
+  15% {
+    outline: 2px solid var(--theme-accent);
+    outline-offset: 4px;
+    background-color: var(--theme-accent-soft);
+  }
+  85% {
+    outline: 2px solid var(--theme-accent);
+    outline-offset: 4px;
+    background-color: var(--theme-accent-soft);
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    background-color: transparent;
+  }
+}
+
+.setting-highlighted {
+  animation: setting-highlight-pulse 2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 8px;
+}

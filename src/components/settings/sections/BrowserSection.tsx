@@ -72,7 +72,7 @@ export const BrowserSection = ({
   }, [fetchConfigs]);
 
   return (
-    <div className="space-y-6">
+    <div id="setting-browser-search" className="space-y-6">
       {/* Web Search Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">

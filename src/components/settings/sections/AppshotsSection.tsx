@@ -65,7 +65,7 @@ export function AppshotsSection() {
   };
 
   return (
-    <>
+    <div id="setting-appshots-config" className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.appshots.title")}</h3>
@@ -424,7 +424,6 @@ export function AppshotsSection() {
           </div>
         </motion.div>
       )}
-    </>
+    </div>
   );
 }
-

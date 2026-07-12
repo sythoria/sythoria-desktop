@@ -142,7 +142,7 @@ export function PrivacySection() {
   };
 
   return (
-    <>
+    <div id="setting-privacy-network" className="space-y-6">
       <div>
         <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.privacy.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.privacy.subtitle")}</p>
@@ -440,8 +440,6 @@ export function PrivacySection() {
         onCancel={() => setIsConfirmWipe2Open(false)}
         variant="danger"
       />
-    </>
+    </div>
   );
 }
-
-

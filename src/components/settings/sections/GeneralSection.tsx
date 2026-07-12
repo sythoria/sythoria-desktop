@@ -86,7 +86,7 @@ export function GeneralSection() {
       </div>
 
       {/* Language Section */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <div id="setting-general-language" className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">{t("general.language")}</h4>
         <div className="space-y-2 pt-1">
           <label htmlFor="language-select" className="text-sm font-medium text-text-primary block">
@@ -160,24 +160,30 @@ export function GeneralSection() {
           {t("general.windowBehavior")}
         </h4>
         <div className="space-y-4 pt-1">
-          <Switch
-            checked={alwaysOnTop}
-            onChange={setAlwaysOnTop}
-            label={t("general.alwaysOnTop")}
-            description={t("general.alwaysOnTopDesc")}
-          />
-          <Switch
-            checked={closeToTray}
-            onChange={setCloseToTray}
-            label={t("general.minimizeToTray")}
-            description={t("general.minimizeToTrayDesc")}
-          />
-          <Switch
-            checked={launchOnStartup}
-            onChange={setLaunchOnStartup}
-            label={t("general.launchOnStartup")}
-            description={t("general.launchOnStartupDesc")}
-          />
+          <div id="setting-general-always-on-top">
+            <Switch
+              checked={alwaysOnTop}
+              onChange={setAlwaysOnTop}
+              label={t("general.alwaysOnTop")}
+              description={t("general.alwaysOnTopDesc")}
+            />
+          </div>
+          <div id="setting-general-close-to-tray">
+            <Switch
+              checked={closeToTray}
+              onChange={setCloseToTray}
+              label={t("general.minimizeToTray")}
+              description={t("general.minimizeToTrayDesc")}
+            />
+          </div>
+          <div id="setting-general-launch-startup">
+            <Switch
+              checked={launchOnStartup}
+              onChange={setLaunchOnStartup}
+              label={t("general.launchOnStartup")}
+              description={t("general.launchOnStartupDesc")}
+            />
+          </div>
         </div>
       </div>
 
@@ -188,7 +194,7 @@ export function GeneralSection() {
         </h4>
         <div className="space-y-4 pt-1">
           {/* Send Message Shortcut Dropdown */}
-          <div className="space-y-2">
+          <div id="setting-general-shortcut" className="space-y-2">
             <label htmlFor="shortcut-select" className="text-sm font-medium text-text-primary block">
               {t("general.sendShortcut")}
             </label>
@@ -270,23 +276,27 @@ export function GeneralSection() {
           </div>
 
           {/* Clear Input on Escape Switch */}
-          <Switch
-            checked={clearInputOnEscape}
-            onChange={setClearInputOnEscape}
-            label={t("general.clearEscape")}
-            description={t("general.clearEscapeDesc")}
-          />
+          <div id="setting-general-clear-escape">
+            <Switch
+              checked={clearInputOnEscape}
+              onChange={setClearInputOnEscape}
+              label={t("general.clearEscape")}
+              description={t("general.clearEscapeDesc")}
+            />
+          </div>
 
           {/* Show Context Window Switch */}
-          <Switch
-            checked={showContextWindow}
-            onChange={setShowContextWindow}
-            label={t("general.contextIndicator")}
-            description={t("general.contextIndicatorDesc")}
-          />
+          <div id="setting-general-context-window">
+            <Switch
+              checked={showContextWindow}
+              onChange={setShowContextWindow}
+              label={t("general.contextIndicator")}
+              description={t("general.contextIndicatorDesc")}
+            />
+          </div>
 
           {/* Base Text Size Segmented Pill Selector */}
-          <div className="space-y-2">
+          <div id="setting-general-text-size" className="space-y-2">
             <span className="text-sm font-medium text-text-primary block">{t("general.textSize")}</span>
             <p className="text-xs text-text-muted">{t("general.textSizeDesc")}</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 bg-surface/30 border border-border/40 p-1 rounded-xl shadow-sm w-full">

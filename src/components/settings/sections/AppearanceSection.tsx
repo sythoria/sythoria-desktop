@@ -120,7 +120,7 @@ export const AppearanceSection = ({
         <p className="text-xs text-text-muted">{t("settings.appearance.subtitle")}</p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div id="setting-appearance-theme-mode" className="flex items-center justify-between">
           <div>
             <span className="text-sm font-medium text-text-primary block">{t("section.appearance")}</span>
             <span className="text-xs text-text-muted">{t("settings.appearance.selectMode")}</span>
@@ -140,12 +140,14 @@ export const AppearanceSection = ({
           />
         </div>
 
-        <Switch
-          checked={!animationsDisabled}
-          onChange={(checked) => setAnimationsDisabled(!checked)}
-          label={t("settings.appearance.animations")}
-          description={t("settings.appearance.animationsDesc")}
-        />
+        <div id="setting-appearance-animations">
+          <Switch
+            checked={!animationsDisabled}
+            onChange={(checked) => setAnimationsDisabled(!checked)}
+            label={t("settings.appearance.animations")}
+            description={t("settings.appearance.animationsDesc")}
+          />
+        </div>
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">

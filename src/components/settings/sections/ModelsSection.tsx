@@ -50,7 +50,7 @@ export const ModelsSection = ({
   }, [models]);
 
   return (
-    <>
+    <div id="setting-models-providers" className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.models.title")}</h3>
@@ -124,6 +124,6 @@ export const ModelsSection = ({
         onCancel={() => setModelToDelete(null)}
         variant="danger"
       />
-    </>
+    </div>
   );
 };

@@ -31,7 +31,7 @@ export const PersonalizationSection = ({
         <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.prompts.subtitle")}</p>
       </div>
-      <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+      <div id="setting-personalization-title" className="bg-surface border border-border rounded-xl p-4 shadow-sm">
         <Switch
           checked={titleConfig.enabled}
           onChange={(checked) => {
@@ -181,7 +181,10 @@ export const PersonalizationSection = ({
         <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.behaviorTitle")}</h3>
         <p className="text-xs text-text-muted">{t("settings.prompts.behaviorSubtitle")}</p>
       </div>
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <div
+        id="setting-personalization-system"
+        className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm"
+      >
         <div className="space-y-2">
           <label htmlFor="global-system-prompt" className="text-sm font-medium text-text-primary block">
             {t("settings.prompts.globalPrompt")}

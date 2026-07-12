@@ -87,7 +87,7 @@ export const KeybindsSection = () => {
   };
 
   return (
-    <>
+    <div id="setting-keybinds-shortcuts" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.keybinds.title")}</h3>
@@ -191,6 +191,6 @@ export const KeybindsSection = () => {
           );
         })}
       </div>
-    </>
+    </div>
   );
 };

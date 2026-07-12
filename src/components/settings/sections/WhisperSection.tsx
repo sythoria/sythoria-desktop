@@ -2,7 +2,20 @@ import { useEffect, useState } from "react";
 import { useWhisperStore } from "../../../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../../../config/whisperPresets";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Download, Trash2, Check, FileCheck, Info, Loader2, Globe, X, Cloud, Cpu, Settings2, Sparkles } from "lucide-react";
+import {
+  Download,
+  Trash2,
+  Check,
+  FileCheck,
+  Info,
+  Loader2,
+  Globe,
+  X,
+  Cloud,
+  Cpu,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { useTranslation } from "../../../utils/i18n";
 import { useModelStore } from "../../../store/useModelStore";
@@ -76,7 +89,7 @@ export function WhisperSection() {
   };
 
   return (
-    <div className="space-y-6">
+    <div id="setting-whisper-voice" className="space-y-6">
       <div>
         <h3 className="text-base font-semibold text-text-primary mb-1">{t("settings.voice.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.voice.subtitle")}</p>
@@ -142,7 +155,9 @@ export function WhisperSection() {
                 <button
                   onClick={() => setSttProvider("cloud")}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-                    sttProvider === "cloud" ? "bg-accent text-white" : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                    sttProvider === "cloud"
+                      ? "bg-accent text-white"
+                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
                   }`}
                 >
                   <Cloud size={14} />
@@ -151,7 +166,9 @@ export function WhisperSection() {
                 <button
                   onClick={() => setSttProvider("local")}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-                    sttProvider === "local" ? "bg-accent text-white" : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                    sttProvider === "local"
+                      ? "bg-accent text-white"
+                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
                   }`}
                 >
                   <Cpu size={14} />
