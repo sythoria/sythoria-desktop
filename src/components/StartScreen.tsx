@@ -10,7 +10,7 @@ export default function StartScreen({ onStart }: StartScreenProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-chat backdrop-blur-sm p-4">
       <motion.div
-        className="glass-panel w-full max-w-md rounded-2xl p-8 relative text-center"
+        className="bg-surface border border-border w-full max-w-md rounded-2xl p-8 relative text-center"
         style={{ boxShadow: "var(--shadow-xl)" }}
         initial={{ opacity: 0, y: motionTokens.distance.lg, scale: motionTokens.scale.subtle }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
