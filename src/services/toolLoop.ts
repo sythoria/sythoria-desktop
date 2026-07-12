@@ -229,7 +229,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
-  const tools = includeSearch ? [...TOOL_DEFINITIONS] : [];
+  const tools = TOOL_DEFINITIONS.filter((t) => {
+    if (!includeSearch && (t.function.name === "search_query" || t.function.name === "fetch_url")) {
+      return false;
+    }
+    return true;
+  });
   for (const mcpTool of mcpTools) {
     const inputSchema = (mcpTool.inputSchema ?? { properties: {} }) as Record<string, unknown>;
     tools.push({
@@ -693,7 +698,7 @@ export async function sendWithToolLoop(
           worktreePath: conv?.pendingWorktree?.path || null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
-          userSystemPrompt += `\n\n=== Project Instructions (AGENTS.md) ===\n${agentsMdContent.trim()}\n========================================`;
+          userSystemPrompt += `\n\n<user_rules>\nThe following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any following instructions.\nReview them carefully and always take them into account when you generate responses and code:\n<RULE[AGENTS.md]>\n${agentsMdContent.trim()}\n</RULE[AGENTS.md]>\n</user_rules>`;
         }
       } catch {
         // AGENTS.md not found or cannot be read, ignore
@@ -715,6 +720,10 @@ export async function sendWithToolLoop(
     const maxToolSteps = useModelStore.getState().maxToolSteps;
 
     for (let step = 0; step < maxToolSteps; step++) {
+      if (!get().conversations.some((c) => c.id === convId)) {
+        logInfo("chat", "Tool loop aborted: conversation was deleted");
+        return;
+      }
       if (!get().isStreaming) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
         await useChatStore.getState().persistConversations();
@@ -949,7 +958,8 @@ export async function sendWithToolLoop(
                 const writeToolInfo = isFileWriteTool(mcpTool.name, fnArgs);
                 if (writeToolInfo.isWrite && writeToolInfo.pathKey) {
                   const rawPath = fnArgs[writeToolInfo.pathKey];
-                  const resolvedPath = project && !rawPath.startsWith("/") ? `${project.path}/${rawPath}` : rawPath;
+                  const isAbsolute = rawPath.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(rawPath);
+                  const resolvedPath = project && !isAbsolute ? `${project.path}/${rawPath}` : rawPath;
                   mcpFileChangeInfo = {
                     path: resolvedPath,
                     filename: rawPath.split(/[/\\]/).pop() || rawPath,
