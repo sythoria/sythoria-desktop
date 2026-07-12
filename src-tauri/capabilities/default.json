@@ -18,7 +18,15 @@
         { "event": "tauri://drag-over" },
         { "event": "tauri://drag-leave" },
         { "event": "tauri://drag-drop" },
-        { "event": "sythoria://drag-drop-tokens" }
+        { "event": "sythoria://drag-drop-tokens" },
+        { "event": "sythoria://spotlight-query" },
+        { "event": "sythoria://spotlight-shown" }
+      ]
+    },
+    {
+      "identifier": "core:event:allow-emit",
+      "allow": [
+        { "event": "sythoria://spotlight-query" }
       ]
     },
     "opener:default",
@@ -32,6 +40,11 @@
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
-    "core:window:allow-unmaximize"
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible"
   ]
 }
