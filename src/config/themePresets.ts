@@ -12,6 +12,12 @@ export interface ThemeConfig {
 }
 
 export const LIGHT_PRESETS: Record<string, CustomThemeConfig> = {
+  "Sythoria Light": {
+    preset: "Sythoria Light",
+    background: "#ffffff",
+    foreground: "#09090b",
+    accent: "#3b82f6",
+  },
   "Default Light": {
     preset: "Default Light",
     background: "#ffffff",
@@ -39,6 +45,12 @@ export const LIGHT_PRESETS: Record<string, CustomThemeConfig> = {
 };
 
 export const DARK_PRESETS: Record<string, CustomThemeConfig> = {
+  "Sythoria Dark": {
+    preset: "Sythoria Dark",
+    background: "#09090b",
+    foreground: "#fafafa",
+    accent: "#3b82f6",
+  },
   "Default Dark": {
     preset: "Default Dark",
     background: "#161616",
@@ -79,8 +91,8 @@ export const DARK_PRESETS: Record<string, CustomThemeConfig> = {
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {
   mode: "system",
-  lightTheme: { ...LIGHT_PRESETS["Default Light"] },
-  darkTheme: { ...DARK_PRESETS["Default Dark"] },
+  lightTheme: { ...LIGHT_PRESETS["Sythoria Light"] },
+  darkTheme: { ...DARK_PRESETS["Sythoria Dark"] },
 };
 
 function hexToRgba(hex: string, alpha: number): string {
