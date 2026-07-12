@@ -243,38 +243,25 @@ pub async fn project_bash(
 
     // 3. Require native confirmation
     use tauri_plugin_dialog::DialogExt;
-    let confirmed = app
-        .dialog()
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
         .message(format!(
             "The assistant wants to execute the following terminal command in the project directory '{}':\n\n$ {}\n\nWarning: Running commands can modify files or run arbitrary code.",
             project.name, command
         ))
         .title("Execute Command Confirmation")
         .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-        .blocking_show();
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+
+    let confirmed = rx.await.unwrap_or(false);
 
     if !confirmed {
         return Err(AppError::AppPath("Command execution rejected by user".to_string()));
     }
 
     let run_bg = run_in_background.unwrap_or(false);
-
-    let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", &command]);
-        c
-    } else {
-        let mut c = std::process::Command::new("sh");
-        c.arg("-c").arg(&command);
-        c
-    };
-    cmd.current_dir(&cwd_path);
-
-    if run_bg {
-        cmd.spawn()
-            .map_err(|e| AppError::AppPath(format!("Failed to spawn command: {}", e)))?;
-        return Ok("Command started in background successfully.".to_string());
-    }
 
     use tokio::process::Command as TokioCommand;
     let mut tcmd = if cfg!(target_os = "windows") {
@@ -287,6 +274,12 @@ pub async fn project_bash(
         c
     };
     tcmd.current_dir(&cwd_path);
+
+    if run_bg {
+        tcmd.spawn()
+            .map_err(|e| AppError::AppPath(format!("Failed to spawn command: {}", e)))?;
+        return Ok("Command started in background successfully.".to_string());
+    }
 
     let output_future = tcmd.output();
     let output = if let Some(t) = timeout {
