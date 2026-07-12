@@ -2384,7 +2384,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
-                let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                let shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
                 let _ = app.global_shortcut().register(shortcut);
             }
 
@@ -2515,7 +2515,7 @@ pub fn run() {
                 .with_handler(|app, shortcut, event| {
                     use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
                     if event.state() == ShortcutState::Pressed {
-                        if shortcut.matches(Modifiers::ALT, Code::Space) {
+                        if shortcut.matches(Modifiers::CONTROL, Code::Space) {
                             if let Some(spotlight_win) = app.get_webview_window("spotlight") {
                                 match spotlight_win.is_visible() {
                                     Ok(true) => {
@@ -2524,6 +2524,7 @@ pub fn run() {
                                     Ok(false) => {
                                         let _ = spotlight_win.show();
                                         let _ = spotlight_win.set_focus();
+                                        let _ = spotlight_win.emit("sythoria://spotlight-shown", ());
                                     }
                                     _ => {}
                                 }
