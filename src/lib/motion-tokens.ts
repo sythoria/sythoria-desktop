@@ -61,23 +61,3 @@ export const springs = {
       : { type: "spring" as const, stiffness: 200, damping: 20, restDelta: 0.001 };
   },
 };
-
-export const motionConfig = {
-  isLowEnd() {
-    return typeof navigator !== "undefined" && navigator.hardwareConcurrency <= 4;
-  },
-  prefersReduced() {
-    return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  },
-  shouldAnimate({ essential = false } = {}) {
-    if (useUIStore.getState().animationsDisabled) return false;
-    if (this.prefersReduced()) return false;
-    if (!essential && this.isLowEnd()) return false;
-    return true;
-  },
-  duration() {
-    return useUIStore.getState().animationsDisabled || this.isLowEnd() || this.prefersReduced()
-      ? 0
-      : motionTokens.duration.normal;
-  },
-};
