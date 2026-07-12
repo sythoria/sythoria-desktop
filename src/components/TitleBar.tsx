@@ -54,6 +54,8 @@ const DropdownItem = ({
 );
 
 export function TitleBar() {
+  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
+
   const appWindow = getCurrentWindow();
   const [activeMenu, setActiveMenu] = useState<MenuType>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,8 @@ export function TitleBar() {
     useUIStore.getState().setView("chat");
     setActiveMenu(null);
   };
+
+  if (isMac) return null;
 
   return (
     <div

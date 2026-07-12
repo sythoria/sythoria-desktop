@@ -2368,6 +2368,115 @@ async fn transcribe_audio_cloud(
     Ok(json.text)
 }
 
+#[cfg(target_os = "macos")]
+fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, Submenu, MenuItem, PredefinedMenuItem};
+
+    let about = PredefinedMenuItem::about(app, None, None)?;
+    let check_updates = MenuItem::with_id(app, "check_updates", "Check for Updates...", true, None::<&str>)?;
+    let services = PredefinedMenuItem::services(app, None)?;
+    let hide = PredefinedMenuItem::hide(app, None)?;
+    let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+    let show_all = PredefinedMenuItem::show_all(app, None)?;
+    let quit = PredefinedMenuItem::quit(app, None)?;
+
+    let sythoria_menu = Submenu::with_id_and_items(
+        app,
+        "sythoria",
+        "Sythoria",
+        true,
+        &[
+            &about,
+            &PredefinedMenuItem::separator(app)?,
+            &check_updates,
+            &PredefinedMenuItem::separator(app)?,
+            &services,
+            &PredefinedMenuItem::separator(app)?,
+            &hide,
+            &hide_others,
+            &show_all,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
+    )?;
+
+    let new_chat = MenuItem::with_id(app, "new_conversation", "New Conversation", true, Some("CmdOrCtrl+Shift+O"))?;
+    let create_project = MenuItem::with_id(app, "create_project", "Create Project", true, None::<&str>)?;
+    let cmd_palette = MenuItem::with_id(app, "command_palette", "Command Palette", true, Some("CmdOrCtrl+Shift+P"))?;
+    
+    let file_menu = Submenu::with_id_and_items(
+        app,
+        "file",
+        "File",
+        true,
+        &[
+            &new_chat,
+            &create_project,
+            &PredefinedMenuItem::separator(app)?,
+            &cmd_palette,
+        ],
+    )?;
+
+    let edit_menu = Submenu::with_id_and_items(
+        app,
+        "edit",
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+
+    let zoom_in = MenuItem::with_id(app, "zoom_in", "Zoom In", true, Some("CmdOrCtrl+="))?;
+    let zoom_out = MenuItem::with_id(app, "zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
+    let zoom_reset = MenuItem::with_id(app, "zoom_reset", "Reset Zoom", true, Some("CmdOrCtrl+0"))?;
+
+    let view_menu = Submenu::with_id_and_items(
+        app,
+        "view",
+        "View",
+        true,
+        &[
+            &zoom_in,
+            &zoom_out,
+            &zoom_reset,
+        ],
+    )?;
+
+    let minimize = PredefinedMenuItem::minimize(app, None)?;
+    let maximize = MenuItem::with_id(app, "maximize", "Maximize", true, None::<&str>)?;
+    let close = PredefinedMenuItem::close_window(app, None)?;
+
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        "window",
+        "Window",
+        true,
+        &[
+            &minimize,
+            &maximize,
+            &close,
+        ],
+    )?;
+
+    Menu::with_items(
+        app,
+        &[
+            &sythoria_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+        ],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_keyring_store();
@@ -2377,6 +2486,43 @@ pub fn run() {
         .manage(project_registry)
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                "check_updates" => {
+                    let _ = app.emit("menu-check-updates", ());
+                }
+                "new_conversation" => {
+                    let _ = app.emit("menu-new-conversation", ());
+                }
+                "create_project" => {
+                    let _ = app.emit("menu-create-project", ());
+                }
+                "command_palette" => {
+                    let _ = app.emit("menu-command-palette", ());
+                }
+                "zoom_in" => {
+                    let _ = app.emit("menu-zoom-in", ());
+                }
+                "zoom_out" => {
+                    let _ = app.emit("menu-zoom-out", ());
+                }
+                "zoom_reset" => {
+                    let _ = app.emit("menu-zoom-reset", ());
+                }
+                "maximize" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Ok(maximized) = window.is_maximized() {
+                            if maximized {
+                                let _ = window.unmaximize();
+                            } else {
+                                let _ = window.maximize();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             init_network_settings(app.app_handle());
             let registry = app.state::<project::ProjectRegistry>();
@@ -2390,13 +2536,21 @@ pub fn run() {
 
             let _window = app.get_webview_window("main").ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Main window not found")) as Box<dyn std::error::Error>)?;
 
+            #[cfg(not(target_os = "macos"))]
+            let _ = _window.set_decorations(false);
+
             #[cfg(target_os = "macos")]
-            let _ = window_vibrancy::apply_vibrancy(
-                &_window,
-                window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
-                None,
-                Some(16.0),
-            );
+            {
+                let _ = window_vibrancy::apply_vibrancy(
+                    &_window,
+                    window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+                    None,
+                    Some(16.0),
+                );
+                if let Ok(menu) = create_macos_menu(app) {
+                    let _ = app.set_menu(menu);
+                }
+            }
 
             #[cfg(target_os = "windows")]
             let _ = window_vibrancy::apply_blur(&_window, Some((18, 18, 18, 125)));

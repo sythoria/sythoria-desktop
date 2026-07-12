@@ -86,6 +86,7 @@ function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
 
 function App() {
   const { t } = useTranslation();
+  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
   const [isMobile, setIsMobile] = useState(false);
   const activeListenerIdRef = useRef("");
 
@@ -796,6 +797,44 @@ function App() {
     return newChat();
   }, [newChat]);
 
+  useEffect(() => {
+    const unlistens: (() => void)[] = [];
+    async function setupMenuListeners() {
+      const { listen } = await import("@tauri-apps/api/event");
+      const { uiToast } = await import("./store/helpers");
+
+      const un1 = await listen("menu-new-conversation", () => {
+        handleNewChat();
+      });
+      const un2 = await listen("menu-create-project", () => {
+        setView("settings");
+        setActiveSection("projects");
+      });
+      const un3 = await listen("menu-command-palette", () => {
+        toggleCommandPalette();
+      });
+      const un4 = await listen("menu-check-updates", () => {
+        uiToast("You are on the latest version", "success");
+      });
+      const un5 = await listen("menu-zoom-in", () => {
+        useKeybindStore.getState().zoomIn();
+      });
+      const un6 = await listen("menu-zoom-out", () => {
+        useKeybindStore.getState().zoomOut();
+      });
+      const un7 = await listen("menu-zoom-reset", () => {
+        useKeybindStore.getState().zoomReset();
+      });
+
+      unlistens.push(un1, un2, un3, un4, un5, un6, un7);
+    }
+    setupMenuListeners();
+
+    return () => {
+      unlistens.forEach((fn) => fn());
+    };
+  }, [handleNewChat, setView, setActiveSection, toggleCommandPalette]);
+
   const handleDeleteChat = useCallback(
     (id: string) => {
       deleteChat(id);
@@ -960,7 +999,10 @@ function App() {
       <div className="flex flex-1 overflow-hidden relative glass-app-container">
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
-          <div className="absolute top-0 left-0 z-50 flex items-center h-[32px] pl-4" data-tauri-drag-region>
+          <div
+            className={`absolute top-0 left-0 z-50 flex items-center ${isMac ? "h-14 pl-[90px]" : "h-[32px] pl-4"}`}
+            data-tauri-drag-region
+          >
             <div className="flex items-center gap-1 h-full">
               <button
                 onClick={toggleSidebarCollapsed}

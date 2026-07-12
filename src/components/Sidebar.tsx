@@ -108,6 +108,7 @@ export default memo(function Sidebar({
   isCollapsed,
 }: SidebarProps) {
   const view = useUIStore((s) => s.view);
+  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
   const setView = useUIStore((s) => s.setView);
   const { t } = useTranslation();
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
@@ -349,7 +350,7 @@ export default memo(function Sidebar({
         {/* Header */}
         {view === "settings" ? (
           <div className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30" data-tauri-drag-region>
-            <div className="flex items-center h-[32px] pl-4 pr-3 gap-2.5">
+            <div className={`flex items-center pr-3 gap-2.5 ${isMac ? "h-full pl-[90px]" : "h-[32px] pl-4"}`}>
               <button
                 onClick={() => setView("chat")}
                 className="p-1 rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors flex items-center justify-center cursor-pointer"

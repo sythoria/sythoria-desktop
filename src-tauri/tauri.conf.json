@@ -13,12 +13,19 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "Sythoria",
         "width": 1400,
         "height": 900,
         "transparent": false,
-        "decorations": false,
-        "visible": true
+        "decorations": true,
+        "visible": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 30
+        }
       },
       {
         "label": "spotlight",
