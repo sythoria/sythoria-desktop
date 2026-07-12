@@ -17,7 +17,8 @@
         { "event": "tauri://drag-enter" },
         { "event": "tauri://drag-over" },
         { "event": "tauri://drag-leave" },
-        { "event": "tauri://drag-drop" }
+        { "event": "tauri://drag-drop" },
+        { "event": "sythoria://drag-drop-tokens" }
       ]
     },
     "opener:default",
