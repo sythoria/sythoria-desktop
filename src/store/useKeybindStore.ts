@@ -211,6 +211,46 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     defaultCombo: "Ctrl+Shift+T",
     currentCombo: "Ctrl+Shift+T",
   },
+  commandPalette: {
+    id: "commandPalette",
+    label: "Command Palette",
+    category: "Recommended",
+    description: "Open the global command palette",
+    defaultCombo: "Ctrl+Shift+P",
+    currentCombo: "Ctrl+Shift+P",
+  },
+  renameChat: {
+    id: "renameChat",
+    label: "Rename Active Chat",
+    category: "Conversation",
+    description: "Rename the currently active conversation",
+    defaultCombo: "F2",
+    currentCombo: "F2",
+  },
+  exportChat: {
+    id: "exportChat",
+    label: "Export Active Chat",
+    category: "Conversation",
+    description: "Export the currently active conversation as markdown",
+    defaultCombo: "Ctrl+E",
+    currentCombo: "Ctrl+E",
+  },
+  togglePinChat: {
+    id: "togglePinChat",
+    label: "Toggle Pin Chat",
+    category: "Conversation",
+    description: "Pin or unpin the active conversation",
+    defaultCombo: "Alt+P",
+    currentCombo: "Alt+P",
+  },
+  openWorkspaces: {
+    id: "openWorkspaces",
+    label: "Open Workspaces",
+    category: "Navigation",
+    description: "Open the project workspaces settings",
+    defaultCombo: "Ctrl+Shift+W",
+    currentCombo: "Ctrl+Shift+W",
+  },
 };
 
 interface KeybindsState {
