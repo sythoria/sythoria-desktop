@@ -287,9 +287,24 @@ const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content
   );
 });
 
-function MessageContent({ content, isStreaming }: { content: string; isStreaming: boolean }) {
-  const deferredContent = useDeferredValue(content);
-  const renderContent = isStreaming ? deferredContent : content;
+function MessageContent({
+  content,
+  isStreaming,
+  conversationId,
+  role,
+}: {
+  content: string;
+  isStreaming: boolean;
+  conversationId?: string;
+  role?: string;
+}) {
+  const streamContent = useChatStore((s) =>
+    isStreaming && role === "assistant" && conversationId ? s.activeStreamContent[conversationId] : undefined,
+  );
+
+  const finalContent = streamContent !== undefined ? content + streamContent : content;
+  const deferredContent = useDeferredValue(finalContent);
+  const renderContent = isStreaming ? deferredContent : finalContent;
 
   return (
     <>
@@ -1175,7 +1190,12 @@ const MessageBubble = memo(function MessageBubble({
             <>
               <div className={`markdown-body ${textSizeClass}`}>
                 {contentToRender.length > 0 ? (
-                  <MessageContent content={contentToRender} isStreaming={isStreaming} />
+                  <MessageContent
+                    content={contentToRender}
+                    isStreaming={isStreaming}
+                    conversationId={conversationId}
+                    role={message.role}
+                  />
                 ) : null}
               </div>
               {parsedQuestion && !isStreaming && (
@@ -1215,7 +1235,7 @@ const MessageBubble = memo(function MessageBubble({
 
 const VIRTUALIZED_THRESHOLD = 50;
 
-export default function ChatArea({
+export default memo(function ChatArea({
   messages,
   setIsAtBottom,
   virtuosoRef,
@@ -1327,7 +1347,7 @@ export default function ChatArea({
       onScroll={onScroll}
     />
   );
-}
+});
 
 function NonVirtualizedChatArea({
   messages,
