@@ -2005,7 +2005,7 @@ static DOWNLOAD_CANCEL_TX: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<
 #[tauri::command]
 async fn cancel_whisper_download() -> Result<(), AppError> {
     DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Some(tx) = DOWNLOAD_CANCEL_TX.lock().unwrap().take() {
+    if let Some(tx) = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?.take() {
         let _ = tx.send(());
     }
     Ok(())
@@ -2020,7 +2020,7 @@ async fn download_whisper_model(
     DOWNLOAD_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
     let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
     {
-        let mut guard = DOWNLOAD_CANCEL_TX.lock().unwrap();
+        let mut guard = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?;
         *guard = Some(tx);
     }
 
@@ -2199,8 +2199,8 @@ async fn transcribe_audio(
             return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
         };
         let host = cpal::default_host();
-        let device = host.default_input_device().unwrap();
-        let config = device.default_input_config().unwrap();
+        let device = host.default_input_device().ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
+        let config = device.default_input_config().map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
         resample(&samples, config.sample_rate(), 16000)
     } else {
         audio_data
@@ -2229,7 +2229,7 @@ async fn transcribe_audio(
             *cache = Some((ctx_clone.clone(), ctx));
         }
 
-        let context = &cache.as_ref().unwrap().1;
+        let context = &cache.as_ref().ok_or_else(|| AppError::ParseError("Whisper cache is empty".to_string()))?.1;
 
         let mut state = context
             .create_state()
@@ -2382,10 +2382,7 @@ pub fn run() {
                 let _ = app.global_shortcut().register(shortcut);
             }
 
-            let _window = app.get_webview_window("main").unwrap();
-
-            #[cfg(not(target_os = "macos"))]
-            let _ = _window.set_decorations(false);
+            let _window = app.get_webview_window("main").ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Main window not found")) as Box<dyn std::error::Error>)?;
 
             #[cfg(target_os = "macos")]
             let _ = window_vibrancy::apply_vibrancy(
@@ -2408,7 +2405,7 @@ pub fn run() {
                     .build()?;
 
                 let _tray = tauri::tray::TrayIconBuilder::with_id("main")
-                    .icon(app.default_window_icon().unwrap().clone())
+                    .icon(app.default_window_icon().ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Window icon not found")) as Box<dyn std::error::Error>)?.clone())
                     .menu(&menu)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "quit" => {
