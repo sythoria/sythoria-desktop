@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
-import { ChevronDown } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { ColorPickerInput } from "../components/ColorPickerInput";
 import { LIGHT_PRESETS, DARK_PRESETS, CustomThemeConfig, ThemeConfig } from "../../../config/themePresets";
 import { useUIStore } from "../../../store/useUIStore";
@@ -35,6 +35,37 @@ export const AppearanceSection = ({
   const downloadedThemes = useUIStore((s) => s.downloadedThemes);
   const mergedLightPresets = useMemo(() => ({ ...LIGHT_PRESETS, ...downloadedThemes.light }), [downloadedThemes.light]);
   const mergedDarkPresets = useMemo(() => ({ ...DARK_PRESETS, ...downloadedThemes.dark }), [downloadedThemes.dark]);
+
+  const modeOptions = useMemo(
+    () => [
+      { value: "light", label: t("settings.appearance.light") },
+      { value: "dark", label: t("settings.appearance.dark") },
+      { value: "system", label: t("settings.appearance.system") },
+    ],
+    [t],
+  );
+
+  const lightPresetOptions = useMemo(() => {
+    const options = Object.keys(mergedLightPresets).map((pName) => ({
+      value: pName,
+      label: pName,
+    }));
+    if (getSelectedPreset(theme.lightTheme, mergedLightPresets) === "Custom") {
+      options.push({ value: "Custom", label: "Custom" });
+    }
+    return options;
+  }, [mergedLightPresets, theme.lightTheme]);
+
+  const darkPresetOptions = useMemo(() => {
+    const options = Object.keys(mergedDarkPresets).map((pName) => ({
+      value: pName,
+      label: pName,
+    }));
+    if (getSelectedPreset(theme.darkTheme, mergedDarkPresets) === "Custom") {
+      options.push({ value: "Custom", label: "Custom" });
+    }
+    return options;
+  }, [mergedDarkPresets, theme.darkTheme]);
 
   const handlePresetChange = useCallback(
     (themeType: "light" | "dark", presetName: string) => {
@@ -94,29 +125,19 @@ export const AppearanceSection = ({
             <span className="text-sm font-medium text-text-primary block">{t("section.appearance")}</span>
             <span className="text-xs text-text-muted">{t("settings.appearance.selectMode")}</span>
           </div>
-          <div className="relative w-[150px]">
-            <select
-              value={theme.mode}
-              onChange={(e) => {
-                const mode = e.target.value as "light" | "dark" | "system";
-                setTheme({
-                  ...theme,
-                  mode,
-                });
-              }}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label={t("settings.appearance.modeLabel")}
-            >
-              <option value="light">{t("settings.appearance.light")}</option>
-              <option value="dark">{t("settings.appearance.dark")}</option>
-              <option value="system">{t("settings.appearance.system")}</option>
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-              aria-hidden="true"
-            />
-          </div>
+          <Select
+            value={theme.mode}
+            onChange={(val) => {
+              const mode = val as "light" | "dark" | "system";
+              setTheme({
+                ...theme,
+                mode,
+              });
+            }}
+            options={modeOptions}
+            className="w-[150px]"
+            aria-label={t("settings.appearance.modeLabel")}
+          />
         </div>
 
         <Switch
@@ -133,28 +154,13 @@ export const AppearanceSection = ({
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">
           <span className="text-sm font-medium text-text-primary">{t("settings.appearance.preset")}</span>
-          <div className="relative w-[150px]">
-            <select
-              value={getSelectedPreset(theme.lightTheme, mergedLightPresets)}
-              onChange={(e) => handlePresetChange("light", e.target.value)}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label={t("settings.appearance.preset")}
-            >
-              {Object.keys(mergedLightPresets).map((pName) => (
-                <option key={pName} value={pName}>
-                  {pName}
-                </option>
-              ))}
-              {getSelectedPreset(theme.lightTheme, mergedLightPresets) === "Custom" && (
-                <option value="Custom">Custom</option>
-              )}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-              aria-hidden="true"
-            />
-          </div>
+          <Select
+            value={getSelectedPreset(theme.lightTheme, mergedLightPresets)}
+            onChange={(val) => handlePresetChange("light", val)}
+            options={lightPresetOptions}
+            className="w-[150px]"
+            aria-label={t("settings.appearance.preset")}
+          />
         </div>
 
         <ColorPickerInput
@@ -182,28 +188,13 @@ export const AppearanceSection = ({
 
         <div className="flex items-center justify-between py-2 border-b border-border/50">
           <span className="text-sm font-medium text-text-primary">{t("settings.appearance.preset")}</span>
-          <div className="relative w-[150px]">
-            <select
-              value={getSelectedPreset(theme.darkTheme, mergedDarkPresets)}
-              onChange={(e) => handlePresetChange("dark", e.target.value)}
-              className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-              aria-label={t("settings.appearance.preset")}
-            >
-              {Object.keys(mergedDarkPresets).map((pName) => (
-                <option key={pName} value={pName}>
-                  {pName}
-                </option>
-              ))}
-              {getSelectedPreset(theme.darkTheme, mergedDarkPresets) === "Custom" && (
-                <option value="Custom">Custom</option>
-              )}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-              aria-hidden="true"
-            />
-          </div>
+          <Select
+            value={getSelectedPreset(theme.darkTheme, mergedDarkPresets)}
+            onChange={(val) => handlePresetChange("dark", val)}
+            options={darkPresetOptions}
+            className="w-[150px]"
+            aria-label={t("settings.appearance.preset")}
+          />
         </div>
 
         <ColorPickerInput
