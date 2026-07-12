@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plus,
@@ -71,7 +71,7 @@ const STATUS_KEYS: Record<string, string> = {
   error: "status.error",
 };
 
-export default function InputBar({
+export default memo(function InputBar({
   models,
   onSend,
   selectedModel,
@@ -383,8 +383,20 @@ export default function InputBar({
 
   useEffect(() => {
     window.addEventListener("resize", adjustHeight);
+    let resizeObserver: ResizeObserver | null = null;
+
+    if (textareaRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        adjustHeight();
+      });
+      resizeObserver.observe(textareaRef.current);
+    }
+
     return () => {
       window.removeEventListener("resize", adjustHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     };
   }, [adjustHeight]);
 
@@ -1372,4 +1384,4 @@ export default function InputBar({
       )}
     </div>
   );
-}
+});
