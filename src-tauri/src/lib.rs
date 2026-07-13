@@ -2535,6 +2535,7 @@ pub fn run() {
             }
 
             let _window = app.get_webview_window("main").ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Main window not found")) as Box<dyn std::error::Error>)?;
+            let _ = _window.center();
 
             #[cfg(not(target_os = "macos"))]
             let _ = _window.set_decorations(false);
@@ -2670,18 +2671,10 @@ pub fn run() {
                     use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
                     if event.state() == ShortcutState::Pressed {
                         if shortcut.matches(Modifiers::CONTROL, Code::Space) {
-                            if let Some(spotlight_win) = app.get_webview_window("spotlight") {
-                                match spotlight_win.is_visible() {
-                                    Ok(true) => {
-                                        let _ = spotlight_win.hide();
-                                    }
-                                    Ok(false) => {
-                                        let _ = spotlight_win.show();
-                                        let _ = spotlight_win.set_focus();
-                                        let _ = spotlight_win.emit("sythoria://spotlight-shown", ());
-                                    }
-                                    _ => {}
-                                }
+                            if let Some(main_win) = app.get_webview_window("main") {
+                                let _ = main_win.show();
+                                let _ = main_win.set_focus();
+                                let _ = main_win.emit("sythoria://spotlight-shown", ());
                             }
                         }
                     }
