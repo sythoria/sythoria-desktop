@@ -640,14 +640,14 @@ async fn get_model_config_and_key(
             }
         });
 
-        let is_blocked_ip = if let Some(ip) = parsed_url.host().and_then(|h| match h {
-            url::Host::Ipv4(v4) => Some(std::net::IpAddr::V4(v4)),
-            url::Host::Ipv6(v6) => Some(std::net::IpAddr::V6(v6)),
-            _ => None,
-        }) {
-            search::is_ip_blocked(&ip, &blocked_hosts)
-        } else {
-            false
+        let is_blocked_ip = {
+            use std::net::ToSocketAddrs;
+            let port = parsed_url.port_or_known_default().unwrap_or(80);
+            if let Ok(addrs) = (host, port).to_socket_addrs() {
+                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+            } else {
+                false
+            }
         };
 
         if is_blocked_host || is_blocked_ip {
