@@ -37,6 +37,7 @@ import { DragOverlay } from "./components/ui/DragOverlay";
 import { TitleBar } from "./components/TitleBar";
 import { CommandPalette } from "./components/CommandPalette";
 import ProjectConfigModal from "./components/ProjectConfigModal";
+import { SpotlightArea } from "./components/SpotlightArea";
 import { useChatStore } from "./store/useChatStore";
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
@@ -606,37 +607,15 @@ function App() {
     };
   }, []);
 
-  // Spotlight: listen for query events from the spotlight window
+  // Spotlight: listen for show event from backend global shortcut
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen<string>("sythoria://spotlight-query", async (event) => {
-        const query = event.payload;
-        if (!query || typeof query !== "string") return;
-
-        // Show and focus the main window
-        try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          const mainWin = getCurrentWindow();
-          await mainWin.show();
-          await mainWin.setFocus();
-        } catch {
-          // Ignore if window management fails
-        }
-
-        // Switch to the chat view, create a new chat, and send the message
+      unlisten = await listen("sythoria://spotlight-shown", () => {
         const uiState = useUIStore.getState();
-        uiState.setView("chat");
-
-        const chatStore = useChatStore.getState();
-        chatStore.newChat();
-
-        // Small delay so the new chat initializes before we send
-        setTimeout(() => {
-          useChatStore.getState().sendMessage(query);
-        }, 100);
+        uiState.setShowSpotlight(true);
       });
     })();
 
@@ -996,6 +975,7 @@ function App() {
     <div className="flex h-screen w-screen overflow-hidden flex-col bg-surface">
       <TitleBar />
       <CommandPalette />
+      <SpotlightArea />
       <div className="flex flex-1 overflow-hidden relative glass-app-container">
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
