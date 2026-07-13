@@ -55,15 +55,36 @@ async function ensureStreamListeners(
   if (listenersPromise) return listenersPromise;
 
   listenersPromise = (async () => {
+    let chunkBuffer: Record<string, string> = {};
+    let rafId: number | null = null;
+
     const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
       const convId = activeStreams.get(event.payload.streamId);
       if (!convId) return;
-      onChunk(convId, event.payload.content);
+
+      if (!chunkBuffer[convId]) chunkBuffer[convId] = "";
+      chunkBuffer[convId] += event.payload.content;
+
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          Object.entries(chunkBuffer).forEach(([cId, text]) => {
+            onChunk(cId, text);
+          });
+          chunkBuffer = {};
+          rafId = null;
+        });
+      }
     });
 
     const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
       const convId = activeStreams.get(event.payload.streamId);
       if (!convId) return;
+
+      if (chunkBuffer[convId]) {
+        onChunk(convId, chunkBuffer[convId]);
+        delete chunkBuffer[convId];
+      }
+
       onDone(convId);
       activeStreams.delete(event.payload.streamId);
     });
@@ -71,6 +92,10 @@ async function ensureStreamListeners(
     streamListenerCleanup = () => {
       unlistenChunk();
       unlistenDone();
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       streamListenerCleanup = null;
       listenersPromise = null;
     };
