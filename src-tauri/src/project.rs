@@ -165,11 +165,10 @@ pub(crate) fn validate_project_path(
         .map_err(|e| AppError::AppPath(format!("Failed to canonicalize project root: {}", e)))?;
 
     let user_path = Path::new(relative_path);
-    let full_path = if user_path.is_absolute() {
-        user_path.to_path_buf()
-    } else {
-        root_canonical.join(user_path)
-    };
+    if user_path.is_absolute() {
+        return Err(AppError::AppPath("Absolute paths are not allowed".to_string()));
+    }
+    let full_path = root_canonical.join(user_path);
 
     // Clean traversal
     let mut clean_path = PathBuf::new();
@@ -229,10 +228,7 @@ pub(crate) fn validate_project_path(
         for pattern in patterns {
             let pattern_trimmed = pattern.trim();
             if !pattern_trimmed.is_empty() {
-                // simple check for containment of excluded directory name (e.g. "/.git/", "/node_modules/")
-                // or ending matching
-                let clean_pattern = pattern_trimmed.replace("**/", "").replace("/*", "");
-                if resolved_str.contains(&clean_pattern) {
+                if crate::search::matches_wildcard(&resolved_str, pattern_trimmed) {
                     return Err(AppError::AppPath(format!(
                         "Access denied: path '{}' matches exclude pattern '{}'",
                         resolved.display(),
