@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "spotlight"],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -19,15 +19,12 @@
         { "event": "tauri://drag-leave" },
         { "event": "tauri://drag-drop" },
         { "event": "sythoria://drag-drop-tokens" },
-        { "event": "sythoria://spotlight-query" },
         { "event": "sythoria://spotlight-shown" }
       ]
     },
     {
       "identifier": "core:event:allow-emit",
-      "allow": [
-        { "event": "sythoria://spotlight-query" }
-      ]
+      "allow": []
     },
     "opener:default",
     "store:default",
