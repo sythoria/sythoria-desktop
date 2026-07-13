@@ -22,23 +22,11 @@
         "visible": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "center": true,
         "trafficLightPosition": {
           "x": 20,
           "y": 30
         }
-      },
-      {
-        "label": "spotlight",
-        "title": "Spotlight",
-        "width": 700,
-        "height": 420,
-        "transparent": true,
-        "decorations": false,
-        "visible": false,
-        "center": true,
-        "alwaysOnTop": true,
-        "resizable": false,
-        "skipTaskbar": true
       }
     ],
     "security": {
