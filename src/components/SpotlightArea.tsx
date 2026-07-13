@@ -1,102 +1,213 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
-import { emitTo } from "@tauri-apps/api/event";
-import { Search, ArrowRight, Command } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Search, Command, Settings } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { springs } from "../lib/motion-tokens";
+import { useUIStore } from "../store/useUIStore";
 
-import "../index.css";
+interface SettingItem {
+  id: string;
+  label: string;
+  section: string;
+  keywords: string[];
+}
+
+const SETTINGS_ITEMS: SettingItem[] = [
+  {
+    id: "general",
+    label: "General Settings",
+    section: "general",
+    keywords: ["system", "startup", "language", "tray", "text size", "updates"],
+  },
+  {
+    id: "appearance",
+    label: "Appearance & Theme",
+    section: "appearance",
+    keywords: ["theme", "dark mode", "light mode", "animations", "colors"],
+  },
+  {
+    id: "marketplace",
+    label: "Theme Marketplace",
+    section: "marketplace",
+    keywords: ["themes", "download", "styles", "vscode"],
+  },
+  {
+    id: "configuration",
+    label: "Chat Configuration",
+    section: "configuration",
+    keywords: ["temperature", "max tools", "defaults"],
+  },
+  {
+    id: "personalization",
+    label: "Personalization",
+    section: "personalization",
+    keywords: ["title generation", "auto title"],
+  },
+  {
+    id: "models",
+    label: "AI Models & API Keys",
+    section: "models",
+    keywords: ["openai", "anthropic", "local", "api keys", "providers", "ollama"],
+  },
+  {
+    id: "browser",
+    label: "Browser & Web Search",
+    section: "browser",
+    keywords: ["google", "searxng", "web search", "fetch url"],
+  },
+  { id: "mcp", label: "MCP Servers", section: "mcp", keywords: ["tools", "plugins", "mcp config", "stdio", "sse"] },
+  { id: "logs", label: "System Logs", section: "logs", keywords: ["debug", "console", "errors", "system logs"] },
+  { id: "keybinds", label: "Keyboard Shortcuts", section: "keybinds", keywords: ["shortcuts", "keyboard", "hotkeys"] },
+  {
+    id: "projects",
+    label: "Project Workspaces",
+    section: "projects",
+    keywords: ["workspaces", "git", "directories", "codebase"],
+  },
+  {
+    id: "appshots",
+    label: "Appshots (Screenshots)",
+    section: "appshots",
+    keywords: ["screenshots", "capture", "screen recording"],
+  },
+  {
+    id: "privacy",
+    label: "Privacy & Network",
+    section: "privacy",
+    keywords: ["offline", "ssl", "blocked hosts", "security"],
+  },
+  {
+    id: "whisper",
+    label: "Whisper Voice",
+    section: "whisper",
+    keywords: ["audio", "speech", "transcription", "microphone", "voice"],
+  },
+  { id: "skills", label: "Custom Skills", section: "skills", keywords: ["customization", "rules", "instructions"] },
+];
 
 export function SpotlightArea() {
   const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [prevShowSpotlight, setPrevShowSpotlight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { showSpotlight, setShowSpotlight, setView, setActiveSection } = useUIStore();
 
-  const focusInput = useCallback(() => {
-    setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 80);
-  }, []);
-
-  useEffect(() => {
-    focusInput();
-
-    // Re-focus when the window becomes visible again
-    const unlistenPromise = listen("sythoria://spotlight-shown", () => {
+  if (showSpotlight !== prevShowSpotlight) {
+    setPrevShowSpotlight(showSpotlight);
+    if (showSpotlight) {
       setQuery("");
-      focusInput();
-    });
+      setSelectedIndex(0);
+    }
+  }
 
-    return () => {
-      unlistenPromise.then((unlisten) => unlisten());
-    };
-  }, [focusInput]);
-
-  // Handle Escape to dismiss
   useEffect(() => {
-    const onKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setQuery("");
-        const win = getCurrentWindow();
-        await win.hide();
+    if (showSpotlight) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 50);
+    }
+  }, [showSpotlight]);
+
+  const filteredItems = SETTINGS_ITEMS.filter((item) => {
+    const q = query.toLowerCase();
+    return item.label.toLowerCase().includes(q) || item.keywords.some((k) => k.includes(q));
+  });
+
+  const handleClose = () => {
+    setShowSpotlight(false);
+  };
+
+  const executeAction = (section: string) => {
+    handleClose();
+    setView("settings");
+    setActiveSection(section);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      handleClose();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filteredItems.length > 0) {
+        executeAction(filteredItems[selectedIndex].section);
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
-
-    try {
-      // Send the query to the main window
-      await emitTo("main", "sythoria://spotlight-query", trimmed);
-
-      setQuery("");
-      const win = getCurrentWindow();
-      await win.hide();
-    } catch (err) {
-      console.error("Failed to emit spotlight query:", err);
     }
   };
 
   return (
-    <div className="w-full h-full flex items-center" style={{ background: "transparent" }}>
-      <form
-        onSubmit={handleSubmit}
-        className="w-full flex items-center gap-3 px-4 h-full rounded-2xl border border-border/60 bg-chat"
-        style={{
-          boxShadow: "0 8px 40px rgba(0,0,0,0.35), 0 2px 12px rgba(0,0,0,0.2)",
-          backdropFilter: "blur(24px) saturate(140%)",
-        }}
-      >
-        <Search size={18} className="text-text-muted shrink-0" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ask Sythoria anything…"
-          className="flex-1 bg-transparent border-none text-text-primary placeholder-text-muted text-sm font-medium outline-none"
-          autoFocus
-        />
-        {query.trim() ? (
-          <button
-            type="submit"
-            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-accent/15 text-accent text-xs font-medium hover:bg-accent/25 transition-colors"
+    <AnimatePresence>
+      {showSpotlight && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[9999] bg-black/40 flex justify-center items-start pt-[20vh] backdrop-blur-sm"
+          onClick={handleClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            transition={springs.snappy}
+            className="w-full max-w-2xl bg-surface border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleKeyDown}
           >
-            <span>Send</span>
-            <ArrowRight size={12} />
-          </button>
-        ) : (
-          <span className="shrink-0 flex items-center gap-1 text-[11px] text-text-muted opacity-60">
-            <Command size={11} />
-            <span>Esc to close</span>
-          </span>
-        )}
-      </form>
-    </div>
+            <div className="w-full flex items-center gap-3 px-4 py-3 bg-chat border-b border-border/30">
+              <Search size={22} className="text-text-muted shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setSelectedIndex(0);
+                }}
+                placeholder="Search settings..."
+                className="flex-1 bg-transparent border-none text-text-primary placeholder-text-muted text-lg font-medium outline-none"
+                autoFocus
+              />
+              <span className="shrink-0 flex items-center gap-1 text-xs text-text-muted opacity-60">
+                <Command size={12} />
+                <span>Esc to close</span>
+              </span>
+            </div>
+
+            <div className="max-h-[350px] overflow-y-auto p-2 bg-surface">
+              {filteredItems.length === 0 ? (
+                <div className="py-8 text-center text-sm text-text-muted">No settings found for "{query}".</div>
+              ) : (
+                filteredItems.map((item, idx) => (
+                  <button
+                    key={item.id}
+                    onClick={() => executeAction(item.section)}
+                    className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-sm transition-colors text-left ${
+                      idx === selectedIndex ? "bg-hover text-text-primary" : "text-text-secondary hover:bg-hover/50"
+                    }`}
+                  >
+                    <div
+                      className={`p-2 rounded-lg ${idx === selectedIndex ? "bg-accent/15 text-accent" : "bg-surface-raised text-text-muted"}`}
+                    >
+                      <Settings size={18} />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-semibold">{item.label}</span>
+                      <span className="text-xs text-text-muted/80">{item.keywords.slice(0, 4).join(", ")}</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
