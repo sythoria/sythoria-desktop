@@ -66,6 +66,7 @@ export interface Conversation {
   role?: string;
   isSubagent?: boolean;
   status?: "running" | "idle" | "error" | "completed";
+  isTemporary?: boolean;
 }
 
 export type ProjectPermission = "read" | "write" | "full";
