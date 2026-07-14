@@ -97,7 +97,7 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
 
 #[tauri::command]
 pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
-    if id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
@@ -116,7 +116,7 @@ pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn create_skill(app: AppHandle, id: String, name: String, description: String, body: String) -> Result<(), String> {
-    if id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
@@ -138,7 +138,7 @@ pub async fn create_skill(app: AppHandle, id: String, name: String, description:
 
 #[tauri::command]
 pub async fn update_skill(app: AppHandle, id: String, name: String, description: String, body: String) -> Result<(), String> {
-    if id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
@@ -158,7 +158,7 @@ pub async fn update_skill(app: AppHandle, id: String, name: String, description:
 
 #[tauri::command]
 pub async fn delete_skill(app: AppHandle, id: String) -> Result<(), String> {
-    if id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
