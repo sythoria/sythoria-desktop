@@ -179,6 +179,7 @@ interface ChatState {
   navigateBack: () => void;
   navigateForward: () => void;
   newChat: () => string;
+  newTemporaryChat: () => string;
   deleteChat: (id: string) => void;
   renameChat: (id: string, newTitle: string) => void;
   togglePinChat: (id: string) => void;
@@ -197,6 +198,7 @@ interface ChatState {
   addDraftFileFromToken: (token: string, name?: string, size?: number) => Promise<void>;
   setConversationProject: (id: string, projectId: string | undefined) => void;
   deleteProjectChats: (projectId: string) => Promise<void>;
+  invokeSubagentManual: (parentConvId: string, role: string, prompt: string) => Promise<void>;
 }
 
 let initInProgress = false;
@@ -438,6 +440,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return c.messages.length > 0 || c.id === keepId;
     });
     if (nonEmpty.length === conversations.length) return;
+
+    const removedConvs = conversations.filter((c) => !nonEmpty.includes(c));
+    removedConvs.forEach((conv) => {
+      if (conv.pendingWorktree && conv.projectId) {
+        const projectId = conv.projectId;
+        const worktreePath = conv.pendingWorktree.path;
+        const branchName = conv.pendingWorktree.branch;
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("git_worktree_discard", {
+            projectId,
+            worktreePath,
+            branchName,
+          }).catch((err) => {
+            logError("chat", "Failed to discard worktree on cleanup", { error: err });
+          });
+        });
+      }
+    });
+
     const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
     set({
       conversations: nonEmpty,
@@ -508,6 +529,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       model: modelConfig?.id || selectedModel,
       projectId: (isProjectsEnabled && activeProjectId) || undefined,
+    };
+    set((state) => {
+      const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
+      newHistory.push(id);
+      return {
+        conversations: [conv, ...state.conversations],
+        activeId: id,
+        navigationHistory: newHistory,
+        navigationIndex: newHistory.length - 1,
+      };
+    });
+    uiSidebarOpen(false);
+    uiView("chat");
+    return id;
+  },
+
+  newTemporaryChat: () => {
+    const { selectedModel, models } = useModelStore.getState();
+    const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
+    const id = "temp-" + generateId();
+    const modelConfig = models.find((m) => m.id === selectedModel);
+    const conv: Conversation = {
+      id,
+      title: "Temporary chat",
+      timestamp: new Date(),
+      messages: [],
+      model: modelConfig?.id || selectedModel,
+      projectId: (isProjectsEnabled && activeProjectId) || undefined,
+      isTemporary: true,
     };
     set((state) => {
       const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
@@ -644,6 +694,110 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     await get().persistConversations();
+  },
+
+  invokeSubagentManual: async (parentConvId, role, prompt) => {
+    const parentConv = get().conversations.find((c) => c.id === parentConvId);
+    if (!parentConv) return;
+
+    const subagentId = generateId();
+    const toolCallId = "call_" + generateId();
+
+    const newConv: Conversation = {
+      id: subagentId,
+      title: `Subagent: ${role}`,
+      timestamp: new Date(),
+      messages: [
+        {
+          id: generateId(),
+          role: "user",
+          content: prompt,
+          timestamp: new Date(),
+        },
+      ],
+      model: parentConv.model,
+      projectId: parentConv.projectId,
+      parentId: parentConvId,
+      role: role,
+      isSubagent: true,
+      status: "running",
+    };
+
+    const assistantToolCallMsg: Message = {
+      id: generateId(),
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      toolCall: {
+        id: toolCallId,
+        name: "invoke_subagent",
+        arguments: {
+          subagents: JSON.stringify([{ role, prompt }]),
+        },
+      },
+    };
+
+    const toolResultMsg: Message = {
+      id: generateId(),
+      role: "tool",
+      content: `Subagents invoked successfully with conversation IDs: ${subagentId}. Wait for their responses, or communicate with them using send_message.`,
+      timestamp: new Date(),
+      toolCall: {
+        id: toolCallId,
+        name: "invoke_subagent",
+        arguments: {},
+      },
+      toolResult: {
+        id: toolCallId,
+        name: "invoke_subagent",
+        content: `Subagents invoked successfully with conversation IDs: ${subagentId}. Wait for their responses, or communicate with them using send_message.`,
+      },
+    };
+
+    set((state) => ({
+      conversations: [
+        ...state.conversations.map((c) => {
+          if (c.id === parentConvId) {
+            return {
+              ...c,
+              messages: [...c.messages, assistantToolCallMsg, toolResultMsg],
+            };
+          }
+          return c;
+        }),
+        newConv,
+      ],
+    }));
+
+    const modelStore = useModelStore.getState();
+    const modelConfig =
+      modelStore.models.find((m) => m.id === parentConv.model) ||
+      modelStore.models.find((m) => m.id === modelStore.selectedModel) ||
+      modelStore.models[0];
+
+    const temperature = modelConfig?.temperature ?? 0.7;
+    const toolLoop = getEnabledToolLoopConfig();
+
+    const { isProjectsEnabled, projects } = useProjectStore.getState();
+
+    const activeProject = isProjectsEnabled ? projects.find((p) => p.id === parentConv.projectId) || null : null;
+
+    sendWithToolLoop(
+      subagentId,
+      modelConfig,
+      temperature,
+      toolLoop.searchConfig,
+      toolLoop.searchApiKey,
+      toolLoop.mcpTools,
+      toolLoop.mcpCallTool,
+      (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+      get,
+      searchPerformSearch,
+      searchFetchUrlContent,
+      activeProject,
+    ).catch((e) => console.error("Subagent manual loop error:", e));
+
+    get().persistConversations();
   },
 
   renameChat: (id, newTitle) => {
@@ -1069,7 +1223,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!hasStarted) return;
     get().cleanupEmptyConversations();
     const { conversations } = get();
-    await saveConversations(conversations);
+    const persistentConversations = conversations.filter((c) => !c.isTemporary);
+    await saveConversations(persistentConversations);
   },
 
   clearAllChats: async () => {
