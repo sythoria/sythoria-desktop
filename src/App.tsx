@@ -478,18 +478,27 @@ function App() {
       if (activeConversation.projectId !== activeProjectId) {
         setActiveProject(activeConversation.projectId || null);
       }
+      const projectStore = useProjectStore.getState();
       if (activeConversation.pendingWorktree) {
-        useProjectStore
-          .getState()
-          .setWorktree(activeConversation.pendingWorktree.path, activeConversation.pendingWorktree.branch);
+        if (
+          projectStore.activeWorktreePath !== activeConversation.pendingWorktree.path ||
+          projectStore.activeWorktreeBranch !== activeConversation.pendingWorktree.branch
+        ) {
+          projectStore.setWorktree(activeConversation.pendingWorktree.path, activeConversation.pendingWorktree.branch);
+        }
       } else {
-        useProjectStore.getState().setWorktree(null, null);
+        if (projectStore.activeWorktreePath !== null || projectStore.activeWorktreeBranch !== null) {
+          projectStore.setWorktree(null, null);
+        }
       }
     } else {
       if (activeProjectId !== null) {
         setActiveProject(null);
       }
-      useProjectStore.getState().setWorktree(null, null);
+      const projectStore = useProjectStore.getState();
+      if (projectStore.activeWorktreePath !== null || projectStore.activeWorktreeBranch !== null) {
+        projectStore.setWorktree(null, null);
+      }
     }
   }, [activeConversation, activeProjectId, setActiveProject]);
 
