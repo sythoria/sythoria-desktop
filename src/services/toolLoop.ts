@@ -526,6 +526,7 @@ type KnownToolName =
   | "project_read"
   | "project_write"
   | "project_edit"
+  | "project_multi_replace_file_content"
   | "project_bash"
   | "project_git_status"
   | "project_git_diff"
@@ -542,6 +543,7 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "project_read",
   "project_write",
   "project_edit",
+  "project_multi_replace_file_content",
   "project_bash",
   "project_git_status",
   "project_git_diff",
@@ -901,6 +903,8 @@ export async function sendWithToolLoop(
 
             const requiresHitl =
               fnName === "project_write" ||
+              fnName === "project_edit" ||
+              fnName === "project_multi_replace_file_content" ||
               fnName === "project_git_commit" ||
               fnName === "project_bash" ||
               rawName === "git_create_commit";
