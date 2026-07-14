@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, useCallback, useDeferredValue, isValidElement } from "react";
+import { useState, useEffect, useRef, memo, useCallback, useMemo, useDeferredValue, isValidElement } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -604,17 +604,20 @@ function SubagentLiveCard({ message }: { message: Message }) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const content = message.toolResult?.content || "";
-  const match = content.match(/conversation IDs?:\s*([a-zA-Z0-9-, ]+)/);
-  const ids = match
-    ? match[1]
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean)
-    : [];
+  const ids = useMemo(() => {
+    const match = content.match(/conversation IDs?:\s*([a-zA-Z0-9-, ]+)/);
+    return match
+      ? match[1]
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean)
+      : [];
+  }, [content]);
 
-  const conversations = useChatStore(
-    (s) => ids.map((id) => s.conversations.find((c) => c.id === id)).filter(Boolean) as Conversation[],
-  );
+  const allConversations = useChatStore((s) => s.conversations);
+  const conversations = useMemo(() => {
+    return ids.map((id) => allConversations.find((c) => c.id === id)).filter(Boolean) as Conversation[];
+  }, [allConversations, ids]);
 
   const toggleExpand = (id: string) => {
     const next = new Set(expandedIds);
@@ -1528,6 +1531,7 @@ function PendingWorktreeCard({
 
   useEffect(() => {
     const loadStatus = async () => {
+      if (!pendingWorktree?.path) return;
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const status = await invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
@@ -1541,7 +1545,7 @@ function PendingWorktreeCard({
       }
     };
     loadStatus();
-  }, [conversationId, pendingWorktree]);
+  }, [conversationId, pendingWorktree?.path, pendingWorktree?.branch]);
 
   if (diffFiles.length === 0) return null;
 
