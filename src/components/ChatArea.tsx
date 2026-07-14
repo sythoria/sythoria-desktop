@@ -288,21 +288,14 @@ const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content
 function MessageContent({
   content,
   isStreaming,
-  conversationId,
-  role,
 }: {
   content: string;
   isStreaming: boolean;
   conversationId?: string;
   role?: string;
 }) {
-  const streamContent = useChatStore((s) =>
-    isStreaming && role === "assistant" && conversationId ? s.activeStreamContent[conversationId] : undefined,
-  );
-
-  const finalContent = streamContent !== undefined ? content + streamContent : content;
-  const deferredContent = useDeferredValue(finalContent);
-  const renderContent = isStreaming ? deferredContent : finalContent;
+  const deferredContent = useDeferredValue(content);
+  const renderContent = isStreaming ? deferredContent : content;
 
   return (
     <>
@@ -1107,7 +1100,14 @@ const MessageBubble = memo(function MessageBubble({
 }) {
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
-  const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(message.content, message.role);
+  const isStreaming = !!message.isStreaming;
+
+  const streamContent = useChatStore((s) =>
+    isStreaming && message.role === "assistant" && conversationId ? s.activeStreamContent[conversationId] : undefined,
+  );
+  const combinedContent = streamContent !== undefined ? message.content + streamContent : message.content;
+
+  const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(combinedContent, message.role);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const imageAttachments = message.attachments?.filter((a) => a.kind === "image" && a.dataUrl) || [];
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
@@ -1165,7 +1165,6 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
-  const isStreaming = !!message.isStreaming;
   const showGenerationIndicator = isLastAssistant && isStreaming && generationState && generationState !== "idle";
 
   return (
