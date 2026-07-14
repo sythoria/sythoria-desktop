@@ -155,20 +155,29 @@ pub fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
     let host_chars: Vec<char> = host_or_ip.to_lowercase().chars().collect();
     let pattern_chars: Vec<char> = pattern.to_lowercase().chars().collect();
     
-    fn match_helper(h: &[char], p: &[char]) -> bool {
-        if p.is_empty() {
-            return h.is_empty();
+    let h_len = host_chars.len();
+    let p_len = pattern_chars.len();
+    
+    let mut dp = vec![vec![false; p_len + 1]; h_len + 1];
+    dp[0][0] = true;
+    
+    for j in 1..=p_len {
+        if pattern_chars[j - 1] == '*' {
+            dp[0][j] = dp[0][j - 1];
         }
-        if p[0] == '*' {
-            return match_helper(h, &p[1..]) || (!h.is_empty() && match_helper(&h[1..], p));
-        }
-        if !h.is_empty() && h[0] == p[0] {
-            return match_helper(&h[1..], &p[1..]);
-        }
-        false
     }
     
-    match_helper(&host_chars, &pattern_chars)
+    for i in 1..=h_len {
+        for j in 1..=p_len {
+            if pattern_chars[j - 1] == '*' {
+                dp[i][j] = dp[i - 1][j] || dp[i][j - 1];
+            } else if pattern_chars[j - 1] == host_chars[i - 1] {
+                dp[i][j] = dp[i - 1][j - 1];
+            }
+        }
+    }
+    
+    dp[h_len][p_len]
 }
 
 pub fn is_ip_blocked(ip: &std::net::IpAddr, blocked_hosts: &[String]) -> bool {
