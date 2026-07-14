@@ -75,6 +75,22 @@ interface ChatAreaProps {
 }
 
 function GenerationIndicator({ state, label }: { state: GenerationState; label: string }) {
+  const [dots, setDots] = useState(".");
+
+  useEffect(() => {
+    if (state === "error" || state === "idle") {
+      return;
+    }
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        if (prev === "..") return "...";
+        return "..";
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [state]);
+
   if (state === "idle") return null;
   const config = GENERATION_STATE_CONFIG[state];
   if (!config) return null;
@@ -98,14 +114,8 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
         className={`text-xs font-medium ${state === "error" ? "text-red-600 dark:text-red-400" : "text-text-muted"}`}
       >
         {displayLabel}
+        {state !== "error" ? dots : ""}
       </span>
-      {state !== "error" && (
-        <span className="generating-dots">
-          <span />
-          <span />
-          <span />
-        </span>
-      )}
     </motion.div>
   );
 }
@@ -813,7 +823,6 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 : t("chat.tools.runningMcp", { name: displayName })}
             </span>
           )}
-          {!isCompleted && <Loader2 size={12} className="animate-spin text-text-muted" />}
 
           <motion.button
             onClick={() => setExpanded(!expanded)}
@@ -951,7 +960,6 @@ function ToolCallDisplay({ message }: { message: Message }) {
               ? t("chat.tools.fetching")
               : t("chat.tools.executing")}
       </span>
-      {!isCompleted && <Loader2 size={12} className="animate-spin ml-1" />}
     </motion.div>
   );
 }
@@ -961,8 +969,72 @@ function ToolCallBubble({ message }: { message: Message }) {
   return null;
 }
 
-function ReasoningBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+function LoadingText() {
+  const [dots, setDots] = useState(".");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        if (prev === "..") return "...";
+        return "..";
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return <span className="text-xs text-text-muted font-medium font-mono">Loading{dots}</span>;
+}
+
+function ReasoningBubble({
+  content,
+  isStreaming,
+  thinkingDuration,
+  conversationId,
+}: {
+  content: string;
+  isStreaming?: boolean;
+  thinkingDuration?: number;
+  conversationId?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  const [dots, setDots] = useState(".");
+
+  const startTimestamp = useChatStore((s) =>
+    conversationId && s.activeStreamThinkingStart ? s.activeStreamThinkingStart[conversationId] : undefined,
+  );
+
+  useEffect(() => {
+    if (!isStreaming) {
+      return;
+    }
+
+    const updateElapsed = () => {
+      const start = startTimestamp || Date.now();
+      const diff = Math.max(0, Math.round((Date.now() - start) / 1000));
+      setElapsed(diff);
+    };
+
+    updateElapsed();
+
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [isStreaming, startTimestamp]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      return;
+    }
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        if (prev === "..") return "...";
+        return "..";
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isStreaming]);
 
   return (
     <motion.div
@@ -977,21 +1049,22 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
         <div className="flex items-center gap-2">
           <motion.button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
+            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors font-mono"
             aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
             whileHover={{ x: 2 }}
             transition={springs.snappy}
           >
-            <span>{isStreaming ? "Thinking" : "Thought"}</span>
+            <span>
+              {isStreaming
+                ? elapsed !== null
+                  ? `Thinking for ${elapsed}s${dots}`
+                  : `Thinking${dots}`
+                : thinkingDuration !== undefined
+                  ? `Thought for ${thinkingDuration}s`
+                  : "Thought"}
+            </span>
             <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           </motion.button>
-          {!expanded && isStreaming && (
-            <span className="generating-dots mt-0.5">
-              <span />
-              <span />
-              <span />
-            </span>
-          )}
         </div>
         <AnimatePresence initial={false}>
           {expanded && (
@@ -1180,7 +1253,14 @@ const MessageBubble = memo(function MessageBubble({
       transition={springs.gentle}
     >
       <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
-        {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
+        {hasOpenReasoning && (
+          <ReasoningBubble
+            content={reasoningContent}
+            isStreaming={isStreaming}
+            thinkingDuration={message.thinkingDuration}
+            conversationId={conversationId}
+          />
+        )}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
           <motion.div
             className="flex items-center gap-2 py-1"
@@ -1188,12 +1268,7 @@ const MessageBubble = memo(function MessageBubble({
             animate={{ opacity: 1 }}
             transition={springs.gentle}
           >
-            <span className="text-xs text-text-muted font-medium">Loading</span>
-            <span className="generating-dots">
-              <span />
-              <span />
-              <span />
-            </span>
+            <LoadingText />
           </motion.div>
         )}
         {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (

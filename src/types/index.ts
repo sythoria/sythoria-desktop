@@ -47,6 +47,7 @@ export interface Message {
   };
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
+  thinkingDuration?: number;
 }
 
 export interface Conversation {

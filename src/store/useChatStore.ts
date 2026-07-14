@@ -99,12 +99,20 @@ function updateConversationMessages(
   });
 }
 
-function finalizeAssistantMessage(conversations: Conversation[], convId: string): Conversation[] {
+function finalizeAssistantMessage(
+  conversations: Conversation[],
+  convId: string,
+  thinkingDuration?: number,
+): Conversation[] {
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
     const last = updated[updated.length - 1];
     if (last && last.role === "assistant" && last.isStreaming) {
-      updated[updated.length - 1] = { ...last, isStreaming: false };
+      updated[updated.length - 1] = {
+        ...last,
+        isStreaming: false,
+        thinkingDuration: last.thinkingDuration ?? thinkingDuration,
+      };
     }
     return updated;
   });
@@ -169,6 +177,8 @@ interface ChatState {
   compareIds: string[];
   isCompareMode: boolean;
   activeStreamContent: Record<string, string>;
+  activeStreamThinkingStart: Record<string, number>;
+  activeStreamThinkingEnd: Record<string, number>;
 
   setCompareIds: (ids: string[]) => void;
   setIsCompareMode: (val: boolean) => void;
@@ -232,6 +242,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   compareIds: [],
   isCompareMode: false,
   activeStreamContent: {},
+  activeStreamThinkingStart: {},
+  activeStreamThinkingEnd: {},
 
   setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
@@ -1005,16 +1017,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
   stopStreaming: () => {
     modelCancelStream();
     set((state) => {
-      const convs = state.conversations.map((c) => ({
-        ...c,
-        messages: c.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
-      }));
+      const convs = state.conversations.map((c) => {
+        const nextMessages = c.messages.map((m) => {
+          if (m.isStreaming) {
+            let thinkingDuration: number | undefined = undefined;
+            const start = state.activeStreamThinkingStart?.[c.id];
+            if (start) {
+              const end = state.activeStreamThinkingEnd?.[c.id] || Date.now();
+              thinkingDuration = Math.round((end - start) / 1000);
+            }
+            return {
+              ...m,
+              isStreaming: false,
+              thinkingDuration: m.thinkingDuration ?? thinkingDuration,
+            };
+          }
+          return m;
+        });
+        return { ...c, messages: nextMessages };
+      });
       return {
         isStreaming: false,
         generationState: "idle" as GenerationState,
         generationLabel: "",
         generationByConversation: {},
         conversations: convs,
+        activeStreamThinkingStart: {},
+        activeStreamThinkingEnd: {},
       };
     });
     uiLoading("sendMessage", false);
@@ -1350,13 +1379,21 @@ async function sendNormal(
     isStreaming: true,
   };
 
-  set((state) => ({
-    isStreaming: true,
-    generationState: "loading" as GenerationState,
-    generationLabel: "Loading",
-    generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
-    conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
-  }));
+  set((state) => {
+    const nextStart = { ...state.activeStreamThinkingStart };
+    delete nextStart[convId];
+    const nextEnd = { ...state.activeStreamThinkingEnd };
+    delete nextEnd[convId];
+    return {
+      isStreaming: true,
+      generationState: "loading" as GenerationState,
+      generationLabel: "Loading",
+      generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
+      conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
+      activeStreamThinkingStart: nextStart,
+      activeStreamThinkingEnd: nextEnd,
+    };
+  });
   uiLoading("sendMessage", true);
 
   const streamId = generateId();
@@ -1376,6 +1413,21 @@ async function sendNormal(
 
           const currentStreamContent = state.activeStreamContent[cId] || "";
           const fullContent = currentStreamContent + content;
+
+          // Track thinking start and end timestamps
+          const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
+          const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+
+          if (fullContent.includes("<reasoning>") && !nextActiveStreamThinkingStart[cId]) {
+            nextActiveStreamThinkingStart[cId] = Date.now();
+          }
+          if (
+            fullContent.includes("</reasoning>") &&
+            nextActiveStreamThinkingStart[cId] &&
+            !nextActiveStreamThinkingEnd[cId]
+          ) {
+            nextActiveStreamThinkingEnd[cId] = Date.now();
+          }
 
           if (state.generationState === "loading") {
             if (fullContent.includes("<reasoning>")) {
@@ -1406,10 +1458,6 @@ async function sendNormal(
             !content.includes("</reasoning>")
           ) {
             // If we already closed reasoning and now getting new content, we are responding
-            // Wait, the stream parser normalizes this and might send responding content.
-            // But actually, when reasoning closes, we don't necessarily need to switch to responding until real text arrives.
-            // Actually, `content` is just the current chunk. Let's just keep the old logic for thinking -> responding if we see closing tag.
-            // The old logic didn't even check closing tag. It just checked if content didn't start with <reasoning>.
           }
 
           if (
@@ -1436,6 +1484,8 @@ async function sendNormal(
               ...state.activeStreamContent,
               [cId]: fullContent,
             },
+            activeStreamThinkingStart: nextActiveStreamThinkingStart,
+            activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
           };
         });
       },
@@ -1445,12 +1495,24 @@ async function sendNormal(
         });
         set((state) => {
           const streamContent = state.activeStreamContent[cId] || "";
+          let thinkingDuration: number | undefined = undefined;
+          const start = state.activeStreamThinkingStart?.[cId];
+          if (start) {
+            const end = state.activeStreamThinkingEnd?.[cId] || Date.now();
+            thinkingDuration = Math.round((end - start) / 1000);
+          }
+
           const conversations = state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
             const last = updated[updated.length - 1];
             if (last && last.role === "assistant") {
-              updated[updated.length - 1] = { ...last, content: last.content + streamContent, isStreaming: false };
+              updated[updated.length - 1] = {
+                ...last,
+                content: last.content + streamContent,
+                isStreaming: false,
+                thinkingDuration: last.thinkingDuration ?? thinkingDuration,
+              };
             }
             return { ...c, messages: updated };
           });
@@ -1459,9 +1521,16 @@ async function sendNormal(
           const nextActiveStreamContent = { ...state.activeStreamContent };
           delete nextActiveStreamContent[cId];
 
+          const nextStart = { ...state.activeStreamThinkingStart };
+          delete nextStart[cId];
+          const nextEnd = { ...state.activeStreamThinkingEnd };
+          delete nextEnd[cId];
+
           return {
             conversations,
             activeStreamContent: nextActiveStreamContent,
+            activeStreamThinkingStart: nextStart,
+            activeStreamThinkingEnd: nextEnd,
             isStreaming: stillStreaming,
             generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
             generationLabel: stillStreaming ? state.generationLabel : "",
@@ -1507,16 +1576,31 @@ async function sendNormal(
       useModelStore.getState().removeActiveStreamId(streamId);
     }
 
-    set((state) => ({
-      conversations: finalizeAssistantMessage(state.conversations, convId),
-      ...(streamStillActive
-        ? {
-            isStreaming: finalizeAssistantMessage(state.conversations, convId).some((c) =>
-              c.messages.some((m) => m.isStreaming),
-            ),
-          }
-        : {}),
-    }));
+    const start = get().activeStreamThinkingStart?.[convId];
+    let thinkingDuration: number | undefined = undefined;
+    if (start) {
+      const end = get().activeStreamThinkingEnd?.[convId] || Date.now();
+      thinkingDuration = Math.round((end - start) / 1000);
+    }
+
+    set((state) => {
+      const updatedConvs = finalizeAssistantMessage(state.conversations, convId, thinkingDuration);
+      const nextStart = { ...state.activeStreamThinkingStart };
+      delete nextStart[convId];
+      const nextEnd = { ...state.activeStreamThinkingEnd };
+      delete nextEnd[convId];
+
+      return {
+        conversations: updatedConvs,
+        activeStreamThinkingStart: nextStart,
+        activeStreamThinkingEnd: nextEnd,
+        ...(streamStillActive
+          ? {
+              isStreaming: updatedConvs.some((c) => c.messages.some((m) => m.isStreaming)),
+            }
+          : {}),
+      };
+    });
 
     get().persistConversations();
   } catch (err) {

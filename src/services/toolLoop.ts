@@ -750,6 +750,7 @@ export async function sendWithToolLoop(
       const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
       const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
 
+      const stepStartTime = Date.now();
       const raw = await invoke<string>("chat_completion_tools", {
         configId: modelConfig.id,
         messages: apiMessages,
@@ -757,6 +758,7 @@ export async function sendWithToolLoop(
         temperature: requestTemp,
         maxTokens,
       });
+      const stepDuration = Math.round((Date.now() - stepStartTime) / 1000);
 
       if (!get().isStreaming) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user during API call");
@@ -785,6 +787,7 @@ export async function sendWithToolLoop(
                 content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
                 timestamp: new Date(),
                 isStreaming: false,
+                thinkingDuration: stepDuration,
               },
             ]),
           }));
@@ -1417,6 +1420,7 @@ export async function sendWithToolLoop(
           timestamp: new Date(),
           isStreaming: false,
           sources: collectedSources.length > 0 ? collectedSources : undefined,
+          thinkingDuration: stepDuration,
         };
 
         set((state) => {
