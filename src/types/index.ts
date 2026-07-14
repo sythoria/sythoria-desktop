@@ -123,7 +123,8 @@ export interface FetchApiConfig {
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
-export type GenerationState = "idle" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";
+export type GenerationState =
+  "idle" | "loading" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";
 
 export type McpTransport = "stdio" | "sse" | "streamable-http";
 

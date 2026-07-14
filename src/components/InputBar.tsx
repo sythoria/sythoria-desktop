@@ -1349,7 +1349,6 @@ export default memo(function InputBar({
             </span>
           ) : isStreaming ? (
             <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
-              <Loader2 size={13} className="animate-spin" />
               <span>Generating response</span>
               <span className="generating-dots">
                 <span />

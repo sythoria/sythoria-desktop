@@ -48,9 +48,9 @@ describe("ChatArea", () => {
 
   it("shows generating indicator when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} generationState="thinking" generationLabel="Thinking" />);
+    render(<ChatArea messages={messages} {...defaultProps} generationState="loading" generationLabel="Loading" />);
 
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("Loading")).toBeInTheDocument();
   });
 
   it("shows cursor when assistant is streaming with content", () => {

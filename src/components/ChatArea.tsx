@@ -46,6 +46,7 @@ const GENERATION_STATE_CONFIG: Record<
   Exclude<GenerationState, "idle">,
   { icon: React.ElementType; colorClass: string; label: string }
 > = {
+  loading: { icon: Bot, colorClass: "text-text-muted", label: "Loading" },
   thinking: { icon: Sparkles, colorClass: "text-text-muted", label: "Thinking" },
   searching: { icon: Search, colorClass: "text-text-muted", label: "Searching" },
   fetching: { icon: Globe, colorClass: "text-text-muted", label: "Fetching" },
@@ -90,11 +91,7 @@ function GenerationIndicator({ state, label }: { state: GenerationState; label: 
       <div
         className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-active"}`}
       >
-        {state !== "error" ? (
-          <Loader2 size={12} className={`animate-spin ${config.colorClass}`} />
-        ) : (
-          <Icon size={12} className={config.colorClass} />
-        )}
+        <Icon size={12} className={config.colorClass} />
       </div>
       <span
         className={`text-xs font-medium ${state === "error" ? "text-red-600 dark:text-red-400" : "text-text-muted"}`}
@@ -1172,8 +1169,7 @@ const MessageBubble = memo(function MessageBubble({
             animate={{ opacity: 1 }}
             transition={springs.gentle}
           >
-            <Loader2 size={14} className="text-text-secondary animate-spin" />
-            <span className="text-xs text-text-muted font-medium">Thinking</span>
+            <span className="text-xs text-text-muted font-medium">Loading</span>
             <span className="generating-dots">
               <span />
               <span />
