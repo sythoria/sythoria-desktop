@@ -8,12 +8,10 @@ mod search;
 mod stream_parser;
 mod ws_handler;
 mod skills;
+pub mod commands;
 
 use futures_util::StreamExt;
 use std::sync::RwLock;
-use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingStrategy};
-use tokio::io::AsyncWriteExt;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkConfig {
@@ -57,25 +55,10 @@ pub fn get_blocked_hosts() -> Vec<String> {
 }
 
 fn init_network_settings(app: &tauri::AppHandle) {
-    if let Ok(config) = load_network_config_internal(app) {
+    if let Ok(config) = commands::config::load_network_config_internal(app) {
         if let Ok(mut lock) = NETWORK_CONFIG.write() {
             *lock = config;
         }
-    }
-}
-
-fn load_network_config_internal(app: &tauri::AppHandle) -> Result<NetworkConfig, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("network_config.json");
-    if config_path.exists() {
-        let content = fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-        let config: NetworkConfig = serde_json::from_str(&content).map_err(|e| AppError::ParseError(e.to_string()))?;
-        Ok(config)
-    } else {
-        Ok(NetworkConfig::default())
     }
 }
 
@@ -85,31 +68,6 @@ pub fn client_builder() -> reqwest::ClientBuilder {
         builder = builder.danger_accept_invalid_certs(true);
     }
     builder
-}
-
-#[tauri::command]
-async fn load_network_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let config = load_network_config_internal(&app)?;
-    serde_json::to_string(&config).map_err(|e| AppError::ParseError(e.to_string()))
-}
-
-#[tauri::command]
-async fn save_network_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let config_struct: NetworkConfig = serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("network_config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    
-    if let Ok(mut lock) = NETWORK_CONFIG.write() {
-        *lock = config_struct;
-    }
-    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -290,7 +248,7 @@ fn is_stream_cancelled(stream_id: &str) -> bool {
 }
 
 #[derive(Debug, thiserror::Error, Serialize)]
-enum AppError {
+pub enum AppError {
     #[error("Config I/O error: {0}")]
     ConfigIo(String),
     #[error("App path error: {0}")]
@@ -347,319 +305,11 @@ impl From<search::SearchError> for AppError {
 }
 
 async fn get_search_api_key(app: &tauri::AppHandle, config_id: &str) -> Result<String, AppError> {
-    get_secret(app, "search", config_id).await
+    let _ = app;
+    commands::config::get_keychain_secret("search", config_id)
 }
 
-const STORE_FILE: &str = "sythoria-store.json";
-const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
-const API_KEY_INDEX: &str = "sythoria-api-key-index";
-const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
-const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
-const MCP_API_KEY_INDEX: &str = "sythoria-mcp-api-key-index";
-
-fn keychain_account(namespace: &str, id: &str) -> String {
-    format!("{}:{}", namespace, id)
-}
-
-fn load_secret_index(app: &tauri::AppHandle, index_key: &str) -> Result<Vec<String>, AppError> {
-    let store = tauri_plugin_store::StoreExt::store(app, "sythoria-store.json")
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-
-    let index: Option<serde_json::Value> = store.get(index_key);
-    Ok(index
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| v.as_str().map(ToString::to_string))
-        .collect())
-}
-
-fn save_secret_index(
-    app: &tauri::AppHandle,
-    index_key: &str,
-    ids: &[String],
-) -> Result<(), AppError> {
-    let store = tauri_plugin_store::StoreExt::store(app, STORE_FILE)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-
-    store.set(index_key, serde_json::json!(ids));
-    Ok(())
-}
-
-fn init_keyring_store() {
-    #[cfg(target_os = "macos")]
-    keyring_core::set_default_store(
-        apple_native_keyring_store::keychain::Store::new()
-            .expect("Failed to init macOS Keychain store"),
-    );
-    #[cfg(target_os = "ios")]
-    keyring_core::set_default_store(
-        apple_native_keyring_store::protected::Store::new()
-            .expect("Failed to init iOS Protected Data store"),
-    );
-    #[cfg(target_os = "windows")]
-    keyring_core::set_default_store(
-        windows_native_keyring_store::Store::new()
-            .expect("Failed to init Windows Credential store"),
-    );
-    #[cfg(target_os = "linux")]
-    keyring_core::set_default_store(
-        dbus_secret_service_keyring_store::Store::new()
-            .expect("Failed to init Linux Secret Service store"),
-    );
-}
-
-fn set_keychain_secret(namespace: &str, id: &str, secret: &str) -> Result<(), AppError> {
-    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
-        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
-    entry
-        .set_password(secret)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to save secret: {}", e)))
-}
-
-fn get_keychain_secret(namespace: &str, id: &str) -> Result<String, AppError> {
-    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
-        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
-    entry.get_password().map_err(|e| match e {
-        keyring_core::Error::NoEntry => AppError::KeyNotFound(format!("No key found for '{}'", id)),
-        _ => AppError::ConfigIo(format!("Failed to load secret: {}", e)),
-    })
-}
-
-fn delete_keychain_secret(namespace: &str, id: &str) -> Result<(), AppError> {
-    let entry = keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(namespace, id))
-        .map_err(|e| AppError::ConfigIo(format!("Failed to access keychain: {}", e)))?;
-    entry.delete_credential().or_else(|e| match e {
-        keyring_core::Error::NoEntry => Ok(()),
-        _ => Err(AppError::ConfigIo(format!(
-            "Failed to delete secret: {}",
-            e
-        ))),
-    })
-}
-
-async fn get_secret(
-    _app: &tauri::AppHandle,
-    namespace: &str,
-    id: &str,
-) -> Result<String, AppError> {
-    get_keychain_secret(namespace, id)
-}
-
-async fn load_secret_map(
-    app: &tauri::AppHandle,
-    namespace: &str,
-    index_key: &str,
-) -> Result<serde_json::Value, AppError> {
-    let ids = load_secret_index(app, index_key)?;
-    let mut keys = serde_json::Map::new();
-
-    for id in ids {
-        match get_keychain_secret(namespace, &id) {
-            Ok(secret) if !secret.is_empty() => {
-                keys.insert(id, serde_json::Value::String(secret));
-            }
-            Ok(_) | Err(AppError::KeyNotFound(_)) => {}
-            Err(err) => return Err(err),
-        }
-    }
-
-    Ok(serde_json::Value::Object(keys))
-}
-
-async fn save_secret_map(
-    app: &tauri::AppHandle,
-    namespace: &str,
-    index_key: &str,
-    keys: &serde_json::Value,
-) -> Result<(), AppError> {
-    let existing_ids = load_secret_index(app, index_key)?;
-    let key_map = keys
-        .as_object()
-        .ok_or_else(|| AppError::ParseError("API keys payload must be an object".to_string()))?;
-
-    for id in existing_ids {
-        if !key_map.contains_key(&id) {
-            delete_keychain_secret(namespace, &id)?;
-        }
-    }
-
-    let mut ids = Vec::new();
-    for (id, value) in key_map {
-        let secret = value.as_str().unwrap_or_default();
-        if secret.is_empty() {
-            delete_keychain_secret(namespace, id)?;
-            continue;
-        }
-        set_keychain_secret(namespace, id, secret)?;
-        ids.push(id.clone());
-    }
-
-    save_secret_index(app, index_key, &ids)
-}
-
-#[tauri::command]
-async fn load_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
-    } else {
-        Ok("".to_string())
-    }
-}
-
-#[tauri::command]
-async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn load_search_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("search_config.json");
-    if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
-    } else {
-        Ok("".to_string())
-    }
-}
-
-#[tauri::command]
-async fn save_search_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("search_config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn load_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
-    load_secret_map(&app, "model", API_KEY_INDEX).await
-}
-
-#[tauri::command]
-async fn save_api_keys_cmd(app: tauri::AppHandle, keys: serde_json::Value) -> Result<(), AppError> {
-    save_secret_map(&app, "model", API_KEY_INDEX, &keys).await
-}
-
-#[tauri::command]
-async fn load_search_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
-    load_secret_map(&app, "search", SEARCH_API_KEY_INDEX).await
-}
-
-#[tauri::command]
-async fn save_search_api_keys_cmd(
-    app: tauri::AppHandle,
-    keys: serde_json::Value,
-) -> Result<(), AppError> {
-    save_secret_map(&app, "search", SEARCH_API_KEY_INDEX, &keys).await
-}
-
-#[tauri::command]
-async fn load_mcp_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
-    load_secret_map(&app, "mcp", MCP_API_KEY_INDEX).await
-}
-
-#[tauri::command]
-async fn save_mcp_api_keys_cmd(
-    app: tauri::AppHandle,
-    keys: serde_json::Value,
-) -> Result<(), AppError> {
-    save_secret_map(&app, "mcp", MCP_API_KEY_INDEX, &keys).await
-}
-
-#[derive(Deserialize)]
-struct ModelConfig {
-    id: String,
-    #[serde(rename = "apiBase")]
-    api_base: String,
-    #[serde(rename = "modelId")]
-    model_id: String,
-    provider: Option<String>,
-}
-
-async fn get_model_config_and_key(
-    app: &tauri::AppHandle,
-    config_id: &str,
-) -> Result<(String, String, String, Option<String>), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    if !config_path.exists() {
-        return Err(AppError::ConfigIo("Configuration file not found".to_string()));
-    }
-    let config_content = fs::read_to_string(config_path)?;
-    let configs: Vec<ModelConfig> = serde_json::from_str(&config_content)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to parse config: {}", e)))?;
-
-    let config = configs.into_iter().find(|c| c.id == config_id)
-        .ok_or_else(|| AppError::ConfigIo(format!("Model config not found for ID: {}", config_id)))?;
-
-    let api_key = match get_keychain_secret("model", config_id) {
-        Ok(secret) => secret,
-        Err(_) => String::new(),
-    };
-
-    let parsed_url = url::Url::parse(&config.api_base)
-        .map_err(|e| AppError::ConfigIo(format!("Invalid apiBase URL: {}", e)))?;
-
-    if let Some(host) = parsed_url.host_str() {
-        let host_lower = host.to_lowercase();
-        let blocked_hosts = get_blocked_hosts();
-
-        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-            let blocked_lower = blocked.to_lowercase();
-            if blocked.contains('*') {
-                search::matches_wildcard(&host_lower, &blocked_lower)
-            } else {
-                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-            }
-        });
-
-        let is_blocked_ip = {
-            use std::net::ToSocketAddrs;
-            let port = parsed_url.port_or_known_default().unwrap_or(80);
-            if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-            } else {
-                false
-            }
-        };
-
-        if is_blocked_host || is_blocked_ip {
-            return Err(AppError::ConfigIo(format!(
-                "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
-                host
-            )));
-        }
-    }
-
-    Ok((config.api_base, api_key, config.model_id, config.provider))
-}
+use commands::config::get_model_config_and_key;
 
 fn truncate_error(body: &str) -> String {
     if body.len() > 200 {
@@ -1041,21 +691,7 @@ async fn check_ollama() -> Result<Vec<String>, AppError> {
     }
 }
 
-#[tauri::command]
-async fn mcp_list_resources(server_id: String) -> Result<String, AppError> {
-    let result = mcp::client::list_resources_on_server(&server_id)
-        .await
-        .map_err(|e| AppError::McpError(e))?;
-    Ok(serde_json::to_string(&result).unwrap_or_default())
-}
 
-#[tauri::command]
-async fn mcp_list_prompts(server_id: String) -> Result<String, AppError> {
-    let result = mcp::client::list_prompts_on_server(&server_id)
-        .await
-        .map_err(|e| AppError::McpError(e))?;
-    Ok(serde_json::to_string(&result).unwrap_or_default())
-}
 
 #[tauri::command]
 async fn web_search(
@@ -1343,198 +979,8 @@ async fn save_mcp_config(app: tauri::AppHandle, config: String) -> Result<(), Ap
     Ok(())
 }
 
-#[tauri::command]
-async fn load_mcp_env_secrets(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
-    let index = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
-    let mut result = serde_json::Map::new();
-
-    for server_id in index {
-        let server_keys = {
-            let server_index_key = format!("mcp-env:{}", server_id);
-            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-            let env_index: Option<serde_json::Value> = store.get(&server_index_key);
-            env_index
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|v| v.as_str().map(ToString::to_string))
-                .collect::<Vec<_>>()
-        };
-
-        let mut server_map = serde_json::Map::new();
-        for env_key in server_keys {
-            match get_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key)) {
-                Ok(secret) if !secret.is_empty() => {
-                    server_map.insert(env_key, serde_json::Value::String(secret));
-                }
-                Ok(_) | Err(AppError::KeyNotFound(_)) => {}
-                Err(err) => return Err(err),
-            }
-        }
-
-        if !server_map.is_empty() {
-            result.insert(server_id, serde_json::Value::Object(server_map));
-        }
-    }
-
-    Ok(serde_json::Value::Object(result))
-}
-
-#[tauri::command]
-async fn save_mcp_env_secrets_cmd(
-    app: tauri::AppHandle,
-    secrets: serde_json::Value,
-) -> Result<(), AppError> {
-    let secrets_map = secrets.as_object().ok_or_else(|| {
-        AppError::ParseError("MCP env secrets payload must be an object".to_string())
-    })?;
-
-    let existing_server_ids = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
-
-    for server_id in &existing_server_ids {
-        if !secrets_map.contains_key(server_id) {
-            let server_index_key = format!("mcp-env:{}", server_id);
-            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-            if let Some(env_index) = store.get(&server_index_key) {
-                if let Some(arr) = env_index.as_array() {
-                    for key in arr.iter().filter_map(|v| v.as_str()) {
-                        let _ =
-                            delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
-                    }
-                }
-            }
-            let _ = store.delete(&server_index_key);
-        }
-    }
-
-    let mut server_ids = Vec::new();
-    for (server_id, server_value) in secrets_map {
-        let env_map = server_value
-            .as_object()
-            .ok_or_else(|| AppError::ParseError("Server env must be an object".to_string()))?;
-
-        let server_index_key = format!("mcp-env:{}", server_id);
-        let mut env_keys = Vec::new();
-
-        for (env_key, env_value) in env_map {
-            let secret = env_value.as_str().unwrap_or_default();
-            if secret.is_empty() {
-                let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key));
-                continue;
-            }
-            set_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key), secret)?;
-            env_keys.push(env_key.clone());
-        }
-
-        let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-            .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-        store.set(&server_index_key, serde_json::json!(env_keys));
-
-        if !env_keys.is_empty() {
-            server_ids.push(server_id.clone());
-        }
-    }
-
-    save_secret_index(&app, MCP_ENV_KEY_INDEX, &server_ids)
-}
-
-#[tauri::command]
-async fn mcp_start_server(
-    config: String,
-    env_secrets: String,
-    _app: tauri::AppHandle,
-) -> Result<String, AppError> {
-    let mut server_config: mcp::McpServerConfig = serde_json::from_str(&config)
-        .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
-    let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
-        .map_err(|e| AppError::ParseError(format!("Invalid MCP env secrets JSON: {}", e)))?;
-
-    if server_config.apiKey.as_deref().unwrap_or("").is_empty() {
-        if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
-            if !key.is_empty() {
-                server_config.apiKey = Some(key);
-            }
-        }
-    }
-
-    let tools = mcp::client::connect_server(&server_config, env_map)
-        .await
-        .map_err(|e| {
-            log::error!("MCP server start failed: {}", e);
-            AppError::McpError(e)
-        })?;
-
-    Ok(serde_json::to_string(&tools).unwrap_or_default())
-}
-
-#[tauri::command]
-async fn mcp_check_command(command: String) -> Result<String, AppError> {
-    let info = mcp::client::check_executable(&command).await;
-    Ok(serde_json::to_string(&info).unwrap_or_default())
-}
-
-#[tauri::command]
-async fn mcp_stop_server(server_id: String) -> Result<(), AppError> {
-    mcp::client::disconnect_server(&server_id).map_err(|e| {
-        log::error!("MCP server stop failed: {}", e);
-        AppError::McpError(e)
-    })
-}
-
-#[tauri::command]
-async fn mcp_list_tools(server_id: String) -> Result<String, AppError> {
-    let manager = crate::mcp::MCP_SERVERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let tools = manager.get_tools(&server_id);
-    Ok(serde_json::to_string(&tools).unwrap_or_default())
-}
-
-#[tauri::command]
-async fn mcp_call_tool(
-    server_id: String,
-    tool_name: String,
-    arguments: String,
-) -> Result<String, AppError> {
-    let args: serde_json::Value = serde_json::from_str(&arguments)
-        .map_err(|e| AppError::ParseError(format!("Invalid tool arguments JSON: {}", e)))?;
-
-    let result = mcp::client::call_tool_on_server(&server_id, &tool_name, &args)
-        .await
-        .map_err(|e| {
-            log::error!("MCP tool call failed: {}", e);
-            AppError::McpError(e)
-        })?;
-
-    Ok(serde_json::to_string(&result).unwrap_or_default())
-}
-
-#[tauri::command]
-async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-
-    let files = vec![
-        "config.json",
-        "search_config.json",
-        "mcp_config.json",
-        "sythoria-store.json",
-    ];
-    for file_name in files {
-        let path = app_data_dir.join(file_name);
-        if path.exists() {
-            let _ = fs::remove_file(path);
-        }
-    }
-    Ok(())
-}
-
 fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
-    if let Ok(store) = tauri_plugin_store::StoreExt::store(app, STORE_FILE) {
+    if let Ok(store) = tauri_plugin_store::StoreExt::store(app, commands::config::STORE_FILE) {
         if let Some(val) = store.get("sythoria-close-to-tray") {
             return val.as_bool().unwrap_or(false);
         }
@@ -1839,535 +1285,6 @@ async fn write_exported_file_by_token(
     Ok(())
 }
 
-fn convert_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
-    if channels == 1 {
-        return samples.to_vec();
-    }
-    let mut mono = Vec::with_capacity(samples.len() / channels as usize);
-    for chunk in samples.chunks_exact(channels as usize) {
-        let sum: f32 = chunk.iter().sum();
-        mono.push(sum / channels as f32);
-    }
-    mono
-}
-
-fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
-    if source_rate == target_rate || samples.is_empty() {
-        return samples.to_vec();
-    }
-    let ratio = source_rate as f64 / target_rate as f64;
-    let new_length = (samples.len() as f64 / ratio).round() as usize;
-    let mut result = Vec::with_capacity(new_length);
-    for i in 0..new_length {
-        let orig_idx = i as f64 * ratio;
-        let index_below = orig_idx.floor() as usize;
-        let index_above = orig_idx.ceil() as usize;
-        let weight = orig_idx - index_below as f64;
-        let val_below = samples[index_below];
-        let val_above = if index_above < samples.len() { samples[index_above] } else { val_below };
-        result.push(val_below + weight as f32 * (val_above - val_below));
-    }
-    result
-}
-
-struct SendSyncStream(cpal::Stream);
-unsafe impl Send for SendSyncStream {}
-unsafe impl Sync for SendSyncStream {}
-
-static RECORDED_SAMPLES: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<Vec<f32>>>> =
-    std::sync::LazyLock::new(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
-
-static RECORDING_STREAM: std::sync::LazyLock<std::sync::Mutex<Option<SendSyncStream>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
-
-#[tauri::command]
-async fn start_recording() -> Result<(), AppError> {
-    if let Ok(mut samples) = RECORDED_SAMPLES.lock() {
-        samples.clear();
-    }
-
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-
-    let channels = config.channels();
-    let samples_clone = RECORDED_SAMPLES.clone();
-    
-    let error_callback = |err| {
-        log::error!("An error occurred on the audio stream: {}", err);
-    };
-
-    let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            config.into(),
-            move |data: &[f32], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mono = convert_to_mono(data, channels);
-                    samples.extend_from_slice(&mono);
-                }
-            },
-            error_callback,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            config.into(),
-            move |data: &[i16], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mut float_data = vec![0.0f32; data.len()];
-                    for (i, &s) in data.iter().enumerate() {
-                        float_data[i] = s as f32 / 32768.0;
-                    }
-                    let mono = convert_to_mono(&float_data, channels);
-                    samples.extend_from_slice(&mono);
-                }
-            },
-            error_callback,
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            config.into(),
-            move |data: &[u16], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mut float_data = vec![0.0f32; data.len()];
-                    for (i, &s) in data.iter().enumerate() {
-                        float_data[i] = (s as f32 - 32768.0) / 32768.0;
-                    }
-                    let mono = convert_to_mono(&float_data, channels);
-                    samples.extend_from_slice(&mono);
-                }
-            },
-            error_callback,
-            None,
-        ),
-        _ => return Err(AppError::ConfigIo("Unsupported sample format".to_string())),
-    }
-    .map_err(|e| AppError::ConfigIo(format!("Failed to build input stream: {}", e)))?;
-
-    stream
-        .play()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to play stream: {}", e)))?;
-
-    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        *active_stream = Some(SendSyncStream(stream));
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn stop_recording() -> Result<(), AppError> {
-    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        if let Some(SendSyncStream(stream)) = active_stream.take() {
-            let _ = stream.pause();
-        }
-    }
-    Ok(())
-}
-
-
-#[tauri::command]
-async fn get_recorded_samples() -> Result<Vec<f32>, AppError> {
-    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-        samples.clone()
-    } else {
-        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
-    };
-
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-    let sample_rate = config.sample_rate();
-
-    let resampled = resample(&samples, sample_rate, 16000);
-    Ok(resampled)
-}
-
-static WHISPER_CONTEXT_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<(String, WhisperContext)>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
-
-#[derive(serde::Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-struct WhisperDownloadProgress {
-    model_id: String,
-    downloaded: u64,
-    total: Option<u64>,
-    percentage: f32,
-    done: bool,
-}
-
-static DOWNLOAD_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static DOWNLOAD_CANCEL_TX: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
-    std::sync::Mutex::new(None);
-
-#[tauri::command]
-async fn cancel_whisper_download() -> Result<(), AppError> {
-    DOWNLOAD_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Some(tx) = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?.take() {
-        let _ = tx.send(());
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn download_whisper_model(
-    app: tauri::AppHandle,
-    model_id: String,
-    url: String,
-) -> Result<String, AppError> {
-    DOWNLOAD_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
-    let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
-    {
-        let mut guard = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?;
-        *guard = Some(tx);
-    }
-
-    struct CancelGuard;
-    impl Drop for CancelGuard {
-        fn drop(&mut self) {
-            if let Ok(mut guard) = DOWNLOAD_CANCEL_TX.lock() {
-                *guard = None;
-            }
-        }
-    }
-    let _guard = CancelGuard;
-
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let models_dir = app_data_dir.join("whisper_models");
-    fs::create_dir_all(&models_dir)?;
-
-    let file_name = url.split('/').last().unwrap_or("model.bin");
-    let dest_path = models_dir.join(file_name);
-
-    let client = client_builder()
-        .build()
-        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
-    
-    let res = tokio::select! {
-        _ = &mut rx => {
-            let _ = tokio::fs::remove_file(&dest_path).await;
-            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
-        }
-        res_result = client.get(&url).send() => {
-            res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
-        }
-    };
-    let total_size = res.content_length();
-
-    let mut file = tokio::fs::File::create(&dest_path).await?;
-    let mut stream = res.bytes_stream();
-    let mut downloaded = 0u64;
-    let mut last_emit_time = std::time::Instant::now();
-    let mut last_emitted_percentage = -1.0f32;
-
-    loop {
-        tokio::select! {
-            _ = &mut rx => {
-                drop(file);
-                let _ = tokio::fs::remove_file(&dest_path).await;
-                return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
-            }
-            chunk_result_opt = stream.next() => {
-                match chunk_result_opt {
-                    Some(chunk_result) => {
-                        if DOWNLOAD_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-                            drop(file);
-                            let _ = tokio::fs::remove_file(&dest_path).await;
-                            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
-                        }
-                        let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
-                        file.write_all(&chunk).await?;
-                        downloaded += chunk.len() as u64;
-
-                        let percentage = total_size
-                            .map(|total| (downloaded as f32 / total as f32) * 100.0)
-                            .unwrap_or(0.0);
-
-                        let now = std::time::Instant::now();
-                        let should_emit = if total_size.is_some() {
-                            (percentage - last_emitted_percentage) >= 1.0 || now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
-                        } else {
-                            now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
-                        };
-
-                        if should_emit {
-                            last_emit_time = now;
-                            last_emitted_percentage = percentage;
-                            let _ = app.emit(
-                                "whisper-download-progress",
-                                WhisperDownloadProgress {
-                                    model_id: model_id.clone(),
-                                    downloaded,
-                                    total: total_size,
-                                    percentage,
-                                    done: false,
-                                },
-                            );
-                        }
-                    }
-                    None => break,
-                }
-            }
-        }
-    }
-
-    let _ = app.emit(
-        "whisper-download-progress",
-        WhisperDownloadProgress {
-            model_id: model_id.clone(),
-            downloaded,
-            total: total_size,
-            percentage: 100.0,
-            done: true,
-        },
-    );
-
-    Ok(dest_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-async fn check_downloaded_whisper_models(app: tauri::AppHandle) -> Result<Vec<String>, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let models_dir = app_data_dir.join("whisper_models");
-    if !models_dir.exists() {
-        return Ok(vec![]);
-    }
-
-    let mut downloaded = Vec::new();
-    let mut entries = fs::read_dir(models_dir)?;
-    while let Some(Ok(entry)) = entries.next() {
-        if let Some(name) = entry.file_name().to_str() {
-            if name.ends_with(".bin") {
-                downloaded.push(name.to_string());
-            }
-        }
-    }
-    Ok(downloaded)
-}
-
-#[tauri::command]
-async fn delete_whisper_model(app: tauri::AppHandle, file_name: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let model_path = app_data_dir.join("whisper_models").join(file_name);
-    if model_path.exists() {
-        fs::remove_file(model_path)?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn transcribe_audio(
-    app: tauri::AppHandle,
-    model_path: String,
-    audio_data: Vec<f32>,
-    language: Option<String>,
-) -> Result<String, AppError> {
-    let resolved_path = if std::path::Path::new(&model_path).is_absolute() {
-        std::path::PathBuf::from(&model_path)
-    } else {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| AppError::AppPath(e.to_string()))?;
-        app_data_dir.join("whisper_models").join(&model_path)
-    };
-
-    if !resolved_path.exists() {
-        return Err(AppError::ConfigIo(format!(
-            "Model file not found at: {}",
-            resolved_path.display()
-        )));
-    }
-
-    let resolved_path_str = resolved_path.to_string_lossy().to_string();
-
-    let actual_audio_data = if audio_data.is_empty() {
-        let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-            samples.clone()
-        } else {
-            return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
-        };
-        let host = cpal::default_host();
-        let device = host.default_input_device().ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-        let config = device.default_input_config().map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-        resample(&samples, config.sample_rate(), 16000)
-    } else {
-        audio_data
-    };
-
-    let ctx_clone = resolved_path_str.clone();
-    let audio_clone = actual_audio_data;
-    let lang_clone = language.unwrap_or("auto".to_string());
-    
-    let transcription = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
-        let mut cache = WHISPER_CONTEXT_CACHE
-            .lock()
-            .map_err(|e| AppError::ParseError(format!("Cache lock poisoned: {}", e)))?;
-
-        let matches = match &*cache {
-            Some((path, _)) => path == &ctx_clone,
-            None => false,
-        };
-
-        if !matches {
-            let ctx = WhisperContext::new_with_params(
-                &ctx_clone,
-                WhisperContextParameters::default(),
-            )
-            .map_err(|e| AppError::ParseError(format!("Failed to load Whisper context: {}", e)))?;
-            *cache = Some((ctx_clone.clone(), ctx));
-        }
-
-        let context = &cache.as_ref().ok_or_else(|| AppError::ParseError("Whisper cache is empty".to_string()))?.1;
-
-        let mut state = context
-            .create_state()
-            .map_err(|e| AppError::ParseError(format!("Failed to create state: {}", e)))?;
-
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(4);
-        params.set_translate(false);
-        params.set_no_context(true);
-        params.set_single_segment(false); // Fix: allow multiple segments
-
-        if lang_clone != "auto" {
-            params.set_language(Some(&lang_clone));
-        } else {
-            params.set_language(None);
-        }
-
-        state
-            .full(params, &audio_clone)
-            .map_err(|e| AppError::ParseError(format!("Failed to run Whisper model: {}", e)))?;
-
-        let num_segments = state.full_n_segments();
-        let mut text = String::new();
-        for i in 0..num_segments {
-            if let Some(segment) = state.get_segment(i) {
-                text.push_str(&segment.to_string());
-            }
-        }
-        Ok(text)
-    })
-    .await
-    .map_err(|e| AppError::ParseError(format!("Task panicked: {}", e)))??;
-
-    Ok(transcription)
-}
-
-fn encode_wav_f32(samples: &[f32], sample_rate: u32) -> Vec<u8> {
-    let mut out = Vec::new();
-    let data_len = samples.len() * 4;
-    let file_len = 36 + data_len;
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(file_len as u32).to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size
-    out.extend_from_slice(&3u16.to_le_bytes()); // audio format (3 = IEEE float)
-    out.extend_from_slice(&1u16.to_le_bytes()); // num channels
-    out.extend_from_slice(&sample_rate.to_le_bytes()); // sample rate
-    let byte_rate = sample_rate * 1 * 4;
-    out.extend_from_slice(&byte_rate.to_le_bytes()); // byte rate
-    out.extend_from_slice(&4u16.to_le_bytes()); // block align
-    out.extend_from_slice(&32u16.to_le_bytes()); // bits per sample
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&(data_len as u32).to_le_bytes());
-    for &sample in samples {
-        out.extend_from_slice(&sample.to_le_bytes());
-    }
-    out
-}
-
-#[derive(serde::Deserialize)]
-struct CloudWhisperResponse {
-    text: String,
-}
-
-#[tauri::command]
-async fn transcribe_audio_cloud(
-    _app: tauri::AppHandle,
-    api_url: String,
-    api_key: String,
-    model: String,
-    language: Option<String>,
-) -> Result<String, AppError> {
-    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-        samples.clone()
-    } else {
-        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
-    };
-
-    if samples.is_empty() {
-        return Ok(String::new());
-    }
-
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-    let sample_rate = config.sample_rate();
-
-    let resampled = resample(&samples, sample_rate, 16000);
-    let wav_bytes = encode_wav_f32(&resampled, 16000);
-
-    let client = reqwest::Client::new();
-    let part = reqwest::multipart::Part::bytes(wav_bytes)
-        .file_name("audio.wav")
-        .mime_str("audio/wav")
-        .map_err(|e| AppError::ParseError(format!("Failed to create multipart part: {}", e)))?;
-
-    let mut form = reqwest::multipart::Form::new()
-        .part("file", part)
-        .text("model", model);
-        
-    if let Some(lang) = language {
-        if lang != "auto" {
-            form = form.text("language", lang);
-        }
-    }
-
-    let res = client
-        .post(&api_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| AppError::ParseError(format!("Network Error: {}", e)))?;
-
-    let status = res.status();
-    let body = res.text().await.unwrap_or_default();
-    
-    if !status.is_success() {
-        return Err(AppError::ParseError(format!("API Error {}: {}", status, body)));
-    }
-
-    let json: CloudWhisperResponse = serde_json::from_str(&body)
-        .map_err(|e| AppError::ParseError(format!("Failed to parse JSON response: {}", e)))?;
-
-    Ok(json.text)
-}
-
 #[cfg(target_os = "macos")]
 fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, Submenu, MenuItem, PredefinedMenuItem};
@@ -2479,7 +1396,7 @@ fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu:
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_keyring_store();
+    commands::config::init_keyring_store();
     let project_registry = project::ProjectRegistry::new();
     let file_token_registry = FileTokenRegistry::new();
     let app = tauri::Builder::default()
@@ -2687,16 +1604,16 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
-            load_config,
-            save_config,
-            load_network_config,
-            save_network_config,
-            load_search_config,
-            save_search_config,
-            load_api_keys,
-            save_api_keys_cmd,
-            load_search_api_keys,
-            save_search_api_keys_cmd,
+            commands::config::load_config,
+            commands::config::save_config,
+            commands::config::load_network_config,
+            commands::config::save_network_config,
+            commands::config::load_search_config,
+            commands::config::save_search_config,
+            commands::config::load_api_keys,
+            commands::config::save_api_keys_cmd,
+            commands::config::load_search_api_keys,
+            commands::config::save_search_api_keys_cmd,
             chat_completion,
             chat_stream,
             cancel_chat_stream,
@@ -2715,18 +1632,18 @@ pub fn run() {
             ws_disconnect,
             load_mcp_config,
             save_mcp_config,
-            load_mcp_env_secrets,
-            save_mcp_env_secrets_cmd,
-            load_mcp_api_keys,
-            save_mcp_api_keys_cmd,
-            mcp_start_server,
-            mcp_check_command,
-            mcp_stop_server,
-            mcp_list_tools,
-            mcp_list_resources,
-            mcp_list_prompts,
-            mcp_call_tool,
-            wipe_config_files,
+            commands::config::load_mcp_env_secrets,
+            commands::config::save_mcp_env_secrets_cmd,
+            commands::config::load_mcp_api_keys,
+            commands::config::save_mcp_api_keys_cmd,
+            commands::mcp::mcp_start_server,
+            commands::mcp::mcp_check_command,
+            commands::mcp::mcp_stop_server,
+            commands::mcp::mcp_list_tools,
+            commands::mcp::mcp_list_resources,
+            commands::mcp::mcp_list_prompts,
+            commands::mcp::mcp_call_tool,
+            commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
             update_tray_icon,
@@ -2734,15 +1651,15 @@ pub fn run() {
             read_file_from_token,
             select_save_file_and_get_token,
             write_exported_file_by_token,
-            start_recording,
-            stop_recording,
-            get_recorded_samples,
-            download_whisper_model,
-            cancel_whisper_download,
-            check_downloaded_whisper_models,
-            delete_whisper_model,
-            transcribe_audio_cloud,
-            transcribe_audio,
+            commands::audio::start_recording,
+            commands::audio::stop_recording,
+            commands::audio::get_recorded_samples,
+            commands::audio::download_whisper_model,
+            commands::audio::cancel_whisper_download,
+            commands::audio::check_downloaded_whisper_models,
+            commands::audio::delete_whisper_model,
+            commands::audio::transcribe_audio_cloud,
+            commands::audio::transcribe_audio,
             project::load_projects,
             project::save_projects,
             project::set_active_project,
