@@ -492,9 +492,6 @@ function App() {
         }
       }
     } else {
-      if (activeProjectId !== null) {
-        setActiveProject(null);
-      }
       const projectStore = useProjectStore.getState();
       if (projectStore.activeWorktreePath !== null || projectStore.activeWorktreeBranch !== null) {
         projectStore.setWorktree(null, null);
