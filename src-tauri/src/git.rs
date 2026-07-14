@@ -505,11 +505,18 @@ pub async fn git_worktree_apply(
         i += 1; // skip \0
 
         if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
-            // skip the old path
+            let old_start = i;
             while i < stdout.len() && stdout[i] != 0 {
                 i += 1;
             }
-            i += 1;
+            let old_path_bytes = &stdout[old_start..i];
+            let old_file_path_relative = String::from_utf8_lossy(old_path_bytes).into_owned();
+            i += 1; // skip \0
+
+            let old_dest_file = repo_path.join(&old_file_path_relative);
+            if old_dest_file.exists() {
+                let _ = std::fs::remove_file(&old_dest_file);
+            }
         }
 
         let src_file = worktree_dir.join(&file_path_relative);
