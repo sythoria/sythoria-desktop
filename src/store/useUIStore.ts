@@ -190,7 +190,7 @@ function isNewerVersion(current: string, latest: string): boolean {
 }
 
 const safeLocalStorage =
-  typeof window !== "undefined" && window.localStorage
+  typeof window !== "undefined" && window.localStorage && typeof window.localStorage.getItem === "function"
     ? window.localStorage
     : {
         getItem: () => null,
