@@ -20,6 +20,7 @@ import {
   FolderOpen,
   Settings,
   Mic,
+  Bot,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useWhisperStore } from "../store/useWhisperStore";
@@ -37,6 +38,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { estimateConversationTokens } from "../utils/tokens";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
+import { Modal } from "./ui/Modal";
 import { useTranslation } from "../utils/i18n";
 
 interface InputBarProps {
@@ -103,6 +105,10 @@ export default memo(function InputBar({
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const activeProject = projects.find((p) => p.id === activeProjectId);
+
+  const [subagentModalOpen, setSubagentModalOpen] = useState(false);
+  const [subagentRole, setSubagentRole] = useState("Code Researcher");
+  const [subagentPrompt, setSubagentPrompt] = useState("");
 
   const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
     useAttachments();
@@ -814,7 +820,17 @@ export default memo(function InputBar({
                     >
                       <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
                       <span>{t("chat.webSearch") || "Web Search"}</span>
-                      {isSearchEnabled && <Check size={14} className="text-text-primary ml-auto" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPlusOpen(false);
+                        setSubagentModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      role="menuitem"
+                    >
+                      <Bot size={15} className="text-text-muted" />
+                      <span>Invoke Subagent</span>
                     </button>
                     {connectedMcpServers.length > 0 && (
                       <>
@@ -1381,6 +1397,72 @@ export default memo(function InputBar({
           activeIndex={previewImageIndex}
           onChangeActiveIndex={(idx) => setPreviewImageIndex(idx)}
         />
+      )}
+
+      {subagentModalOpen && (
+        <Modal
+          isOpen={subagentModalOpen}
+          onClose={() => setSubagentModalOpen(false)}
+          title="Invoke Background Subagent"
+          maxWidth="max-w-md"
+        >
+          <div className="flex flex-col gap-4 mt-2">
+            <p className="text-xs text-text-muted">
+              Spawn an autonomous subagent executing in the background. You can monitor its progress in real-time or
+              click on it to switch view and interact with it.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="subagent-role" className="text-xs font-semibold text-text-secondary">
+                Subagent Role
+              </label>
+              <input
+                id="subagent-role"
+                type="text"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-border/80 focus:outline-none focus:border-accent text-text-primary placeholder:text-text-muted/50"
+                placeholder="e.g. Code Researcher, Security Auditor"
+                value={subagentRole}
+                onChange={(e) => setSubagentRole(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="subagent-prompt" className="text-xs font-semibold text-text-secondary">
+                Task Description / Prompt
+              </label>
+              <textarea
+                id="subagent-prompt"
+                rows={4}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-border/80 focus:outline-none focus:border-accent text-text-primary placeholder:text-text-muted/50 resize-none"
+                placeholder="Describe the task in detail..."
+                value={subagentPrompt}
+                onChange={(e) => setSubagentPrompt(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                onClick={() => setSubagentModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium rounded-lg hover:bg-hover text-text-secondary transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!subagentRole.trim() || !subagentPrompt.trim()) return;
+                  if (activeConversationId) {
+                    useChatStore
+                      .getState()
+                      .invokeSubagentManual(activeConversationId, subagentRole.trim(), subagentPrompt.trim());
+                  }
+                  setSubagentModalOpen(false);
+                  setSubagentPrompt("");
+                }}
+                disabled={!subagentRole.trim() || !subagentPrompt.trim()}
+                className="px-4 py-2 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                Invoke Subagent
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
