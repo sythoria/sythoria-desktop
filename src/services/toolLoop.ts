@@ -611,9 +611,9 @@ export async function sendWithToolLoop(
 ) {
   set((state) => ({
     isStreaming: true,
-    generationState: "thinking" as GenerationState,
-    generationLabel: "Thinking",
-    generationByConversation: setConversationGeneration(state, convId, "thinking" as GenerationState, "Thinking"),
+    generationState: "loading" as GenerationState,
+    generationLabel: "Loading",
+    generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
   }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
@@ -736,13 +736,13 @@ export async function sendWithToolLoop(
       });
       if (step > 0) {
         set((state) => ({
-          generationState: "thinking" as GenerationState,
-          generationLabel: "Thinking (continued)",
+          generationState: "loading" as GenerationState,
+          generationLabel: "Loading (continued)",
           generationByConversation: setConversationGeneration(
             state,
             convId,
-            "thinking" as GenerationState,
-            "Thinking (continued)",
+            "loading" as GenerationState,
+            "Loading (continued)",
           ),
         }));
       }
@@ -765,6 +765,7 @@ export async function sendWithToolLoop(
       }
 
       const response: ToolCallResponse = JSON.parse(raw);
+
       const choice = response.choices?.[0];
       if (!choice) break;
 
@@ -847,7 +848,7 @@ export async function sendWithToolLoop(
         }));
 
         // Determine general generationState and label for this step
-        let stepState: GenerationState = "thinking";
+        let stepState: GenerationState = "loading";
         if (toolCallDataList.some((td) => td.fnName === "unknown" && td.rawName.includes("__") && useMcp)) {
           stepState = "mcp_executing";
         } else if (toolCallDataList.some((td) => td.fnName === "search_query")) {

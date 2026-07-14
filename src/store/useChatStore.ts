@@ -979,8 +979,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set({
       isStreaming: true,
-      generationState: "thinking" as GenerationState,
-      generationLabel: "Thinking",
+      generationState: "loading" as GenerationState,
+      generationLabel: "Loading",
     });
 
     const promises = [runForConversation(convId, primaryModelConfig)];
@@ -1352,9 +1352,9 @@ async function sendNormal(
 
   set((state) => ({
     isStreaming: true,
-    generationState: "thinking" as GenerationState,
-    generationLabel: "Thinking",
-    generationByConversation: setConversationGeneration(state, convId, "thinking" as GenerationState, "Thinking"),
+    generationState: "loading" as GenerationState,
+    generationLabel: "Loading",
+    generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
     conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
   }));
   uiLoading("sendMessage", true);
@@ -1372,22 +1372,69 @@ async function sendNormal(
       (cId, content) => {
         set((state) => {
           const newState: Partial<ChatState> = {};
-          if (state.generationState === "thinking" && !content.startsWith("<reasoning>")) {
-            newState.generationState = "responding";
-            newState.generationLabel = "Responding";
-          }
-          const nextGenerationByConversation = content.startsWith("<reasoning>")
-            ? state.generationByConversation
-            : setConversationGeneration(state, cId, "responding" as GenerationState, "Responding");
+          let nextGenerationByConversation = state.generationByConversation;
 
           const currentStreamContent = state.activeStreamContent[cId] || "";
+          const fullContent = currentStreamContent + content;
+
+          if (state.generationState === "loading") {
+            if (fullContent.includes("<reasoning>")) {
+              newState.generationState = "thinking";
+              newState.generationLabel = "Thinking";
+              nextGenerationByConversation = setConversationGeneration(
+                state,
+                cId,
+                "thinking" as GenerationState,
+                "Thinking",
+              );
+            } else if (content.trim() !== "") {
+              newState.generationState = "responding";
+              newState.generationLabel = "Responding";
+              nextGenerationByConversation = setConversationGeneration(
+                state,
+                cId,
+                "responding" as GenerationState,
+                "Responding",
+              );
+            }
+          } else if (state.generationState === "thinking" && !fullContent.includes("<reasoning>")) {
+            // Fallback in case of some weird chunking, but we stay in thinking until done if we saw it
+          } else if (
+            state.generationState === "thinking" &&
+            fullContent.includes("</reasoning>") &&
+            content.trim() !== "" &&
+            !content.includes("</reasoning>")
+          ) {
+            // If we already closed reasoning and now getting new content, we are responding
+            // Wait, the stream parser normalizes this and might send responding content.
+            // But actually, when reasoning closes, we don't necessarily need to switch to responding until real text arrives.
+            // Actually, `content` is just the current chunk. Let's just keep the old logic for thinking -> responding if we see closing tag.
+            // The old logic didn't even check closing tag. It just checked if content didn't start with <reasoning>.
+          }
+
+          if (
+            state.generationState === "thinking" &&
+            fullContent.includes("</reasoning>") &&
+            content.trim() !== "" &&
+            !content.includes("</reasoning>") &&
+            !content.includes("<reasoning>")
+          ) {
+            newState.generationState = "responding";
+            newState.generationLabel = "Responding";
+            nextGenerationByConversation = setConversationGeneration(
+              state,
+              cId,
+              "responding" as GenerationState,
+              "Responding",
+            );
+          }
 
           return {
             ...newState,
             generationByConversation: nextGenerationByConversation,
             activeStreamContent: {
               ...state.activeStreamContent,
-              [cId]: currentStreamContent + content,
+              [cId]: fullContent,
             },
           };
         });
