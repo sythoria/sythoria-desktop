@@ -33,6 +33,9 @@ import {
   GitBranch,
   Trash2,
   Ghost,
+  ArrowRight,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -1158,6 +1161,89 @@ function parseQuestionBlock(content: string): ParsedQuestion | null {
   return { id, title, options, cleanedContent };
 }
 
+function SystemNotificationBubble({ message }: { message: Message }) {
+  const content = message.content;
+
+  const matchSuccess = content.match(
+    /Subagent\s+'([^']+)'\s+\(ID:\s*([a-zA-Z0-9]+)\)\s+has finished its task\.\s*Final response:([\s\S]*)/i,
+  );
+  const matchFailure = content.match(/Subagent\s+'([^']+)'\s+\(ID:\s*([a-zA-Z0-9]+)\)\s+failed with error:([\s\S]*)/i);
+
+  if (!matchSuccess && !matchFailure) {
+    return (
+      <div className="flex flex-col gap-2 my-4 w-full">
+        <div className="flex items-center gap-1.5 text-text-muted select-none text-xs font-semibold uppercase tracking-wider">
+          <Terminal size={14} className="shrink-0" />
+          <span>System Notification</span>
+        </div>
+        <div className="border border-border/40 rounded-2xl bg-surface/50 p-4 text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  const isSuccess = !!matchSuccess;
+  const role = isSuccess ? matchSuccess[1] : matchFailure![1];
+  const subagentId = isSuccess ? matchSuccess[2] : matchFailure![2];
+  const bodyContent = (isSuccess ? matchSuccess[3] : matchFailure![3]).trim();
+
+  const handleOpenChat = () => {
+    useChatStore.getState().setActiveId(subagentId);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 my-5 w-full">
+      <div className="flex items-center justify-between gap-4 text-xs text-text-muted select-none">
+        <div className="flex items-center gap-1.5 font-semibold uppercase tracking-wider">
+          {isSuccess ? (
+            <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />
+          ) : (
+            <AlertTriangle size={14} className="shrink-0 text-red-500" />
+          )}
+          <span>{isSuccess ? "Subagent Completed" : "Subagent Failed"}</span>
+        </div>
+        <button
+          onClick={handleOpenChat}
+          className="flex items-center gap-1 text-accent hover:text-accent/80 hover:underline transition-colors font-medium cursor-pointer"
+        >
+          <span>Open Subagent Chat</span>
+          <ArrowRight size={12} />
+        </button>
+      </div>
+
+      <div
+        className={`border rounded-2xl p-5 shadow-sm ${
+          isSuccess ? "border-border/50 bg-surface/40" : "border-red-500/20 bg-red-500/5"
+        }`}
+      >
+        <div className="text-xs font-semibold text-text-secondary mb-3 pb-2 border-b border-border/30 flex justify-between items-center">
+          <span>
+            {role} ({subagentId})
+          </span>
+          {isSuccess ? (
+            <span className="text-[10px] text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium">
+              DONE
+            </span>
+          ) : (
+            <span className="text-[10px] text-red-600 bg-red-500/10 px-2 py-0.5 rounded-full font-medium">ERROR</span>
+          )}
+        </div>
+
+        <div
+          className={
+            isSuccess
+              ? "markdown-body text-sm text-text-primary"
+              : "text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap"
+          }
+        >
+          {isSuccess ? <MessageContent content={bodyContent} isStreaming={false} /> : bodyContent}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
@@ -1201,6 +1287,9 @@ const MessageBubble = memo(function MessageBubble({
   }
 
   if (isUser) {
+    if (message.content.startsWith("[System Notification]")) {
+      return <SystemNotificationBubble message={message} />;
+    }
     const hasAttachments = message.attachments && message.attachments.length > 0;
     return (
       <motion.div
