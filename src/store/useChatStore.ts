@@ -179,6 +179,7 @@ interface ChatState {
   activeStreamContent: Record<string, string>;
   activeStreamThinkingStart: Record<string, number>;
   activeStreamThinkingEnd: Record<string, number>;
+  activeStreamStartTime: Record<string, number>;
 
   setCompareIds: (ids: string[]) => void;
   setIsCompareMode: (val: boolean) => void;
@@ -244,6 +245,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeStreamContent: {},
   activeStreamThinkingStart: {},
   activeStreamThinkingEnd: {},
+  activeStreamStartTime: {},
 
   setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
@@ -1044,6 +1046,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: convs,
         activeStreamThinkingStart: {},
         activeStreamThinkingEnd: {},
+        activeStreamStartTime: {},
       };
     });
     uiLoading("sendMessage", false);
@@ -1384,6 +1387,8 @@ async function sendNormal(
     delete nextStart[convId];
     const nextEnd = { ...state.activeStreamThinkingEnd };
     delete nextEnd[convId];
+    const nextStreamStartTime = { ...state.activeStreamStartTime };
+    delete nextStreamStartTime[convId];
     return {
       isStreaming: true,
       generationState: "loading" as GenerationState,
@@ -1392,6 +1397,7 @@ async function sendNormal(
       conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
       activeStreamThinkingStart: nextStart,
       activeStreamThinkingEnd: nextEnd,
+      activeStreamStartTime: nextStreamStartTime,
     };
   });
   uiLoading("sendMessage", true);
@@ -1417,6 +1423,12 @@ async function sendNormal(
           // Track thinking start and end timestamps
           const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
           const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+
+          // Track stream start timestamp when we get the first chunk
+          const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
+          if (!nextActiveStreamStartTime[cId]) {
+            nextActiveStreamStartTime[cId] = Date.now();
+          }
 
           if (fullContent.includes("<reasoning>") && !nextActiveStreamThinkingStart[cId]) {
             nextActiveStreamThinkingStart[cId] = Date.now();
@@ -1486,6 +1498,7 @@ async function sendNormal(
             },
             activeStreamThinkingStart: nextActiveStreamThinkingStart,
             activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
+            activeStreamStartTime: nextActiveStreamStartTime,
           };
         });
       },
@@ -1525,12 +1538,15 @@ async function sendNormal(
           delete nextStart[cId];
           const nextEnd = { ...state.activeStreamThinkingEnd };
           delete nextEnd[cId];
+          const nextStreamStartTime = { ...state.activeStreamStartTime };
+          delete nextStreamStartTime[cId];
 
           return {
             conversations,
             activeStreamContent: nextActiveStreamContent,
             activeStreamThinkingStart: nextStart,
             activeStreamThinkingEnd: nextEnd,
+            activeStreamStartTime: nextStreamStartTime,
             isStreaming: stillStreaming,
             generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
             generationLabel: stillStreaming ? state.generationLabel : "",
@@ -1589,11 +1605,14 @@ async function sendNormal(
       delete nextStart[convId];
       const nextEnd = { ...state.activeStreamThinkingEnd };
       delete nextEnd[convId];
+      const nextStreamStartTime = { ...state.activeStreamStartTime };
+      delete nextStreamStartTime[convId];
 
       return {
         conversations: updatedConvs,
         activeStreamThinkingStart: nextStart,
         activeStreamThinkingEnd: nextEnd,
+        activeStreamStartTime: nextStreamStartTime,
         ...(streamStillActive
           ? {
               isStreaming: updatedConvs.some((c) => c.messages.some((m) => m.isStreaming)),
