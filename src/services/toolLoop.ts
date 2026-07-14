@@ -1228,10 +1228,18 @@ export async function sendWithToolLoop(
                   });
                   break;
                 case "project_git_status":
-                  resultContent = JSON.stringify(await invoke("git_get_status", { projectId: project.id }));
+                  resultContent = JSON.stringify(
+                    await invoke("git_get_status", {
+                      projectId: project.id,
+                      worktreePath: conv?.pendingWorktree?.path || null,
+                    }),
+                  );
                   break;
                 case "project_git_diff":
-                  resultContent = await invoke<string>("git_diff_changes", { projectId: project.id });
+                  resultContent = await invoke<string>("git_diff_changes", {
+                    projectId: project.id,
+                    worktreePath: conv?.pendingWorktree?.path || null,
+                  });
                   break;
                 case "project_git_commit":
                   if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
@@ -1242,6 +1250,7 @@ export async function sendWithToolLoop(
                     authorName: null,
                     authorEmail: null,
                     bypassHooks: false,
+                    worktreePath: conv?.pendingWorktree?.path || null,
                   });
                   break;
               }
@@ -1410,10 +1419,13 @@ export async function sendWithToolLoop(
         };
 
         set((state) => {
-          const conversations = updateConversationMessages(state.conversations, convId, (msgs) => [
+          let conversations = updateConversationMessages(state.conversations, convId, (msgs) => [
             ...msgs,
             assistantMsg,
           ]);
+          conversations = conversations.map((c) =>
+            c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c,
+          );
           const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
           const stillStreaming = Object.keys(generationByConversation).length > 0;
           return {
@@ -1473,7 +1485,8 @@ export async function sendWithToolLoop(
     };
 
     set((state) => {
-      const conversations = updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]);
+      let conversations = updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]);
+      conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c));
       const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
       const stillStreaming = Object.keys(generationByConversation).length > 0;
       return {
@@ -1492,8 +1505,10 @@ export async function sendWithToolLoop(
     const parsed = parseApiError(err);
     set((state) => {
       const generationLabel = `Generation failed: ${parsed.message}`;
+      let conversations = setAssistantError(state.conversations, convId, err);
+      conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "error" } : c));
       return {
-        conversations: setAssistantError(state.conversations, convId, err),
+        conversations,
         isStreaming: Object.keys(state.generationByConversation).some((id) => id !== convId),
         generationState: "error" as GenerationState,
         generationLabel,
