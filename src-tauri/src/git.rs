@@ -21,6 +21,7 @@ fn get_and_validate_git_project(
     state: &crate::project::ProjectRegistry,
     project_id: &str,
     write_required: bool,
+    worktree_path: Option<&str>,
 ) -> Result<PathBuf, AppError> {
     // 1. Validate active project ID
     {
@@ -49,7 +50,9 @@ fn get_and_validate_git_project(
         .clone();
 
     // Check path override
-    {
+    if let Some(wt_path) = worktree_path {
+        project.path = wt_path.to_string();
+    } else {
         let overrides_guard = state
             .project_path_overrides
             .lock()
@@ -92,8 +95,9 @@ pub async fn git_detect_repo(start_path: String) -> Result<Option<String>, AppEr
 pub async fn git_get_status(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
+    worktree_path: Option<String>,
 ) -> Result<GitStatus, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, false)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref())?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     if !repo_path.exists() {
@@ -217,8 +221,9 @@ pub async fn git_create_commit(
     author_name: Option<String>,
     author_email: Option<String>,
     bypass_hooks: bool,
+    worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref())?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Stage files
@@ -301,7 +306,7 @@ pub async fn git_undo_last_commit(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // Require native confirmation dialog for destructive action
@@ -346,7 +351,7 @@ pub async fn git_checkout_branch(
     project_id: String,
     branch: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -372,8 +377,9 @@ pub async fn git_checkout_branch(
 pub async fn git_diff_changes(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
+    worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, false)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref())?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -419,7 +425,7 @@ pub async fn git_worktree_create(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
 ) -> Result<(String, String), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Generate unique branch name and worktree path
@@ -460,7 +466,7 @@ pub async fn git_worktree_apply(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let worktree_dir = std::path::Path::new(&worktree_path);
@@ -539,7 +545,7 @@ pub async fn git_worktree_discard(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // Clean up worktree and delete temp branch
