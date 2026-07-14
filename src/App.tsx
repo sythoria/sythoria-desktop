@@ -13,6 +13,8 @@ import {
   Link,
   Maximize2,
   Minimize2,
+  ArrowLeft,
+  Ghost,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
@@ -136,6 +138,7 @@ function App() {
     init,
     setActiveId,
     newChat,
+    newTemporaryChat,
     deleteChat,
     sendMessage,
     stopStreaming,
@@ -151,6 +154,7 @@ function App() {
       init: s.init,
       setActiveId: s.setActiveId,
       newChat: s.newChat,
+      newTemporaryChat: s.newTemporaryChat,
       deleteChat: s.deleteChat,
       sendMessage: s.sendMessage,
       stopStreaming: s.stopStreaming,
@@ -292,6 +296,12 @@ function App() {
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
   );
+  const parentConversation = useMemo(() => {
+    if (activeConversation?.isSubagent && activeConversation.parentId) {
+      return conversations.find((c) => c.id === activeConversation.parentId) ?? null;
+    }
+    return null;
+  }, [conversations, activeConversation]);
   const messages = activeConversation?.messages ?? [];
   const primaryGeneration = activeId ? generationByConversation[activeId] : null;
 
@@ -341,6 +351,14 @@ function App() {
     [activeId, conversations, compareIds],
   );
 
+  const handleToggleTemporaryChat = useCallback(() => {
+    if (activeConversation?.isTemporary) {
+      deleteChat(activeConversation.id);
+    } else {
+      newTemporaryChat();
+    }
+  }, [activeConversation, deleteChat, newTemporaryChat]);
+
   const handleToggleCompareMode = useCallback(() => {
     const nextCompareMode = !isCompareMode;
     setIsCompareMode(nextCompareMode);
@@ -378,6 +396,21 @@ function App() {
       }
     } else {
       if (compareIds.length > 0) {
+        compareIds.forEach((cId) => {
+          const conv = conversations.find((c) => c.id === cId);
+          if (conv?.pendingWorktree && conv.projectId) {
+            const projectId = conv.projectId;
+            const worktreePath = conv.pendingWorktree.path;
+            const branchName = conv.pendingWorktree.branch;
+            import("@tauri-apps/api/core").then(({ invoke }) => {
+              invoke("git_worktree_discard", {
+                projectId,
+                worktreePath,
+                branchName,
+              }).catch((err) => console.error("Failed to discard worktree on compare disable:", err));
+            });
+          }
+        });
         useChatStore.setState({
           conversations: conversations.filter((c) => !compareIds.includes(c.id)),
           compareIds: [],
@@ -401,6 +434,7 @@ function App() {
   const handleScrollSync = useCallback(
     (cId: string, scrollTop: number, ratio: number) => {
       if (!syncScrolls) return;
+      if (isStreaming) return; // Prevent scroll fighting/oscillations during streaming
       if (activeScrollSourceRef.current && activeScrollSourceRef.current !== cId) return;
 
       activeScrollSourceRef.current = cId;
@@ -435,7 +469,7 @@ function App() {
         activeScrollSourceRef.current = null;
       }, 120);
     },
-    [syncScrolls, activeId, compareIds, primaryVirtuosoRef],
+    [syncScrolls, activeId, compareIds, primaryVirtuosoRef, isStreaming],
   );
 
   // Synchronize active project when active conversation changes
@@ -457,7 +491,7 @@ function App() {
       }
       useProjectStore.getState().setWorktree(null, null);
     }
-  }, [activeId, activeConversation?.projectId, activeProjectId, setActiveProject, activeConversation?.pendingWorktree]);
+  }, [activeConversation, activeProjectId, setActiveProject]);
 
   const primaryTracking = useScrollTracking(activeId, messages.length, primaryIsAtBottom, isStreaming);
 
@@ -920,16 +954,12 @@ function App() {
     }));
   }, []);
 
-  const handleCompareClose = useCallback((cId: string) => {
-    useChatStore.setState((state) => {
-      const nextCompareIds = state.compareIds.filter((id) => id !== cId);
-      return {
-        conversations: state.conversations.filter((conv) => conv.id !== cId),
-        compareIds: nextCompareIds,
-        isCompareMode: nextCompareIds.length > 0,
-      };
-    });
-  }, []);
+  const handleCompareClose = useCallback(
+    (cId: string) => {
+      deleteChat(cId);
+    },
+    [deleteChat],
+  );
 
   const handleCompareRetry = useCallback(
     (cId: string) => {
@@ -1098,6 +1128,18 @@ function App() {
                   className="shrink-0 flex items-center justify-between px-4 py-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 pt-6"
                   data-tauri-drag-region
                 >
+                  <div className="flex items-center gap-2 pl-12 md:pl-28 z-20">
+                    {activeConversation?.isSubagent && activeConversation.parentId && (
+                      <button
+                        onClick={() => setActiveId(activeConversation.parentId!)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-accent-soft/50 hover:bg-accent-soft/80 text-text-primary text-xs transition-colors font-medium border border-border/30 cursor-pointer shadow-sm"
+                        title={`Return to: ${parentConversation?.title || "Parent Chat"}`}
+                      >
+                        <ArrowLeft size={14} className="text-accent" />
+                        <span>Parent Chat</span>
+                      </button>
+                    )}
+                  </div>
                   <div className="absolute left-1/2 -translate-x-1/2">
                     <motion.h2
                       className="text-sm font-medium text-text-secondary"
@@ -1200,6 +1242,18 @@ function App() {
                         </div>
                       </>
                     )}
+                    <button
+                      onClick={handleToggleTemporaryChat}
+                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                        activeConversation?.isTemporary
+                          ? "text-accent bg-accent/10 hover:bg-accent/15"
+                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                      }`}
+                      aria-label={activeConversation?.isTemporary ? "Disable temporary chat" : "Enable temporary chat"}
+                      title={activeConversation?.isTemporary ? "Disable temporary chat" : "Enable temporary chat"}
+                    >
+                      <Ghost size={16} className={activeConversation?.isTemporary ? "animate-pulse" : ""} />
+                    </button>
                     <button
                       onClick={handleToggleCompareMode}
                       className={`p-1.5 rounded-md transition-colors ${
