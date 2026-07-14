@@ -962,8 +962,7 @@ function ToolCallBubble({ message }: { message: Message }) {
 }
 
 function ReasoningBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
-  const [expanded, setExpanded] = useState(!!isStreaming);
-  const hasContent = content.length > 0;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <motion.div
@@ -986,7 +985,7 @@ function ReasoningBubble({ content, isStreaming }: { content: string; isStreamin
             <span>{isStreaming ? "Thinking" : "Thought"}</span>
             <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           </motion.button>
-          {!expanded && isStreaming && !hasContent && (
+          {!expanded && isStreaming && (
             <span className="generating-dots mt-0.5">
               <span />
               <span />
