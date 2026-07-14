@@ -32,6 +32,7 @@ import {
   Eye,
   GitBranch,
   Trash2,
+  Ghost,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -663,16 +664,33 @@ function SubagentLiveCard({ message }: { message: Message }) {
                     <Loader2 size={10} className="animate-spin" />
                     RUNNING
                   </span>
+                ) : conv.status === "error" ? (
+                  <span className="text-[10px] text-red-500 font-medium px-1.5 py-0.5 bg-red-500/10 rounded-full shrink-0">
+                    ERROR
+                  </span>
                 ) : (
                   <span className="text-[10px] text-emerald-500 font-medium px-1.5 py-0.5 bg-emerald-500/10 rounded-full shrink-0">
                     DONE
                   </span>
                 )}
               </div>
-              <ChevronDown
-                size={14}
-                className={`text-text-muted transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`}
-              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useChatStore.getState().setActiveId(conv.id);
+                  }}
+                  className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Open subagent chat full screen"
+                >
+                  <ExternalLink size={10} />
+                  Open Chat
+                </button>
+                <ChevronDown
+                  size={14}
+                  className={`text-text-muted transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`}
+                />
+              </div>
             </button>
             <AnimatePresence initial={false}>
               {isExpanded && (
@@ -1122,7 +1140,7 @@ const MessageBubble = memo(function MessageBubble({
         animate="visible"
         transition={springs.gentle}
       >
-        <div className="max-w-[75%] flex flex-col items-end">
+        <div className="max-w-[75%] flex flex-col items-end min-w-0">
           {hasAttachments && (
             <AttachmentList attachments={message.attachments!} onImageClick={(idx) => setPreviewImageIndex(idx)} />
           )}
@@ -1163,7 +1181,7 @@ const MessageBubble = memo(function MessageBubble({
       animate="visible"
       transition={springs.gentle}
     >
-      <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full`}>
+      <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
         {hasOpenReasoning && <ReasoningBubble content={reasoningContent} isStreaming={isStreaming} />}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
           <motion.div
@@ -1251,6 +1269,7 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
 
   if (messages.length === 0) {
     return (
@@ -1282,7 +1301,7 @@ function ChatAreaBase({
 
   if (messages.length >= VIRTUALIZED_THRESHOLD) {
     return (
-      <div className="flex-1 min-h-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
+      <div className="flex-1 min-h-0 min-w-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
         <Virtuoso
           ref={virtuosoRef}
           data={messages}
@@ -1313,6 +1332,21 @@ function ChatAreaBase({
             </div>
           )}
           components={{
+            Header: () =>
+              conversation?.isTemporary ? (
+                <div className="max-w-3xl mx-auto w-full px-6 pt-8 pb-2">
+                  <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-accent-soft text-xs leading-relaxed select-none">
+                    <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
+                    <div>
+                      <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
+                      This conversation won't be saved to history or used for training/persistence. It will be discarded
+                      once you close the app or switch chats.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-4" />
+              ),
             Footer: () => (
               <AnimatePresence>
                 {pendingWorktree && conversationId && (
@@ -1379,6 +1413,7 @@ function NonVirtualizedChatArea({
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
 }) {
+  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   const fallbackRef = useRef<HTMLDivElement | null>(null);
   const activeRef = scrollContainerRef || fallbackRef;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1438,12 +1473,22 @@ function NonVirtualizedChatArea({
     <div
       ref={activeRef}
       data-chat-scroll
-      className="flex-1 min-h-0 overflow-y-auto relative"
+      className="flex-1 min-h-0 min-w-0 overflow-y-auto relative"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
       <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-6">
+        {conversation?.isTemporary && (
+          <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-accent-soft text-xs leading-relaxed select-none mb-4 animate-fade-in">
+            <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
+            <div>
+              <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
+              This conversation won't be saved to history or used for training/persistence. It will be discarded once
+              you close the app or switch chats.
+            </div>
+          </div>
+        )}
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
@@ -1491,6 +1536,7 @@ function PendingWorktreeCard({
         const { invoke } = await import("@tauri-apps/api/core");
         const status = await invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
           projectId: useProjectStore.getState().activeProjectId || "",
+          worktreePath: pendingWorktree.path,
         });
         const files = [...(status.unstagedFiles || []), ...(status.stagedFiles || [])];
         setDiffFiles(files);
