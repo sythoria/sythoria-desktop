@@ -1532,5 +1532,35 @@ export async function sendWithToolLoop(
       action: parsed.action,
       details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
     });
+
+    const updatedConv = get().conversations.find((c) => c.id === convId);
+    if (updatedConv?.isSubagent && updatedConv.parentId) {
+      const parentMsg: Message = {
+        id: generateId(),
+        role: "user",
+        content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) failed with error:\n\n${parsed.message}`,
+        timestamp: new Date(),
+      };
+      useChatStore.setState((s) => ({
+        conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
+          ...msgs,
+          parentMsg,
+        ]),
+      }));
+      sendWithToolLoop(
+        updatedConv.parentId,
+        modelConfig,
+        temperature,
+        searchConfig,
+        searchApiKey,
+        mcpTools,
+        mcpCallTool,
+        set,
+        get,
+        performSearch,
+        fetchUrlContent,
+        project,
+      ).catch((e) => console.error("Parent loop error on subagent failure:", e));
+    }
   }
 }
