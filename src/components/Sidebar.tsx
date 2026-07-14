@@ -260,7 +260,10 @@ export default memo(function Sidebar({
   const searchRef = useRef<HTMLInputElement>(null);
 
   const nonEmptyConversations = useMemo(
-    () => conversations.filter((c) => c.messages.length > 0 && !c.id.startsWith("compare-") && !c.isSubagent),
+    () =>
+      conversations.filter(
+        (c) => c.messages.length > 0 && !c.id.startsWith("compare-") && !c.isSubagent && !c.isTemporary,
+      ),
     [conversations],
   );
 
