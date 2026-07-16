@@ -31,6 +31,8 @@ export interface ToolLoopSlice {
   generationByConversation: Record<string, { state: GenerationState; label: string }>;
 }
 
+const pendingSubagentMessages = new Map<string, Message[]>();
+
 function setConversationGeneration(
   state: ToolLoopSlice,
   convId: string,
@@ -622,9 +624,11 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
   const parsed = parseApiError(err);
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
-    const last = updated[updated.length - 1];
-    if (last && last.role === "assistant") {
-      updated[updated.length - 1] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
+    const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+    if (lastAssistantIdx >= 0) {
+      const idx = updated.length - 1 - lastAssistantIdx;
+      const last = updated[idx];
+      updated[idx] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
     } else {
       updated.push({
         id: generateId(),
@@ -662,6 +666,7 @@ export async function sendWithToolLoop(
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
 
+  let wasAborted = false;
   const collectedSources: { title: string; url: string }[] = [];
 
   const streamDoneResolves = new Map<string, () => void>();
@@ -723,9 +728,11 @@ export async function sendWithToolLoop(
           const conversations = state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
+            const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+            if (lastAssistantIdx >= 0) {
+              const idx = updated.length - 1 - lastAssistantIdx;
+              const last = updated[idx];
+              updated[idx] = {
                 ...last,
                 content: last.content + streamContent,
                 isStreaming: false,
@@ -852,12 +859,14 @@ export async function sendWithToolLoop(
     for (let step = 0; step < maxToolSteps; step++) {
       if (!get().conversations.some((c) => c.id === convId)) {
         logInfo("chat", "Tool loop aborted: conversation was deleted");
+        wasAborted = true;
         return;
       }
       if (!get().isStreaming) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
         setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
+        wasAborted = true;
         return;
       }
 
@@ -917,6 +926,7 @@ export async function sendWithToolLoop(
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
         setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
+        wasAborted = true;
         return;
       }
 
@@ -937,10 +947,12 @@ export async function sendWithToolLoop(
           set((state) => ({
             conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
               const updated = [...msgs];
-              const lastIdx = updated.length - 1;
-              if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
+              const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+              if (lastAssistantIdx >= 0) {
+                const idx = updated.length - 1 - lastAssistantIdx;
+                const last = updated[idx];
+                updated[idx] = {
+                  ...last,
                   content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
                   thinkingDuration: stepDuration,
                 };
@@ -1566,6 +1578,7 @@ export async function sendWithToolLoop(
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
           setCancelledStatus(set, convId);
           await useChatStore.getState().persistConversations();
+          wasAborted = true;
           return;
         }
 
@@ -1610,9 +1623,11 @@ export async function sendWithToolLoop(
         set((state) => {
           let conversations = updateConversationMessages(state.conversations, convId, (msgs) => {
             const updated = [...msgs];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
+            const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+            if (lastAssistantIdx >= 0) {
+              const idx = updated.length - 1 - lastAssistantIdx;
+              const last = updated[idx];
+              updated[idx] = {
                 ...last,
                 content: last.content || assistantContent,
                 isStreaming: false,
@@ -1654,14 +1669,18 @@ export async function sendWithToolLoop(
             get().generationByConversation[updatedConv.parentId]?.state &&
             get().generationByConversation[updatedConv.parentId]?.state !== "idle";
 
-          useChatStore.setState((s) => ({
-            conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
-              ...msgs,
-              parentMsg,
-            ]),
-          }));
-
-          if (!parentIsGenerating) {
+          if (parentIsGenerating) {
+            if (!pendingSubagentMessages.has(updatedConv.parentId)) {
+              pendingSubagentMessages.set(updatedConv.parentId, []);
+            }
+            pendingSubagentMessages.get(updatedConv.parentId)!.push(parentMsg);
+          } else {
+            useChatStore.setState((s) => ({
+              conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
+                ...msgs,
+                parentMsg,
+              ]),
+            }));
             useChatStore
               .getState()
               .resumeConversation(updatedConv.parentId)
@@ -1728,29 +1747,46 @@ export async function sendWithToolLoop(
         role: "user",
         content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) failed with error:\n\n${parsed.message}`,
         timestamp: new Date(),
+        isSystem: true,
       };
-      useChatStore.setState((s) => ({
-        conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
-          ...msgs,
-          parentMsg,
-        ]),
-      }));
-      sendWithToolLoop(
-        updatedConv.parentId,
-        modelConfig,
-        temperature,
-        searchConfig,
-        searchApiKey,
-        mcpTools,
-        mcpCallTool,
-        set,
-        get,
-        performSearch,
-        fetchUrlContent,
-        project,
-      ).catch((e) => console.error("Parent loop error on subagent failure:", e));
+
+      const parentIsGenerating =
+        get().generationByConversation[updatedConv.parentId]?.state &&
+        get().generationByConversation[updatedConv.parentId]?.state !== "idle";
+
+      if (parentIsGenerating) {
+        if (!pendingSubagentMessages.has(updatedConv.parentId)) {
+          pendingSubagentMessages.set(updatedConv.parentId, []);
+        }
+        pendingSubagentMessages.get(updatedConv.parentId)!.push(parentMsg);
+      } else {
+        useChatStore.setState((s) => ({
+          conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
+            ...msgs,
+            parentMsg,
+          ]),
+        }));
+        useChatStore
+          .getState()
+          .resumeConversation(updatedConv.parentId)
+          .catch((e) => console.error("Parent auto-resume loop error on failure:", e));
+      }
     }
   } finally {
     cleanupStream?.();
+
+    if (!wasAborted) {
+      const pending = pendingSubagentMessages.get(convId);
+      if (pending && pending.length > 0) {
+        pendingSubagentMessages.delete(convId);
+        useChatStore.setState((s) => ({
+          conversations: updateConversationMessages(s.conversations, convId, (msgs) => [...msgs, ...pending]),
+        }));
+        useChatStore
+          .getState()
+          .resumeConversation(convId)
+          .catch((e) => console.error("Auto-resume loop error:", e));
+      }
+    }
   }
 }
