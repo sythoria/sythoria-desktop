@@ -830,7 +830,6 @@ function App() {
     const unlistens: (() => void)[] = [];
     async function setupMenuListeners() {
       const { listen } = await import("@tauri-apps/api/event");
-      const { uiToast } = await import("./store/helpers");
 
       const un1 = await listen("menu-new-conversation", () => {
         handleNewChat();
@@ -843,7 +842,7 @@ function App() {
         toggleCommandPalette();
       });
       const un4 = await listen("menu-check-updates", () => {
-        uiToast("You are on the latest version", "success");
+        void checkForUpdates(false);
       });
       const un5 = await listen("menu-zoom-in", () => {
         useKeybindStore.getState().zoomIn();
@@ -862,7 +861,7 @@ function App() {
     return () => {
       unlistens.forEach((fn) => fn());
     };
-  }, [handleNewChat, setView, setActiveSection, toggleCommandPalette]);
+  }, [handleNewChat, setView, setActiveSection, checkForUpdates, toggleCommandPalette]);
 
   const handleDeleteChat = useCallback(
     (id: string) => {
