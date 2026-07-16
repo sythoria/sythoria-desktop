@@ -35,6 +35,7 @@ import {
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
+  Users,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -431,7 +432,7 @@ function getNativeToolDisplayInfo(
     return {
       type: "subagent",
       filename: "",
-      IconComponent: () => null,
+      IconComponent: Users,
       colorClass: "text-text-muted",
       label: isCompleted ? "Subagents Finished" : "Waiting for Subagents",
     };
@@ -730,6 +731,7 @@ function SubagentToolCard({
   return (
     <div className="flex flex-col max-w-full">
       <div className="flex items-center gap-1.5 text-text-muted select-none">
+        <Users size={14} className="shrink-0" aria-hidden="true" />
         <span className="text-sm">
           {label}
           {numbered}
@@ -810,7 +812,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
     if (!isCompleted) subagentCount = Math.max(subagentCount, 1);
 
     return (
-      <div className="flex flex-col gap-0.5 mb-1.5">
+      <div className="flex flex-col gap-0.5">
         {Array.from({ length: subagentCount }).map((_, i) => (
           <SubagentToolCard key={i} message={message} subagentIndex={i} subagentCount={subagentCount} />
         ))}
@@ -1580,7 +1582,8 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
-  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));  if (messages.length === 0) {
+  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  if (messages.length === 0) {
     return (
       <motion.div
         className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
