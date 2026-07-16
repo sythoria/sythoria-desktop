@@ -1,14 +1,14 @@
 mod anthropic;
 mod appshots;
+pub mod commands;
 mod git;
 mod mcp;
 pub mod project;
 mod project_tools;
 mod search;
+mod skills;
 mod stream_parser;
 mod ws_handler;
-mod skills;
-pub mod commands;
 
 use futures_util::StreamExt;
 use std::sync::RwLock;
@@ -44,14 +44,18 @@ impl Default for NetworkConfig {
     }
 }
 
-pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> = LazyLock::new(|| RwLock::new(NetworkConfig::default()));
+pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> =
+    LazyLock::new(|| RwLock::new(NetworkConfig::default()));
 
 pub fn get_strict_ssl() -> bool {
     NETWORK_CONFIG.read().map(|c| c.strict_ssl).unwrap_or(true)
 }
 
 pub fn get_blocked_hosts() -> Vec<String> {
-    NETWORK_CONFIG.read().map(|c| c.blocked_hosts.clone()).unwrap_or_else(|_| NetworkConfig::default().blocked_hosts)
+    NETWORK_CONFIG
+        .read()
+        .map(|c| c.blocked_hosts.clone())
+        .unwrap_or_else(|_| NetworkConfig::default().blocked_hosts)
 }
 
 fn init_network_settings(app: &tauri::AppHandle) {
@@ -87,7 +91,10 @@ async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
         .build()
         .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
-    let user_agent = format!("Sythoria/{} (Desktop AI Assistant)", env!("CARGO_PKG_VERSION"));
+    let user_agent = format!(
+        "Sythoria/{} (Desktop AI Assistant)",
+        env!("CARGO_PKG_VERSION")
+    );
     let resp = client
         .get(url)
         .header("User-Agent", &user_agent)
@@ -113,14 +120,9 @@ async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
         .trim()
         .to_string();
 
-    let release_url = release_info["html_url"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let release_url = release_info["html_url"].as_str().unwrap_or("").to_string();
 
-    let release_notes = release_info["body"]
-        .as_str()
-        .map(|s| s.to_string());
+    let release_notes = release_info["body"].as_str().map(|s| s.to_string());
 
     Ok(UpdateCheckResult {
         latest_version: tag_name,
@@ -130,11 +132,11 @@ async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
 }
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
-use tauri::{Manager, Emitter};
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
@@ -249,6 +251,33 @@ fn is_stream_cancelled(stream_id: &str) -> bool {
     cancelled.contains(stream_id)
 }
 
+async fn wait_for_stream_cancelled(stream_id: &str) {
+    while !is_stream_cancelled(stream_id) {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+/// Guarantees that every streaming command releases its cancellation state and
+/// emits one terminal event, including configuration, HTTP, parse, and cancel
+/// failures. Parsers only emit chunks; this guard is the single completion owner.
+struct StreamCompletionGuard {
+    app: tauri::AppHandle,
+    stream_id: String,
+}
+
+impl StreamCompletionGuard {
+    fn new(app: tauri::AppHandle, stream_id: String) -> Self {
+        Self { app, stream_id }
+    }
+}
+
+impl Drop for StreamCompletionGuard {
+    fn drop(&mut self) {
+        clear_stream_cancelled(&self.stream_id);
+        stream_parser::emit_stream_done(&self.app, &self.stream_id);
+    }
+}
+
 #[derive(Debug, thiserror::Error, Serialize)]
 pub enum AppError {
     #[error("Config I/O error: {0}")]
@@ -314,10 +343,12 @@ async fn get_search_api_key(app: &tauri::AppHandle, config_id: &str) -> Result<S
 use commands::config::get_model_config_and_key;
 
 fn truncate_error(body: &str) -> String {
-    if body.len() > 200 {
-        format!("{}...", &body[..200])
+    let mut chars = body.chars();
+    let preview: String = chars.by_ref().take(200).collect();
+    if chars.next().is_some() {
+        format!("{preview}...")
     } else {
-        body.to_string()
+        preview
     }
 }
 
@@ -404,6 +435,8 @@ async fn chat_stream(
     stream_id: String,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
+    clear_stream_cancelled(&stream_id);
+    let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -421,7 +454,6 @@ async fn chat_stream(
             .await;
         }
     }
-    clear_stream_cancelled(&stream_id);
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
@@ -439,7 +471,11 @@ async fn chat_stream(
         request = request.header("Authorization", format!("Bearer {}", api_key));
     }
 
-    let resp = request.send().await?;
+    let mut parser = stream_parser::SseParser::new();
+    let resp = tokio::select! {
+        result = request.send() => result?,
+        _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize()),
+    };
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -453,20 +489,34 @@ async fn chat_stream(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut parser = stream_parser::SseParser::new();
 
-    while let Some(chunk_result) = stream.next().await {
+    loop {
         if is_stream_cancelled(&stream_id) {
-            clear_stream_cancelled(&stream_id);
             return Ok(parser.finalize());
         }
+
+        let chunk_result = tokio::select! {
+            chunk = stream.next() => match chunk {
+                Some(result) => result,
+                None => break,
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                continue;
+            }
+        };
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
         parser.process_lines(&app, &stream_id, |_| {});
+        match parser.terminal() {
+            stream_parser::SseStreamTerminal::Streaming => {}
+            stream_parser::SseStreamTerminal::Complete => break,
+            stream_parser::SseStreamTerminal::Error(message) => {
+                return Err(AppError::StreamError(message.clone()));
+            }
+        }
     }
 
-    clear_stream_cancelled(&stream_id);
     Ok(parser.finalize())
 }
 
@@ -480,6 +530,8 @@ async fn chat_stream_tools(
     stream_id: String,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
+    clear_stream_cancelled(&stream_id);
+    let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -502,7 +554,6 @@ async fn chat_stream_tools(
             .await;
         }
     }
-    clear_stream_cancelled(&stream_id);
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
@@ -526,7 +577,11 @@ async fn chat_stream_tools(
         request = request.header("Authorization", format!("Bearer {}", api_key));
     }
 
-    let resp = request.send().await?;
+    let mut parser = stream_parser::SseParser::new();
+    let resp = tokio::select! {
+        result = request.send() => result?,
+        _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize_tools()),
+    };
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -540,21 +595,34 @@ async fn chat_stream_tools(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut parser = stream_parser::SseParser::new();
 
-    while let Some(chunk_result) = stream.next().await {
+    loop {
         if is_stream_cancelled(&stream_id) {
-            clear_stream_cancelled(&stream_id);
             return Ok(parser.finalize_tools());
         }
 
+        let chunk_result = tokio::select! {
+            chunk = stream.next() => match chunk {
+                Some(result) => result,
+                None => break,
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                continue;
+            }
+        };
+
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(&app, &stream_id, |_chunk_text| {
-        });
+        parser.process_lines(&app, &stream_id, |_chunk_text| {});
+        match parser.terminal() {
+            stream_parser::SseStreamTerminal::Streaming => {}
+            stream_parser::SseStreamTerminal::Complete => break,
+            stream_parser::SseStreamTerminal::Error(message) => {
+                return Err(AppError::StreamError(message.clone()));
+            }
+        }
     }
 
-    clear_stream_cancelled(&stream_id);
     Ok(parser.finalize_tools())
 }
 
@@ -628,10 +696,7 @@ async fn chat_completion_tools(
 }
 
 #[tauri::command]
-async fn check_api(
-    app: tauri::AppHandle,
-    config_id: String,
-) -> Result<bool, AppError> {
+async fn check_api(app: tauri::AppHandle, config_id: String) -> Result<bool, AppError> {
     let (api_url, api_key, _, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -693,8 +758,6 @@ async fn check_ollama() -> Result<Vec<String>, AppError> {
     }
 }
 
-
-
 #[tauri::command]
 async fn web_search(
     provider: String,
@@ -750,7 +813,7 @@ async fn fetch_url_content(
     if let Some(cfg) = config {
         let mut parsed: serde_json::Value = serde_json::from_str(&cfg)
             .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
-        
+
         if let Some(id) = config_id {
             if parsed
                 .get("apiKey")
@@ -763,7 +826,10 @@ async fn fetch_url_content(
                         parsed["apiKey"] = serde_json::Value::String(key);
                     }
                     Err(_) => {
-                        log::warn!("No API key found in secure store for search config '{}'", id);
+                        log::warn!(
+                            "No API key found in secure store for search config '{}'",
+                            id
+                        );
                     }
                 }
             }
@@ -776,7 +842,9 @@ async fn fetch_url_content(
         provider.as_deref(),
         config_json.as_ref(),
         format.as_deref(),
-    ).await.map_err(|e| {
+    )
+    .await
+    .map_err(|e| {
         log::error!("Fetch URL failed for '{}': {}", url, e);
         AppError::from(e)
     })?;
@@ -1006,7 +1074,7 @@ fn update_tray_visibility(app: &tauri::AppHandle) {
         } else {
             false
         };
-        
+
         if TRAY_VISIBLE.load(std::sync::atomic::Ordering::Relaxed) != should_show {
             let _ = tray.set_visible(should_show);
             TRAY_VISIBLE.store(should_show, std::sync::atomic::Ordering::Relaxed);
@@ -1146,7 +1214,9 @@ async fn select_file_and_get_token(
         let size = metadata.len();
 
         if size > 10 * 1024 * 1024 {
-            return Err(AppError::ConfigIo("File size exceeds the 10 MB limit".to_string()));
+            return Err(AppError::ConfigIo(
+                "File size exceeds the 10 MB limit".to_string(),
+            ));
         }
 
         let token = state.register(path_buf);
@@ -1289,10 +1359,16 @@ async fn write_exported_file_by_token(
 
 #[cfg(target_os = "macos")]
 fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{Menu, Submenu, MenuItem, PredefinedMenuItem};
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
     let about = PredefinedMenuItem::about(app, None, None)?;
-    let check_updates = MenuItem::with_id(app, "check_updates", "Check for Updates...", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        "check_updates",
+        "Check for Updates...",
+        true,
+        None::<&str>,
+    )?;
     let services = PredefinedMenuItem::services(app, None)?;
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
@@ -1319,10 +1395,23 @@ fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu:
         ],
     )?;
 
-    let new_chat = MenuItem::with_id(app, "new_conversation", "New Conversation", true, Some("CmdOrCtrl+Shift+O"))?;
-    let create_project = MenuItem::with_id(app, "create_project", "Create Project", true, None::<&str>)?;
-    let cmd_palette = MenuItem::with_id(app, "command_palette", "Command Palette", true, Some("CmdOrCtrl+Shift+P"))?;
-    
+    let new_chat = MenuItem::with_id(
+        app,
+        "new_conversation",
+        "New Conversation",
+        true,
+        Some("CmdOrCtrl+Shift+O"),
+    )?;
+    let create_project =
+        MenuItem::with_id(app, "create_project", "Create Project", true, None::<&str>)?;
+    let cmd_palette = MenuItem::with_id(
+        app,
+        "command_palette",
+        "Command Palette",
+        true,
+        Some("CmdOrCtrl+Shift+P"),
+    )?;
+
     let file_menu = Submenu::with_id_and_items(
         app,
         "file",
@@ -1361,11 +1450,7 @@ fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu:
         "view",
         "View",
         true,
-        &[
-            &zoom_in,
-            &zoom_out,
-            &zoom_reset,
-        ],
+        &[&zoom_in, &zoom_out, &zoom_reset],
     )?;
 
     let minimize = PredefinedMenuItem::minimize(app, None)?;
@@ -1377,11 +1462,7 @@ fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu:
         "window",
         "Window",
         true,
-        &[
-            &minimize,
-            &maximize,
-            &close,
-        ],
+        &[&minimize, &maximize, &close],
     )?;
 
     Menu::with_items(
@@ -1405,42 +1486,40 @@ pub fn run() {
         .manage(project_registry)
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
-        .on_menu_event(|app, event| {
-            match event.id().as_ref() {
-                "check_updates" => {
-                    let _ = app.emit("menu-check-updates", ());
-                }
-                "new_conversation" => {
-                    let _ = app.emit("menu-new-conversation", ());
-                }
-                "create_project" => {
-                    let _ = app.emit("menu-create-project", ());
-                }
-                "command_palette" => {
-                    let _ = app.emit("menu-command-palette", ());
-                }
-                "zoom_in" => {
-                    let _ = app.emit("menu-zoom-in", ());
-                }
-                "zoom_out" => {
-                    let _ = app.emit("menu-zoom-out", ());
-                }
-                "zoom_reset" => {
-                    let _ = app.emit("menu-zoom-reset", ());
-                }
-                "maximize" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        if let Ok(maximized) = window.is_maximized() {
-                            if maximized {
-                                let _ = window.unmaximize();
-                            } else {
-                                let _ = window.maximize();
-                            }
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "check_updates" => {
+                let _ = app.emit("menu-check-updates", ());
+            }
+            "new_conversation" => {
+                let _ = app.emit("menu-new-conversation", ());
+            }
+            "create_project" => {
+                let _ = app.emit("menu-create-project", ());
+            }
+            "command_palette" => {
+                let _ = app.emit("menu-command-palette", ());
+            }
+            "zoom_in" => {
+                let _ = app.emit("menu-zoom-in", ());
+            }
+            "zoom_out" => {
+                let _ = app.emit("menu-zoom-out", ());
+            }
+            "zoom_reset" => {
+                let _ = app.emit("menu-zoom-reset", ());
+            }
+            "maximize" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(maximized) = window.is_maximized() {
+                        if maximized {
+                            let _ = window.unmaximize();
+                        } else {
+                            let _ = window.maximize();
                         }
                     }
                 }
-                _ => {}
             }
+            _ => {}
         })
         .setup(|app| {
             init_network_settings(app.app_handle());
@@ -1453,7 +1532,12 @@ pub fn run() {
                 let _ = app.global_shortcut().register(shortcut);
             }
 
-            let _window = app.get_webview_window("main").ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Main window not found")) as Box<dyn std::error::Error>)?;
+            let _window = app.get_webview_window("main").ok_or_else(|| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Main window not found",
+                )) as Box<dyn std::error::Error>
+            })?;
             let _ = _window.center();
 
             #[cfg(not(target_os = "macos"))]
@@ -1485,7 +1569,16 @@ pub fn run() {
                     .build()?;
 
                 let _tray = tauri::tray::TrayIconBuilder::with_id("main")
-                    .icon(app.default_window_icon().ok_or_else(|| Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Window icon not found")) as Box<dyn std::error::Error>)?.clone())
+                    .icon(
+                        app.default_window_icon()
+                            .ok_or_else(|| {
+                                Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::NotFound,
+                                    "Window icon not found",
+                                )) as Box<dyn std::error::Error>
+                            })?
+                            .clone(),
+                    )
                     .menu(&menu)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "quit" => {
@@ -1713,5 +1806,22 @@ pub fn run() {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::truncate_error;
 
+    #[test]
+    fn error_preview_truncates_on_a_character_boundary() {
+        let body = format!("{}🦀suffix", "a".repeat(199));
+        let preview = truncate_error(&body);
 
+        assert!(preview.starts_with(&"a".repeat(199)));
+        assert!(preview.contains('🦀'));
+        assert!(preview.ends_with("..."));
+    }
+
+    #[test]
+    fn short_error_preview_is_unchanged() {
+        assert_eq!(truncate_error("provider error"), "provider error");
+    }
+}
