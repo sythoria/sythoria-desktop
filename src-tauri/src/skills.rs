@@ -34,9 +34,19 @@ fn parse_frontmatter(content: &str) -> (String, String) {
             for line in frontmatter.lines() {
                 let line = line.trim();
                 if line.starts_with("name:") {
-                    name = line.trim_start_matches("name:").trim().trim_matches('"').trim_matches('\'').to_string();
+                    name = line
+                        .trim_start_matches("name:")
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
                 } else if line.starts_with("description:") {
-                    description = line.trim_start_matches("description:").trim().trim_matches('"').trim_matches('\'').to_string();
+                    description = line
+                        .trim_start_matches("description:")
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
                 }
             }
         }
@@ -45,7 +55,12 @@ fn parse_frontmatter(content: &str) -> (String, String) {
 }
 
 fn build_frontmatter(name: &str, description: &str, body: &str) -> String {
-    format!("---\nname: \"{}\"\ndescription: \"{}\"\n---\n{}", name, description, body.trim_start())
+    format!(
+        "---\nname: \"{}\"\ndescription: \"{}\"\n---\n{}",
+        name,
+        description,
+        body.trim_start()
+    )
 }
 
 #[tauri::command]
@@ -65,7 +80,7 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
             if path.is_dir() {
                 let skill_md_path = path.join("SKILL.md");
                 let skill_md_path_alt = path.join("SKILL.MD"); // Check both cases
-                
+
                 let file_to_read = if skill_md_path.exists() {
                     Some(skill_md_path)
                 } else if skill_md_path_alt.exists() {
@@ -76,7 +91,11 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
 
                 if let Some(md_path) = file_to_read {
                     if let Ok(content) = fs::read_to_string(md_path) {
-                        let id = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let id = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         let (mut name, description) = parse_frontmatter(&content);
                         if name.is_empty() {
                             name = id.clone();
@@ -97,14 +116,20 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
 
 #[tauri::command]
 pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
-    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains("..")
+        || id.contains('/')
+        || id.contains('\\')
+    {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
     let skill_md_path = skill_dir.join("SKILL.md");
     let skill_md_path_alt = skill_dir.join("SKILL.MD");
-    
+
     if skill_md_path.exists() {
         fs::read_to_string(skill_md_path).map_err(|e| e.to_string())
     } else if skill_md_path_alt.exists() {
@@ -115,60 +140,92 @@ pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn create_skill(app: AppHandle, id: String, name: String, description: String, body: String) -> Result<(), String> {
-    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
+pub async fn create_skill(
+    app: AppHandle,
+    id: String,
+    name: String,
+    description: String,
+    body: String,
+) -> Result<(), String> {
+    if id.trim().is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains("..")
+        || id.contains('/')
+        || id.contains('\\')
+    {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
-    
+
     if skill_dir.exists() {
         return Err(format!("Skill with id '{}' already exists", id));
     }
-    
-    fs::create_dir_all(&skill_dir).map_err(|e| format!("Failed to create skill directory: {}", e))?;
-    
+
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+
     let content = build_frontmatter(&name, &description, &body);
     let skill_md_path = skill_dir.join("SKILL.md");
-    
+
     fs::write(skill_md_path, content).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-    
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn update_skill(app: AppHandle, id: String, name: String, description: String, body: String) -> Result<(), String> {
-    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
+pub async fn update_skill(
+    app: AppHandle,
+    id: String,
+    name: String,
+    description: String,
+    body: String,
+) -> Result<(), String> {
+    if id.trim().is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains("..")
+        || id.contains('/')
+        || id.contains('\\')
+    {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
-    
+
     if !skill_dir.exists() {
         return Err(format!("Skill '{}' not found", id));
     }
-    
+
     let content = build_frontmatter(&name, &description, &body);
     let skill_md_path = skill_dir.join("SKILL.md");
-    
+
     fs::write(skill_md_path, content).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-    
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_skill(app: AppHandle, id: String) -> Result<(), String> {
-    if id.trim().is_empty() || id == "." || id == ".." || id.contains("..") || id.contains('/') || id.contains('\\') {
+    if id.trim().is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains("..")
+        || id.contains('/')
+        || id.contains('\\')
+    {
         return Err("Invalid skill ID".to_string());
     }
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
-    
+
     if !skill_dir.exists() {
         return Err(format!("Skill '{}' not found", id));
     }
-    
-    fs::remove_dir_all(skill_dir).map_err(|e| format!("Failed to delete skill directory: {}", e))?;
-    
+
+    fs::remove_dir_all(skill_dir)
+        .map_err(|e| format!("Failed to delete skill directory: {}", e))?;
+
     Ok(())
 }
