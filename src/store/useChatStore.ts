@@ -203,7 +203,7 @@ interface ChatState {
   confirmRename: (newTitle: string) => void;
   sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
   retryLastMessage: (convId: string) => Promise<void>;
-  stopStreaming: () => void;
+  stopStreaming: (convId?: string) => Promise<void>;
   exportChat: (id: string) => void | Promise<void>;
   persistConversations: () => Promise<void>;
   resumeConversation: (convId: string) => Promise<void>;
@@ -339,6 +339,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       const nonEmptyConvs = hasOnboarded ? (loadedConvs || []).filter((c) => c.messages.length > 0) : [];
+      const cleanedConvs = nonEmptyConvs.map((c) => {
+        const hasRunningStatus = c.status === "running";
+        const hasStreamingMsg = c.messages.some((m) => m.isStreaming);
+        if (hasRunningStatus || hasStreamingMsg) {
+          const nextMessages = c.messages.map((m) =>
+            m.isStreaming ? { ...m, isStreaming: false } : m
+          );
+          return {
+            ...c,
+            status: c.isSubagent ? ("stopped" as const) : c.status === "running" ? ("completed" as const) : c.status,
+            messages: nextMessages,
+          };
+        }
+        return c;
+      });
       const searchConfigs = loadedSearchConfigs || [];
       const fetchConfigs = loadedFetchConfigs || [];
 
@@ -373,13 +388,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         enabledServerIds: new Set(mcpEnabledServers.filter((id) => mcpConfigs.some((c) => c.id === id))),
       });
 
-      const initialActiveId = nonEmptyConvs.length > 0 ? nonEmptyConvs[0].id : null;
+      const initialActiveId = cleanedConvs.length > 0 ? cleanedConvs[0].id : null;
       set({
-        conversations: nonEmptyConvs,
+        conversations: cleanedConvs,
         activeId: initialActiveId,
         navigationHistory: initialActiveId ? [initialActiveId] : [],
         navigationIndex: initialActiveId ? 0 : -1,
       });
+      // Save cleaned conversations so they don't remain stuck in the backend storage files
+      await get().persistConversations();
 
       uiHasStarted(hasOnboarded);
       uiConfigLoaded(true);
@@ -995,6 +1012,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ? fallbackTitle + " (Compare)"
               : fallbackTitle
             : undefined,
+          recursionDepth: 0,
         }),
       }));
 
@@ -1054,10 +1072,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     useGitStore.getState().autoCommitIfNeeded();
   },
 
-  stopStreaming: async () => {
-    modelCancelStream();
+  stopStreaming: async (targetConvId) => {
+    if (targetConvId) {
+      useModelStore.getState().cancelConversationStream(targetConvId);
+    } else {
+      modelCancelStream();
+    }
     set((state) => {
       const convs = state.conversations.map((c) => {
+        if (targetConvId && c.id !== targetConvId) return c;
         const nextMessages = c.messages.map((m) => {
           if (m.isStreaming) {
             let thinkingDuration: number | undefined = undefined;
@@ -1074,29 +1097,55 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           return m;
         });
-        const nextStatus = c.isSubagent && c.status === "running" ? "completed" : c.status;
+        const nextStatus = c.isSubagent && c.status === "running" ? "stopped" : c.status;
         return { ...c, messages: nextMessages, status: nextStatus };
       });
-      const nextGenByConv: Record<string, { state: GenerationState; label: string }> = {};
-      state.conversations.forEach((c) => {
-        const hasStreamingMsg = c.messages.some((m) => m.isStreaming);
-        if (hasStreamingMsg || (c.isSubagent && c.status === "running")) {
-          nextGenByConv[c.id] = { state: "cancelled" as GenerationState, label: "Cancelled" };
-        }
-      });
+
+      const nextGenByConv = { ...state.generationByConversation };
+      if (targetConvId) {
+        delete nextGenByConv[targetConvId];
+      } else {
+        Object.keys(nextGenByConv).forEach((id) => {
+          nextGenByConv[id] = { state: "cancelled" as GenerationState, label: "Cancelled" };
+        });
+      }
+
+      const stillStreaming = Object.values(nextGenByConv).some(
+        (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+      );
+
+      const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
+      const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+      const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
+      if (targetConvId) {
+        delete nextActiveStreamThinkingStart[targetConvId];
+        delete nextActiveStreamThinkingEnd[targetConvId];
+        delete nextActiveStreamStartTime[targetConvId];
+      } else {
+        Object.keys(nextActiveStreamThinkingStart).forEach((k) => delete nextActiveStreamThinkingStart[k]);
+        Object.keys(nextActiveStreamThinkingEnd).forEach((k) => delete nextActiveStreamThinkingEnd[k]);
+        Object.keys(nextActiveStreamStartTime).forEach((k) => delete nextActiveStreamStartTime[k]);
+      }
+
       return {
-        isStreaming: false,
-        generationState: "idle" as GenerationState,
-        generationLabel: "",
+        isStreaming: stillStreaming,
+        generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+        generationLabel: stillStreaming ? state.generationLabel : "",
         generationByConversation: nextGenByConv,
         conversations: convs,
-        activeStreamThinkingStart: {},
-        activeStreamThinkingEnd: {},
-        activeStreamStartTime: {},
+        activeStreamThinkingStart: nextActiveStreamThinkingStart,
+        activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
+        activeStreamStartTime: nextActiveStreamStartTime,
       };
     });
-    uiLoading("sendMessage", false);
-    uiLoading("toolExecution", false);
+
+    const stillStreaming = Object.values(get().generationByConversation).some(
+      (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+    );
+    if (!stillStreaming) {
+      uiLoading("sendMessage", false);
+      uiLoading("toolExecution", false);
+    }
     await get().persistConversations();
   },
 
@@ -1713,7 +1762,9 @@ async function sendNormal(
       const generationLabel = `Generation failed: ${parsed.message}`;
       return {
         conversations: setAssistantError(state.conversations, convId, err),
-        isStreaming: Object.keys(state.generationByConversation).some((id) => id !== convId),
+        isStreaming: Object.entries(state.generationByConversation).some(
+          ([id, g]) => id !== convId && g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+        ),
         generationState: "error" as GenerationState,
         generationLabel,
         generationByConversation: setConversationGeneration(state, convId, "error" as GenerationState, generationLabel),
