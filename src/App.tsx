@@ -302,6 +302,12 @@ function App() {
   }, [conversations, activeConversation]);
   const messages = activeConversation?.messages ?? [];
   const primaryGeneration = activeId ? generationByConversation[activeId] : null;
+  const isPrimaryGenerating = !!(
+    primaryGeneration &&
+    primaryGeneration.state !== "idle" &&
+    primaryGeneration.state !== "cancelled"
+  );
+  const isInputDisabled = isPrimaryGenerating || !!activeConversation?.isSubagent;
 
   const [showAddCompareDropdown, setShowAddCompareDropdown] = useState(false);
   const addCompareDropdownRef = useRef<HTMLDivElement>(null);
@@ -1325,7 +1331,7 @@ function App() {
                     )}
 
                     <motion.div
-                      className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isStreaming ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
+                      className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isPrimaryGenerating ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
                       transition={{ duration: motionTokens.duration.fast }}
                       initial={false}
                     >
@@ -1337,7 +1343,7 @@ function App() {
                       onSend={sendMessage}
                       selectedModel={selectedModel}
                       onModelChange={setSelectedModel}
-                      disabled={isStreaming}
+                      disabled={isInputDisabled}
                       modelStatuses={modelStatuses}
                       isSearchEnabled={isSearchEnabled}
                       onToggleSearch={toggleSearchEnabled}
@@ -1345,7 +1351,7 @@ function App() {
                       mcpServerStatuses={serverStatuses}
                       enabledMcpServerIds={enabledServerIds}
                       onToggleMcpServer={handleToggleMcpServer}
-                      isStreaming={isStreaming}
+                      isStreaming={isPrimaryGenerating}
                       onStop={stopStreaming}
                       centered={messages.length === 0}
                     />
