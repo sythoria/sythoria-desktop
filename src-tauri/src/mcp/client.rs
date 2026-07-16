@@ -486,8 +486,8 @@ pub async fn connect_server(
             }
 
             // Validate URL and restrict local networks unless allowLocalNetwork is true
-            let parsed_url = url::Url::parse(&base_url)
-                .map_err(|e| format!("Invalid base URL: {}", e))?;
+            let parsed_url =
+                url::Url::parse(&base_url).map_err(|e| format!("Invalid base URL: {}", e))?;
 
             if let Some(host) = parsed_url.host_str() {
                 let host_lower = host.to_lowercase();
@@ -498,7 +498,8 @@ pub async fn connect_server(
                     if blocked.contains('*') {
                         crate::search::matches_wildcard(&host_lower, &blocked_lower)
                     } else {
-                        host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
+                        host_lower == blocked_lower
+                            || host_lower.ends_with(&format!(".{}", blocked_lower))
                     }
                 });
 
@@ -506,7 +507,9 @@ pub async fn connect_server(
                     use std::net::ToSocketAddrs;
                     let port = parsed_url.port_or_known_default().unwrap_or(80);
                     if let Ok(addrs) = (host, port).to_socket_addrs() {
-                        addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+                        addrs
+                            .into_iter()
+                            .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
                     } else {
                         false
                     }
