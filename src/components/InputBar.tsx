@@ -631,18 +631,6 @@ export default memo(function InputBar({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
-  const activeStreamContent = useChatStore((s) => s.activeStreamContent[activeConversationId || ""]);
-  const activeStreamStartTime = useChatStore((s) => s.activeStreamStartTime?.[activeConversationId || ""]);
-
-  let tps = 0;
-  if (isStreaming && activeStreamStartTime && activeStreamContent) {
-    const elapsedMs = Date.now() - activeStreamStartTime;
-    if (elapsedMs > 100) {
-      const tokenCount = Math.ceil(activeStreamContent.length / 4);
-      tps = (tokenCount / elapsedMs) * 1000;
-    }
-  }
-
   return (
     <div
       className={`transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
