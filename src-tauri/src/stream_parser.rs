@@ -66,167 +66,293 @@ pub(crate) fn emit_stream_done(app: &tauri::AppHandle, stream_id: &str) {
 pub(crate) struct SseParser {
     full_content: String,
     full_reasoning: String,
-    buffer: String,
+    buffer: Vec<u8>,
     in_reasoning: bool,
     tool_calls: Vec<serde_json::Value>,
     tool_call_ids: Vec<Option<String>>,
     tool_call_names: Vec<Option<String>>,
     tool_call_args: Vec<String>,
+    total_tool_argument_bytes: usize,
+    terminal: SseStreamTerminal,
 }
 
-const MAX_CONTENT_CHARS: usize = 1_000_000;
-const MAX_BUFFER_CHARS: usize = 1_000_000;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SseStreamTerminal {
+    Streaming,
+    Complete,
+    Error(String),
+}
+
+const MAX_INCOMING_CHUNK_BYTES: usize = 1_000_000;
+const MAX_BUFFER_BYTES: usize = 1_000_000;
+const MAX_EVENT_LINE_BYTES: usize = 256_000;
+const MAX_CONTENT_BYTES: usize = 1_000_000;
+const MAX_TOOL_CALLS: usize = 64;
+const MAX_TOOL_ARGUMENT_BYTES: usize = 1_000_000;
+const MAX_TOOL_METADATA_BYTES: usize = 4_096;
+
+fn limit_error(resource: &str, limit: usize) -> String {
+    format!("SSE {resource} exceeded the {limit}-byte resource limit")
+}
+
+fn checked_total(current: usize, additional: usize, limit: usize) -> bool {
+    current
+        .checked_add(additional)
+        .is_some_and(|total| total <= limit)
+}
 
 impl SseParser {
     pub(crate) fn new() -> Self {
         Self {
             full_content: String::new(),
             full_reasoning: String::new(),
-            buffer: String::new(),
+            buffer: Vec::new(),
             in_reasoning: false,
             tool_calls: Vec::new(),
             tool_call_ids: Vec::new(),
             tool_call_names: Vec::new(),
             tool_call_args: Vec::new(),
+            total_tool_argument_bytes: 0,
+            terminal: SseStreamTerminal::Streaming,
         }
     }
 
     pub(crate) fn push_bytes(&mut self, bytes: &[u8]) {
-        let incoming = String::from_utf8_lossy(bytes);
-        if self.buffer.len() + incoming.len() <= MAX_BUFFER_CHARS {
-            self.buffer.push_str(&incoming);
-        } else {
-            log::warn!(
-                "SSE buffer exceeded {} char limit ({}), dropping stale data",
-                MAX_BUFFER_CHARS,
-                self.buffer.len() + incoming.len()
-            );
-            if let Some(last_nl) = incoming.rfind('\n') {
-                self.buffer = incoming[last_nl + 1..].to_string();
-            } else {
-                self.buffer.clear();
-                self.buffer.push_str(&incoming);
-            }
+        if self.terminal != SseStreamTerminal::Streaming {
+            return;
+        }
+        if bytes.len() > MAX_INCOMING_CHUNK_BYTES {
+            self.fail(limit_error("incoming chunk", MAX_INCOMING_CHUNK_BYTES));
+            return;
+        }
+        if !checked_total(self.buffer.len(), bytes.len(), MAX_BUFFER_BYTES) {
+            self.fail(limit_error("buffer", MAX_BUFFER_BYTES));
+            return;
+        }
+        self.buffer.extend_from_slice(bytes);
+    }
+
+    fn fail(&mut self, message: String) {
+        if self.terminal == SseStreamTerminal::Streaming {
+            self.terminal = SseStreamTerminal::Error(message);
         }
     }
 
-    pub(crate) fn process_lines<F>(&mut self, app: &tauri::AppHandle, stream_id: &str, mut on_chunk: F)
-    where
+    fn stored_content_bytes(&self) -> usize {
+        self.full_content
+            .len()
+            .saturating_add(self.full_reasoning.len())
+    }
+
+    fn append_content(&mut self, content: &str) -> bool {
+        if !checked_total(
+            self.stored_content_bytes(),
+            content.len(),
+            MAX_CONTENT_BYTES,
+        ) {
+            self.fail(limit_error("content", MAX_CONTENT_BYTES));
+            return false;
+        }
+        self.full_content.push_str(content);
+        true
+    }
+
+    fn append_reasoning(&mut self, reasoning: &str) -> bool {
+        if !checked_total(
+            self.stored_content_bytes(),
+            reasoning.len(),
+            MAX_CONTENT_BYTES,
+        ) {
+            self.fail(limit_error("content", MAX_CONTENT_BYTES));
+            return false;
+        }
+        self.full_reasoning.push_str(reasoning);
+        true
+    }
+
+    fn ensure_tool_metadata(&mut self, value: &str) -> bool {
+        if value.len() > MAX_TOOL_METADATA_BYTES {
+            self.fail(limit_error("tool-call metadata", MAX_TOOL_METADATA_BYTES));
+            return false;
+        }
+        true
+    }
+
+    fn apply_tool_call_delta(&mut self, tc: StreamToolCallDelta) -> bool {
+        let idx = tc.index.unwrap_or(0);
+        if idx >= MAX_TOOL_CALLS {
+            self.fail(format!(
+                "SSE tool-call index {idx} exceeded the maximum index {}",
+                MAX_TOOL_CALLS - 1
+            ));
+            return false;
+        }
+        while self.tool_calls.len() <= idx {
+            self.tool_calls.push(serde_json::Value::Null);
+            self.tool_call_ids.push(None);
+            self.tool_call_names.push(None);
+            self.tool_call_args.push(String::new());
+        }
+        if let Some(id) = tc.id {
+            if !self.ensure_tool_metadata(&id) {
+                return false;
+            }
+            self.tool_call_ids[idx] = Some(id);
+        }
+        if let Some(func) = tc.function {
+            if let Some(name) = func.name {
+                if !self.ensure_tool_metadata(&name) {
+                    return false;
+                }
+                self.tool_call_names[idx] = Some(name);
+            }
+            if let Some(args) = func.arguments {
+                if !checked_total(
+                    self.total_tool_argument_bytes,
+                    args.len(),
+                    MAX_TOOL_ARGUMENT_BYTES,
+                ) {
+                    self.fail(limit_error(
+                        "cumulative tool-call arguments",
+                        MAX_TOOL_ARGUMENT_BYTES,
+                    ));
+                    return false;
+                }
+                self.tool_call_args[idx].push_str(&args);
+                self.total_tool_argument_bytes += args.len();
+            }
+        }
+        true
+    }
+
+    fn apply_tool_call_deltas(&mut self, deltas: Vec<StreamToolCallDelta>) -> bool {
+        if deltas.len() > MAX_TOOL_CALLS {
+            self.fail(limit_error("tool-call count", MAX_TOOL_CALLS));
+            return false;
+        }
+        for delta in deltas {
+            if !self.apply_tool_call_delta(delta) {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub(crate) fn process_lines<F>(
+        &mut self,
+        app: &tauri::AppHandle,
+        stream_id: &str,
+        mut on_chunk: F,
+    ) where
         F: FnMut(&str),
     {
-        while let Some(line_end) = self.buffer.find('\n') {
-            let line = self.buffer[..line_end].trim().to_string();
-            self.buffer = self.buffer[line_end + 1..].to_string();
+        while self.terminal == SseStreamTerminal::Streaming {
+            let Some(line_end) = self.buffer.iter().position(|byte| *byte == b'\n') else {
+                break;
+            };
+            if self.buffer[..line_end].len() > MAX_EVENT_LINE_BYTES {
+                self.fail(limit_error("event line", MAX_EVENT_LINE_BYTES));
+                break;
+            }
+            let Ok(line) = std::str::from_utf8(&self.buffer[..line_end]) else {
+                self.fail("SSE event line was not valid UTF-8".to_string());
+                break;
+            };
+            let line = line.trim().to_string();
+            self.buffer.drain(..=line_end);
 
-            if line.is_empty() || line == "data: [DONE]" {
+            if line.is_empty() {
                 continue;
+            }
+
+            if line == "data: [DONE]" {
+                self.terminal = SseStreamTerminal::Complete;
+                break;
             }
 
             if let Some(data) = line.strip_prefix("data: ") {
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(parsed) => {
                         for choice in parsed.choices {
-            if let Some(reasoning) = choice.delta.reasoning_content {
-                if !reasoning.is_empty() {
-                    if self.full_content.len() < MAX_CONTENT_CHARS {
-                        self.full_reasoning.push_str(&reasoning);
-                    }
-                    if !self.in_reasoning {
-                        self.in_reasoning = true;
-                        emit_stream_chunk(app, stream_id, "<reasoning>");
-                        on_chunk("<reasoning>");
-                    }
-                    emit_stream_chunk(app, stream_id, &reasoning);
-                    on_chunk(&reasoning);
-                }
-            }
-
-            if let Some(content) = choice.delta.content {
-                let normalized = content
-                    .replace("<thinking>", "<reasoning>")
-                    .replace("</thinking>", "</reasoning>")
-                    .replace("<thought>", "<reasoning>")
-                    .replace("</thought>", "</reasoning>");
-
-                if normalized.contains("<reasoning>")
-                    || normalized.contains("</reasoning>")
-                {
-                    let has_open = normalized.contains("<reasoning>");
-                    let has_close = normalized.contains("</reasoning>");
-
-                    if has_open && !self.in_reasoning {
-                        self.in_reasoning = true;
-                    }
-
-                    if self.full_content.len() < MAX_CONTENT_CHARS {
-                        self.full_content.push_str(&normalized);
-                    }
-                    emit_stream_chunk(app, stream_id, &normalized);
-                    on_chunk(&normalized);
-
-                    if has_close && self.in_reasoning {
-                        self.in_reasoning = false;
-                        if self.full_content.len() < MAX_CONTENT_CHARS {
-                            if let Some(start) = self.full_content.find("<reasoning>") {
-                                if let Some(end) = self.full_content.find("</reasoning>") {
-                                    self.full_reasoning = self.full_content
-                                        [start + "<reasoning>".len()..end]
-                                        .to_string();
+                            if let Some(reasoning) = choice.delta.reasoning_content {
+                                if !reasoning.is_empty() {
+                                    if !self.append_reasoning(&reasoning) {
+                                        break;
+                                    }
+                                    if !self.in_reasoning {
+                                        self.in_reasoning = true;
+                                        emit_stream_chunk(app, stream_id, "<reasoning>");
+                                        on_chunk("<reasoning>");
+                                    }
+                                    emit_stream_chunk(app, stream_id, &reasoning);
+                                    on_chunk(&reasoning);
                                 }
                             }
-                        }
-                    }
-                } else {
-                    if self.in_reasoning && !normalized.trim().is_empty() {
-                        self.in_reasoning = false;
-                        emit_stream_chunk(app, stream_id, "</reasoning>");
-                        if self.full_content.len() < MAX_CONTENT_CHARS {
-                            self.full_content.push_str("</reasoning>");
-                        }
-                        on_chunk("</reasoning>");
-                    }
-                    if self.full_content.len() < MAX_CONTENT_CHARS {
-                        self.full_content.push_str(&normalized);
-                    }
-                    emit_stream_chunk(app, stream_id, &normalized);
-                    on_chunk(&normalized);
-                }
-            }
 
-            if let Some(tool_call_deltas) = choice.delta.tool_calls {
-                for tc in tool_call_deltas {
-                    let idx = tc.index.unwrap_or(0);
-                    while self.tool_calls.len() <= idx {
-                        self.tool_calls.push(serde_json::Value::Null);
-                        self.tool_call_ids.push(None);
-                        self.tool_call_names.push(None);
-                        self.tool_call_args.push(String::new());
-                    }
-                    if let Some(id) = tc.id {
-                        self.tool_call_ids[idx] = Some(id.clone());
-                    }
-                    if let Some(func) = tc.function {
-                        if let Some(name) = func.name {
-                            self.tool_call_names[idx] = Some(name.clone());
-                        }
-                        if let Some(args) = func.arguments {
-                            self.tool_call_args[idx].push_str(&args);
-                        }
-                    }
-                }
-            }
+                            if let Some(content) = choice.delta.content {
+                                let normalized = content
+                                    .replace("<thinking>", "<reasoning>")
+                                    .replace("</thinking>", "</reasoning>")
+                                    .replace("<thought>", "<reasoning>")
+                                    .replace("</thought>", "</reasoning>");
 
-            if choice.finish_reason.is_some() {
-                if self.in_reasoning {
-                    emit_stream_chunk(app, stream_id, "</reasoning>");
-                    if self.full_content.len() < MAX_CONTENT_CHARS {
-                        self.full_content.push_str("</reasoning>");
-                    }
-                    on_chunk("</reasoning>");
-                    self.in_reasoning = false;
-                }
-                emit_stream_done(app, stream_id);
-            }
+                                if normalized.contains("<reasoning>")
+                                    || normalized.contains("</reasoning>")
+                                {
+                                    let has_open = normalized.contains("<reasoning>");
+                                    let has_close = normalized.contains("</reasoning>");
+
+                                    if !self.append_content(&normalized) {
+                                        break;
+                                    }
+                                    if has_open && !self.in_reasoning {
+                                        self.in_reasoning = true;
+                                    }
+
+                                    emit_stream_chunk(app, stream_id, &normalized);
+                                    on_chunk(&normalized);
+
+                                    if has_close && self.in_reasoning {
+                                        self.in_reasoning = false;
+                                    }
+                                } else {
+                                    if self.in_reasoning && !normalized.trim().is_empty() {
+                                        if !self.append_content("</reasoning>") {
+                                            break;
+                                        }
+                                        self.in_reasoning = false;
+                                        emit_stream_chunk(app, stream_id, "</reasoning>");
+                                        on_chunk("</reasoning>");
+                                    }
+                                    if !self.append_content(&normalized) {
+                                        break;
+                                    }
+                                    emit_stream_chunk(app, stream_id, &normalized);
+                                    on_chunk(&normalized);
+                                }
+                            }
+
+                            if let Some(tool_call_deltas) = choice.delta.tool_calls {
+                                if !self.apply_tool_call_deltas(tool_call_deltas) {
+                                    break;
+                                }
+                            }
+
+                            if self.terminal != SseStreamTerminal::Streaming {
+                                break;
+                            }
+
+                            if choice.finish_reason.is_some() {
+                                if self.in_reasoning {
+                                    if !self.append_content("</reasoning>") {
+                                        break;
+                                    }
+                                    emit_stream_chunk(app, stream_id, "</reasoning>");
+                                    on_chunk("</reasoning>");
+                                    self.in_reasoning = false;
+                                }
+                                self.terminal = SseStreamTerminal::Complete;
+                            }
                         }
                     }
                     Err(e) => {
@@ -241,14 +367,20 @@ impl SseParser {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn is_complete(&self) -> bool {
+        self.terminal != SseStreamTerminal::Streaming
+    }
+
+    pub(crate) fn terminal(&self) -> &SseStreamTerminal {
+        &self.terminal
+    }
+
     pub(crate) fn finalize(&mut self) -> String {
-        if !self.full_reasoning.is_empty()
-            && !self.full_content.contains("<reasoning>")
-        {
-            self.full_content = format!(
-                "<reasoning>{}</reasoning>{}",
-                self.full_reasoning, self.full_content
-            );
+        if !self.full_reasoning.is_empty() && !self.full_content.contains("<reasoning>") {
+            let reasoning = std::mem::take(&mut self.full_reasoning);
+            let content = std::mem::take(&mut self.full_content);
+            self.full_content = format!("<reasoning>{}</reasoning>{}", reasoning, content);
         }
         self.full_content.clone()
     }
@@ -308,6 +440,96 @@ mod tests {
         assert!(parser.full_reasoning.is_empty());
         assert!(parser.buffer.is_empty());
         assert!(!parser.in_reasoning);
+        assert_eq!(parser.terminal(), &SseStreamTerminal::Streaming);
+    }
+
+    #[test]
+    fn oversized_incoming_chunk_is_a_sticky_terminal_error() {
+        let mut parser = SseParser::new();
+        parser.push_bytes(&vec![b'x'; MAX_INCOMING_CHUNK_BYTES + 1]);
+        let terminal = parser.terminal().clone();
+
+        assert!(matches!(terminal, SseStreamTerminal::Error(_)));
+        assert!(parser.is_complete());
+        assert!(parser.buffer.is_empty());
+
+        parser.push_bytes(b"data: [DONE]\n");
+        assert_eq!(parser.terminal(), &terminal);
+        assert!(parser.buffer.is_empty());
+    }
+
+    #[test]
+    fn cumulative_buffer_limit_rejects_before_append() {
+        let mut parser = SseParser::new();
+        parser.push_bytes(&vec![b'x'; MAX_BUFFER_BYTES]);
+        assert_eq!(parser.buffer.len(), MAX_BUFFER_BYTES);
+
+        parser.push_bytes(b"\n");
+
+        assert!(matches!(parser.terminal(), SseStreamTerminal::Error(_)));
+        assert_eq!(parser.buffer.len(), MAX_BUFFER_BYTES);
+    }
+
+    #[test]
+    fn cumulative_content_limit_rejects_before_append() {
+        let mut parser = SseParser::new();
+        parser.full_content = "x".repeat(MAX_CONTENT_BYTES);
+
+        assert!(!parser.append_content("y"));
+        assert_eq!(parser.full_content.len(), MAX_CONTENT_BYTES);
+        assert!(matches!(parser.terminal(), SseStreamTerminal::Error(_)));
+    }
+
+    #[test]
+    fn tool_call_index_is_bounded_before_vector_growth() {
+        let mut parser = SseParser::new();
+        let delta = StreamToolCallDelta {
+            index: Some(MAX_TOOL_CALLS),
+            id: None,
+            function: None,
+        };
+
+        assert!(!parser.apply_tool_call_delta(delta));
+        assert!(parser.tool_call_args.is_empty());
+        assert!(matches!(parser.terminal(), SseStreamTerminal::Error(_)));
+    }
+
+    #[test]
+    fn tool_call_count_is_bounded_before_vector_growth() {
+        let mut parser = SseParser::new();
+        let deltas = (0..=MAX_TOOL_CALLS)
+            .map(|index| StreamToolCallDelta {
+                index: Some(index),
+                id: None,
+                function: None,
+            })
+            .collect();
+
+        assert!(!parser.apply_tool_call_deltas(deltas));
+        assert!(parser.tool_call_args.is_empty());
+        assert!(matches!(parser.terminal(), SseStreamTerminal::Error(_)));
+    }
+
+    #[test]
+    fn cumulative_tool_arguments_reject_before_append() {
+        let mut parser = SseParser::new();
+        parser.total_tool_argument_bytes = MAX_TOOL_ARGUMENT_BYTES - 1;
+        let delta = StreamToolCallDelta {
+            index: Some(0),
+            id: None,
+            function: Some(StreamToolCallFunction {
+                name: None,
+                arguments: Some("ab".to_string()),
+            }),
+        };
+
+        assert!(!parser.apply_tool_call_delta(delta));
+        assert_eq!(
+            parser.total_tool_argument_bytes,
+            MAX_TOOL_ARGUMENT_BYTES - 1
+        );
+        assert!(parser.tool_call_args[0].is_empty());
+        assert!(matches!(parser.terminal(), SseStreamTerminal::Error(_)));
     }
 
     #[test]
@@ -323,7 +545,10 @@ mod tests {
         parser.full_reasoning = "I need to think".to_string();
         parser.full_content = "The answer is 42".to_string();
         let result = parser.finalize();
-        assert_eq!(result, "<reasoning>I need to think</reasoning>The answer is 42");
+        assert_eq!(
+            result,
+            "<reasoning>I need to think</reasoning>The answer is 42"
+        );
     }
 
     #[test]
@@ -342,7 +567,10 @@ mod tests {
         let tc = &chunk.choices[0].delta.tool_calls.as_ref().unwrap()[0];
         assert_eq!(tc.index, None);
         assert_eq!(tc.id.as_deref(), Some("call_1"));
-        assert_eq!(tc.function.as_ref().unwrap().name.as_deref(), Some("get_weather"));
+        assert_eq!(
+            tc.function.as_ref().unwrap().name.as_deref(),
+            Some("get_weather")
+        );
     }
 
     #[test]
@@ -379,37 +607,83 @@ mod tests {
 
 pub(crate) struct AnthropicSseParser {
     full_content: String,
-    buffer: String,
+    buffer: Vec<u8>,
     tool_calls: Vec<serde_json::Value>,
     current_tool_id: Option<String>,
     current_tool_name: Option<String>,
     current_tool_input: String,
+    total_tool_argument_bytes: usize,
+    terminal: AnthropicStreamTerminal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AnthropicStreamTerminal {
+    Streaming,
+    Complete,
+    Error(String),
 }
 
 impl AnthropicSseParser {
     pub(crate) fn new() -> Self {
         Self {
             full_content: String::new(),
-            buffer: String::new(),
+            buffer: Vec::new(),
             tool_calls: Vec::new(),
             current_tool_id: None,
             current_tool_name: None,
             current_tool_input: String::new(),
+            total_tool_argument_bytes: 0,
+            terminal: AnthropicStreamTerminal::Streaming,
         }
     }
 
     pub(crate) fn push_bytes(&mut self, bytes: &[u8]) {
-        let incoming = String::from_utf8_lossy(bytes);
-        self.buffer.push_str(&incoming);
+        if self.terminal != AnthropicStreamTerminal::Streaming {
+            return;
+        }
+        if bytes.len() > MAX_INCOMING_CHUNK_BYTES {
+            self.fail(limit_error("incoming chunk", MAX_INCOMING_CHUNK_BYTES));
+            return;
+        }
+        if !checked_total(self.buffer.len(), bytes.len(), MAX_BUFFER_BYTES) {
+            self.fail(limit_error("buffer", MAX_BUFFER_BYTES));
+            return;
+        }
+        self.buffer.extend_from_slice(bytes);
     }
 
-    pub(crate) fn process_lines<F>(&mut self, app: &tauri::AppHandle, stream_id: &str, mut _on_chunk: F)
+    fn fail(&mut self, message: String) {
+        if self.terminal == AnthropicStreamTerminal::Streaming {
+            self.terminal = AnthropicStreamTerminal::Error(message);
+        }
+    }
+
+    fn ensure_tool_metadata(&mut self, value: &str) -> bool {
+        if value.len() > MAX_TOOL_METADATA_BYTES {
+            self.fail(limit_error("tool-call metadata", MAX_TOOL_METADATA_BYTES));
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn process_lines<F>(&mut self, mut on_chunk: F)
     where
         F: FnMut(&str),
     {
-        while let Some(line_end) = self.buffer.find('\n') {
-            let line = self.buffer[..line_end].trim().to_string();
-            self.buffer = self.buffer[line_end + 1..].to_string();
+        while self.terminal == AnthropicStreamTerminal::Streaming {
+            let Some(line_end) = self.buffer.iter().position(|byte| *byte == b'\n') else {
+                break;
+            };
+            if self.buffer[..line_end].len() > MAX_EVENT_LINE_BYTES {
+                self.fail(limit_error("event line", MAX_EVENT_LINE_BYTES));
+                break;
+            }
+            let Ok(line) = std::str::from_utf8(&self.buffer[..line_end]) else {
+                self.fail("SSE event line was not valid UTF-8".to_string());
+                break;
+            };
+            let line = line.trim().to_string();
+            self.buffer.drain(..=line_end);
 
             if line.is_empty() {
                 continue;
@@ -422,56 +696,140 @@ impl AnthropicSseParser {
 
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
-                    continue;
+                    self.terminal = AnthropicStreamTerminal::Complete;
+                    break;
                 }
-                
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(type_str) = parsed.get("type").and_then(|v| v.as_str()) {
-                        match type_str {
-                            "content_block_start" => {
-                                if let Some(cb) = parsed.get("content_block") {
-                                    if cb.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                                        self.current_tool_id = cb.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                                        self.current_tool_name = cb.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                match serde_json::from_str::<serde_json::Value>(data) {
+                    Ok(parsed) => {
+                        if let Some(type_str) = parsed.get("type").and_then(|v| v.as_str()) {
+                            match type_str {
+                                "content_block_start" => {
+                                    if let Some(cb) = parsed.get("content_block") {
+                                        if cb.get("type").and_then(|v| v.as_str())
+                                            == Some("tool_use")
+                                        {
+                                            if self.tool_calls.len() >= MAX_TOOL_CALLS {
+                                                self.fail(limit_error(
+                                                    "tool-call count",
+                                                    MAX_TOOL_CALLS,
+                                                ));
+                                                break;
+                                            }
+                                            let id = cb.get("id").and_then(|v| v.as_str());
+                                            let name = cb.get("name").and_then(|v| v.as_str());
+                                            if id.is_some_and(|value| {
+                                                !self.ensure_tool_metadata(value)
+                                            }) || name.is_some_and(|value| {
+                                                !self.ensure_tool_metadata(value)
+                                            }) {
+                                                break;
+                                            }
+                                            self.current_tool_id = id.map(str::to_string);
+                                            self.current_tool_name = name.map(str::to_string);
+                                            self.current_tool_input.clear();
+                                        }
+                                    }
+                                }
+                                "content_block_delta" => {
+                                    if let Some(delta) = parsed.get("delta") {
+                                        if delta.get("type").and_then(|v| v.as_str())
+                                            == Some("text_delta")
+                                        {
+                                            if let Some(text) =
+                                                delta.get("text").and_then(|v| v.as_str())
+                                            {
+                                                if !checked_total(
+                                                    self.full_content.len(),
+                                                    text.len(),
+                                                    MAX_CONTENT_BYTES,
+                                                ) {
+                                                    self.fail(limit_error(
+                                                        "content",
+                                                        MAX_CONTENT_BYTES,
+                                                    ));
+                                                    break;
+                                                }
+                                                self.full_content.push_str(text);
+                                                on_chunk(text);
+                                            }
+                                        } else if delta.get("type").and_then(|v| v.as_str())
+                                            == Some("input_json_delta")
+                                        {
+                                            if let Some(partial_json) =
+                                                delta.get("partial_json").and_then(|v| v.as_str())
+                                            {
+                                                if !checked_total(
+                                                    self.total_tool_argument_bytes,
+                                                    partial_json.len(),
+                                                    MAX_TOOL_ARGUMENT_BYTES,
+                                                ) {
+                                                    self.fail(limit_error(
+                                                        "cumulative tool-call arguments",
+                                                        MAX_TOOL_ARGUMENT_BYTES,
+                                                    ));
+                                                    break;
+                                                }
+                                                self.current_tool_input.push_str(partial_json);
+                                                self.total_tool_argument_bytes +=
+                                                    partial_json.len();
+                                            }
+                                        }
+                                    }
+                                }
+                                "content_block_stop" => {
+                                    if let (Some(id), Some(name)) =
+                                        (&self.current_tool_id, &self.current_tool_name)
+                                    {
+                                        if self.tool_calls.len() >= MAX_TOOL_CALLS {
+                                            self.fail(limit_error(
+                                                "tool-call count",
+                                                MAX_TOOL_CALLS,
+                                            ));
+                                            break;
+                                        }
+                                        self.tool_calls.push(serde_json::json!({
+                                            "id": id,
+                                            "type": "function",
+                                            "function": {
+                                                "name": name,
+                                                "arguments": self.current_tool_input.clone()
+                                            }
+                                        }));
+                                        self.current_tool_id = None;
+                                        self.current_tool_name = None;
                                         self.current_tool_input.clear();
                                     }
                                 }
-                            }
-                            "content_block_delta" => {
-                                if let Some(delta) = parsed.get("delta") {
-                                    if delta.get("type").and_then(|v| v.as_str()) == Some("text_delta") {
-                                        if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
-                                            self.full_content.push_str(text);
-                                            emit_stream_chunk(app, stream_id, text);
-                                        }
-                                    } else if delta.get("type").and_then(|v| v.as_str()) == Some("input_json_delta") {
-                                        if let Some(partial_json) = delta.get("partial_json").and_then(|v| v.as_str()) {
-                                            self.current_tool_input.push_str(partial_json);
-                                        }
-                                    }
+                                "message_stop" => {
+                                    self.terminal = AnthropicStreamTerminal::Complete;
                                 }
-                            }
-                            "content_block_stop" => {
-                                if let (Some(id), Some(name)) = (&self.current_tool_id, &self.current_tool_name) {
-                                    self.tool_calls.push(serde_json::json!({
-                                        "id": id,
-                                        "type": "function",
-                                        "function": {
-                                            "name": name,
-                                            "arguments": self.current_tool_input.clone()
-                                        }
-                                    }));
-                                    self.current_tool_id = None;
-                                    self.current_tool_name = None;
-                                    self.current_tool_input.clear();
+                                "error" => {
+                                    let message = parsed
+                                        .pointer("/error/message")
+                                        .and_then(|value| value.as_str())
+                                        .unwrap_or("Anthropic stream returned an error")
+                                        .to_string();
+                                    self.terminal = AnthropicStreamTerminal::Error(message);
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "Anthropic SSE parse warning: skipping malformed event ({} bytes): {}",
+                            data.len(),
+                            error
+                        );
                     }
                 }
             }
         }
+    }
+
+    pub(crate) fn terminal(&self) -> &AnthropicStreamTerminal {
+        &self.terminal
     }
 
     pub(crate) fn finalize(self) -> String {
@@ -488,5 +846,173 @@ impl AnthropicSseParser {
             }]
         });
         openai_response.to_string()
+    }
+}
+
+#[cfg(test)]
+mod anthropic_tests {
+    use super::*;
+
+    #[test]
+    fn content_delta_and_message_stop_complete_the_stream() {
+        let mut parser = AnthropicSseParser::new();
+        let mut chunks = Vec::new();
+        parser.push_bytes(
+            concat!(
+                "event: content_block_delta\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+                "event: message_stop\n",
+                "data: {\"type\":\"message_stop\"}\n\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" ignored\"}}\n\n"
+            )
+            .as_bytes(),
+        );
+
+        parser.process_lines(|chunk| chunks.push(chunk.to_string()));
+        parser.process_lines(|chunk| chunks.push(chunk.to_string()));
+
+        assert_eq!(chunks, vec!["Hello"]);
+        assert_eq!(parser.terminal(), &AnthropicStreamTerminal::Complete);
+        assert_eq!(parser.finalize(), "Hello");
+    }
+
+    #[test]
+    fn utf8_code_point_split_across_chunks_remains_valid() {
+        let mut parser = AnthropicSseParser::new();
+        let event = "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"café\"}}\n";
+        let split_at = event.find('é').unwrap() + 1;
+
+        parser.push_bytes(&event.as_bytes()[..split_at]);
+        parser.process_lines(|_| panic!("an incomplete line must not emit"));
+        parser.push_bytes(&event.as_bytes()[split_at..]);
+
+        let mut chunks = Vec::new();
+        parser.process_lines(|chunk| chunks.push(chunk.to_string()));
+
+        assert_eq!(chunks, vec!["café"]);
+        assert_eq!(parser.terminal(), &AnthropicStreamTerminal::Streaming);
+    }
+
+    #[test]
+    fn tool_stream_finalizes_on_message_stop() {
+        let mut parser = AnthropicSseParser::new();
+        parser.push_bytes(
+            concat!(
+                "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n",
+                "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"Toronto\\\"}\"}}\n\n",
+                "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                "data: {\"type\":\"message_stop\"}\n\n"
+            )
+            .as_bytes(),
+        );
+
+        parser.process_lines(|_| {});
+
+        assert_eq!(parser.terminal(), &AnthropicStreamTerminal::Complete);
+        let response: serde_json::Value = serde_json::from_str(&parser.finalize_tools()).unwrap();
+        let tool_call = &response["choices"][0]["message"]["tool_calls"][0];
+        assert_eq!(tool_call["id"], "toolu_1");
+        assert_eq!(tool_call["function"]["name"], "get_weather");
+        assert_eq!(tool_call["function"]["arguments"], "{\"city\":\"Toronto\"}");
+    }
+
+    #[test]
+    fn anthropic_error_is_terminal() {
+        let mut parser = AnthropicSseParser::new();
+        parser.push_bytes(
+            b"data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n",
+        );
+
+        parser.process_lines(|_| {});
+
+        assert_eq!(
+            parser.terminal(),
+            &AnthropicStreamTerminal::Error("Overloaded".to_string())
+        );
+    }
+
+    #[test]
+    fn anthropic_oversized_incoming_chunk_is_terminal() {
+        let mut parser = AnthropicSseParser::new();
+        parser.push_bytes(&vec![b'x'; MAX_INCOMING_CHUNK_BYTES + 1]);
+        let terminal = parser.terminal().clone();
+
+        assert!(matches!(terminal, AnthropicStreamTerminal::Error(_)));
+        assert!(parser.buffer.is_empty());
+
+        parser.push_bytes(b"data: [DONE]\n");
+        assert_eq!(parser.terminal(), &terminal);
+        assert!(parser.buffer.is_empty());
+    }
+
+    #[test]
+    fn anthropic_event_line_is_bounded_before_parsing() {
+        let mut parser = AnthropicSseParser::new();
+        let mut event = vec![b'x'; MAX_EVENT_LINE_BYTES + 1];
+        event.push(b'\n');
+        parser.push_bytes(&event);
+
+        parser.process_lines(|_| panic!("oversized event must not emit content"));
+
+        assert!(matches!(
+            parser.terminal(),
+            AnthropicStreamTerminal::Error(_)
+        ));
+    }
+
+    #[test]
+    fn anthropic_content_limit_rejects_before_append_or_emit() {
+        let mut parser = AnthropicSseParser::new();
+        parser.full_content = "x".repeat(MAX_CONTENT_BYTES);
+        parser.push_bytes(
+            b"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"y\"}}\n",
+        );
+
+        parser.process_lines(|_| panic!("over-limit content must not be emitted"));
+
+        assert_eq!(parser.full_content.len(), MAX_CONTENT_BYTES);
+        assert!(matches!(
+            parser.terminal(),
+            AnthropicStreamTerminal::Error(_)
+        ));
+    }
+
+    #[test]
+    fn anthropic_input_json_limit_rejects_before_append() {
+        let mut parser = AnthropicSseParser::new();
+        parser.total_tool_argument_bytes = MAX_TOOL_ARGUMENT_BYTES - 1;
+        parser.push_bytes(
+            b"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ab\"}}\n",
+        );
+
+        parser.process_lines(|_| {});
+
+        assert!(parser.current_tool_input.is_empty());
+        assert_eq!(
+            parser.total_tool_argument_bytes,
+            MAX_TOOL_ARGUMENT_BYTES - 1
+        );
+        assert!(matches!(
+            parser.terminal(),
+            AnthropicStreamTerminal::Error(_)
+        ));
+    }
+
+    #[test]
+    fn anthropic_tool_call_count_rejects_before_starting_another() {
+        let mut parser = AnthropicSseParser::new();
+        parser.tool_calls = vec![serde_json::Value::Null; MAX_TOOL_CALLS];
+        parser.push_bytes(
+            b"data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_65\",\"name\":\"blocked\"}}\n",
+        );
+
+        parser.process_lines(|_| {});
+
+        assert!(parser.current_tool_id.is_none());
+        assert_eq!(parser.tool_calls.len(), MAX_TOOL_CALLS);
+        assert!(matches!(
+            parser.terminal(),
+            AnthropicStreamTerminal::Error(_)
+        ));
     }
 }
