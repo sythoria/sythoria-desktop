@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 function BrokenComponent(): React.ReactElement {
@@ -36,14 +37,15 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
   });
 
-  it("shows error message in fallback", () => {
+  it("keeps technical error details collapsed by default", () => {
     render(
       <ErrorBoundary>
         <BrokenComponent />
       </ErrorBoundary>,
     );
 
-    expect(screen.getByText("Test error")).toBeInTheDocument();
+    expect(screen.getByText("Technical details")).toBeInTheDocument();
+    expect(screen.getByText("Test error").closest("details")).not.toHaveAttribute("open");
   });
 
   it("shows Try Again button", () => {
@@ -54,6 +56,21 @@ describe("ErrorBoundary", () => {
     );
 
     expect(screen.getByText("Try Again")).toBeInTheDocument();
+  });
+
+  it("escalates to reload when retrying cannot recover", async () => {
+    const user = userEvent.setup();
+    render(
+      <ErrorBoundary>
+        <BrokenComponent />
+      </ErrorBoundary>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
+
+    expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload App" })).toBeInTheDocument();
+    expect(screen.getByText(/could not recover automatically/i)).toBeInTheDocument();
   });
 
   it("renders custom fallback when provided", () => {
