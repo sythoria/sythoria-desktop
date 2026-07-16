@@ -60,6 +60,7 @@ interface ChatAreaProps {
   conversationId?: string;
   pendingWorktree?: { path: string; branch: string };
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  autoExpandReasoning?: boolean;
 }
 
 function CancelledBar({ content, onRetry }: { content: string; onRetry?: () => void }) {
@@ -588,6 +589,9 @@ function getNativeToolDisplayInfo(
 
 function useSubagentConversationIds(message: Message): string[] {
   return useMemo(() => {
+    if (message.toolResult?.subagentIds) {
+      return message.toolResult.subagentIds;
+    }
     if (message.toolCall?.name === "wait_subagents") {
       try {
         const args =
@@ -648,13 +652,13 @@ function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              useChatStore.getState().setActiveId(conv.id);
+              useUIStore.getState().setActiveSubagentId(conv.id);
             }}
             className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
-            title="Open subagent chat full screen"
+            title="Inspect subagent chat in panel drawer"
           >
             <ExternalLink size={10} />
-            Open Chat
+            Open Drawer
           </button>
         </div>
       </div>
@@ -1070,16 +1074,26 @@ function ReasoningBubble({
   isReasoningComplete,
   thinkingDuration,
   conversationId,
+  autoExpandReasoning,
 }: {
   content: string;
   isStreaming?: boolean;
   isReasoningComplete?: boolean;
   thinkingDuration?: number;
   conversationId?: string;
+  autoExpandReasoning?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [prevAutoExpand, setPrevAutoExpand] = useState(autoExpandReasoning);
+  const [expanded, setExpanded] = useState(!!autoExpandReasoning);
   const [elapsed, setElapsed] = useState<number | null>(null);
   const [dots, setDots] = useState(".");
+
+  if (autoExpandReasoning !== prevAutoExpand) {
+    setPrevAutoExpand(autoExpandReasoning);
+    if (autoExpandReasoning !== undefined) {
+      setExpanded(autoExpandReasoning);
+    }
+  }
 
   const startTimestamp = useChatStore((s) =>
     conversationId && s.activeStreamThinkingStart ? s.activeStreamThinkingStart[conversationId] : undefined,
@@ -1268,7 +1282,7 @@ function SystemNotificationBubble({ message }: { message: Message }) {
   const bodyContent = (isSuccess ? matchSuccess[3] : matchFailure![3]).trim();
 
   const handleOpenChat = () => {
-    useChatStore.getState().setActiveId(subagentId);
+    useUIStore.getState().setActiveSubagentId(subagentId);
   };
 
   return (
@@ -1286,7 +1300,7 @@ function SystemNotificationBubble({ message }: { message: Message }) {
           onClick={handleOpenChat}
           className="flex items-center gap-1 text-accent hover:text-accent/80 hover:underline transition-colors font-medium cursor-pointer"
         >
-          <span>Open Subagent Chat</span>
+          <span>Inspect Subagent</span>
           <ArrowRight size={12} />
         </button>
       </div>
@@ -1327,10 +1341,12 @@ const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
   conversationId,
+  autoExpandReasoning,
 }: {
   message: Message;
   onRetry?: () => void;
   conversationId?: string;
+  autoExpandReasoning?: boolean;
 }) {
   const allConversations = useChatStore((s) => s.conversations);
   const isAnySubagentRunning = useMemo(() => {
@@ -1474,6 +1490,7 @@ const MessageBubble = memo(function MessageBubble({
             }
             thinkingDuration={message.thinkingDuration}
             conversationId={conversationId}
+            autoExpandReasoning={autoExpandReasoning}
           />
         )}
         {!hasOpenReasoning && isStreaming && displayContent.length === 0 && (
@@ -1559,12 +1576,11 @@ function ChatAreaBase({
   conversationId,
   pendingWorktree,
   scrollContainerRef,
+  autoExpandReasoning,
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
-  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
-
-  if (messages.length === 0) {
+  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));  if (messages.length === 0) {
     return (
       <motion.div
         className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
@@ -1610,7 +1626,12 @@ function ChatAreaBase({
           }}
           itemContent={(index, msg) => (
             <div className={index > 0 ? "mt-0.5" : ""}>
-              <MessageBubble message={msg} onRetry={onRetry} conversationId={conversationId} />
+              <MessageBubble
+                message={msg}
+                onRetry={onRetry}
+                conversationId={conversationId}
+                autoExpandReasoning={autoExpandReasoning}
+              />
             </div>
           )}
           components={{
@@ -1670,6 +1691,7 @@ function ChatAreaBase({
       onDiscard={discardPendingWorktree}
       scrollContainerRef={scrollContainerRef}
       onScroll={onScroll}
+      autoExpandReasoning={autoExpandReasoning}
     />
   );
 }
@@ -1685,6 +1707,7 @@ function NonVirtualizedChatArea({
   onDiscard,
   scrollContainerRef,
   onScroll,
+  autoExpandReasoning,
 }: {
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
@@ -1696,6 +1719,7 @@ function NonVirtualizedChatArea({
   onDiscard: (id: string) => Promise<void>;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
+  autoExpandReasoning?: boolean;
 }) {
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   const fallbackRef = useRef<HTMLDivElement | null>(null);
@@ -1774,7 +1798,13 @@ function NonVirtualizedChatArea({
           </div>
         )}
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onRetry={onRetry} conversationId={conversationId} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            onRetry={onRetry}
+            conversationId={conversationId}
+            autoExpandReasoning={autoExpandReasoning}
+          />
         ))}
         {generationState === "cancelled" && (
           <CancelledBar
