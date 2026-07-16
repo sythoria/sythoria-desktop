@@ -15,9 +15,11 @@ import {
   Minimize2,
   ArrowLeft,
   Ghost,
+  PanelRight,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
+import { AuxiliaryPanel } from "./components/AuxiliaryPanel";
 import { type Conversation, STATUS_COLORS } from "./types";
 import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
@@ -223,6 +225,7 @@ function App() {
     showUpdateModal,
     updateInfo,
     autoUpdateChecking,
+    isAuxPanelOpen,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -240,6 +243,7 @@ function App() {
       showUpdateModal: s.showUpdateModal,
       updateInfo: s.updateInfo,
       autoUpdateChecking: s.autoUpdateChecking,
+      isAuxPanelOpen: s.isAuxPanelOpen,
     })),
   );
   const {
@@ -256,6 +260,7 @@ function App() {
     setShowUpdateModal,
     checkForUpdates,
     toggleCommandPalette,
+    setAuxPanelOpen,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
@@ -271,6 +276,7 @@ function App() {
       setShowUpdateModal: s.setShowUpdateModal,
       checkForUpdates: s.checkForUpdates,
       toggleCommandPalette: s.toggleCommandPalette,
+      setAuxPanelOpen: s.setAuxPanelOpen,
     })),
   );
 
@@ -1266,7 +1272,7 @@ function App() {
                     </button>
                     <button
                       onClick={handleToggleCompareMode}
-                      className={`p-1.5 rounded-md transition-colors ${
+                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
                         isCompareMode
                           ? "text-accent bg-accent/10 hover:bg-accent/15"
                           : "text-text-muted hover:text-text-secondary hover:bg-hover"
@@ -1275,6 +1281,18 @@ function App() {
                       title={isCompareMode ? t("tooltip.disableCompare") : t("tooltip.enableCompare")}
                     >
                       <Split size={16} />
+                    </button>
+                    <button
+                      onClick={() => setAuxPanelOpen(!isAuxPanelOpen)}
+                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                        isAuxPanelOpen
+                          ? "text-accent bg-accent/10 hover:bg-accent/15"
+                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                      }`}
+                      aria-label={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
+                      title={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
+                    >
+                      <PanelRight size={16} />
                     </button>
                   </div>
                 </header>
@@ -1357,18 +1375,18 @@ function App() {
                     />
                   </div>
 
-                  {/* Right Column: Split Screen Artifact Panel */}
+                  {/* Right Column: Unified HTML Auxiliary Pane */}
                   <AnimatePresence>
-                    {activeArtifact && !isArtifactFullScreen && (
+                    {isAuxPanelOpen && (
                       <motion.div
-                        key="artifact-preview-split"
+                        key="auxiliary-pane-split"
                         className="w-[45%] border-l border-border bg-surface flex flex-col h-full min-h-0 min-w-[320px] relative z-20 shadow-lg"
                         initial={{ x: "100%", opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: "100%", opacity: 0 }}
                         transition={springs.gentle}
                       >
-                        {renderArtifactContent()}
+                        <AuxiliaryPanel />
                       </motion.div>
                     )}
                   </AnimatePresence>
