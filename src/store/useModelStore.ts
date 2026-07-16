@@ -64,77 +64,88 @@ async function ensureStreamListeners(
   activeHandlers.add(handler);
   streamListenerRefCount++;
 
-  if (listenersPromise) {
-    return () => {
-      activeHandlers.delete(handler);
-      streamListenerRefCount--;
-      if (streamListenerRefCount <= 0 && streamListenerCleanup) {
-        streamListenerCleanup();
-        streamListenerRefCount = 0;
-      }
-    };
-  }
+  if (!listenersPromise) {
+    listenersPromise = (async () => {
+      let chunkBuffer: Record<string, string> = {};
+      let rafId: number | null = null;
+      let unlistenChunk: (() => void) | null = null;
+      let unlistenDone: (() => void) | null = null;
 
-  listenersPromise = (async () => {
-    let chunkBuffer: Record<string, string> = {};
-    let rafId: number | null = null;
+      try {
+        unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
+          const cId = activeStreams.get(event.payload.streamId);
+          if (!cId) return;
 
-    const unlistenChunk = await listen<StreamChunkPayload>("chat-stream-chunk", (event) => {
-      const cId = activeStreams.get(event.payload.streamId);
-      if (!cId) return;
+          if (!chunkBuffer[cId]) chunkBuffer[cId] = "";
+          chunkBuffer[cId] += event.payload.content;
 
-      if (!chunkBuffer[cId]) chunkBuffer[cId] = "";
-      chunkBuffer[cId] += event.payload.content;
+          if (rafId === null) {
+            rafId = requestAnimationFrame(() => {
+              Object.entries(chunkBuffer).forEach(([currentConvId, text]) => {
+                for (const h of activeHandlers) {
+                  if (h.convId === currentConvId) {
+                    h.onChunk(text);
+                  }
+                }
+              });
+              chunkBuffer = {};
+              rafId = null;
+            });
+          }
+        });
 
-      if (rafId === null) {
-        rafId = requestAnimationFrame(() => {
-          Object.entries(chunkBuffer).forEach(([currentConvId, text]) => {
+        unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
+          const cId = activeStreams.get(event.payload.streamId);
+          if (!cId) return;
+
+          if (chunkBuffer[cId]) {
             for (const h of activeHandlers) {
-              if (h.convId === currentConvId) {
-                h.onChunk(text);
+              if (h.convId === cId) {
+                h.onChunk(chunkBuffer[cId]);
               }
             }
-          });
-          chunkBuffer = {};
-          rafId = null;
-        });
-      }
-    });
-
-    const unlistenDone = await listen<StreamDonePayload>("chat-stream-done", (event) => {
-      const cId = activeStreams.get(event.payload.streamId);
-      if (!cId) return;
-
-      if (chunkBuffer[cId]) {
-        for (const h of activeHandlers) {
-          if (h.convId === cId) {
-            h.onChunk(chunkBuffer[cId]);
+            delete chunkBuffer[cId];
           }
+
+          for (const h of activeHandlers) {
+            if (h.convId === cId) {
+              h.onDone();
+            }
+          }
+          activeStreams.delete(event.payload.streamId);
+        });
+
+        streamListenerCleanup = () => {
+          unlistenChunk?.();
+          unlistenDone?.();
+          if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          streamListenerCleanup = null;
+          listenersPromise = null;
+        };
+      } catch (error) {
+        unlistenChunk?.();
+        unlistenDone?.();
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
         }
-        delete chunkBuffer[cId];
+        streamListenerCleanup = null;
+        listenersPromise = null;
+        throw error;
       }
+    })();
+  }
 
-      for (const h of activeHandlers) {
-        if (h.convId === cId) {
-          h.onDone();
-        }
-      }
-      activeStreams.delete(event.payload.streamId);
-    });
-
-    streamListenerCleanup = () => {
-      unlistenChunk();
-      unlistenDone();
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-      streamListenerCleanup = null;
-      listenersPromise = null;
-    };
-  })();
-
-  await listenersPromise;
+  try {
+    await listenersPromise;
+  } catch (error) {
+    activeHandlers.delete(handler);
+    streamListenerRefCount = Math.max(0, streamListenerRefCount - 1);
+    throw error;
+  }
 
   return () => {
     activeHandlers.delete(handler);
