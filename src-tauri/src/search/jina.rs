@@ -1,13 +1,8 @@
 use crate::search::{SearchError, UrlContent};
 use serde_json::Value;
 
-pub async fn fetch(
-    url: &str,
-    config: &serde_json::Value,
-) -> Result<UrlContent, SearchError> {
-    let api_key = config
-        .get("apiKey")
-        .and_then(|v| v.as_str());
+pub async fn fetch(url: &str, config: &serde_json::Value) -> Result<UrlContent, SearchError> {
+    let api_key = config.get("apiKey").and_then(|v| v.as_str());
 
     let base_url = config
         .get("baseUrl")
@@ -53,9 +48,9 @@ pub async fn fetch(
         SearchError::ParseError(e.to_string())
     })?;
 
-    let data = json.get("data").ok_or_else(|| {
-        SearchError::ParseError("Missing 'data' field in Jina response".into())
-    })?;
+    let data = json
+        .get("data")
+        .ok_or_else(|| SearchError::ParseError("Missing 'data' field in Jina response".into()))?;
 
     let title = data
         .get("title")
