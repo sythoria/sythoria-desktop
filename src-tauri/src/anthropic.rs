@@ -1,4 +1,7 @@
-use crate::{AppError, ChatMessage, stream_parser, is_stream_cancelled, clear_stream_cancelled, client_builder};
+use crate::{
+    client_builder, is_stream_cancelled, stream_parser, wait_for_stream_cancelled, AppError,
+    ChatMessage,
+};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +57,7 @@ pub fn convert_tools(tools_str: &str) -> Option<Vec<serde_json::Value>> {
 pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<AnthropicMessage>) {
     let mut system_prompts = Vec::new();
     let mut anthropic_messages = Vec::new();
-    
+
     for msg in messages {
         if msg.role == "system" {
             if let Some(val) = msg.content {
@@ -64,9 +67,9 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
             }
             continue;
         }
-        
+
         let mut anthropic_content = Vec::new();
-        
+
         if msg.role == "tool" {
             let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
             let content_str = match &msg.content {
@@ -80,7 +83,7 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
                     "content": content_str
-                }])
+                }]),
             });
             continue;
         }
@@ -128,7 +131,8 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
 
         if let Some(tool_calls) = msg.tool_calls.clone() {
             for tc in tool_calls {
-                let input: serde_json::Value = serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::json!({}));
+                let input: serde_json::Value =
+                    serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::json!({}));
                 anthropic_content.push(serde_json::json!({
                     "type": "tool_use",
                     "id": tc.id,
@@ -137,35 +141,47 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
                 }));
             }
         }
-        
-        let content_json = if anthropic_content.is_empty() && msg.role == "assistant" && msg.tool_calls.is_some() {
+
+        let content_json = if anthropic_content.is_empty()
+            && msg.role == "assistant"
+            && msg.tool_calls.is_some()
+        {
             serde_json::Value::Array(anthropic_content)
-        } else if anthropic_content.len() == 1 && anthropic_content[0].get("type").and_then(|v| v.as_str()) == Some("text") {
-            anthropic_content[0].get("text").cloned().unwrap_or(serde_json::Value::String("".to_string()))
+        } else if anthropic_content.len() == 1
+            && anthropic_content[0].get("type").and_then(|v| v.as_str()) == Some("text")
+        {
+            anthropic_content[0]
+                .get("text")
+                .cloned()
+                .unwrap_or(serde_json::Value::String("".to_string()))
         } else {
             serde_json::Value::Array(anthropic_content)
         };
-        
+
         anthropic_messages.push(AnthropicMessage {
             role: msg.role,
-            content: content_json
+            content: content_json,
         });
     }
-    
+
     // Merge consecutive messages of the same role
     let mut merged: Vec<AnthropicMessage> = Vec::new();
     for msg in anthropic_messages {
         if let Some(last) = merged.last_mut() {
             if last.role == msg.role {
                 let mut last_content = match last.content.clone() {
-                    serde_json::Value::String(s) => vec![serde_json::json!({"type": "text", "text": s})],
+                    serde_json::Value::String(s) => {
+                        vec![serde_json::json!({"type": "text", "text": s})]
+                    }
                     serde_json::Value::Array(arr) => arr,
-                    _ => vec![]
+                    _ => vec![],
                 };
                 let msg_content = match msg.content {
-                    serde_json::Value::String(s) => vec![serde_json::json!({"type": "text", "text": s})],
+                    serde_json::Value::String(s) => {
+                        vec![serde_json::json!({"type": "text", "text": s})]
+                    }
                     serde_json::Value::Array(arr) => arr,
-                    _ => vec![]
+                    _ => vec![],
                 };
                 last_content.extend(msg_content);
                 last.content = serde_json::Value::Array(last_content);
@@ -174,13 +190,13 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
         }
         merged.push(msg);
     }
-    
+
     let system_opt = if system_prompts.is_empty() {
         None
     } else {
         Some(system_prompts.join("\n\n"))
     };
-    
+
     (system_opt, merged)
 }
 
@@ -192,9 +208,11 @@ pub async fn chat_completion_anthropic(
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
-    let client = client_builder().timeout(std::time::Duration::from_secs(60)).build()?;
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
-    
+
     let body = AnthropicRequest {
         model,
         messages: anthropic_messages,
@@ -206,7 +224,8 @@ pub async fn chat_completion_anthropic(
     };
 
     let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json")
+    request = request
+        .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
         .header("x-api-key", api_key);
 
@@ -222,8 +241,11 @@ pub async fn chat_completion_anthropic(
         });
     }
 
-    let anthropic_resp: AnthropicResponse = resp.json().await.map_err(|e| AppError::ParseError(e.to_string()))?;
-    
+    let anthropic_resp: AnthropicResponse = resp
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+
     let mut full_text = String::new();
     for c in anthropic_resp.content {
         if c.r#type == "text" {
@@ -245,7 +267,9 @@ pub async fn chat_completion_tools_anthropic(
     temperature: f64,
     max_tokens: Option<u32>,
 ) -> Result<String, AppError> {
-    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -260,7 +284,8 @@ pub async fn chat_completion_tools_anthropic(
     };
 
     let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json")
+    request = request
+        .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
         .header("x-api-key", api_key);
 
@@ -276,11 +301,14 @@ pub async fn chat_completion_tools_anthropic(
         });
     }
 
-    let anthropic_resp: AnthropicResponse = resp.json().await.map_err(|e| AppError::ParseError(e.to_string()))?;
-    
+    let anthropic_resp: AnthropicResponse = resp
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+
     let mut full_text = String::new();
     let mut tool_calls = Vec::new();
-    
+
     for c in anthropic_resp.content {
         if c.r#type == "text" {
             if let Some(t) = c.text {
@@ -322,8 +350,9 @@ pub async fn chat_stream_anthropic(
     max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    clear_stream_cancelled(&stream_id);
-    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
 
     let body = AnthropicRequest {
@@ -337,11 +366,16 @@ pub async fn chat_stream_anthropic(
     };
 
     let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json")
+    request = request
+        .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
         .header("x-api-key", api_key);
 
-    let resp = request.send().await?;
+    let parser = stream_parser::AnthropicSseParser::new();
+    let resp = tokio::select! {
+        result = request.send() => result?,
+        _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize()),
+    };
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -354,20 +388,37 @@ pub async fn chat_stream_anthropic(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut parser = stream_parser::AnthropicSseParser::new();
+    let mut parser = parser;
 
-    while let Some(chunk_result) = stream.next().await {
+    loop {
         if is_stream_cancelled(&stream_id) {
-            clear_stream_cancelled(&stream_id);
             return Ok(parser.finalize());
         }
 
+        let chunk_result = tokio::select! {
+            chunk = stream.next() => match chunk {
+                Some(result) => result,
+                None => break,
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                continue;
+            }
+        };
+
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(&app, &stream_id, |_| {});
+        parser.process_lines(|content| {
+            stream_parser::emit_stream_chunk(&app, &stream_id, content);
+        });
+        match parser.terminal().clone() {
+            stream_parser::AnthropicStreamTerminal::Streaming => {}
+            stream_parser::AnthropicStreamTerminal::Complete => break,
+            stream_parser::AnthropicStreamTerminal::Error(message) => {
+                return Err(AppError::StreamError(message));
+            }
+        }
     }
 
-    clear_stream_cancelled(&stream_id);
     Ok(parser.finalize())
 }
 
@@ -382,8 +433,9 @@ pub async fn chat_stream_tools_anthropic(
     max_tokens: Option<u32>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    clear_stream_cancelled(&stream_id);
-    let client = client_builder().timeout(std::time::Duration::from_secs(120)).build()?;
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -398,11 +450,16 @@ pub async fn chat_stream_tools_anthropic(
     };
 
     let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json")
+    request = request
+        .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
         .header("x-api-key", api_key);
 
-    let resp = request.send().await?;
+    let parser = stream_parser::AnthropicSseParser::new();
+    let resp = tokio::select! {
+        result = request.send() => result?,
+        _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize_tools()),
+    };
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -415,28 +472,50 @@ pub async fn chat_stream_tools_anthropic(
     }
 
     let mut stream = resp.bytes_stream();
-    let mut parser = stream_parser::AnthropicSseParser::new();
+    let mut parser = parser;
 
-    while let Some(chunk_result) = stream.next().await {
+    loop {
         if is_stream_cancelled(&stream_id) {
-            clear_stream_cancelled(&stream_id);
             return Ok(parser.finalize_tools());
         }
 
+        let chunk_result = tokio::select! {
+            chunk = stream.next() => match chunk {
+                Some(result) => result,
+                None => break,
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                continue;
+            }
+        };
+
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(&app, &stream_id, |_| {});
+        parser.process_lines(|content| {
+            stream_parser::emit_stream_chunk(&app, &stream_id, content);
+        });
+        match parser.terminal().clone() {
+            stream_parser::AnthropicStreamTerminal::Streaming => {}
+            stream_parser::AnthropicStreamTerminal::Complete => break,
+            stream_parser::AnthropicStreamTerminal::Error(message) => {
+                return Err(AppError::StreamError(message));
+            }
+        }
     }
 
-    clear_stream_cancelled(&stream_id);
     Ok(parser.finalize_tools())
 }
 
 pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<bool, AppError> {
-    let client = client_builder().timeout(std::time::Duration::from_secs(10)).build()?;
+    let client = client_builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
     let body = AnthropicRequest {
         model: "claude-3-haiku-20240307".to_string(),
-        messages: vec![AnthropicMessage { role: "user".to_string(), content: serde_json::Value::String("hello".to_string()) }],
+        messages: vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String("hello".to_string()),
+        }],
         system: None,
         max_tokens: 1,
         temperature: 0.0,
@@ -445,7 +524,8 @@ pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<boo
     };
 
     let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json")
+    request = request
+        .header("Content-Type", "application/json")
         .header("anthropic-version", "2023-06-01")
         .header("x-api-key", api_key);
 
