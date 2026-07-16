@@ -67,7 +67,7 @@ const MessageSchema = z.object({
   attachments: z.array(AttachmentSchema).optional(),
 });
 
-const ConversationSchema = z.object({
+export const ConversationSchema = z.object({
   id: z.string(),
   title: z.string().default("Untitled"),
   timestamp: z.coerce.date(),
@@ -78,7 +78,8 @@ const ConversationSchema = z.object({
   parentId: z.string().optional(),
   role: z.string().optional(),
   isSubagent: z.boolean().optional(),
-  status: z.enum(["running", "idle", "error", "completed"]).optional(),
+  status: z.enum(["running", "idle", "error", "completed", "stopped"]).optional(),
+  recursionDepth: z.number().int().nonnegative().optional(),
   pendingWorktree: z
     .object({
       path: z.string(),
