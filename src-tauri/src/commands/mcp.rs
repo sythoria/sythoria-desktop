@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use crate::AppError;
-use crate::mcp;
 use crate::commands::config::get_keychain_secret;
+use crate::mcp;
+use crate::AppError;
+use std::collections::HashMap;
 
 #[tauri::command]
 pub async fn mcp_start_server(
