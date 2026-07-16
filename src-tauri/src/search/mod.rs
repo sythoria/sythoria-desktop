@@ -126,7 +126,9 @@ pub fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
     };
     match (ip, target_ip) {
         (std::net::IpAddr::V4(v4), std::net::IpAddr::V4(v4_target)) => {
-            if prefix_len > 32 { return false; }
+            if prefix_len > 32 {
+                return false;
+            }
             let mask = if prefix_len == 0 {
                 0u32
             } else {
@@ -137,7 +139,9 @@ pub fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
             (ip_u32 & mask) == (target_u32 & mask)
         }
         (std::net::IpAddr::V6(v6), std::net::IpAddr::V6(v6_target)) => {
-            if prefix_len > 128 { return false; }
+            if prefix_len > 128 {
+                return false;
+            }
             let ip_u128 = u128::from_be_bytes(v6.octets());
             let target_u128 = u128::from_be_bytes(v6_target.octets());
             let mask = if prefix_len == 0 {
@@ -154,19 +158,19 @@ pub fn ip_belongs_to_cidr(ip: &std::net::IpAddr, cidr: &str) -> bool {
 pub fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
     let host_chars: Vec<char> = host_or_ip.to_lowercase().chars().collect();
     let pattern_chars: Vec<char> = pattern.to_lowercase().chars().collect();
-    
+
     let h_len = host_chars.len();
     let p_len = pattern_chars.len();
-    
+
     let mut dp = vec![vec![false; p_len + 1]; h_len + 1];
     dp[0][0] = true;
-    
+
     for j in 1..=p_len {
         if pattern_chars[j - 1] == '*' {
             dp[0][j] = dp[0][j - 1];
         }
     }
-    
+
     for i in 1..=h_len {
         for j in 1..=p_len {
             if pattern_chars[j - 1] == '*' {
@@ -176,7 +180,7 @@ pub fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
             }
         }
     }
-    
+
     dp[h_len][p_len]
 }
 
