@@ -870,10 +870,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text, attachments) => {
-    const { isStreaming, activeId, isCompareMode, compareIds } = get();
+    const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
 
-    if (isStreaming) return;
+    if (activeId) {
+      const activeGen = get().generationByConversation[activeId];
+      const isTargetGenerating = activeGen && activeGen.state !== "idle" && activeGen.state !== "cancelled";
+      if (isTargetGenerating) return;
+
+      if (isCompareMode && compareIds.length > 0) {
+        const isAnyCompareGenerating = compareIds.some((id) => {
+          const gen = get().generationByConversation[id];
+          return gen && gen.state !== "idle" && gen.state !== "cancelled";
+        });
+        if (isAnyCompareGenerating) return;
+      }
+    }
 
     let convId = activeId;
     let activeCompareIds = [...compareIds];
@@ -1065,11 +1077,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const nextStatus = c.isSubagent && c.status === "running" ? "completed" : c.status;
         return { ...c, messages: nextMessages, status: nextStatus };
       });
+      const nextGenByConv: Record<string, { state: GenerationState; label: string }> = {};
+      state.conversations.forEach((c) => {
+        const hasStreamingMsg = c.messages.some((m) => m.isStreaming);
+        if (hasStreamingMsg || (c.isSubagent && c.status === "running")) {
+          nextGenByConv[c.id] = { state: "cancelled" as GenerationState, label: "Cancelled" };
+        }
+      });
       return {
         isStreaming: false,
-        generationState: "cancelled" as GenerationState,
-        generationLabel: "Cancelled",
-        generationByConversation: {},
+        generationState: "idle" as GenerationState,
+        generationLabel: "",
+        generationByConversation: nextGenByConv,
         conversations: convs,
         activeStreamThinkingStart: {},
         activeStreamThinkingEnd: {},
@@ -1472,12 +1491,13 @@ async function sendNormal(
 
   try {
     cleanupStream = await modelStore.ensureStreamListeners(
-      (cId, content) => {
+      convId,
+      (content) => {
         set((state) => {
           const newState: Partial<ChatState> = {};
           let nextGenerationByConversation = state.generationByConversation;
 
-          const currentStreamContent = state.activeStreamContent[cId] || "";
+          const currentStreamContent = state.activeStreamContent[convId] || "";
           const fullContent = currentStreamContent + content;
 
           // Track thinking start and end timestamps
@@ -1486,19 +1506,19 @@ async function sendNormal(
 
           // Track stream start timestamp when we get the first chunk
           const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
-          if (!nextActiveStreamStartTime[cId]) {
-            nextActiveStreamStartTime[cId] = Date.now();
+          if (!nextActiveStreamStartTime[convId]) {
+            nextActiveStreamStartTime[convId] = Date.now();
           }
 
-          if (fullContent.includes("<reasoning>") && !nextActiveStreamThinkingStart[cId]) {
-            nextActiveStreamThinkingStart[cId] = Date.now();
+          if (fullContent.includes("<reasoning>") && !nextActiveStreamThinkingStart[convId]) {
+            nextActiveStreamThinkingStart[convId] = Date.now();
           }
           if (
             fullContent.includes("</reasoning>") &&
-            nextActiveStreamThinkingStart[cId] &&
-            !nextActiveStreamThinkingEnd[cId]
+            nextActiveStreamThinkingStart[convId] &&
+            !nextActiveStreamThinkingEnd[convId]
           ) {
-            nextActiveStreamThinkingEnd[cId] = Date.now();
+            nextActiveStreamThinkingEnd[convId] = Date.now();
           }
 
           if (state.generationState === "loading") {
@@ -1507,7 +1527,7 @@ async function sendNormal(
               newState.generationLabel = "Thinking";
               nextGenerationByConversation = setConversationGeneration(
                 state,
-                cId,
+                convId,
                 "thinking" as GenerationState,
                 "Thinking",
               );
@@ -1516,7 +1536,7 @@ async function sendNormal(
               newState.generationLabel = "Responding";
               nextGenerationByConversation = setConversationGeneration(
                 state,
-                cId,
+                convId,
                 "responding" as GenerationState,
                 "Responding",
               );
@@ -1543,7 +1563,7 @@ async function sendNormal(
             newState.generationLabel = "Responding";
             nextGenerationByConversation = setConversationGeneration(
               state,
-              cId,
+              convId,
               "responding" as GenerationState,
               "Responding",
             );
@@ -1554,7 +1574,7 @@ async function sendNormal(
             generationByConversation: nextGenerationByConversation,
             activeStreamContent: {
               ...state.activeStreamContent,
-              [cId]: fullContent,
+              [convId]: fullContent,
             },
             activeStreamThinkingStart: nextActiveStreamThinkingStart,
             activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
@@ -1562,21 +1582,21 @@ async function sendNormal(
           };
         });
       },
-      (cId) => {
+      () => {
         logInfo("stream", `Stream completed`, {
-          details: `Conversation: ${cId}`,
+          details: `Conversation: ${convId}`,
         });
         set((state) => {
-          const streamContent = state.activeStreamContent[cId] || "";
+          const streamContent = state.activeStreamContent[convId] || "";
           let thinkingDuration: number | undefined = undefined;
-          const start = state.activeStreamThinkingStart?.[cId];
+          const start = state.activeStreamThinkingStart?.[convId];
           if (start) {
-            const end = state.activeStreamThinkingEnd?.[cId] || Date.now();
+            const end = state.activeStreamThinkingEnd?.[convId] || Date.now();
             thinkingDuration = Math.round((end - start) / 1000);
           }
 
           const conversations = state.conversations.map((c) => {
-            if (c.id !== cId) return c;
+            if (c.id !== convId) return c;
             const updated = [...c.messages];
             const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
             if (lastAssistantIdx >= 0) {
@@ -1594,14 +1614,14 @@ async function sendNormal(
           const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
 
           const nextActiveStreamContent = { ...state.activeStreamContent };
-          delete nextActiveStreamContent[cId];
+          delete nextActiveStreamContent[convId];
 
           const nextStart = { ...state.activeStreamThinkingStart };
-          delete nextStart[cId];
+          delete nextStart[convId];
           const nextEnd = { ...state.activeStreamThinkingEnd };
-          delete nextEnd[cId];
+          delete nextEnd[convId];
           const nextStreamStartTime = { ...state.activeStreamStartTime };
-          delete nextStreamStartTime[cId];
+          delete nextStreamStartTime[convId];
 
           return {
             conversations,
@@ -1612,7 +1632,7 @@ async function sendNormal(
             isStreaming: stillStreaming,
             generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
             generationLabel: stillStreaming ? state.generationLabel : "",
-            generationByConversation: setConversationGeneration(state, cId, "idle" as GenerationState, ""),
+            generationByConversation: setConversationGeneration(state, convId, "idle" as GenerationState, ""),
           };
         });
       },
