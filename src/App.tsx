@@ -114,7 +114,6 @@ function App() {
     activeId,
     isStreaming,
     generationState,
-    generationLabel,
     generationByConversation,
     navigationHistory,
     navigationIndex,
@@ -126,7 +125,6 @@ function App() {
       activeId: s.activeId,
       isStreaming: s.isStreaming,
       generationState: s.generationState,
-      generationLabel: s.generationLabel,
       generationByConversation: s.generationByConversation,
       navigationHistory: s.navigationHistory,
       navigationIndex: s.navigationIndex,
@@ -1287,7 +1285,6 @@ function App() {
                           models={models}
                           onModelChange={handlePrimaryModelChange}
                           generationState={primaryGeneration?.state ?? generationState}
-                          generationLabel={primaryGeneration?.label ?? generationLabel}
                           onRetry={handleRetry}
                           isStreaming={isStreaming}
                           onScroll={syncScrolls ? handlePrimaryScroll : undefined}
@@ -1305,7 +1302,6 @@ function App() {
                               onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
                               onClose={() => handleCompareClose(c.id)}
                               generationState={compGen?.state ?? "idle"}
-                              generationLabel={compGen?.label ?? ""}
                               onRetry={() => handleCompareRetry(c.id)}
                               isStreaming={isStreaming}
                               onScroll={syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined}
@@ -1323,7 +1319,6 @@ function App() {
                         virtuosoRef={primaryVirtuosoRef}
                         onRetry={handleRetry}
                         generationState={primaryGeneration?.state ?? generationState}
-                        generationLabel={primaryGeneration?.label ?? generationLabel}
                         conversationId={activeId || undefined}
                         pendingWorktree={activeConversation?.pendingWorktree}
                       />

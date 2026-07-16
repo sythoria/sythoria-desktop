@@ -30,8 +30,8 @@ beforeEach(() => {
 });
 
 describe("TOOL_DEFINITIONS", () => {
-  it("defines exactly 5 tools", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(5);
+  it("defines exactly 6 tools", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(6);
   });
 
   it("includes search_query tool", () => {

@@ -200,6 +200,7 @@ interface ChatState {
   stopStreaming: () => void;
   exportChat: (id: string) => void | Promise<void>;
   persistConversations: () => Promise<void>;
+  resumeConversation: (convId: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   applyPendingWorktree: (convId: string) => Promise<void>;
   discardPendingWorktree: (convId: string) => Promise<void>;
@@ -617,9 +618,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     set((state) => {
-      const newHistory = state.navigationHistory.filter((x) => x !== id);
+      const getDescendants = (parentId: string, convs: typeof state.conversations): string[] => {
+        const children = convs.filter((c) => c.parentId === parentId).map((c) => c.id);
+        const descendants = [...children];
+        for (const childId of children) {
+          descendants.push(...getDescendants(childId, convs));
+        }
+        return descendants;
+      };
+
+      const idsToDelete = new Set([id, ...getDescendants(id, state.conversations)]);
+
+      const newHistory = state.navigationHistory.filter((x) => !idsToDelete.has(x));
       let newIndex = state.navigationIndex;
-      const oldActiveIndex = state.navigationHistory.indexOf(id);
+      const oldActiveIndex =
+        state.navigationHistory.findIndex((x) => idsToDelete.has(x) && state.activeId === x) !== -1
+          ? state.navigationHistory.indexOf(state.activeId!)
+          : -1;
+
       if (oldActiveIndex !== -1) {
         if (newIndex >= oldActiveIndex) {
           newIndex = Math.max(0, newIndex - 1);
@@ -628,14 +644,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (newIndex >= newHistory.length) {
         newIndex = newHistory.length - 1;
       }
-      const nextActiveId = state.activeId === id ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
+      const nextActiveId = idsToDelete.has(state.activeId || "")
+        ? newIndex >= 0
+          ? newHistory[newIndex]
+          : null
+        : state.activeId;
 
-      const isCompareDeleted = state.compareIds.includes(id);
-      const isActiveDeleted = state.activeId === id;
-      const nextCompareIds = state.compareIds.filter((x) => x !== id);
+      const nextCompareIds = state.compareIds.filter((x) => !idsToDelete.has(x));
+      const isCompareDeleted = nextCompareIds.length < state.compareIds.length;
+      const isActiveDeleted = idsToDelete.has(state.activeId || "");
 
       return {
-        conversations: state.conversations.filter((c) => c.id !== id),
+        conversations: state.conversations.filter((c) => !idsToDelete.has(c.id)),
         activeId: nextActiveId,
         navigationHistory: newHistory,
         navigationIndex: newIndex,
@@ -1016,7 +1036,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     useGitStore.getState().autoCommitIfNeeded();
   },
 
-  stopStreaming: () => {
+  stopStreaming: async () => {
     modelCancelStream();
     set((state) => {
       const convs = state.conversations.map((c) => {
@@ -1036,12 +1056,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           return m;
         });
-        return { ...c, messages: nextMessages };
+        const nextStatus = c.isSubagent && c.status === "running" ? "completed" : c.status;
+        return { ...c, messages: nextMessages, status: nextStatus };
       });
       return {
         isStreaming: false,
-        generationState: "idle" as GenerationState,
-        generationLabel: "",
+        generationState: "cancelled" as GenerationState,
+        generationLabel: "Cancelled",
         generationByConversation: {},
         conversations: convs,
         activeStreamThinkingStart: {},
@@ -1051,6 +1072,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     uiLoading("sendMessage", false);
     uiLoading("toolExecution", false);
+    await get().persistConversations();
   },
 
   retryLastMessage: async (convId) => {
@@ -1259,6 +1281,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await saveConversations(persistentConversations);
   },
 
+  resumeConversation: async (convId) => {
+    const { conversations } = get();
+    const conv = conversations.find((c) => c.id === convId);
+    if (!conv) return;
+
+    const { selectedModel, models, temperature } = useModelStore.getState();
+    const model = conv.model || selectedModel;
+    const modelConfig = models.find((m) => m.id === model) ?? models[0];
+
+    const { activeProjectId, isProjectsEnabled, projects } = useProjectStore.getState();
+    const project = isProjectsEnabled ? projects.find((p) => p.id === activeProjectId) || null : null;
+
+    const toolLoop = getEnabledToolLoopConfig();
+
+    await sendWithToolLoop(
+      convId,
+      modelConfig,
+      temperature,
+      toolLoop.searchConfig,
+      toolLoop.searchApiKey,
+      toolLoop.mcpTools,
+      toolLoop.mcpCallTool,
+      (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+      get,
+      searchPerformSearch,
+      searchFetchUrlContent,
+      project,
+    );
+  },
+
   clearAllChats: async () => {
     set({ conversations: [], activeId: null });
     await clearConversations();
@@ -1410,8 +1462,10 @@ async function sendNormal(
     details: `Model: ${modelConfig.modelId}, API: ${modelConfig.apiBase}, Stream ID: ${streamId}`,
   });
 
+  let cleanupStream: (() => void) | null = null;
+
   try {
-    await modelStore.ensureStreamListeners(
+    cleanupStream = await modelStore.ensureStreamListeners(
       (cId, content) => {
         set((state) => {
           const newState: Partial<ChatState> = {};
@@ -1642,7 +1696,7 @@ async function sendNormal(
       details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
     });
   } finally {
-    modelReleaseListeners();
+    cleanupStream?.();
     uiLoading("sendMessage", false);
   }
 }

@@ -200,6 +200,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "wait_subagents",
+      description:
+        "Blocks and waits for one or more subagents to finish their execution, then returns their final results. Use this when you need the subagent's output to continue your own task.",
+      parameters: {
+        type: "object",
+        properties: {
+          conversationIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of subagent conversation IDs to wait for.",
+          },
+        },
+        required: ["conversationIds"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "send_message",
       description: "Sends a message to an active subagent.",
       parameters: {
@@ -519,6 +538,7 @@ type KnownToolName =
   | "search_query"
   | "fetch_url"
   | "invoke_subagent"
+  | "wait_subagents"
   | "send_message"
   | "project_glob"
   | "project_grep"
@@ -536,6 +556,7 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
   "invoke_subagent",
+  "wait_subagents",
   "send_message",
   "project_glob",
   "project_grep",
@@ -573,6 +594,27 @@ function updateConversationMessages(
   return conversations.map((c) => {
     if (c.id !== convId) return c;
     return { ...c, messages: updater(c.messages), timestamp: new Date(), ...extra };
+  });
+}
+
+function setCancelledStatus(set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void, convId: string) {
+  set((state) => {
+    const conv = state.conversations.find((c) => c.id === convId);
+    if (!conv) return {};
+    const nextMessages = [...conv.messages];
+    const lastAssistantIdx = [...nextMessages].reverse().findIndex((m) => m.role === "assistant");
+    if (lastAssistantIdx >= 0) {
+      const idx = nextMessages.length - 1 - lastAssistantIdx;
+      if (!nextMessages[idx].content) {
+        nextMessages[idx] = {
+          ...nextMessages[idx],
+          content: "Cancelled agent execution.",
+        };
+      }
+    }
+    return {
+      conversations: state.conversations.map((c) => (c.id === convId ? { ...c, messages: nextMessages } : c)),
+    };
   });
 }
 
@@ -622,8 +664,94 @@ export async function sendWithToolLoop(
 
   const collectedSources: { title: string; url: string }[] = [];
 
+  const streamDoneResolves = new Map<string, () => void>();
+  let cleanupStream: (() => void) | null = null;
+
   try {
+    logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
     const conv = get().conversations.find((c) => c.id === convId);
+
+    const modelStore = useModelStore.getState();
+    cleanupStream = await modelStore.ensureStreamListeners(
+      (cId, content) => {
+        useChatStore.setState((state) => {
+          const newState: Partial<typeof state> = {};
+          const currentStreamContent = state.activeStreamContent[cId] || "";
+          const fullContent = currentStreamContent + content;
+
+          if (fullContent.includes("<reasoning>") && !state.activeStreamThinkingStart?.[cId]) {
+            newState.activeStreamThinkingStart = { ...state.activeStreamThinkingStart, [cId]: Date.now() };
+          }
+          if (
+            fullContent.includes("</reasoning>") &&
+            state.activeStreamThinkingStart?.[cId] &&
+            !state.activeStreamThinkingEnd?.[cId]
+          ) {
+            newState.activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd, [cId]: Date.now() };
+          }
+
+          if (state.generationState === "loading") {
+            if (fullContent.includes("<reasoning>")) {
+              newState.generationState = "thinking";
+              newState.generationLabel = "Thinking";
+            } else if (content.trim() !== "") {
+              newState.generationState = "responding";
+              newState.generationLabel = "Responding";
+            }
+          } else if (
+            state.generationState === "thinking" &&
+            fullContent.includes("</reasoning>") &&
+            content.trim() !== "" &&
+            !content.includes("</reasoning>")
+          ) {
+            newState.generationState = "responding";
+            newState.generationLabel = "Responding";
+          }
+
+          return {
+            ...newState,
+            activeStreamContent: {
+              ...state.activeStreamContent,
+              [cId]: fullContent,
+            },
+          };
+        });
+      },
+      (cId) => {
+        useChatStore.setState((state) => {
+          const streamContent = state.activeStreamContent[cId] || "";
+          const conversations = state.conversations.map((c) => {
+            if (c.id !== cId) return c;
+            const updated = [...c.messages];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant") {
+              updated[updated.length - 1] = {
+                ...last,
+                content: last.content + streamContent,
+                isStreaming: false,
+              };
+            }
+            return { ...c, messages: updated };
+          });
+          const nextActiveStreamContent = { ...state.activeStreamContent };
+          delete nextActiveStreamContent[cId];
+          const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
+          delete nextActiveStreamThinkingStart[cId];
+          const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+          delete nextActiveStreamThinkingEnd[cId];
+          return {
+            conversations,
+            activeStreamContent: nextActiveStreamContent,
+            activeStreamThinkingStart: nextActiveStreamThinkingStart,
+            activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
+          };
+        });
+        if (streamDoneResolves.has(cId)) {
+          streamDoneResolves.get(cId)!();
+          streamDoneResolves.delete(cId);
+        }
+      },
+    );
 
     if (project) {
       try {
@@ -656,7 +784,7 @@ export async function sendWithToolLoop(
         console.error("Failed to setup git worktree isolation, using direct workspace path:", e);
       }
     }
-
+    logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
     const baseMessages =
       conv?.messages
         .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
@@ -728,6 +856,7 @@ export async function sendWithToolLoop(
       }
       if (!get().isStreaming) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
+        setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
         return;
       }
@@ -753,20 +882,46 @@ export async function sendWithToolLoop(
       const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
 
       const stepStartTime = Date.now();
-      const raw = await invoke<string>("chat_completion_tools", {
+      const streamId = generateId();
+      modelStore.setActiveStreamId(streamId, convId);
+
+      const streamDonePromise = new Promise<void>((resolve) => {
+        streamDoneResolves.set(convId, resolve);
+      });
+
+      set((state) => ({
+        conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
+          ...msgs,
+          {
+            id: generateId(),
+            role: "assistant",
+            content: "",
+            timestamp: new Date(),
+            isStreaming: true,
+          },
+        ]),
+      }));
+
+      const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
         messages: apiMessages,
         tools: JSON.stringify(allTools),
         temperature: requestTemp,
         maxTokens,
+        streamId,
       });
-      const stepDuration = Math.round((Date.now() - stepStartTime) / 1000);
+
+      await streamDonePromise;
 
       if (!get().isStreaming) {
-        logInfo("chat", "Tool loop aborted: stream was stopped by user during API call");
+        logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
+        setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
         return;
       }
+
+      const raw = await rawPromise;
+      const stepDuration = Math.round((Date.now() - stepStartTime) / 1000);
 
       const response: ToolCallResponse = JSON.parse(raw);
 
@@ -779,19 +934,19 @@ export async function sendWithToolLoop(
         apiMessages.push({ role: "assistant", content: msg.content, tool_calls: msg.tool_calls });
 
         if (typeof msg.content === "string" && msg.content.trim()) {
-          const thoughtMsgId = generateId();
           set((state) => ({
-            conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
-              ...msgs,
-              {
-                id: thoughtMsgId,
-                role: "assistant",
-                content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
-                timestamp: new Date(),
-                isStreaming: false,
-                thinkingDuration: stepDuration,
-              },
-            ]),
+            conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
+              const updated = [...msgs];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
+                  thinkingDuration: stepDuration,
+                };
+              }
+              return updated;
+            }),
           }));
         }
 
@@ -1062,6 +1217,40 @@ export async function sendWithToolLoop(
               }
 
               resultContent = `Subagents invoked successfully with conversation IDs: ${invokedIds.join(", ")}. Wait for their responses, or communicate with them using send_message.`;
+            } else if (fnName === "wait_subagents") {
+              const targetIds = Array.isArray(fnArgs.conversationIds) ? fnArgs.conversationIds : [];
+              const start = Date.now();
+              const timeout = 600000; // 10 minutes max wait
+
+              while (Date.now() - start < timeout) {
+                const convs = get().conversations;
+                let allDone = true;
+                const results: string[] = [];
+                for (const id of targetIds) {
+                  const targetConv = convs.find((c) => c.id === id);
+                  if (!targetConv) {
+                    results.push(`Subagent ${id} not found.`);
+                    continue;
+                  }
+                  if (targetConv.status === "completed" || targetConv.status === "error") {
+                    const lastMsg = targetConv.messages[targetConv.messages.length - 1];
+                    results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
+                  } else {
+                    allDone = false;
+                  }
+                }
+
+                if (allDone) {
+                  resultContent = results.join("\n\n---\n\n");
+                  break;
+                }
+
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+
+              if (!resultContent) {
+                resultContent = "Timeout waiting for subagents to finish.";
+              }
             } else if (fnName === "send_message") {
               const targetId = fnArgs.conversationId;
               const msgContent = fnArgs.message;
@@ -1375,6 +1564,7 @@ export async function sendWithToolLoop(
 
         if (!get().isStreaming) {
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
+          setCancelledStatus(set, convId);
           await useChatStore.getState().persistConversations();
           return;
         }
@@ -1417,21 +1607,21 @@ export async function sendWithToolLoop(
       } else {
         const assistantContent = msg.content || "";
 
-        const assistantMsg: Message = {
-          id: generateId(),
-          role: "assistant",
-          content: assistantContent,
-          timestamp: new Date(),
-          isStreaming: false,
-          sources: collectedSources.length > 0 ? collectedSources : undefined,
-          thinkingDuration: stepDuration,
-        };
-
         set((state) => {
-          let conversations = updateConversationMessages(state.conversations, convId, (msgs) => [
-            ...msgs,
-            assistantMsg,
-          ]);
+          let conversations = updateConversationMessages(state.conversations, convId, (msgs) => {
+            const updated = [...msgs];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "assistant") {
+              updated[updated.length - 1] = {
+                ...last,
+                content: last.content || assistantContent,
+                isStreaming: false,
+                sources: collectedSources.length > 0 ? collectedSources : last.sources,
+                thinkingDuration: last.thinkingDuration ?? stepDuration,
+              };
+            }
+            return updated;
+          });
           conversations = conversations.map((c) =>
             c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c,
           );
@@ -1455,29 +1645,28 @@ export async function sendWithToolLoop(
           const parentMsg: Message = {
             id: generateId(),
             role: "user",
-            content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) has finished its task. Final response:\n\n${assistantContent}`,
+            content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) has finished its task. Final response:\n\n${assistantContent}\n\nPlease proceed to address the user using this information.`,
             timestamp: new Date(),
+            isSystem: true,
           };
+
+          const parentIsGenerating =
+            get().generationByConversation[updatedConv.parentId]?.state &&
+            get().generationByConversation[updatedConv.parentId]?.state !== "idle";
+
           useChatStore.setState((s) => ({
             conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
               ...msgs,
               parentMsg,
             ]),
           }));
-          sendWithToolLoop(
-            updatedConv.parentId,
-            modelConfig,
-            temperature,
-            searchConfig,
-            searchApiKey,
-            mcpTools,
-            mcpCallTool,
-            set,
-            get,
-            performSearch,
-            fetchUrlContent,
-            project,
-          ).catch((e) => console.error("Parent loop error:", e));
+
+          if (!parentIsGenerating) {
+            useChatStore
+              .getState()
+              .resumeConversation(updatedConv.parentId)
+              .catch((e) => console.error("Parent auto-resume loop error:", e));
+          }
         }
 
         return;
@@ -1532,7 +1721,6 @@ export async function sendWithToolLoop(
       action: parsed.action,
       details: `Model: ${modelConfig?.name}, Category: ${parsed.category}, Retryable: ${parsed.retryable}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
     });
-
     const updatedConv = get().conversations.find((c) => c.id === convId);
     if (updatedConv?.isSubagent && updatedConv.parentId) {
       const parentMsg: Message = {
@@ -1562,5 +1750,7 @@ export async function sendWithToolLoop(
         project,
       ).catch((e) => console.error("Parent loop error on subagent failure:", e));
     }
+  } finally {
+    cleanupStream?.();
   }
 }

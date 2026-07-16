@@ -32,6 +32,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
+  isSystem?: boolean;
   toolCall?: { id: string; name: string; arguments: Record<string, string> };
   toolResult?: {
     id: string;
@@ -126,7 +127,7 @@ export interface FetchApiConfig {
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
 export type GenerationState =
-  "idle" | "loading" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error";
+  "idle" | "loading" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error" | "cancelled";
 
 export type McpTransport = "stdio" | "sse" | "streamable-http";
 

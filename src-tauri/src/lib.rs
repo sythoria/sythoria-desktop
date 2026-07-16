@@ -211,6 +211,8 @@ struct ChatRequestTools {
     tool_choice: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -511,6 +513,7 @@ async fn chat_stream_tools(
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
+        stream: Some(true),
     };
 
     let client = client_builder()
@@ -538,23 +541,21 @@ async fn chat_stream_tools(
 
     let mut stream = resp.bytes_stream();
     let mut parser = stream_parser::SseParser::new();
-    let mut accumulated = String::new();
 
     while let Some(chunk_result) = stream.next().await {
         if is_stream_cancelled(&stream_id) {
             clear_stream_cancelled(&stream_id);
-            return Ok(accumulated);
+            return Ok(parser.finalize_tools());
         }
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(&app, &stream_id, |chunk_text| {
-            accumulated.push_str(chunk_text);
+        parser.process_lines(&app, &stream_id, |_chunk_text| {
         });
     }
 
     clear_stream_cancelled(&stream_id);
-    Ok(accumulated)
+    Ok(parser.finalize_tools())
 }
 
 #[tauri::command]
@@ -596,6 +597,7 @@ async fn chat_completion_tools(
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
+        stream: None,
     };
 
     let client = client_builder()

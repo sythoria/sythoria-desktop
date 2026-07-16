@@ -652,119 +652,728 @@ export default memo(function InputBar({
       }`}
     >
       <div className={`w-full max-w-3xl mx-auto px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
-        <label htmlFor="chat-input" className="sr-only">
-          Message
-        </label>
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (!disabled && !isStreaming) {
-              setIsDragging(true);
-            }
-          }}
-          onDragLeave={() => {
-            setIsDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-          }}
-          className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-2.5 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
-            isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
-          } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
-            isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""
-          }`}
-        >
-          {/* Hidden input element */}
-          <input
-            id="file-input-element"
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            multiple
-            accept="image/*,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.php,.swift,.kt,.scala,.sh,.bash,.zsh,.sql,.html,.css,.scss,.toml,.ini,.cfg,.log,.env"
-            className="hidden"
-          />
+        {conversation?.isSubagent ? (
+          <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
+            <Bot size={24} className="mb-2 text-text-muted/70" />
+            <p>Subagents are autonomous and cannot be messaged directly.</p>
+          </div>
+        ) : (
+          <>
+            <label htmlFor="chat-input" className="sr-only">
+              Message
+            </label>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!disabled && !isStreaming) {
+                  setIsDragging(true);
+                }
+              }}
+              onDragLeave={() => {
+                setIsDragging(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+              }}
+              className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-2.5 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
+                isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
+              } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
+                isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""
+              }`}
+            >
+              {/* Hidden input element */}
+              <input
+                id="file-input-element"
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                multiple
+                accept="image/*,.txt,.md,.json,.csv,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.php,.swift,.kt,.scala,.sh,.bash,.zsh,.sql,.html,.css,.scss,.toml,.ini,.cfg,.log,.env"
+                className="hidden"
+              />
 
-          {/* Attachments strip */}
-          <AnimatePresence>
-            {attachments.length > 0 && (
-              <motion.div
-                layout
-                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
-                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                transition={springs.gentle}
-                className="w-full overflow-hidden"
-              >
-                <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
-                  {attachments.map((a) => {
-                    const isImg = a.kind === "image" && a.dataUrl;
-                    if (isImg) {
-                      return (
-                        <motion.div
-                          layout
-                          key={a.id}
-                          initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                          transition={springs.gentle}
-                          onClick={() => {
-                            const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-                            if (imgIdx !== -1) {
-                              setPreviewImageIndex(imgIdx);
-                            }
-                          }}
-                          className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
-                          title={`View ${a.name}`}
-                        >
-                          <img
-                            src={a.dataUrl}
-                            alt={a.name}
-                            className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
-                          />
-                          <span className="sr-only">{a.name}</span>
-                          <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                            }}
-                            className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
-                            title={t("chat.removeAttachment") || "Remove attachment"}
+              {/* Attachments strip */}
+              <AnimatePresence>
+                {attachments.length > 0 && (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    transition={springs.gentle}
+                    className="w-full overflow-hidden"
+                  >
+                    <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
+                      {attachments.map((a) => {
+                        const isImg = a.kind === "image" && a.dataUrl;
+                        if (isImg) {
+                          return (
+                            <motion.div
+                              layout
+                              key={a.id}
+                              initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                              transition={springs.gentle}
+                              onClick={() => {
+                                const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
+                                if (imgIdx !== -1) {
+                                  setPreviewImageIndex(imgIdx);
+                                }
+                              }}
+                              className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
+                              title={`View ${a.name}`}
+                            >
+                              <img
+                                src={a.dataUrl}
+                                alt={a.name}
+                                className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
+                              />
+                              <span className="sr-only">{a.name}</span>
+                              <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                                }}
+                                className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
+                                title={t("chat.removeAttachment") || "Remove attachment"}
+                              >
+                                <X size={12} />
+                              </button>
+                            </motion.div>
+                          );
+                        }
+
+                        return (
+                          <motion.div
+                            layout
+                            key={a.id}
+                            initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                            transition={springs.gentle}
+                            className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                           >
-                            <X size={12} />
-                          </button>
-                        </motion.div>
-                      );
-                    }
+                            {a.kind === "image" ? (
+                              <ImageIcon size={13} className="text-text-muted shrink-0" />
+                            ) : (
+                              <FileTextIcon size={13} className="text-text-muted shrink-0" />
+                            )}
+                            <span className="max-w-[120px] truncate font-medium" title={a.name}>
+                              {a.name}
+                            </span>
+                            <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                              }}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
+                              title={t("chat.removeAttachment") || "Remove attachment"}
+                            >
+                              <X size={12} />
+                            </button>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
+              <div className="flex items-center gap-2 w-full">
+                {/* Plus / tools button */}
+                <div ref={plusDropdownRef} className="relative shrink-0">
+                  <button
+                    onClick={() => setPlusOpen(!plusOpen)}
+                    className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
+                      anyToolActive
+                        ? "text-text-primary bg-active"
+                        : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                    }`}
+                    aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
+                    title={t("tooltip.attachOrSearch") || "Attach or search"}
+                    aria-expanded={plusOpen}
+                    aria-haspopup="menu"
+                  >
+                    <Plus size={20} />
+                  </button>
+
+                  <AnimatePresence>
+                    {plusOpen && (
+                      <motion.div
+                        className="absolute bottom-full left-0 mb-2 w-56 bg-surface border border-border rounded-xl p-1 z-50"
+                        style={{ boxShadow: "var(--shadow-xl)" }}
+                        role="menu"
+                        aria-label="Attachment and search options"
+                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        transition={springs.gentle}
+                      >
+                        <button
+                          onClick={() => {
+                            setPlusOpen(false);
+                            fileInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                          role="menuitem"
+                        >
+                          <Paperclip size={15} className="text-text-muted" />
+                          <span>{t("chat.addFile") || "Add File"}</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            onToggleSearch(!isSearchEnabled);
+                            setPlusOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                            isSearchEnabled
+                              ? "text-text-primary bg-active"
+                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                          }`}
+                          role="menuitemcheckbox"
+                          aria-checked={isSearchEnabled}
+                        >
+                          <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
+                          <span>{t("chat.webSearch") || "Web Search"}</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPlusOpen(false);
+                            setSubagentModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                          role="menuitem"
+                        >
+                          <Bot size={15} className="text-text-muted" />
+                          <span>Invoke Subagent</span>
+                        </button>
+                        {connectedMcpServers.length > 0 && (
+                          <>
+                            <div className="border-t border-border my-1 -mx-1" />
+                            {connectedMcpServers.map((server) => {
+                              const isEnabled = enabledMcpServerIds.has(server.id);
+                              return (
+                                <button
+                                  key={server.id}
+                                  onClick={() => {
+                                    onToggleMcpServer(server.id);
+                                  }}
+                                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                                    isEnabled
+                                      ? "text-text-primary bg-active"
+                                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                  }`}
+                                  role="menuitemcheckbox"
+                                  aria-checked={isEnabled}
+                                >
+                                  <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
+                                  <span className="truncate flex-1 text-left">{server.name}</span>
+                                  {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <textarea
+                  id="chat-input"
+                  ref={textareaRef}
+                  value={value}
+                  onChange={handleChange}
+                  onKeyDown={handleKeyDown}
+                  onPaste={(e) => {
+                    if (disabled || isStreaming) return;
+                    const clipboardData = e.clipboardData;
+                    const types = clipboardData.types;
+                    const isFileOrImage =
+                      types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
+
+                    if (isFileOrImage) {
+                      e.preventDefault();
+                      handleClipboardPaste(clipboardData);
+                    }
+                  }}
+                  placeholder={t("chat.placeholder") || "Ask for follow-up changes..."}
+                  rows={1}
+                  disabled={disabled}
+                  aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
+                  aria-invalid={isOverLimit}
+                  className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                    voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
+                  }`}
+                />
+
+                {/* Context Window Radial Indicator */}
+                {showContextWindow && currentModel && (
+                  <div className="relative group shrink-0 flex items-center justify-center">
+                    <button
+                      type="button"
+                      className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
+                      aria-label="Context Window Usage"
+                    >
+                      <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                        <circle
+                          className="text-border/60"
+                          strokeWidth="2"
+                          stroke="currentColor"
+                          fill="transparent"
+                          r={radius}
+                          cx="10"
+                          cy="10"
+                        />
+                        <circle
+                          className={
+                            percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
+                          }
+                          strokeWidth="2"
+                          strokeDasharray={circumference}
+                          strokeDashoffset={strokeDashoffset}
+                          strokeLinecap="round"
+                          stroke="currentColor"
+                          fill="transparent"
+                          r={radius}
+                          cx="10"
+                          cy="10"
+                        />
+                      </svg>
+                    </button>
+
+                    {/* Hover Details Card */}
+                    <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
+                      <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
+                        <span>Context Window</span>
+                        <span
+                          className={
+                            percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
+                          }
+                        >
+                          {percentage.toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
+                        <div
+                          className={`h-full ${percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
+                          style={{ width: `${Math.min(percentage, 100)}%` }}
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-[11px] text-text-secondary">
+                        <div className="flex justify-between">
+                          <span>Usage:</span>
+                          <span className="font-semibold font-mono text-text-primary">
+                            {estimatedTokens.toLocaleString()} /{" "}
+                            {contextSizeSet ? contextSize.toLocaleString() : "128,000"} tokens
+                          </span>
+                        </div>
+                        {contextSizeSet ? (
+                          <>
+                            <div className="h-px bg-border/40 my-1" />
+                            <div className="flex justify-between">
+                              <span>System Prompt:</span>
+                              <span className="font-mono text-text-primary">
+                                {tokenBreakdown.systemPromptTokens.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Messages:</span>
+                              <span className="font-mono text-text-primary">
+                                {tokenBreakdown.messagesTokens.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Attachments:</span>
+                              <span className="font-mono text-text-primary">
+                                {tokenBreakdown.attachmentsTokens.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
+                              <span>Remaining:</span>
+                              <span className="font-semibold font-mono text-text-primary">
+                                {Math.max(0, contextSize - estimatedTokens).toLocaleString()}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
+                            No context limit configured for this model. Click Settings &gt; Models to configure it.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Model selector */}
+                <div ref={dropdownRef} className="relative shrink-0">
+                  <button
+                    id="model-selector-button"
+                    onClick={() => {
+                      setModelOpen(!modelOpen);
+                      setFocusedIndex(-1);
+                    }}
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-hover transition-colors max-w-[140px]"
+                    aria-label={`Select model: currently ${currentModel?.name ?? "None"}`}
+                    aria-expanded={modelOpen}
+                    aria-haspopup="listbox"
+                  >
+                    {!disableBgActivity && (
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
+                        title={t(STATUS_KEYS[currentStatus]) || STATUS_LABELS[currentStatus] || currentStatus}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  <AnimatePresence>
+                    {modelOpen && (
+                      <motion.div
+                        className="absolute bottom-full right-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
+                        style={{ boxShadow: "var(--shadow-xl)" }}
+                        role="listbox"
+                        aria-label="Available models"
+                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        transition={springs.gentle}
+                      >
+                        {enabledModels.length === 0 ? (
+                          <div className="px-3 py-4 text-center text-xs text-text-muted">
+                            No models configured. Go to Settings &gt; Models to configure one.
+                          </div>
+                        ) : (
+                          enabledModels.map((model, idx) => {
+                            const status = modelStatuses[model.id] ?? "disconnected";
+                            const isSelected = selectedModel === model.id;
+                            return (
+                              <button
+                                key={model.id}
+                                ref={(el) => {
+                                  itemRefs.current[idx] = el;
+                                }}
+                                onClick={() => {
+                                  onModelChange(model.id);
+                                  setModelOpen(false);
+                                  setFocusedIndex(-1);
+                                }}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left ${
+                                  isSelected
+                                    ? "bg-active text-text-primary"
+                                    : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                }`}
+                                role="option"
+                                aria-selected={isSelected}
+                              >
+                                {!disableBgActivity && (
+                                  <div
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
+                                    title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                    aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                  />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <span className="block font-medium truncate">{model.name}</span>
+                                  <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
+                                    {model.modelId}
+                                  </span>
+                                </div>
+                                {isSelected && (
+                                  <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Voice-to-Text Button */}
+                {isVoiceEnabled && (
+                  <button
+                    type="button"
+                    onClick={handleToggleVoice}
+                    disabled={isTranscribing}
+                    className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
+                      isRecording
+                        ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                        : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
+                    }`}
+                    aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                    title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                  >
+                    {isTranscribing ? (
+                      <Loader2 size={16} className="animate-spin text-accent" />
+                    ) : (
+                      <Mic size={16} className={isRecording ? "text-white" : ""} />
+                    )}
+                  </button>
+                )}
+
+                {/* Send / Stop button */}
+                <button
+                  onClick={isStreaming ? onStop : handleSubmit}
+                  disabled={!isStreaming && !canSend}
+                  className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
+                    isStreaming
+                      ? "bg-red-500/90 hover:bg-red-600 text-white"
+                      : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
+                  }`}
+                  aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
+                  title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
+                >
+                  {isStreaming ? (
+                    <Square size={16} className="fill-current" />
+                  ) : (
+                    <ArrowUp size={16} strokeWidth={2.5} />
+                  )}
+                </button>
+              </div>
+
+              {/* Active Tools and Context Row */}
+              {(isProjectsEnabled || isSearchEnabled || enabledServers.length > 0) && (
+                <div className="flex flex-wrap items-center gap-2 w-full mt-2 pt-2 border-t border-border/30">
+                  {/* Project Row */}
+                  {isProjectsEnabled && (
+                    <div ref={projectDropdownRef} className="relative">
+                      <button
+                        onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                          activeProject
+                            ? "text-accent bg-accent-soft/40 hover:bg-accent-soft"
+                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                        }`}
+                        aria-label="Project context"
+                        aria-expanded={projectDropdownOpen}
+                      >
+                        {activeProject ? (
+                          <>
+                            <FolderOpen size={14} className="shrink-0" />
+                            <span className="truncate max-w-[120px]">{activeProject.name}</span>
+                            {activeProject.permissions === "full" ? (
+                              <span
+                                title={t("chat.fullShellAccess") || "Full Shell Access"}
+                                className="shrink-0 ml-1 flex items-center"
+                              >
+                                <ShieldAlert size={12} className="text-red-500" />
+                              </span>
+                            ) : activeProject.permissions === "write" ? (
+                              <span
+                                title={t("chat.readWriteAccess") || "Read/Write Access"}
+                                className="shrink-0 ml-1 flex items-center"
+                              >
+                                <Shield size={12} className="text-amber-500" />
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            <FolderPlus size={14} className="shrink-0" />
+                            <span>{t("chat.workInProject") || "Work in a project"}</span>
+                          </>
+                        )}
+                        <ChevronDown
+                          size={12}
+                          className={`shrink-0 ml-0.5 transition-transform duration-200 ${projectDropdownOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+
+                      <AnimatePresence>
+                        {projectDropdownOpen && (
+                          <motion.div
+                            className="absolute bottom-full left-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 overflow-hidden"
+                            style={{ boxShadow: "var(--shadow-xl)" }}
+                            role="menu"
+                            initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                            transition={springs.gentle}
+                          >
+                            {!activeProject ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setProjectDropdownOpen(false);
+                                    openProjectConfigModal("create");
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-accent hover:bg-accent-soft/20 transition-colors text-left font-medium"
+                                  role="menuitem"
+                                >
+                                  <FolderPlus size={15} className="text-accent" />
+                                  <span>Add Project Workspace...</span>
+                                </button>
+                                {projects.length > 0 && (
+                                  <>
+                                    <div className="border-t border-border/50 my-1 mx-1" />
+                                    <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
+                                      Recent Workspaces
+                                    </div>
+                                    <div className="max-h-48 overflow-y-auto py-0.5">
+                                      {projects.map((p) => (
+                                        <button
+                                          key={p.id}
+                                          onClick={() => {
+                                            setActiveProject(p.id);
+                                            if (activeConversationId) {
+                                              setConversationProject(activeConversationId, p.id);
+                                            }
+                                            setProjectDropdownOpen(false);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                        >
+                                          <Folder size={13} className="text-text-muted shrink-0" />
+                                          <span className="truncate">{p.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
+                                  Active Workspace Info
+                                </div>
+                                <div className="px-2.5 py-1 text-xs text-text-secondary">
+                                  <div className="font-semibold truncate">{activeProject.name}</div>
+                                  <div
+                                    className="text-[10px] text-text-muted truncate font-mono"
+                                    title={activeProject.path}
+                                  >
+                                    {activeProject.path}
+                                  </div>
+                                </div>
+                                <div className="border-t border-border/50 my-1 mx-1" />
+                                <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">Permissions</div>
+                                <button
+                                  onClick={() => handleToggleProjectPermission("read")}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                    activeProject.permissions === "read"
+                                      ? "bg-active text-text-primary font-medium"
+                                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  <span>Read Only (RO)</span>
+                                  {activeProject.permissions === "read" && <Check size={12} />}
+                                </button>
+                                <button
+                                  onClick={() => handleToggleProjectPermission("write")}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                    activeProject.permissions === "write"
+                                      ? "bg-active text-text-primary font-medium"
+                                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  <span>Read/Write (RW)</span>
+                                  {activeProject.permissions === "write" && <Check size={12} />}
+                                </button>
+                                <button
+                                  onClick={() => handleToggleProjectPermission("full")}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                                    activeProject.permissions === "full"
+                                      ? "bg-red-500/10 text-red-500 font-medium"
+                                      : "text-text-secondary hover:bg-hover hover:text-red-500"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-1.5">
+                                    <ShieldAlert
+                                      size={12}
+                                      className={
+                                        activeProject.permissions === "full" ? "text-red-500" : "text-text-muted"
+                                      }
+                                    />
+                                    <span>Full Shell</span>
+                                  </div>
+                                  {activeProject.permissions === "full" && <Check size={12} />}
+                                </button>
+                                <div className="border-t border-border/50 my-1 mx-1" />
+                                <button
+                                  onClick={() => {
+                                    setProjectDropdownOpen(false);
+                                    openProjectConfigModal("edit", activeProject.id);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                  role="menuitem"
+                                >
+                                  <Settings size={13} className="text-text-muted" />
+                                  <span>Workspace Settings...</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setActiveProject(null);
+                                    if (activeConversationId) {
+                                      setConversationProject(activeConversationId, undefined);
+                                    }
+                                    setProjectDropdownOpen(false);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                  role="menuitem"
+                                >
+                                  <X size={13} className="text-text-muted" />
+                                  <span>Detach Project</span>
+                                </button>
+                              </>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+
+                  {/* Web Search Pill */}
+                  {isSearchEnabled && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                      transition={springs.gentle}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
+                    >
+                      <Search size={12} className="shrink-0" />
+                      <span>Web Search</span>
+                      <button
+                        onClick={() => onToggleSearch(false)}
+                        className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
+                        title={t("chat.disableWebSearch") || "Disable Web Search"}
+                      >
+                        <X size={12} />
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* MCP Server Pills */}
+                  {enabledServers.map((server) => {
                     return (
                       <motion.div
-                        layout
-                        key={a.id}
+                        key={server.id}
                         initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
                         transition={springs.gentle}
                         className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                       >
-                        {a.kind === "image" ? (
-                          <ImageIcon size={13} className="text-text-muted shrink-0" />
-                        ) : (
-                          <FileTextIcon size={13} className="text-text-muted shrink-0" />
-                        )}
-                        <span className="max-w-[120px] truncate font-medium" title={a.name}>
-                          {a.name}
+                        <Cpu size={13} className="text-text-muted shrink-0" />
+                        <span className="truncate max-w-[100px] font-medium" title={server.name}>
+                          {server.name}
                         </span>
-                        <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                          }}
+                          onClick={() => onToggleMcpServer(server.id)}
                           className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
-                          title={t("chat.removeAttachment") || "Remove attachment"}
+                          title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
                         >
                           <X size={12} />
                         </button>
@@ -772,632 +1381,42 @@ export default memo(function InputBar({
                     );
                   })}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="flex items-center gap-2 w-full">
-            {/* Plus / tools button */}
-            <div ref={plusDropdownRef} className="relative shrink-0">
-              <button
-                onClick={() => setPlusOpen(!plusOpen)}
-                className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
-                  anyToolActive
-                    ? "text-text-primary bg-active"
-                    : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                }`}
-                aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
-                title={t("tooltip.attachOrSearch") || "Attach or search"}
-                aria-expanded={plusOpen}
-                aria-haspopup="menu"
-              >
-                <Plus size={20} />
-              </button>
-
-              <AnimatePresence>
-                {plusOpen && (
-                  <motion.div
-                    className="absolute bottom-full left-0 mb-2 w-56 bg-surface border border-border rounded-xl p-1 z-50"
-                    style={{ boxShadow: "var(--shadow-xl)" }}
-                    role="menu"
-                    aria-label="Attachment and search options"
-                    initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                    transition={springs.gentle}
-                  >
-                    <button
-                      onClick={() => {
-                        setPlusOpen(false);
-                        fileInputRef.current?.click();
-                      }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                      role="menuitem"
-                    >
-                      <Paperclip size={15} className="text-text-muted" />
-                      <span>{t("chat.addFile") || "Add File"}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        onToggleSearch(!isSearchEnabled);
-                        setPlusOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                        isSearchEnabled
-                          ? "text-text-primary bg-active"
-                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                      }`}
-                      role="menuitemcheckbox"
-                      aria-checked={isSearchEnabled}
-                    >
-                      <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
-                      <span>{t("chat.webSearch") || "Web Search"}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPlusOpen(false);
-                        setSubagentModalOpen(true);
-                      }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                      role="menuitem"
-                    >
-                      <Bot size={15} className="text-text-muted" />
-                      <span>Invoke Subagent</span>
-                    </button>
-                    {connectedMcpServers.length > 0 && (
-                      <>
-                        <div className="border-t border-border my-1 -mx-1" />
-                        {connectedMcpServers.map((server) => {
-                          const isEnabled = enabledMcpServerIds.has(server.id);
-                          return (
-                            <button
-                              key={server.id}
-                              onClick={() => {
-                                onToggleMcpServer(server.id);
-                              }}
-                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                                isEnabled
-                                  ? "text-text-primary bg-active"
-                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                              }`}
-                              role="menuitemcheckbox"
-                              aria-checked={isEnabled}
-                            >
-                              <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
-                              <span className="truncate flex-1 text-left">{server.name}</span>
-                              {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
-                            </button>
-                          );
-                        })}
-                      </>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              )}
             </div>
 
-            <textarea
-              id="chat-input"
-              ref={textareaRef}
-              value={value}
-              onChange={handleChange}
-              onKeyDown={handleKeyDown}
-              onPaste={(e) => {
-                if (disabled || isStreaming) return;
-                const clipboardData = e.clipboardData;
-                const types = clipboardData.types;
-                const isFileOrImage =
-                  types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
-
-                if (isFileOrImage) {
-                  e.preventDefault();
-                  handleClipboardPaste(clipboardData);
-                }
-              }}
-              placeholder={t("chat.placeholder") || "Ask for follow-up changes..."}
-              rows={1}
-              disabled={disabled}
-              aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
-              aria-invalid={isOverLimit}
-              className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
-                voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
-              }`}
-            />
-
-            {/* Context Window Radial Indicator */}
-            {showContextWindow && currentModel && (
-              <div className="relative group shrink-0 flex items-center justify-center">
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
-                  aria-label="Context Window Usage"
-                >
-                  <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
-                    <circle
-                      className="text-border/60"
-                      strokeWidth="2"
-                      stroke="currentColor"
-                      fill="transparent"
-                      r={radius}
-                      cx="10"
-                      cy="10"
-                    />
-                    <circle
-                      className={percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"}
-                      strokeWidth="2"
-                      strokeDasharray={circumference}
-                      strokeDashoffset={strokeDashoffset}
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="transparent"
-                      r={radius}
-                      cx="10"
-                      cy="10"
-                    />
-                  </svg>
-                </button>
-
-                {/* Hover Details Card */}
-                <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
-                  <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
-                    <span>Context Window</span>
-                    <span
-                      className={percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"}
-                    >
-                      {percentage.toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
-                    <div
-                      className={`h-full ${percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
-                      style={{ width: `${Math.min(percentage, 100)}%` }}
-                    />
-                  </div>
-                  <div className="space-y-1.5 text-[11px] text-text-secondary">
-                    <div className="flex justify-between">
-                      <span>Usage:</span>
-                      <span className="font-semibold font-mono text-text-primary">
-                        {estimatedTokens.toLocaleString()} / {contextSizeSet ? contextSize.toLocaleString() : "128,000"}{" "}
-                        tokens
-                      </span>
-                    </div>
-                    {contextSizeSet ? (
-                      <>
-                        <div className="h-px bg-border/40 my-1" />
-                        <div className="flex justify-between">
-                          <span>System Prompt:</span>
-                          <span className="font-mono text-text-primary">
-                            {tokenBreakdown.systemPromptTokens.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Messages:</span>
-                          <span className="font-mono text-text-primary">
-                            {tokenBreakdown.messagesTokens.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Attachments:</span>
-                          <span className="font-mono text-text-primary">
-                            {tokenBreakdown.attachmentsTokens.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
-                          <span>Remaining:</span>
-                          <span className="font-semibold font-mono text-text-primary">
-                            {Math.max(0, contextSize - estimatedTokens).toLocaleString()}
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
-                        No context limit configured for this model. Click Settings &gt; Models to configure it.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Model selector */}
-            <div ref={dropdownRef} className="relative shrink-0">
-              <button
-                id="model-selector-button"
-                onClick={() => {
-                  setModelOpen(!modelOpen);
-                  setFocusedIndex(-1);
-                }}
-                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-hover transition-colors max-w-[140px]"
-                aria-label={`Select model: currently ${currentModel?.name ?? "None"}`}
-                aria-expanded={modelOpen}
-                aria-haspopup="listbox"
-              >
-                {!disableBgActivity && (
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
-                    title={t(STATUS_KEYS[currentStatus]) || STATUS_LABELS[currentStatus] || currentStatus}
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
-                <ChevronDown
-                  size={14}
-                  className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
-              </button>
-
-              <AnimatePresence>
-                {modelOpen && (
-                  <motion.div
-                    className="absolute bottom-full right-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
-                    style={{ boxShadow: "var(--shadow-xl)" }}
-                    role="listbox"
-                    aria-label="Available models"
-                    initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                    transition={springs.gentle}
-                  >
-                    {enabledModels.length === 0 ? (
-                      <div className="px-3 py-4 text-center text-xs text-text-muted">
-                        No models configured. Go to Settings &gt; Models to configure one.
-                      </div>
-                    ) : (
-                      enabledModels.map((model, idx) => {
-                        const status = modelStatuses[model.id] ?? "disconnected";
-                        const isSelected = selectedModel === model.id;
-                        return (
-                          <button
-                            key={model.id}
-                            ref={(el) => {
-                              itemRefs.current[idx] = el;
-                            }}
-                            onClick={() => {
-                              onModelChange(model.id);
-                              setModelOpen(false);
-                              setFocusedIndex(-1);
-                            }}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left ${
-                              isSelected
-                                ? "bg-active text-text-primary"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                            role="option"
-                            aria-selected={isSelected}
-                          >
-                            {!disableBgActivity && (
-                              <div
-                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                                aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <span className="block font-medium truncate">{model.name}</span>
-                              <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
-                                {model.modelId}
-                              </span>
-                            </div>
-                            {isSelected && (
-                              <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />
-                            )}
-                          </button>
-                        );
-                      })
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* Voice-to-Text Button */}
-            {isVoiceEnabled && (
-              <button
-                type="button"
-                onClick={handleToggleVoice}
-                disabled={isTranscribing}
-                className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
-                  isRecording
-                    ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                    : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
-                }`}
-                aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
-                title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
-              >
-                {isTranscribing ? (
-                  <Loader2 size={16} className="animate-spin text-accent" />
-                ) : (
-                  <Mic size={16} className={isRecording ? "text-white" : ""} />
-                )}
-              </button>
-            )}
-
-            {/* Send / Stop button */}
-            <button
-              onClick={isStreaming ? onStop : handleSubmit}
-              disabled={!isStreaming && !canSend}
-              className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
-                isStreaming
-                  ? "bg-red-500/90 hover:bg-red-600 text-white"
-                  : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
-              }`}
-              aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
-              title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
+            <p
+              id={isOverLimit ? "input-limit-error" : "input-hint"}
+              className="mt-2 text-center text-[11px] text-text-muted"
             >
-              {isStreaming ? <Square size={16} className="fill-current" /> : <ArrowUp size={16} strokeWidth={2.5} />}
-            </button>
-          </div>
-
-          {/* Active Tools and Context Row */}
-          {(isProjectsEnabled || isSearchEnabled || enabledServers.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2 w-full mt-2 pt-2 border-t border-border/30">
-              {/* Project Row */}
-              {isProjectsEnabled && (
-                <div ref={projectDropdownRef} className="relative">
-                  <button
-                    onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                      activeProject
-                        ? "text-accent bg-accent-soft/40 hover:bg-accent-soft"
-                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                    }`}
-                    aria-label="Project context"
-                    aria-expanded={projectDropdownOpen}
-                  >
-                    {activeProject ? (
-                      <>
-                        <FolderOpen size={14} className="shrink-0" />
-                        <span className="truncate max-w-[120px]">{activeProject.name}</span>
-                        {activeProject.permissions === "full" ? (
-                          <span
-                            title={t("chat.fullShellAccess") || "Full Shell Access"}
-                            className="shrink-0 ml-1 flex items-center"
-                          >
-                            <ShieldAlert size={12} className="text-red-500" />
-                          </span>
-                        ) : activeProject.permissions === "write" ? (
-                          <span
-                            title={t("chat.readWriteAccess") || "Read/Write Access"}
-                            className="shrink-0 ml-1 flex items-center"
-                          >
-                            <Shield size={12} className="text-amber-500" />
-                          </span>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        <FolderPlus size={14} className="shrink-0" />
-                        <span>{t("chat.workInProject") || "Work in a project"}</span>
-                      </>
-                    )}
-                    <ChevronDown
-                      size={12}
-                      className={`shrink-0 ml-0.5 transition-transform duration-200 ${projectDropdownOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
-
-                  <AnimatePresence>
-                    {projectDropdownOpen && (
-                      <motion.div
-                        className="absolute bottom-full left-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 overflow-hidden"
-                        style={{ boxShadow: "var(--shadow-xl)" }}
-                        role="menu"
-                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                        transition={springs.gentle}
-                      >
-                        {!activeProject ? (
-                          <>
-                            <button
-                              onClick={() => {
-                                setProjectDropdownOpen(false);
-                                openProjectConfigModal("create");
-                              }}
-                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-accent hover:bg-accent-soft/20 transition-colors text-left font-medium"
-                              role="menuitem"
-                            >
-                              <FolderPlus size={15} className="text-accent" />
-                              <span>Add Project Workspace...</span>
-                            </button>
-                            {projects.length > 0 && (
-                              <>
-                                <div className="border-t border-border/50 my-1 mx-1" />
-                                <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
-                                  Recent Workspaces
-                                </div>
-                                <div className="max-h-48 overflow-y-auto py-0.5">
-                                  {projects.map((p) => (
-                                    <button
-                                      key={p.id}
-                                      onClick={() => {
-                                        setActiveProject(p.id);
-                                        if (activeConversationId) {
-                                          setConversationProject(activeConversationId, p.id);
-                                        }
-                                        setProjectDropdownOpen(false);
-                                      }}
-                                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                                    >
-                                      <Folder size={13} className="text-text-muted shrink-0" />
-                                      <span className="truncate">{p.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">
-                              Active Workspace Info
-                            </div>
-                            <div className="px-2.5 py-1 text-xs text-text-secondary">
-                              <div className="font-semibold truncate">{activeProject.name}</div>
-                              <div
-                                className="text-[10px] text-text-muted truncate font-mono"
-                                title={activeProject.path}
-                              >
-                                {activeProject.path}
-                              </div>
-                            </div>
-                            <div className="border-t border-border/50 my-1 mx-1" />
-                            <div className="px-2.5 py-1 text-[9px] font-medium text-text-muted">Permissions</div>
-                            <button
-                              onClick={() => handleToggleProjectPermission("read")}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                                activeProject.permissions === "read"
-                                  ? "bg-active text-text-primary font-medium"
-                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                              }`}
-                            >
-                              <span>Read Only (RO)</span>
-                              {activeProject.permissions === "read" && <Check size={12} />}
-                            </button>
-                            <button
-                              onClick={() => handleToggleProjectPermission("write")}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                                activeProject.permissions === "write"
-                                  ? "bg-active text-text-primary font-medium"
-                                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                              }`}
-                            >
-                              <span>Read/Write (RW)</span>
-                              {activeProject.permissions === "write" && <Check size={12} />}
-                            </button>
-                            <button
-                              onClick={() => handleToggleProjectPermission("full")}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
-                                activeProject.permissions === "full"
-                                  ? "bg-red-500/10 text-red-500 font-medium"
-                                  : "text-text-secondary hover:bg-hover hover:text-red-500"
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <ShieldAlert
-                                  size={12}
-                                  className={activeProject.permissions === "full" ? "text-red-500" : "text-text-muted"}
-                                />
-                                <span>Full Shell</span>
-                              </div>
-                              {activeProject.permissions === "full" && <Check size={12} />}
-                            </button>
-                            <div className="border-t border-border/50 my-1 mx-1" />
-                            <button
-                              onClick={() => {
-                                setProjectDropdownOpen(false);
-                                openProjectConfigModal("edit", activeProject.id);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                              role="menuitem"
-                            >
-                              <Settings size={13} className="text-text-muted" />
-                              <span>Workspace Settings...</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActiveProject(null);
-                                if (activeConversationId) {
-                                  setConversationProject(activeConversationId, undefined);
-                                }
-                                setProjectDropdownOpen(false);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
-                              role="menuitem"
-                            >
-                              <X size={13} className="text-text-muted" />
-                              <span>Detach Project</span>
-                            </button>
-                          </>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+              {isOverLimit ? (
+                <span className="text-red-600 dark:text-red-400" role="alert">
+                  Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
+                </span>
+              ) : isStreaming ? (
+                <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
+                  <span>Generating response</span>
+                  <span className="generating-dots">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </span>
+              ) : isSearchEnabled ? (
+                <span className="flex items-center justify-center gap-1.5">
+                  <Search size={11} className="text-text-secondary" />
+                  Web Search enabled
+                </span>
+              ) : enabledMcpServerIds.size > 0 ? (
+                <span className="flex items-center justify-center gap-1.5">
+                  <Cpu size={11} className="text-text-secondary" />
+                  {t("chat.mcp_servers_enabled", { count: String(enabledMcpServerIds.size) })}
+                </span>
+              ) : (
+                t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."
               )}
-
-              {/* Web Search Pill */}
-              {isSearchEnabled && (
-                <motion.div
-                  initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                  transition={springs.gentle}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
-                >
-                  <Search size={12} className="shrink-0" />
-                  <span>Web Search</span>
-                  <button
-                    onClick={() => onToggleSearch(false)}
-                    className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
-                    title={t("chat.disableWebSearch") || "Disable Web Search"}
-                  >
-                    <X size={12} />
-                  </button>
-                </motion.div>
-              )}
-
-              {/* MCP Server Pills */}
-              {enabledServers.map((server) => {
-                return (
-                  <motion.div
-                    key={server.id}
-                    initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                    transition={springs.gentle}
-                    className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
-                  >
-                    <Cpu size={13} className="text-text-muted shrink-0" />
-                    <span className="truncate max-w-[100px] font-medium" title={server.name}>
-                      {server.name}
-                    </span>
-                    <button
-                      onClick={() => onToggleMcpServer(server.id)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
-                      title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
-                    >
-                      <X size={12} />
-                    </button>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <p
-          id={isOverLimit ? "input-limit-error" : "input-hint"}
-          className="mt-2 text-center text-[11px] text-text-muted"
-        >
-          {isOverLimit ? (
-            <span className="text-red-600 dark:text-red-400" role="alert">
-              Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
-            </span>
-          ) : isStreaming ? (
-            <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
-              <span>Generating response{tps > 0 ? ` • ${tps.toFixed(1)} tokens/s` : ""}</span>
-              <span className="generating-dots">
-                <span />
-                <span />
-                <span />
-              </span>
-            </span>
-          ) : isSearchEnabled ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <Search size={11} className="text-text-secondary" />
-              Web Search enabled
-            </span>
-          ) : enabledMcpServerIds.size > 0 ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <Cpu size={11} className="text-text-secondary" />
-              {t("chat.mcp_servers_enabled", { count: String(enabledMcpServerIds.size) })}
-            </span>
-          ) : (
-            t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."
-          )}
-        </p>
+            </p>
+          </>
+        )}
       </div>
 
       {previewImageIndex !== null && imageAttachments.length > 0 && (

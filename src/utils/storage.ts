@@ -60,6 +60,7 @@ const MessageSchema = z.object({
   content: z.string(),
   timestamp: z.coerce.date(),
   isStreaming: z.boolean().optional(),
+  isSystem: z.boolean().optional(),
   toolCall: ToolCallSchema.optional(),
   toolResult: ToolCallResultSchema.optional(),
   sources: z.array(SourceSchema).optional(),
@@ -74,6 +75,16 @@ const ConversationSchema = z.object({
   model: z.string().default(""),
   projectId: z.string().optional(),
   isPinned: z.boolean().optional(),
+  parentId: z.string().optional(),
+  role: z.string().optional(),
+  isSubagent: z.boolean().optional(),
+  status: z.enum(["running", "idle", "error", "completed"]).optional(),
+  pendingWorktree: z
+    .object({
+      path: z.string(),
+      branch: z.string(),
+    })
+    .optional(),
 });
 
 const CustomThemeConfigSchema = z.object({

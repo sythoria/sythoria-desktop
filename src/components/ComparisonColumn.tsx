@@ -32,7 +32,6 @@ interface ComparisonColumnProps {
   onModelChange: (modelId: string) => void;
   onClose?: () => void;
   generationState: GenerationState;
-  generationLabel: string;
   onRetry: () => void;
   isStreaming: boolean;
   onScroll?: (scrollTop: number, ratio: number) => void;
@@ -48,7 +47,6 @@ export const ComparisonColumn = React.memo(
         onModelChange,
         onClose,
         generationState,
-        generationLabel,
         onRetry,
         isStreaming,
         onScroll,
@@ -224,7 +222,6 @@ export const ComparisonColumn = React.memo(
             virtuosoRef={scroll.virtuosoRef}
             onRetry={onRetry}
             generationState={generationState}
-            generationLabel={generationLabel}
             onScroll={onScroll}
             conversationId={conversation.id}
             pendingWorktree={conversation.pendingWorktree}

@@ -47,12 +47,31 @@ const HEALTH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_CHECK_INTERVAL_MS = 30 * 1000;
 let lastCheckTime = 0;
 
+type StreamHandler = {
+  onChunk: (convId: string, content: string) => void;
+  onDone: (convId: string) => void;
+};
+
+const activeHandlers = new Set<StreamHandler>();
+
 async function ensureStreamListeners(
   onChunk: (convId: string, content: string) => void,
   onDone: (convId: string) => void,
-): Promise<void> {
+): Promise<() => void> {
+  const handler: StreamHandler = { onChunk, onDone };
+  activeHandlers.add(handler);
   streamListenerRefCount++;
-  if (listenersPromise) return listenersPromise;
+
+  if (listenersPromise) {
+    return () => {
+      activeHandlers.delete(handler);
+      streamListenerRefCount--;
+      if (streamListenerRefCount <= 0 && streamListenerCleanup) {
+        streamListenerCleanup();
+        streamListenerRefCount = 0;
+      }
+    };
+  }
 
   listenersPromise = (async () => {
     let chunkBuffer: Record<string, string> = {};
@@ -68,7 +87,9 @@ async function ensureStreamListeners(
       if (rafId === null) {
         rafId = requestAnimationFrame(() => {
           Object.entries(chunkBuffer).forEach(([cId, text]) => {
-            onChunk(cId, text);
+            for (const h of activeHandlers) {
+              h.onChunk(cId, text);
+            }
           });
           chunkBuffer = {};
           rafId = null;
@@ -81,11 +102,15 @@ async function ensureStreamListeners(
       if (!convId) return;
 
       if (chunkBuffer[convId]) {
-        onChunk(convId, chunkBuffer[convId]);
+        for (const h of activeHandlers) {
+          h.onChunk(convId, chunkBuffer[convId]);
+        }
         delete chunkBuffer[convId];
       }
 
-      onDone(convId);
+      for (const h of activeHandlers) {
+        h.onDone(convId);
+      }
       activeStreams.delete(event.payload.streamId);
     });
 
@@ -101,10 +126,20 @@ async function ensureStreamListeners(
     };
   })();
 
-  return listenersPromise;
+  await listenersPromise;
+
+  return () => {
+    activeHandlers.delete(handler);
+    streamListenerRefCount--;
+    if (streamListenerRefCount <= 0 && streamListenerCleanup) {
+      streamListenerCleanup();
+      streamListenerRefCount = 0;
+    }
+  };
 }
 
 function releaseStreamListeners() {
+  activeHandlers.clear();
   streamListenerRefCount--;
   if (streamListenerRefCount <= 0 && streamListenerCleanup) {
     streamListenerCleanup();
@@ -142,7 +177,7 @@ interface ModelState {
   ensureStreamListeners: (
     onChunk: (convId: string, content: string) => void,
     onDone: (convId: string) => void,
-  ) => Promise<void>;
+  ) => Promise<() => void>;
   releaseStreamListeners: () => void;
   cancelActiveStream: () => void;
 }

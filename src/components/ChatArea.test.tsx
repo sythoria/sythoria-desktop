@@ -20,7 +20,6 @@ const defaultProps = {
   virtuosoRef: { current: null } as React.RefObject<null>,
   onRetry: vi.fn(),
   generationState: "idle" as GenerationState,
-  generationLabel: "",
 };
 
 describe("ChatArea", () => {
@@ -46,18 +45,16 @@ describe("ChatArea", () => {
     expect(screen.getByText("bold")).toBeInTheDocument();
   });
 
-  it("shows generating indicator when assistant is streaming with empty content", () => {
+  it("shows loading text when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} generationState="loading" generationLabel="Loading" />);
+    render(<ChatArea messages={messages} {...defaultProps} generationState="loading" />);
 
     expect(screen.getByText(/Loading/)).toBeInTheDocument();
   });
 
   it("shows cursor when assistant is streaming with content", () => {
     const messages = [makeMessage({ role: "assistant", content: "Loading...", isStreaming: true })];
-    render(
-      <ChatArea messages={messages} {...defaultProps} generationState="responding" generationLabel="Responding" />,
-    );
+    render(<ChatArea messages={messages} {...defaultProps} generationState="responding" />);
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     const cursor = document.querySelector(".cursor-blink");

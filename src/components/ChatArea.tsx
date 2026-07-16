@@ -11,7 +11,6 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import {
-  Bot,
   Copy,
   Check,
   Search,
@@ -39,25 +38,12 @@ import {
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message, GenerationState, Attachment, Conversation } from "../types";
+import type { Message, GenerationState, Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
-
-const GENERATION_STATE_CONFIG: Record<
-  Exclude<GenerationState, "idle">,
-  { icon: React.ElementType; colorClass: string; label: string }
-> = {
-  loading: { icon: Bot, colorClass: "text-text-muted", label: "Loading" },
-  thinking: { icon: Sparkles, colorClass: "text-text-muted", label: "Thinking" },
-  searching: { icon: Search, colorClass: "text-text-muted", label: "Searching" },
-  fetching: { icon: Globe, colorClass: "text-text-muted", label: "Fetching" },
-  responding: { icon: Bot, colorClass: "text-text-muted", label: "Responding" },
-  mcp_executing: { icon: Wrench, colorClass: "text-text-muted", label: "Running MCP tool" },
-  error: { icon: Loader2, colorClass: "text-red-500", label: "Error" },
-};
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -70,56 +56,37 @@ interface ChatAreaProps {
   virtuosoRef?: React.RefObject<VirtuosoHandle | null>;
   onRetry?: () => void;
   generationState: GenerationState;
-  generationLabel: string;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
   pendingWorktree?: { path: string; branch: string };
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-function GenerationIndicator({ state, label }: { state: GenerationState; label: string }) {
-  const [dots, setDots] = useState(".");
+function CancelledBar({ content, onRetry }: { content: string; onRetry?: () => void }) {
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (state === "error" || state === "idle") {
-      return;
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard not available */
     }
-    const interval = setInterval(() => {
-      setDots((prev) => {
-        if (prev === "...") return ".";
-        if (prev === "..") return "...";
-        return "..";
-      });
-    }, 500);
-    return () => clearInterval(interval);
-  }, [state]);
-
-  if (state === "idle") return null;
-  const config = GENERATION_STATE_CONFIG[state];
-  if (!config) return null;
-  const Icon = config.icon;
-  const displayLabel = label || config.label;
+  }, [content]);
 
   return (
-    <motion.div
-      className="flex items-center gap-2 py-1.5"
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={springs.gentle}
-    >
-      <div
-        className={`shrink-0 w-5 h-5 rounded-md flex items-center justify-center ${state === "error" ? "bg-red-500/10" : "bg-active"}`}
-      >
-        <Icon size={12} className={config.colorClass} />
-      </div>
-      <span
-        className={`text-xs font-medium ${state === "error" ? "text-red-600 dark:text-red-400" : "text-text-muted"}`}
-      >
-        {displayLabel}
-        {state !== "error" ? dots : ""}
-      </span>
-    </motion.div>
+    <div className="flex items-center gap-2 py-1.5 select-none">
+      <span className="text-xs font-medium text-text-muted">Cancelled</span>
+      <ActionButton
+        icon={<Copy size={14} />}
+        activeIcon={<Check size={14} className="text-emerald-500" />}
+        active={copied}
+        label={copied ? "Copied" : "Copy"}
+        onClick={handleCopy}
+      />
+      {onRetry && <ActionButton icon={<RotateCw size={14} />} label="Regenerate" onClick={onRetry} />}
+    </div>
   );
 }
 
@@ -459,6 +426,19 @@ function getNativeToolDisplayInfo(
 ) {
   if (!args) return null;
 
+  if (name === "wait_subagents") {
+    return {
+      type: "subagent",
+      filename: "",
+      IconComponent: () => null,
+      colorClass: "text-text-muted",
+      label: isCompleted ? "Subagents Finished" : "Waiting for Subagents",
+    };
+  }
+  if (name === "invoke_subagent") {
+    return null;
+  }
+
   // Strictly only target native project tools (start with project_ and must not be MCP tools containing __)
   if (!name.startsWith("project_") || name.includes("__")) return null;
 
@@ -606,11 +586,20 @@ function getNativeToolDisplayInfo(
   return null;
 }
 
-function SubagentLiveCard({ message }: { message: Message }) {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  const content = message.toolResult?.content || "";
-  const ids = useMemo(() => {
+function useSubagentConversationIds(message: Message): string[] {
+  return useMemo(() => {
+    if (message.toolCall?.name === "wait_subagents") {
+      try {
+        const args =
+          typeof message.toolCall.arguments === "string"
+            ? JSON.parse(message.toolCall.arguments)
+            : message.toolCall.arguments;
+        if (Array.isArray(args.conversationIds)) return args.conversationIds as string[];
+      } catch {
+        // ignore parsing error
+      }
+    }
+    const content = message.toolResult?.content || "";
     const match = content.match(/conversation IDs?:\s*([a-zA-Z0-9-, ]+)/);
     return match
       ? match[1]
@@ -618,110 +607,161 @@ function SubagentLiveCard({ message }: { message: Message }) {
           .map((id) => id.trim())
           .filter(Boolean)
       : [];
-  }, [content]);
+  }, [message]);
+}
 
-  const allConversations = useChatStore((s) => s.conversations);
-  const conversations = useMemo(() => {
-    return ids.map((id) => allConversations.find((c) => c.id === id)).filter(Boolean) as Conversation[];
-  }, [allConversations, ids]);
+function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
+  const generationState = useChatStore((s) => s.generationByConversation[conversationId]);
+  const conv = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
 
-  const toggleExpand = (id: string) => {
-    const next = new Set(expandedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setExpandedIds(next);
-  };
-
-  const isCompleted = !!message.toolResult;
-  const generationByConversation = useChatStore((s) => s.generationByConversation);
-
-  if (!isCompleted) {
+  if (!conv) {
     return (
-      <div className="flex flex-col mb-1.5 max-w-full">
-        <div className="flex items-center gap-1.5 text-text-muted select-none">
-          <Wrench size={14} className="shrink-0" aria-hidden="true" />
-          <span className="text-sm text-text-primary">Invoking subagents...</span>
-          <Loader2 size={12} className="animate-spin text-text-muted" />
-        </div>
+      <div className="bg-input/20 border border-border/40 rounded-xl p-3 text-sm text-text-muted">
+        No subagent chat found.
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col gap-2 mb-2 w-full">
-      <div className="flex items-center gap-1.5 text-text-muted select-none text-sm font-medium">
-        <Wrench size={14} className="shrink-0" aria-hidden="true" />
-        <span>Subagents Invoked ({conversations.length})</span>
-      </div>
-      {conversations.map((conv) => {
-        const isExpanded = expandedIds.has(conv.id);
-        const generationState = generationByConversation[conv.id];
+  const roleLabel = conv.role || conv.title || "Subagent";
 
-        return (
-          <div key={conv.id} className="border border-border/40 rounded-xl overflow-hidden bg-input/20">
-            <button
-              onClick={() => toggleExpand(conv.id)}
-              className="w-full flex items-center justify-between p-3 hover:bg-hover transition-colors cursor-pointer text-left"
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <span className="font-medium text-text-primary truncate">{conv.title || "Subagent"}</span>
-                {conv.status === "running" ? (
-                  <span className="flex items-center gap-1 text-[10px] text-accent/80 font-medium px-1.5 py-0.5 bg-accent/10 rounded-full shrink-0">
-                    <Loader2 size={10} className="animate-spin" />
-                    RUNNING
-                  </span>
-                ) : conv.status === "error" ? (
-                  <span className="text-[10px] text-red-500 font-medium px-1.5 py-0.5 bg-red-500/10 rounded-full shrink-0">
-                    ERROR
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-emerald-500 font-medium px-1.5 py-0.5 bg-emerald-500/10 rounded-full shrink-0">
-                    DONE
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    useChatStore.getState().setActiveId(conv.id);
-                  }}
-                  className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Open subagent chat full screen"
-                >
-                  <ExternalLink size={10} />
-                  Open Chat
-                </button>
-                <ChevronDown
-                  size={14}
-                  className={`text-text-muted transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`}
-                />
-              </div>
-            </button>
-            <AnimatePresence initial={false}>
-              {isExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ type: "tween", ease: "easeInOut", duration: 0.2 }}
-                  className="w-full border-t border-border/40"
-                >
-                  <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
-                    <ChatAreaBase
-                      messages={conv.messages || []}
-                      onRetry={() => {}}
-                      generationState={generationState?.state || "idle"}
-                      generationLabel={generationState?.label || ""}
-                      conversationId={conv.id}
-                    />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        );
-      })}
+  return (
+    <div className="border border-border/40 rounded-xl overflow-hidden bg-input/20 flex flex-col">
+      <div className="w-full flex items-center justify-between p-3 border-b border-border/40 bg-input/10">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <span className="font-medium text-text-primary text-sm truncate">{roleLabel}</span>
+          {conv.status === "running" ? (
+            <span className="flex items-center gap-1 text-[10px] text-accent/80 font-medium px-1.5 py-0.5 bg-accent/10 rounded-full shrink-0">
+              <Loader2 size={10} className="animate-spin" />
+              RUNNING
+            </span>
+          ) : conv.status === "error" ? (
+            <span className="text-[10px] text-red-500 font-medium px-1.5 py-0.5 bg-red-500/10 rounded-full shrink-0">
+              ERROR
+            </span>
+          ) : (
+            <span className="text-[10px] text-emerald-500 font-medium px-1.5 py-0.5 bg-emerald-500/10 rounded-full shrink-0">
+              DONE
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              useChatStore.getState().setActiveId(conv.id);
+            }}
+            className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
+            title="Open subagent chat full screen"
+          >
+            <ExternalLink size={10} />
+            Open Chat
+          </button>
+        </div>
+      </div>
+      <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
+        <ChatAreaBase
+          messages={conv.messages || []}
+          onRetry={() => {}}
+          generationState={generationState?.state || "idle"}
+          conversationId={conv.id}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SubagentEmbeddedChats({ message }: { message: Message }) {
+  const ids = useSubagentConversationIds(message);
+  if (ids.length === 0) {
+    return (
+      <div className="bg-input/20 border border-border/40 rounded-xl p-3 text-sm text-text-muted">
+        No subagent chats found.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3 w-full">
+      {ids.map((id) => (
+        <SubagentEmbeddedChat key={id} conversationId={id} />
+      ))}
+    </div>
+  );
+}
+
+function SubagentToolCard({
+  message,
+  subagentIndex,
+  subagentCount,
+}: {
+  message: Message;
+  subagentIndex: number;
+  subagentCount: number;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [dots, setDots] = useState(".");
+  const isCompleted = !!message.toolResult;
+  const ids = useSubagentConversationIds(message);
+  const conversationId = ids[subagentIndex];
+  const conv = useChatStore((s) => (conversationId ? s.conversations.find((c) => c.id === conversationId) : undefined));
+  const roleLabel = conv?.role || conv?.title || `Subagent ${subagentIndex + 1}`;
+
+  const isRunning = !isCompleted || conv?.status === "running";
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        if (prev === "..") return "...";
+        return "..";
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  const label = isCompleted ? "Invoked Subagent" : "Invoking Subagent";
+  const numbered = subagentCount > 1 ? ` #${subagentIndex + 1}` : "";
+
+  return (
+    <div className="flex flex-col max-w-full">
+      <div className="flex items-center gap-1.5 text-text-muted select-none">
+        <span className="text-sm">
+          {label}
+          {numbered}
+          {roleLabel && <span className="font-medium text-text-primary ml-1.5">— {roleLabel}</span>}
+          {isRunning && <span className="ml-1">{dots}</span>}
+        </span>
+
+        <motion.button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
+          whileHover={{ scale: 1.15 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+        </motion.button>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {expanded && conversationId && (
+          <motion.div
+            key={`subagent-${conversationId}`}
+            initial={{ height: 0, opacity: 0, marginTop: 0 }}
+            animate={{ height: "auto", opacity: 1, marginTop: 6 }}
+            exit={{ height: 0, opacity: 0, marginTop: 0 }}
+            transition={{
+              type: "tween",
+              ease: motionTokens.easing.smooth,
+              duration: motionTokens.duration.normal,
+            }}
+            className="w-full overflow-hidden pl-5"
+          >
+            <SubagentEmbeddedChat conversationId={conversationId} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -729,6 +769,7 @@ function SubagentLiveCard({ message }: { message: Message }) {
 function ToolCallDisplay({ message }: { message: Message }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [dots, setDots] = useState(".");
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const { name } = message.toolCall!;
@@ -736,12 +777,41 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const isFetch = name === "fetch_url";
   const isProject = name.startsWith("project_");
   const isMcp = name.includes("__");
-  const isInvokeSubagent = name === "invoke_subagent";
+  const isWaitSubagents = name === "wait_subagents";
   const isCompleted = !!message.toolResult;
-  const isCollapsible = isMcp || isProject || isInvokeSubagent;
+  const isCollapsible = isMcp || isProject || isWaitSubagents;
 
-  if (isInvokeSubagent) {
-    return <SubagentLiveCard message={message} />;
+  useEffect(() => {
+    if (!isWaitSubagents || isCompleted) return;
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev === "...") return ".";
+        if (prev === "..") return "...";
+        return "..";
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isWaitSubagents, isCompleted]);
+
+  if (name === "invoke_subagent") {
+    const args = message.toolCall?.arguments || {};
+    let subagentCount = 1;
+    try {
+      const raw = args.subagents;
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed)) subagentCount = parsed.length;
+    } catch {
+      // ignore parse error
+    }
+    if (!isCompleted) subagentCount = Math.max(subagentCount, 1);
+
+    return (
+      <div className="flex flex-col gap-0.5 mb-1.5">
+        {Array.from({ length: subagentCount }).map((_, i) => (
+          <SubagentToolCard key={i} message={message} subagentIndex={i} subagentCount={subagentCount} />
+        ))}
+      </div>
+    );
   }
 
   if (isCollapsible) {
@@ -772,7 +842,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
     const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
 
     return (
-      <div ref={cardRef} className="flex flex-col mb-1.5 max-w-full">
+      <div ref={cardRef} className="flex flex-col max-w-full">
         {/* Simple inline text with chevron */}
         <div className="flex items-center gap-1.5 text-text-muted select-none">
           {!nativeInfo && <Wrench size={14} className="shrink-0" aria-hidden="true" />}
@@ -807,7 +877,8 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 </>
               )}
 
-              {!isCompleted && <span>...</span>}
+              {isWaitSubagents && !isCompleted && <span>{dots}</span>}
+              {!isWaitSubagents && !isCompleted && <span>...</span>}
               {isCompleted && message.toolResult?.diffSummary && nativeInfo.type === "edit" && (
                 <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
                   <span className="text-emerald-600 dark:text-emerald-500 font-medium">
@@ -827,15 +898,17 @@ function ToolCallDisplay({ message }: { message: Message }) {
             </span>
           )}
 
-          <motion.button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-            aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
-            whileHover={{ scale: 1.15 }}
-            whileTap={{ scale: 0.9 }}
-          >
-            <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
-          </motion.button>
+          {!isWaitSubagents && (
+            <motion.button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+              aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.9 }}
+            >
+              <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+            </motion.button>
+          )}
         </div>
 
         {/* Collapsible Content */}
@@ -853,77 +926,85 @@ function ToolCallDisplay({ message }: { message: Message }) {
               }}
               className="w-full overflow-hidden pl-5"
             >
-              <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
-                {/* Arguments */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-medium text-text-muted font-mono">{t("chat.tools.arguments")}</span>
-                  <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
-                </div>
-
-                {/* Result */}
-                {isCompleted && nativeInfo?.type === "todo" ? (
-                  <div className="flex flex-col gap-1 text-sm text-text-secondary">
-                    {/* Try to parse standard markdown checkboxes if we updated a TODO */}
-                    {formattedResult
-                      .split("\\n")
-                      .filter((line) => line.trim().startsWith("- [") || line.trim().startsWith("* ["))
-                      .map((line, i) => {
-                        const isChecked = line.includes("[x]") || line.includes("[X]");
-                        const text = line.replace(/^[-*]\s*\[.\]\s*/, "");
-                        return (
-                          <div key={i} className="flex items-start gap-2">
-                            {isChecked ? (
-                              <Check size={14} className="mt-0.5 text-emerald-500" />
-                            ) : (
-                              <div className="mt-0.5 w-[14px] h-[14px] border border-border rounded-sm" />
-                            )}
-                            <span className={isChecked ? "line-through opacity-70" : ""}>{text}</span>
-                          </div>
-                        );
-                      })}
-                    {!formattedResult.includes("[ ]") && !formattedResult.includes("[x]") && (
-                      <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
-                    )}
+              {isWaitSubagents ? (
+                <SubagentEmbeddedChats message={message} />
+              ) : (
+                <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
+                  {/* Arguments */}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-medium text-text-muted font-mono">
+                      {t("chat.tools.arguments")}
+                    </span>
+                    <SyntaxCodeBlock code={formattedArgs} language="json" maxHeight="200px" />
                   </div>
-                ) : (
-                  isCompleted && (
-                    <div className="flex flex-col gap-1">
+
+                  {/* Result */}
+                  {isCompleted && nativeInfo?.type === "todo" ? (
+                    <div className="flex flex-col gap-1 text-sm text-text-secondary">
+                      {/* Try to parse standard markdown checkboxes if we updated a TODO */}
+                      {formattedResult
+                        .split("\\n")
+                        .filter((line) => line.trim().startsWith("- [") || line.trim().startsWith("* ["))
+                        .map((line, i) => {
+                          const isChecked = line.includes("[x]") || line.includes("[X]");
+                          const text = line.replace(/^[-*]\s*\[.\]\s*/, "");
+                          return (
+                            <div key={i} className="flex items-start gap-2">
+                              {isChecked ? (
+                                <Check size={14} className="mt-0.5 text-emerald-500" />
+                              ) : (
+                                <div className="mt-0.5 w-[14px] h-[14px] border border-border rounded-sm" />
+                              )}
+                              <span className={isChecked ? "line-through opacity-70" : ""}>{text}</span>
+                            </div>
+                          );
+                        })}
+                      {!formattedResult.includes("[ ]") && !formattedResult.includes("[x]") && (
+                        <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                      )}
+                    </div>
+                  ) : (
+                    isCompleted && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-medium text-text-muted font-mono">
+                          {t("chat.tools.result")}
+                        </span>
+                        <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                      </div>
+                    )
+                  )}
+
+                  {/* Images */}
+                  {isCompleted && mcpImages.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
                       <span className="text-[10px] font-medium text-text-muted font-mono">
-                        {t("chat.tools.result")}
+                        {t("chat.tools.images")}
                       </span>
-                      <SyntaxCodeBlock code={formattedResult} language={resultLanguage} maxHeight="400px" />
+                      <div className="flex flex-wrap gap-2">
+                        {mcpImages.map((img, idx) => {
+                          const dataUrl = `data:${img.mimeType};base64,${img.data}`;
+                          return (
+                            <div
+                              key={idx}
+                              onClick={() => setPreviewImageIndex(idx)}
+                              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
+                              title={t("chat.tools.viewImageTitle", { index: String(idx + 1) })}
+                            >
+                              <img
+                                src={dataUrl}
+                                alt={`MCP Output ${idx + 1}`}
+                                className="w-full h-full object-cover select-none"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  )
-                )}
+                  )}
+                </div>
+              )}
 
-                {/* Images */}
-                {isCompleted && mcpImages.length > 0 && (
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-medium text-text-muted font-mono">{t("chat.tools.images")}</span>
-                    <div className="flex flex-wrap gap-2">
-                      {mcpImages.map((img, idx) => {
-                        const dataUrl = `data:${img.mimeType};base64,${img.data}`;
-                        return (
-                          <div
-                            key={idx}
-                            onClick={() => setPreviewImageIndex(idx)}
-                            className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
-                            title={t("chat.tools.viewImageTitle", { index: String(idx + 1) })}
-                          >
-                            <img
-                              src={dataUrl}
-                              alt={`MCP Output ${idx + 1}`}
-                              className="w-full h-full object-cover select-none"
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {previewImageIndex !== null && previewImages.length > 0 && (
+              {previewImageIndex !== null && previewImages.length > 0 && !isWaitSubagents && (
                 <ImagePreviewModal
                   isOpen={previewImageIndex !== null}
                   onClose={() => setPreviewImageIndex(null)}
@@ -942,14 +1023,8 @@ function ToolCallDisplay({ message }: { message: Message }) {
   // Non-MCP Tools (Search, Fetch)
   const NativeIcon = isSearch ? Search : isFetch ? Globe : Wrench;
   return (
-    <motion.div
-      className="flex items-center gap-2 mb-1.5 text-text-muted"
-      variants={messageVariants}
-      initial="hidden"
-      animate="visible"
-      transition={springs.gentle}
-    >
-      <NativeIcon size={14} className="shrink-0" aria-hidden="true" />
+    <div className="flex items-center gap-1.5 text-text-muted">
+      <NativeIcon size={13} className="shrink-0" aria-hidden="true" />
       <span className="text-sm">
         {isCompleted
           ? isSearch
@@ -963,7 +1038,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
               ? t("chat.tools.fetching")
               : t("chat.tools.executing")}
       </span>
-    </motion.div>
+    </div>
   );
 }
 
@@ -992,11 +1067,13 @@ function LoadingText() {
 function ReasoningBubble({
   content,
   isStreaming,
+  isReasoningComplete,
   thinkingDuration,
   conversationId,
 }: {
   content: string;
   isStreaming?: boolean;
+  isReasoningComplete?: boolean;
   thinkingDuration?: number;
   conversationId?: string;
 }) {
@@ -1008,8 +1085,10 @@ function ReasoningBubble({
     conversationId && s.activeStreamThinkingStart ? s.activeStreamThinkingStart[conversationId] : undefined,
   );
 
+  const thinkingActive = isStreaming && !isReasoningComplete;
+
   useEffect(() => {
-    if (!isStreaming) {
+    if (!thinkingActive) {
       return;
     }
 
@@ -1023,10 +1102,10 @@ function ReasoningBubble({
 
     const interval = setInterval(updateElapsed, 1000);
     return () => clearInterval(interval);
-  }, [isStreaming, startTimestamp]);
+  }, [thinkingActive, startTimestamp]);
 
   useEffect(() => {
-    if (!isStreaming) {
+    if (!thinkingActive) {
       return;
     }
     const interval = setInterval(() => {
@@ -1037,11 +1116,11 @@ function ReasoningBubble({
       });
     }, 500);
     return () => clearInterval(interval);
-  }, [isStreaming]);
+  }, [thinkingActive]);
 
   return (
     <motion.div
-      className="flex items-start gap-2 mb-2 text-text-muted"
+      className="flex items-start gap-1.5 text-text-muted"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
@@ -1049,16 +1128,16 @@ function ReasoningBubble({
     >
       <Sparkles size={14} className="mt-1 shrink-0" aria-hidden="true" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <motion.button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors font-mono"
+            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
             aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
             whileHover={{ x: 2 }}
             transition={springs.snappy}
           >
             <span>
-              {isStreaming
+              {thinkingActive
                 ? elapsed !== null
                   ? `Thinking for ${elapsed}s${dots}`
                   : `Thinking${dots}`
@@ -1066,14 +1145,14 @@ function ReasoningBubble({
                   ? `Thought for ${thinkingDuration}s`
                   : "Thought"}
             </span>
-            <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           </motion.button>
         </div>
         <AnimatePresence initial={false}>
           {expanded && (
             <motion.div
               key="reasoning-content"
-              className="overflow-hidden bg-input rounded-xl"
+              className="overflow-hidden bg-input/20 border border-border/40 rounded-xl"
               initial={{ opacity: 0, height: 0, marginTop: 0 }}
               animate={{ opacity: 1, height: "auto", marginTop: 6 }}
               exit={{ opacity: 0, height: 0, marginTop: 0 }}
@@ -1083,7 +1162,7 @@ function ReasoningBubble({
                 duration: motionTokens.duration.normal,
               }}
             >
-              <div className="p-2.5 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+              <div className="p-3 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
                 <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
                   {content || "Thinking..."}
                 </p>
@@ -1247,19 +1326,37 @@ function SystemNotificationBubble({ message }: { message: Message }) {
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
-  generationState,
-  generationLabel,
-  isLastAssistant,
   conversationId,
 }: {
   message: Message;
   onRetry?: () => void;
-  generationState?: GenerationState;
-  generationLabel?: string;
-  isLastAssistant?: boolean;
   conversationId?: string;
 }) {
-  const isUser = message.role === "user";
+  const allConversations = useChatStore((s) => s.conversations);
+  const isAnySubagentRunning = useMemo(() => {
+    return allConversations.some((c) => c.parentId === conversationId && c.status === "running");
+  }, [allConversations, conversationId]);
+
+  const isGenerating = useChatStore((s) => {
+    if (!conversationId) return false;
+    const gen = s.generationByConversation[conversationId];
+    return gen && gen.state !== "idle";
+  });
+
+  const isCancelled = useChatStore((s) => s.generationState === "cancelled");
+
+  const isLastInSequence = useMemo(() => {
+    if (message.role !== "assistant") return false;
+    const conv = conversationId ? allConversations.find((c) => c.id === conversationId) : undefined;
+    if (!conv) return false;
+    const idx = conv.messages.findIndex((m) => m.id === message.id);
+    if (idx === -1) return false;
+    const next = conv.messages[idx + 1];
+    return !next || next.role === "user";
+  }, [message.id, message.role, conversationId, allConversations]);
+
+  const isSystem = message.isSystem;
+  const isUser = message.role === "user" && !isSystem;
   const isTool = message.role === "tool";
   const isStreaming = !!message.isStreaming;
 
@@ -1282,8 +1379,32 @@ const MessageBubble = memo(function MessageBubble({
       xlarge: "text-lg",
     }[baseTextSize] || "text-sm";
 
+  if (isSystem) {
+    const match = message.content.match(/Subagent '([^']+)'/);
+    const subagentName = match ? match[1] : "Agent";
+    return (
+      <div className="flex items-center my-4 select-none">
+        <div className="flex-grow border-t border-border/40"></div>
+        <span className="mx-4 text-text-muted text-xs font-medium">Subagent &ldquo;{subagentName}&rdquo; Finished</span>
+        <div className="flex-grow border-t border-border/40"></div>
+      </div>
+    );
+  }
+
   if (isTool) {
-    return <ToolCallBubble message={message} />;
+    return (
+      <motion.div
+        className="flex justify-start group"
+        variants={messageVariants}
+        initial="hidden"
+        animate="visible"
+        transition={springs.gentle}
+      >
+        <div className="min-w-0">
+          <ToolCallBubble message={message} />
+        </div>
+      </motion.div>
+    );
   }
 
   if (isUser) {
@@ -1312,9 +1433,11 @@ const MessageBubble = memo(function MessageBubble({
               {message.content}
             </div>
           )}
-          <div className="flex justify-end">
-            <MessageActions content={message.content} isUser />
-          </div>
+          {!isGenerating && !isAnySubagentRunning && (
+            <div className="flex justify-end">
+              <MessageActions content={message.content} isUser />
+            </div>
+          )}
           {previewImageIndex !== null && imageAttachments.length > 0 && (
             <ImagePreviewModal
               isOpen={previewImageIndex !== null}
@@ -1328,8 +1451,6 @@ const MessageBubble = memo(function MessageBubble({
       </motion.div>
     );
   }
-
-  const showGenerationIndicator = isLastAssistant && isStreaming && generationState && generationState !== "idle";
 
   return (
     <motion.div
@@ -1346,11 +1467,16 @@ const MessageBubble = memo(function MessageBubble({
           <ReasoningBubble
             content={reasoningContent}
             isStreaming={isStreaming}
+            isReasoningComplete={
+              combinedContent.includes("</reasoning>") ||
+              combinedContent.includes("</thinking>") ||
+              combinedContent.includes("</thought>")
+            }
             thinkingDuration={message.thinkingDuration}
             conversationId={conversationId}
           />
         )}
-        {!hasOpenReasoning && isStreaming && displayContent.length === 0 && !showGenerationIndicator && (
+        {!hasOpenReasoning && isStreaming && displayContent.length === 0 && (
           <motion.div
             className="flex items-center gap-2 py-1"
             initial={{ opacity: 0 }}
@@ -1360,23 +1486,26 @@ const MessageBubble = memo(function MessageBubble({
             <LoadingText />
           </motion.div>
         )}
-        {showGenerationIndicator && !hasOpenReasoning && displayContent.length === 0 && (
-          <GenerationIndicator state={generationState!} label={generationLabel!} />
-        )}
         {(() => {
           const parsedQuestion = parseQuestionBlock(displayContent);
           const contentToRender = parsedQuestion ? parsedQuestion.cleanedContent : displayContent;
-          const isAlreadyAnswered = !isLastAssistant;
+          const isAlreadyAnswered = !isLastInSequence;
           return (
             <>
               <div className={`markdown-body ${textSizeClass}`}>
                 {contentToRender.length > 0 ? (
-                  <MessageContent
-                    content={contentToRender}
-                    isStreaming={isStreaming}
-                    conversationId={conversationId}
-                    role={message.role}
-                  />
+                  contentToRender === "Cancelled agent execution." ? (
+                    <div className="text-text-muted italic text-[13px] my-1 flex items-center gap-1.5 select-none font-medium">
+                      Cancelled agent execution.
+                    </div>
+                  ) : (
+                    <MessageContent
+                      content={contentToRender}
+                      isStreaming={isStreaming}
+                      conversationId={conversationId}
+                      role={message.role}
+                    />
+                  )
                 ) : null}
               </div>
               {parsedQuestion && !isStreaming && (
@@ -1393,17 +1522,21 @@ const MessageBubble = memo(function MessageBubble({
             </>
           );
         })()}
-        {!isStreaming && displayContent.length > 0 && (
-          <MessageActions
-            content={displayContent}
-            sources={message.sources}
-            isUser={false}
-            onSourceClick={
-              message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
-            }
-            onRetry={onRetry}
-          />
-        )}
+        {!isStreaming &&
+          !isGenerating &&
+          !isAnySubagentRunning &&
+          isLastInSequence &&
+          (displayContent.length > 0 || isCancelled) && (
+            <MessageActions
+              content={displayContent}
+              sources={message.sources}
+              isUser={false}
+              onSourceClick={
+                message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
+              }
+              onRetry={onRetry}
+            />
+          )}
         <AnimatePresence>
           {sourcesExpanded && message.sources && message.sources.length > 0 && (
             <SourcesList sources={message.sources} />
@@ -1422,7 +1555,6 @@ function ChatAreaBase({
   virtuosoRef,
   onRetry,
   generationState,
-  generationLabel,
   onScroll,
   conversationId,
   pendingWorktree,
@@ -1456,10 +1588,6 @@ function ChatAreaBase({
     );
   }
 
-  const lastAssistantIdx = [...messages].reverse().findIndex((m) => m.role === "assistant");
-  const lastAssistantMessageId =
-    lastAssistantIdx >= 0 ? messages[messages.length - 1 - lastAssistantIdx]?.id : undefined;
-
   if (messages.length >= VIRTUALIZED_THRESHOLD) {
     return (
       <div className="flex-1 min-h-0 min-w-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
@@ -1481,15 +1609,8 @@ function ChatAreaBase({
             }
           }}
           itemContent={(index, msg) => (
-            <div className={index > 0 ? "mt-6" : ""}>
-              <MessageBubble
-                message={msg}
-                onRetry={onRetry}
-                generationState={generationState}
-                generationLabel={generationLabel}
-                isLastAssistant={msg.id === lastAssistantMessageId}
-                conversationId={conversationId}
-              />
+            <div className={index > 0 ? "mt-0.5" : ""}>
+              <MessageBubble message={msg} onRetry={onRetry} conversationId={conversationId} />
             </div>
           )}
           components={{
@@ -1509,7 +1630,15 @@ function ChatAreaBase({
                 <div className="h-4" />
               ),
             Footer: () => (
-              <AnimatePresence>
+              <>
+                {generationState === "cancelled" && (
+                  <div className="max-w-3xl mx-auto w-full px-6">
+                    <CancelledBar
+                      content={messages.filter((m) => m.role === "assistant").pop()?.content ?? ""}
+                      onRetry={onRetry}
+                    />
+                  </div>
+                )}
                 {pendingWorktree && conversationId && (
                   <div className="py-6">
                     <PendingWorktreeCard
@@ -1520,7 +1649,7 @@ function ChatAreaBase({
                     />
                   </div>
                 )}
-              </AnimatePresence>
+              </>
             ),
           }}
           followOutput="smooth"
@@ -1535,8 +1664,6 @@ function ChatAreaBase({
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
       generationState={generationState}
-      generationLabel={generationLabel}
-      lastAssistantMessageId={lastAssistantMessageId}
       pendingWorktree={pendingWorktree}
       conversationId={conversationId}
       onApply={applyPendingWorktree}
@@ -1552,8 +1679,6 @@ function NonVirtualizedChatArea({
   setIsAtBottom,
   onRetry,
   generationState,
-  generationLabel,
-  lastAssistantMessageId,
   pendingWorktree,
   conversationId,
   onApply,
@@ -1565,8 +1690,6 @@ function NonVirtualizedChatArea({
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
   generationState: GenerationState;
-  generationLabel: string;
-  lastAssistantMessageId: string | undefined;
   pendingWorktree?: { path: string; branch: string };
   conversationId?: string;
   onApply: (id: string) => Promise<void>;
@@ -1639,7 +1762,7 @@ function NonVirtualizedChatArea({
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-6">
+      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-0.5">
         {conversation?.isTemporary && (
           <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-accent-soft text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
@@ -1651,26 +1774,22 @@ function NonVirtualizedChatArea({
           </div>
         )}
         {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onRetry={onRetry}
-            generationState={generationState}
-            generationLabel={generationLabel}
-            isLastAssistant={msg.id === lastAssistantMessageId}
-            conversationId={conversationId}
-          />
+          <MessageBubble key={msg.id} message={msg} onRetry={onRetry} conversationId={conversationId} />
         ))}
-        <AnimatePresence>
-          {pendingWorktree && conversationId && (
-            <PendingWorktreeCard
-              conversationId={conversationId}
-              pendingWorktree={pendingWorktree}
-              onApply={onApply}
-              onDiscard={onDiscard}
-            />
-          )}
-        </AnimatePresence>
+        {generationState === "cancelled" && (
+          <CancelledBar
+            content={messages.filter((m) => m.role === "assistant").pop()?.content ?? ""}
+            onRetry={onRetry}
+          />
+        )}
+        {pendingWorktree && conversationId && (
+          <PendingWorktreeCard
+            conversationId={conversationId}
+            pendingWorktree={pendingWorktree}
+            onApply={onApply}
+            onDiscard={onDiscard}
+          />
+        )}
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>
