@@ -189,6 +189,7 @@ interface ModelState {
   ) => Promise<() => void>;
   releaseStreamListeners: () => void;
   cancelActiveStream: () => void;
+  cancelConversationStream: (convId: string) => void;
 }
 
 export const useModelStore = create<ModelState>((set, get) => ({
@@ -462,5 +463,20 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
     activeStreams.clear();
     releaseStreamListeners();
+  },
+  cancelConversationStream: (convId) => {
+    for (const [streamId, cId] of activeStreams.entries()) {
+      if (cId === convId) {
+        void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
+          logError("stream", "Failed to cancel stream for conversation", { error: err });
+        });
+        activeStreams.delete(streamId);
+        for (const h of activeHandlers) {
+          if (h.convId === convId) {
+            h.onDone();
+          }
+        }
+      }
+    }
   },
 }));
