@@ -3,8 +3,6 @@ import { Search } from "lucide-react";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useKeybindStore } from "../store/useKeybindStore";
-import { generateId } from "../utils/generateId";
-import { uiToast } from "../store/helpers";
 
 interface CommandItem {
   id: string;
@@ -14,7 +12,7 @@ interface CommandItem {
 }
 
 export function CommandPalette() {
-  const { showCommandPalette, setShowCommandPalette, setView, setActiveSection } = useUIStore();
+  const { showCommandPalette, setShowCommandPalette, setView, setActiveSection, checkForUpdates } = useUIStore();
   const { zoomIn, zoomOut, zoomReset } = useKeybindStore();
 
   const [search, setSearch] = useState("");
@@ -27,9 +25,7 @@ export function CommandPalette() {
       label: "New Conversation",
       shortcut: "Ctrl+Shift+O",
       action: () => {
-        const id = generateId();
-        useChatStore.getState().setActiveId(id);
-        setView("chat");
+        useChatStore.getState().newChat();
       },
     },
     {
@@ -63,7 +59,7 @@ export function CommandPalette() {
     {
       id: "check-updates",
       label: "Check for Updates",
-      action: () => uiToast("You are on the latest version", "success"),
+      action: () => void checkForUpdates(false),
     },
   ];
 
