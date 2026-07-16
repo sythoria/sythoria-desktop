@@ -146,8 +146,8 @@ pub async fn ws_chat_stream(
     use tauri::Emitter;
 
     // SSRF URL Block Validation
-    let parsed_url = url::Url::parse(&ws_config.url)
-        .map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
+    let parsed_url =
+        url::Url::parse(&ws_config.url).map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
 
     if let Some(host) = parsed_url.host_str() {
         let host_lower = host.to_lowercase();
@@ -166,7 +166,9 @@ pub async fn ws_chat_stream(
             use std::net::ToSocketAddrs;
             let port = parsed_url.port_or_known_default().unwrap_or(80);
             if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+                addrs
+                    .into_iter()
+                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
             } else {
                 false
             }
@@ -377,8 +379,8 @@ pub async fn ws_connect(
     session: &WsSession,
 ) -> Result<(), String> {
     // SSRF URL Block Validation
-    let parsed_url = url::Url::parse(&ws_config.url)
-        .map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
+    let parsed_url =
+        url::Url::parse(&ws_config.url).map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
 
     if let Some(host) = parsed_url.host_str() {
         let host_lower = host.to_lowercase();
@@ -397,7 +399,9 @@ pub async fn ws_connect(
             use std::net::ToSocketAddrs;
             let port = parsed_url.port_or_known_default().unwrap_or(80);
             if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+                addrs
+                    .into_iter()
+                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
             } else {
                 false
             }
