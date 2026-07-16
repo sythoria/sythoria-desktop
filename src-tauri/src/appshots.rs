@@ -108,7 +108,10 @@ pub async fn capture_screen(
         Some(f) if !f.is_empty() => {
             let p = PathBuf::from(f);
             if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+                return Err(AppError::ConfigIo(
+                    "Access denied: Custom appshot folder is not inside whitelisted paths"
+                        .to_string(),
+                ));
             }
             p
         }
@@ -183,7 +186,9 @@ pub async fn capture_screen(
         }
     }
 
-    let size = std::fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+    let size = std::fs::metadata(&output_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
     let name = output_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -210,7 +215,10 @@ pub async fn list_appshots(
         Some(ref f) if !f.is_empty() => {
             let p = PathBuf::from(f);
             if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+                return Err(AppError::ConfigIo(
+                    "Access denied: Custom appshot folder is not inside whitelisted paths"
+                        .to_string(),
+                ));
             }
             p
         }
@@ -334,10 +342,14 @@ pub async fn delete_appshot(
 
     let name_lower = filename.to_lowercase();
     let is_valid_pattern = name_lower.starts_with("appshot_")
-        && (name_lower.ends_with(".png") || name_lower.ends_with(".jpg") || name_lower.ends_with(".jpeg"));
+        && (name_lower.ends_with(".png")
+            || name_lower.ends_with(".jpg")
+            || name_lower.ends_with(".jpeg"));
 
     if !is_valid_pattern {
-        return Err(AppError::ConfigIo("Access denied: File does not match appshot pattern".to_string()));
+        return Err(AppError::ConfigIo(
+            "Access denied: File does not match appshot pattern".to_string(),
+        ));
     }
 
     // 2. Resolve base path and verify whitelist
@@ -345,7 +357,9 @@ pub async fn delete_appshot(
         Some(ref f) if !f.is_empty() => {
             let p = PathBuf::from(f);
             if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo("Access denied: Target folder is not whitelisted".to_string()));
+                return Err(AppError::ConfigIo(
+                    "Access denied: Target folder is not whitelisted".to_string(),
+                ));
             }
             p
         }
@@ -364,7 +378,9 @@ pub async fn delete_appshot(
     };
 
     if !canonical_file.starts_with(&canonical_base) {
-        return Err(AppError::ConfigIo("Access denied: File is outside appshots directory".to_string()));
+        return Err(AppError::ConfigIo(
+            "Access denied: File is outside appshots directory".to_string(),
+        ));
     }
 
     std::fs::remove_file(canonical_file)?;
@@ -382,7 +398,10 @@ pub async fn run_appshots_clean(
         Some(ref f) if !f.is_empty() => {
             let p = PathBuf::from(f);
             if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo("Access denied: Custom appshot folder is not inside whitelisted paths".to_string()));
+                return Err(AppError::ConfigIo(
+                    "Access denied: Custom appshot folder is not inside whitelisted paths"
+                        .to_string(),
+                ));
             }
             p
         }
