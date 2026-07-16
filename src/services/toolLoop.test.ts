@@ -6,20 +6,64 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+const mockToasts: any[] = [];
+const mockAddToast = vi.fn((msg, variant) => {
+  mockToasts.push({ msg, variant });
+});
+
 vi.mock("../store/useUIStore", () => ({
   useUIStore: {
     getState: () => ({
       setLoading: vi.fn(),
-      addToast: vi.fn(),
+      addToast: mockAddToast,
     }),
   },
 }));
+
+vi.mock("../store/useModelStore", () => ({
+  useModelStore: {
+    getState: () => ({
+      systemPrompt: "",
+      maxToolSteps: 25,
+      ensureStreamListeners: vi.fn().mockImplementation((_convId, onChunk, onDone) => {
+        // Trigger onChunk and onDone asynchronously to simulate completion
+        setTimeout(() => {
+          onChunk("Simulated content chunk");
+          onDone();
+        }, 10);
+        return Promise.resolve(vi.fn());
+      }),
+      setActiveStreamId: vi.fn(),
+    }),
+  },
+}));
+
+const mockConversations: any[] = [];
+const mockActiveStreamContent: Record<string, string> = {};
+const mockResumeConversation = vi.fn().mockResolvedValue(undefined);
+const mockSetState = vi.fn((fn: any) => {
+  const next = typeof fn === "function" ? fn({
+    conversations: mockConversations,
+    activeStreamContent: mockActiveStreamContent,
+  }) : fn;
+  if (next.conversations) {
+    mockConversations.length = 0;
+    mockConversations.push(...next.conversations);
+  }
+  if (next.activeStreamContent) {
+    Object.assign(mockActiveStreamContent, next.activeStreamContent);
+  }
+});
 
 vi.mock("../store/useChatStore", () => ({
   useChatStore: {
     getState: () => ({
       persistConversations: vi.fn(),
+      conversations: mockConversations,
+      activeStreamContent: mockActiveStreamContent,
+      resumeConversation: mockResumeConversation,
     }),
+    setState: (fn: any) => mockSetState(fn),
   },
 }));
 
@@ -126,5 +170,152 @@ describe("sendWithToolLoop", () => {
     expect(last?.role).toBe("assistant");
     expect(last?.content).toContain("**Error:**");
     expect(state.isStreaming).toBe(false);
+  });
+
+  it("stops execution if the conversation-specific stream is cancelled (cancellation isolation)", async () => {
+    // Mock the invoke call to return immediately (simulating stream complete)
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ choices: [{ message: { content: "Subagent content" } }] }));
+
+    // Set state with isStreaming: true, but this conversation is NOT present in generationByConversation (simulating cancelled/idle)
+    let state: ToolLoopSlice = {
+      conversations: [
+        {
+          id: "sub-1",
+          title: "Subagent test",
+          timestamp: new Date(),
+          model: "model-1",
+          messages: [{ id: "msg-1", role: "user", content: "Go", timestamp: new Date() }],
+          isSubagent: true,
+          parentId: "parent-1",
+        },
+      ],
+      isStreaming: true, // App is streaming overall...
+      generationState: "loading" as const,
+      generationLabel: "",
+      generationByConversation: {}, // ...but this sub-1 conversation is NOT generating (it is cancelled/stopped)
+    };
+
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+    };
+
+    // Simulate user clicking stop button (cancelling sub-1) after 2ms
+    setTimeout(() => {
+      delete state.generationByConversation["sub-1"];
+    }, 2);
+
+    await sendWithToolLoop(
+      "sub-1",
+      {
+        id: "model-1",
+        name: "Model",
+        apiBase: "",
+        apiKey: "",
+        modelId: "",
+      },
+      0.7,
+      undefined,
+      "",
+      [],
+      undefined,
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+      null,
+    );
+
+    // It should abort immediately due to isConvStreaming returning false
+    const last = state.conversations[0].messages[state.conversations[0].messages.length - 1];
+    expect(last?.content).toBe("Cancelled agent execution.");
+  });
+
+  it("halts the loop and appends a warning when the parent conversation hits the recursion Safety Limit", async () => {
+    // Clear mocks
+    mockResumeConversation.mockClear();
+    mockAddToast.mockClear();
+    mockToasts.length = 0;
+
+    // Set parent's recursion depth to 5
+    mockConversations.length = 0;
+    mockConversations.push(
+      {
+        id: "parent-1",
+        title: "Parent Chat",
+        timestamp: new Date(),
+        model: "model-1",
+        messages: [{ id: "msg-parent", role: "user", content: "Work task", timestamp: new Date() }],
+        recursionDepth: 5,
+      },
+      {
+        id: "sub-1",
+        title: "Subagent",
+        timestamp: new Date(),
+        model: "model-1",
+        messages: [{ id: "msg-1", role: "user", content: "Go sub", timestamp: new Date() }],
+        isSubagent: true,
+        parentId: "parent-1",
+        role: "UI Researcher",
+      }
+    );
+
+    // Mock invoke to return subagent completion
+    invokeMock.mockResolvedValueOnce(JSON.stringify({ choices: [{ message: { content: "Subagent finished job" } }] }));
+
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading" as const,
+      generationLabel: "",
+      generationByConversation: {
+        "sub-1": { state: "loading", label: "Loading" }
+      },
+    };
+
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+      }
+    };
+
+    await sendWithToolLoop(
+      "sub-1",
+      {
+        id: "model-1",
+        name: "Model",
+        apiBase: "",
+        apiKey: "",
+        modelId: "",
+      },
+      0.7,
+      undefined,
+      "",
+      [],
+      undefined,
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+      null,
+    );
+
+    // 1. Verify parent's recursionDepth is incremented to 6
+    const parent = mockConversations.find(c => c.id === "parent-1");
+    expect(parent?.recursionDepth).toBe(6);
+
+    // 2. Verify parent did NOT auto-resume
+    expect(mockResumeConversation).not.toHaveBeenCalled();
+
+    // 3. Verify parent got the warning message
+    const warningMsg = parent?.messages[parent.messages.length - 1];
+    expect(warningMsg?.content).toContain("recursion safety limit");
+
+    // 4. Verify user was shown a Toast notification
+    expect(mockAddToast).toHaveBeenCalled();
+    expect(mockToasts[0].msg).toContain("safety limit reached");
   });
 });
