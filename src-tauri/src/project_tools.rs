@@ -1,5 +1,5 @@
+use crate::project::{ProjectPermission, ProjectRegistry};
 use crate::AppError;
-use crate::project::ProjectRegistry;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -34,21 +34,14 @@ fn get_and_validate_project(
         .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
     let mut project = projects_guard
         .get(project_id)
-        .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?
+        .ok_or_else(|| {
+            AppError::AppPath("Access denied: Project not found in registry".to_string())
+        })?
         .clone();
+    drop(projects_guard);
 
-    // Check path override
-    if let Some(wt_path) = worktree_path {
-        project.path = wt_path.to_string();
-    } else {
-        let overrides_guard = state
-            .project_path_overrides
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        if let Some(overridden_path) = overrides_guard.get(project_id) {
-            project.path = overridden_path.clone();
-        }
-    }
+    let root = crate::project::resolve_project_root(state, &project, project_id, worktree_path)?;
+    project.path = root.to_string_lossy().into_owned();
 
     // 3. Validate path and permission
     crate::project::validate_project_path(&project, relative_path, required_permission)
@@ -63,7 +56,8 @@ pub async fn project_read(
     limit: Option<usize>,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let validated_path = get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let validated_path =
+        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -120,7 +114,13 @@ pub async fn project_write(
     content: String,
     worktree_path: Option<String>,
 ) -> Result<(), AppError> {
-    let validated_path = get_and_validate_project(&state, &project_id, &path, "write", worktree_path.as_deref())?;
+    let validated_path = get_and_validate_project(
+        &state,
+        &project_id,
+        &path,
+        "write",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || {
         if let Some(parent) = validated_path.parent() {
             fs::create_dir_all(parent)
@@ -140,7 +140,8 @@ pub async fn project_list_dir(
     path: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let validated_path = get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let validated_path =
+        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() || !validated_path.is_dir() {
             return Err(AppError::AppPath(format!(
@@ -204,24 +205,21 @@ pub async fn project_bash(
             .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
         projects_guard
             .get(&project_id)
-            .ok_or_else(|| AppError::AppPath("Access denied: Project not found in registry".to_string()))?
+            .ok_or_else(|| {
+                AppError::AppPath("Access denied: Project not found in registry".to_string())
+            })?
             .clone()
     };
 
-    // Apply worktree path or path override
-    if let Some(wt_path) = &worktree_path {
-        project.path = wt_path.clone();
-    } else {
-        let overrides_guard = state
-            .project_path_overrides
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        if let Some(overridden_path) = overrides_guard.get(&project_id) {
-            project.path = overridden_path.clone();
-        }
-    }
+    let root = crate::project::resolve_project_root(
+        &state,
+        &project,
+        &project_id,
+        worktree_path.as_deref(),
+    )?;
+    project.path = root.to_string_lossy().into_owned();
 
-    if project.permissions != "full" {
+    if project.permissions != ProjectPermission::Full {
         return Err(AppError::AppPath(
             "Permission denied: full shell access not allowed".to_string(),
         ));
@@ -258,7 +256,9 @@ pub async fn project_bash(
     let confirmed = rx.await.unwrap_or(false);
 
     if !confirmed {
-        return Err(AppError::AppPath("Command execution rejected by user".to_string()));
+        return Err(AppError::AppPath(
+            "Command execution rejected by user".to_string(),
+        ));
     }
 
     let run_bg = run_in_background.unwrap_or(false);
@@ -285,8 +285,18 @@ pub async fn project_bash(
     let output = if let Some(t) = timeout {
         match tokio::time::timeout(std::time::Duration::from_millis(t), output_future).await {
             Ok(Ok(out)) => out,
-            Ok(Err(e)) => return Err(AppError::AppPath(format!("Failed to execute command: {}", e))),
-            Err(_) => return Err(AppError::AppPath(format!("Command timed out after {}ms", t))),
+            Ok(Err(e)) => {
+                return Err(AppError::AppPath(format!(
+                    "Failed to execute command: {}",
+                    e
+                )))
+            }
+            Err(_) => {
+                return Err(AppError::AppPath(format!(
+                    "Command timed out after {}ms",
+                    t
+                )))
+            }
         }
     } else {
         output_future
@@ -327,7 +337,13 @@ pub async fn project_edit(
     replace_all: Option<bool>,
     worktree_path: Option<String>,
 ) -> Result<(), AppError> {
-    let validated_path = get_and_validate_project(&state, &project_id, &path, "write", worktree_path.as_deref())?;
+    let validated_path = get_and_validate_project(
+        &state,
+        &project_id,
+        &path,
+        "write",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -342,7 +358,9 @@ pub async fn project_edit(
         let count = content.matches(&old_string).count();
 
         if count == 0 {
-            return Err(AppError::AppPath("Target content not found in file.".to_string()));
+            return Err(AppError::AppPath(
+                "Target content not found in file.".to_string(),
+            ));
         }
 
         if !allow_mult && count > 1 {
@@ -375,7 +393,13 @@ pub async fn project_multi_replace_file_content(
     chunks: Vec<ReplacementChunk>,
     worktree_path: Option<String>,
 ) -> Result<(), AppError> {
-    let validated_path = get_and_validate_project(&state, &project_id, &path, "write", worktree_path.as_deref())?;
+    let validated_path = get_and_validate_project(
+        &state,
+        &project_id,
+        &path,
+        "write",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -439,7 +463,8 @@ pub async fn project_grep(
     multiline: Option<bool>,
     worktree_path: Option<String>,
 ) -> Result<GrepResult, AppError> {
-    let validated_root = get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let validated_root =
+        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
     tokio::task::spawn_blocking(move || {
         if !validated_root.exists() || !validated_root.is_dir() {
             return Err(AppError::AppPath(format!(
@@ -549,7 +574,8 @@ pub async fn project_glob(
     pattern: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let validated_root = get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let validated_root =
+        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
     tokio::task::spawn_blocking(move || {
         if !validated_root.exists() || !validated_root.is_dir() {
             return Err(AppError::AppPath(format!(
@@ -611,7 +637,9 @@ pub async fn create_project_dir(app: AppHandle, name: String) -> Result<String, 
 
     let safe_name = safe_name.trim().to_string();
     if safe_name.is_empty() {
-        return Err(AppError::AppPath("Project name cannot be empty".to_string()));
+        return Err(AppError::AppPath(
+            "Project name cannot be empty".to_string(),
+        ));
     }
 
     let project_path = doc_dir.join(safe_name);
