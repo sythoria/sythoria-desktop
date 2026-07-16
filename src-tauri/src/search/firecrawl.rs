@@ -122,9 +122,14 @@ pub async fn fetch(
             log::error!("Failed to build HTTP client: {}", e);
             SearchError::RequestFailed(e.to_string())
         })?;
-        
-    let requested_raw = format == Some("raw") || format == Some("raw_html") || format == Some("html");
-    let formats = if requested_raw { vec!["html"] } else { vec!["markdown"] };
+
+    let requested_raw =
+        format == Some("raw") || format == Some("raw_html") || format == Some("html");
+    let formats = if requested_raw {
+        vec!["html"]
+    } else {
+        vec!["markdown"]
+    };
 
     let body = serde_json::json!({
         "url": url,
@@ -159,21 +164,37 @@ pub async fn fetch(
         SearchError::ParseError(e.to_string())
     })?;
 
-    let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    let success = json
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if !success {
-        return Err(SearchError::RequestFailed("Firecrawl returned success=false".into()));
+        return Err(SearchError::RequestFailed(
+            "Firecrawl returned success=false".into(),
+        ));
     }
-    
+
     let data = json.get("data").ok_or_else(|| {
         SearchError::ParseError("Missing 'data' field in Firecrawl response".into())
     })?;
 
-    let title = data.get("metadata").and_then(|m| m.get("title")).and_then(|v| v.as_str()).unwrap_or(url).to_string();
-    
+    let title = data
+        .get("metadata")
+        .and_then(|m| m.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(url)
+        .to_string();
+
     let content = if requested_raw {
-        data.get("html").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        data.get("html")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     } else {
-        data.get("markdown").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        data.get("markdown")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     };
 
     Ok(crate::search::UrlContent {
