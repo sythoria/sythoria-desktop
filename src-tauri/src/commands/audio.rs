@@ -1,15 +1,15 @@
-use std::fs;
-use std::io::Write;
-use std::sync::{Arc, Mutex, LazyLock};
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::io::AsyncWriteExt;
-use futures_util::StreamExt;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingStrategy};
-use tauri::{AppHandle, Manager, Emitter};
+use futures_util::StreamExt;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::io::AsyncWriteExt;
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::AppError;
 use crate::client_builder;
+use crate::AppError;
 
 fn convert_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
     if channels == 1 {
@@ -36,7 +36,11 @@ fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
         let index_above = orig_idx.ceil() as usize;
         let weight = orig_idx - index_below as f64;
         let val_below = samples[index_below];
-        let val_above = if index_above < samples.len() { samples[index_above] } else { val_below };
+        let val_above = if index_above < samples.len() {
+            samples[index_above]
+        } else {
+            val_below
+        };
         result.push(val_below + weight as f32 * (val_above - val_below));
     }
     result
@@ -69,7 +73,7 @@ pub async fn start_recording() -> Result<(), AppError> {
 
     let channels = config.channels();
     let samples_clone = RECORDED_SAMPLES.clone();
-    
+
     let error_callback = |err| {
         log::error!("An error occurred on the audio stream: {}", err);
     };
@@ -146,7 +150,9 @@ pub async fn get_recorded_samples() -> Result<Vec<f32>, AppError> {
     let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
         samples.clone()
     } else {
-        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+        return Err(AppError::ConfigIo(
+            "Failed to lock recorded samples".to_string(),
+        ));
     };
 
     let host = cpal::default_host();
@@ -175,16 +181,202 @@ struct WhisperDownloadProgress {
     done: bool,
 }
 
-static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
-static DOWNLOAD_CANCEL_TX: Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
-    Mutex::new(None);
+struct ActiveWhisperDownload {
+    operation_id: u64,
+    cancelled: Arc<AtomicBool>,
+    cancel_tx: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[derive(Default)]
+struct WhisperDownloadState {
+    active: Option<ActiveWhisperDownload>,
+}
+
+struct WhisperDownloadRegistration {
+    cancelled: Arc<AtomicBool>,
+    cancel_rx: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl WhisperDownloadState {
+    fn begin(&mut self, operation_id: u64) -> Result<WhisperDownloadRegistration, AppError> {
+        if self.active.is_some() {
+            return Err(AppError::ConfigIo(
+                "A Whisper model download is already in progress".to_string(),
+            ));
+        }
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+        self.active = Some(ActiveWhisperDownload {
+            operation_id,
+            cancelled: cancelled.clone(),
+            cancel_tx: Some(cancel_tx),
+        });
+
+        Ok(WhisperDownloadRegistration {
+            cancelled,
+            cancel_rx,
+        })
+    }
+
+    fn cancel_active(&mut self) {
+        if let Some(active) = self.active.as_mut() {
+            active.cancelled.store(true, Ordering::SeqCst);
+            if let Some(cancel_tx) = active.cancel_tx.take() {
+                let _ = cancel_tx.send(());
+            }
+        }
+    }
+
+    fn finish(&mut self, operation_id: u64) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.operation_id == operation_id)
+        {
+            self.active = None;
+        }
+    }
+}
+
+static WHISPER_DOWNLOAD_STATE: LazyLock<Mutex<WhisperDownloadState>> =
+    LazyLock::new(|| Mutex::new(WhisperDownloadState::default()));
+static NEXT_WHISPER_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(1);
+
+const MAX_WHISPER_MODEL_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+
+fn whisper_download_staging_paths(models_dir: &Path, operation_id: u64) -> (PathBuf, PathBuf) {
+    let process_id = std::process::id();
+    (
+        models_dir.join(format!(
+            ".whisper-download-{process_id}-{operation_id}.part"
+        )),
+        models_dir.join(format!(
+            ".whisper-download-{process_id}-{operation_id}.backup"
+        )),
+    )
+}
+
+async fn remove_partial_download(partial_path: &Path) {
+    if let Err(error) = tokio::fs::remove_file(partial_path).await {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            log::warn!(
+                "Failed to remove partial Whisper download {}: {}",
+                partial_path.display(),
+                error
+            );
+        }
+    }
+}
+
+async fn promote_whisper_download(
+    partial_path: &Path,
+    destination_path: &Path,
+    backup_path: &Path,
+) -> Result<(), AppError> {
+    match tokio::fs::symlink_metadata(destination_path).await {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(AppError::ConfigIo(format!(
+                "Refusing to replace non-file Whisper model destination: {}",
+                destination_path.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        tokio::fs::rename(partial_path, destination_path).await?;
+    }
+
+    // Windows rename does not replace an existing file. Preserve the old model as a
+    // uniquely named backup until the fully validated partial download is in place.
+    #[cfg(target_os = "windows")]
+    {
+        let destination_exists = tokio::fs::try_exists(destination_path).await?;
+        if !destination_exists {
+            tokio::fs::rename(partial_path, destination_path).await?;
+            return Ok(());
+        }
+
+        tokio::fs::rename(destination_path, backup_path).await?;
+        if let Err(promote_error) = tokio::fs::rename(partial_path, destination_path).await {
+            return match tokio::fs::rename(backup_path, destination_path).await {
+                Ok(()) => Err(promote_error.into()),
+                Err(restore_error) => Err(AppError::ConfigIo(format!(
+                    "Failed to promote Whisper model ({promote_error}) and restore the previous model ({restore_error}); the previous model remains at {}",
+                    backup_path.display()
+                ))),
+            };
+        }
+
+        if let Err(error) = tokio::fs::remove_file(backup_path).await {
+            log::warn!(
+                "Whisper model was updated, but its temporary backup could not be removed at {}: {}",
+                backup_path.display(),
+                error
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_whisper_model_file_name(file_name: &str) -> Result<&str, AppError> {
+    if file_name.is_empty() || file_name.len() > 255 {
+        return Err(AppError::AppPath(
+            "Invalid Whisper model file name".to_string(),
+        ));
+    }
+
+    let path = Path::new(file_name);
+    let mut components = path.components();
+    let is_single_file =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    if !is_single_file || path.file_name().and_then(|name| name.to_str()) != Some(file_name) {
+        return Err(AppError::AppPath(
+            "Whisper model file name must not contain a path".to_string(),
+        ));
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    if !extension.eq_ignore_ascii_case("bin") && !extension.eq_ignore_ascii_case("gguf") {
+        return Err(AppError::AppPath(
+            "Whisper model file must use a .bin or .gguf extension".to_string(),
+        ));
+    }
+
+    Ok(file_name)
+}
+
+fn whisper_file_name_from_url(url: &str) -> Result<String, AppError> {
+    let parsed = url::Url::parse(url)
+        .map_err(|e| AppError::RequestFailed(format!("Invalid model URL: {e}")))?;
+    if parsed.scheme() != "https" {
+        return Err(AppError::RequestFailed(
+            "Whisper models must be downloaded over HTTPS".to_string(),
+        ));
+    }
+
+    let file_name = parsed
+        .path_segments()
+        .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
+        .ok_or_else(|| AppError::AppPath("Model URL does not contain a file name".to_string()))?;
+    validate_whisper_model_file_name(file_name)?;
+    Ok(file_name.to_string())
+}
 
 #[tauri::command]
 pub async fn cancel_whisper_download() -> Result<(), AppError> {
-    DOWNLOAD_CANCELLED.store(true, Ordering::SeqCst);
-    if let Some(tx) = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?.take() {
-        let _ = tx.send(());
-    }
+    WHISPER_DOWNLOAD_STATE
+        .lock()
+        .map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?
+        .cancel_active();
     Ok(())
 }
 
@@ -194,22 +386,26 @@ pub async fn download_whisper_model(
     model_id: String,
     url: String,
 ) -> Result<String, AppError> {
-    DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
-    let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
-    {
-        let mut guard = DOWNLOAD_CANCEL_TX.lock().map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?;
-        *guard = Some(tx);
-    }
+    let operation_id = NEXT_WHISPER_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
+    let WhisperDownloadRegistration {
+        cancelled,
+        mut cancel_rx,
+    } = WHISPER_DOWNLOAD_STATE
+        .lock()
+        .map_err(|e| AppError::ConfigIo(format!("Poisoned lock: {}", e)))?
+        .begin(operation_id)?;
 
-    struct CancelGuard;
-    impl Drop for CancelGuard {
+    struct DownloadStateGuard {
+        operation_id: u64,
+    }
+    impl Drop for DownloadStateGuard {
         fn drop(&mut self) {
-            if let Ok(mut guard) = DOWNLOAD_CANCEL_TX.lock() {
-                *guard = None;
+            if let Ok(mut state) = WHISPER_DOWNLOAD_STATE.lock() {
+                state.finish(self.operation_id);
             }
         }
     }
-    let _guard = CancelGuard;
+    let _state_guard = DownloadStateGuard { operation_id };
 
     let app_data_dir = app
         .path()
@@ -218,93 +414,153 @@ pub async fn download_whisper_model(
     let models_dir = app_data_dir.join("whisper_models");
     fs::create_dir_all(&models_dir)?;
 
-    let file_name = url.split('/').last().unwrap_or("model.bin");
-    let dest_path = models_dir.join(file_name);
+    let file_name = whisper_file_name_from_url(&url)?;
+    let destination_path = models_dir.join(&file_name);
+    let (partial_path, backup_path) = whisper_download_staging_paths(&models_dir, operation_id);
 
-    let client = client_builder()
-        .build()
-        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
-    
-    let res = tokio::select! {
-        _ = &mut rx => {
-            let _ = tokio::fs::remove_file(&dest_path).await;
-            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
-        }
-        res_result = client.get(&url).send() => {
-            res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
-        }
-    };
-    let total_size = res.content_length();
+    let result = async {
+        let client = client_builder()
+            .build()
+            .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
-    let mut file = tokio::fs::File::create(&dest_path).await?;
-    let mut stream = res.bytes_stream();
-    let mut downloaded = 0u64;
-    let mut last_emit_time = std::time::Instant::now();
-    let mut last_emitted_percentage = -1.0f32;
-
-    loop {
-        tokio::select! {
-            _ = &mut rx => {
-                drop(file);
-                let _ = tokio::fs::remove_file(&dest_path).await;
+        let res = tokio::select! {
+            _ = &mut cancel_rx => {
                 return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
             }
-            chunk_result_opt = stream.next() => {
-                match chunk_result_opt {
-                    Some(chunk_result) => {
-                        if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
-                            drop(file);
-                            let _ = tokio::fs::remove_file(&dest_path).await;
-                            return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+            res_result = client.get(&url).send() => {
+                res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
+            }
+        };
+        if !res.status().is_success() {
+            return Err(AppError::RequestFailed(format!(
+                "Model download failed with HTTP status {}",
+                res.status()
+            )));
+        }
+        let total_size = res.content_length();
+        if total_size.is_some_and(|size| size > MAX_WHISPER_MODEL_BYTES) {
+            return Err(AppError::RequestFailed(format!(
+                "Whisper model exceeds the {} GiB download limit",
+                MAX_WHISPER_MODEL_BYTES / (1024 * 1024 * 1024)
+            )));
+        }
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial_path)
+            .await?;
+        let mut stream = res.bytes_stream();
+        let mut downloaded = 0u64;
+        let mut last_emit_time = std::time::Instant::now();
+        let mut last_emitted_percentage = -1.0f32;
+
+        loop {
+            tokio::select! {
+                _ = &mut cancel_rx => {
+                    return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+                }
+                chunk_result_opt = stream.next() => {
+                    match chunk_result_opt {
+                        Some(chunk_result) => {
+                            if cancelled.load(Ordering::SeqCst) {
+                                return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+                            }
+                            let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
+                            let next_downloaded = downloaded.saturating_add(chunk.len() as u64);
+                            if next_downloaded > MAX_WHISPER_MODEL_BYTES {
+                                return Err(AppError::RequestFailed(format!(
+                                    "Whisper model exceeds the {} GiB download limit",
+                                    MAX_WHISPER_MODEL_BYTES / (1024 * 1024 * 1024)
+                                )));
+                            }
+                            if total_size.is_some_and(|total| next_downloaded > total) {
+                                return Err(AppError::RequestFailed(
+                                    "Whisper model download exceeded its declared content length".to_string(),
+                                ));
+                            }
+                            file.write_all(&chunk).await?;
+                            downloaded = next_downloaded;
+
+                            let percentage = total_size
+                                .map(|total| (downloaded as f32 / total as f32) * 100.0)
+                                .unwrap_or(0.0);
+
+                            let now = std::time::Instant::now();
+                            let should_emit = if total_size.is_some() {
+                                (percentage - last_emitted_percentage) >= 1.0
+                                    || now.duration_since(last_emit_time)
+                                        >= std::time::Duration::from_millis(100)
+                            } else {
+                                now.duration_since(last_emit_time)
+                                    >= std::time::Duration::from_millis(100)
+                            };
+
+                            if should_emit {
+                                last_emit_time = now;
+                                last_emitted_percentage = percentage;
+                                let _ = app.emit(
+                                    "whisper-download-progress",
+                                    WhisperDownloadProgress {
+                                        model_id: model_id.clone(),
+                                        downloaded,
+                                        total: total_size,
+                                        percentage,
+                                        done: false,
+                                    },
+                                );
+                            }
                         }
-                        let chunk = chunk_result.map_err(|e| AppError::RequestFailed(e.to_string()))?;
-                        file.write_all(&chunk).await?;
-                        downloaded += chunk.len() as u64;
-
-                        let percentage = total_size
-                            .map(|total| (downloaded as f32 / total as f32) * 100.0)
-                            .unwrap_or(0.0);
-
-                        let now = std::time::Instant::now();
-                        let should_emit = if total_size.is_some() {
-                            (percentage - last_emitted_percentage) >= 1.0 || now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
-                        } else {
-                            now.duration_since(last_emit_time) >= std::time::Duration::from_millis(100)
-                        };
-
-                        if should_emit {
-                            last_emit_time = now;
-                            last_emitted_percentage = percentage;
-                            let _ = app.emit(
-                                "whisper-download-progress",
-                                WhisperDownloadProgress {
-                                    model_id: model_id.clone(),
-                                    downloaded,
-                                    total: total_size,
-                                    percentage,
-                                    done: false,
-                                },
-                            );
-                        }
+                        None => break,
                     }
-                    None => break,
                 }
             }
         }
+
+        if downloaded == 0 {
+            return Err(AppError::RequestFailed(
+                "Whisper model download was empty".to_string(),
+            ));
+        }
+        if total_size.is_some_and(|total| downloaded != total) {
+            return Err(AppError::RequestFailed(format!(
+                "Whisper model download was incomplete: received {downloaded} of {} bytes",
+                total_size.unwrap_or_default()
+            )));
+        }
+
+        file.flush().await?;
+        file.sync_all().await?;
+        drop(file);
+
+        if cancelled.load(Ordering::SeqCst) {
+            return Err(AppError::ConfigIo(
+                "Download cancelled by user".to_string(),
+            ));
+        }
+
+        promote_whisper_download(&partial_path, &destination_path, &backup_path).await?;
+
+        let _ = app.emit(
+            "whisper-download-progress",
+            WhisperDownloadProgress {
+                model_id: model_id.clone(),
+                downloaded,
+                total: total_size,
+                percentage: 100.0,
+                done: true,
+            },
+        );
+
+        Ok(destination_path.to_string_lossy().to_string())
+    }
+    .await;
+
+    if result.is_err() {
+        remove_partial_download(&partial_path).await;
     }
 
-    let _ = app.emit(
-        "whisper-download-progress",
-        WhisperDownloadProgress {
-            model_id: model_id.clone(),
-            downloaded,
-            total: total_size,
-            percentage: 100.0,
-            done: true,
-        },
-    );
-
-    Ok(dest_path.to_string_lossy().to_string())
+    result
 }
 
 #[tauri::command]
@@ -332,6 +588,7 @@ pub async fn check_downloaded_whisper_models(app: AppHandle) -> Result<Vec<Strin
 
 #[tauri::command]
 pub async fn delete_whisper_model(app: AppHandle, file_name: String) -> Result<(), AppError> {
+    let file_name = validate_whisper_model_file_name(&file_name)?;
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -341,6 +598,163 @@ pub async fn delete_whisper_model(app: AppHandle, file_name: String) -> Result<(
         fs::remove_file(model_path)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        promote_whisper_download, remove_partial_download, validate_whisper_model_file_name,
+        whisper_download_staging_paths, whisper_file_name_from_url, WhisperDownloadState,
+        NEXT_WHISPER_DOWNLOAD_ID,
+    };
+    use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let test_id = NEXT_WHISPER_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "sythoria-whisper-download-test-{}-{test_id}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).expect("create test directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn whisper_model_file_name_accepts_supported_basenames() {
+        assert!(validate_whisper_model_file_name("ggml-base.en.bin").is_ok());
+        assert!(validate_whisper_model_file_name("whisper-small.GGUF").is_ok());
+    }
+
+    #[test]
+    fn whisper_model_file_name_rejects_paths_and_unsupported_files() {
+        for invalid in [
+            "../victim.bin",
+            "folder/model.bin",
+            r"folder\model.bin",
+            "/tmp/model.bin",
+            "model.txt",
+            "",
+        ] {
+            assert!(
+                validate_whisper_model_file_name(invalid).is_err(),
+                "accepted unsafe file name: {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn whisper_url_requires_https_and_a_safe_model_basename() {
+        assert_eq!(
+            whisper_file_name_from_url("https://models.example/ggml-base.en.bin?download=1")
+                .expect("safe model URL"),
+            "ggml-base.en.bin"
+        );
+        assert!(whisper_file_name_from_url("http://models.example/model.bin").is_err());
+        assert!(whisper_file_name_from_url("https://models.example/readme.txt").is_err());
+    }
+
+    #[test]
+    fn whisper_download_state_rejects_overlap_and_scopes_cancellation() {
+        let mut state = WhisperDownloadState::default();
+        let mut first = state.begin(41).expect("start first download");
+
+        assert!(state.begin(42).is_err());
+        state.cancel_active();
+        assert!(first.cancelled.load(Ordering::SeqCst));
+        assert!(first.cancel_rx.try_recv().is_ok());
+
+        state.finish(999);
+        assert!(state.begin(42).is_err());
+        state.finish(41);
+        assert!(state.begin(42).is_ok());
+    }
+
+    #[test]
+    fn staging_paths_are_unique_and_do_not_reuse_the_destination_name() {
+        let models_dir = PathBuf::from("models");
+        let (first_partial, first_backup) = whisper_download_staging_paths(&models_dir, 1);
+        let (second_partial, second_backup) = whisper_download_staging_paths(&models_dir, 2);
+
+        assert_ne!(first_partial, second_partial);
+        assert_ne!(first_backup, second_backup);
+        assert_eq!(
+            first_partial.extension().and_then(|value| value.to_str()),
+            Some("part")
+        );
+        assert_eq!(
+            first_backup.extension().and_then(|value| value.to_str()),
+            Some("backup")
+        );
+    }
+
+    #[tokio::test]
+    async fn promotion_replaces_a_model_only_after_the_partial_is_complete() {
+        let test_dir = TestDir::new();
+        let destination = test_dir.0.join("model.bin");
+        let partial = test_dir.0.join("download.part");
+        let backup = test_dir.0.join("download.backup");
+        std::fs::write(&destination, b"previous model").expect("write previous model");
+        std::fs::write(&partial, b"validated new model").expect("write staged model");
+
+        promote_whisper_download(&partial, &destination, &backup)
+            .await
+            .expect("promote staged model");
+
+        assert_eq!(
+            std::fs::read(&destination).expect("read promoted model"),
+            b"validated new model"
+        );
+        assert!(!partial.exists());
+        assert!(!backup.exists());
+    }
+
+    #[tokio::test]
+    async fn failed_promotion_preserves_the_existing_model() {
+        let test_dir = TestDir::new();
+        let destination = test_dir.0.join("model.bin");
+        let missing_partial = test_dir.0.join("missing.part");
+        let backup = test_dir.0.join("download.backup");
+        std::fs::write(&destination, b"previous model").expect("write previous model");
+
+        assert!(
+            promote_whisper_download(&missing_partial, &destination, &backup)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(&destination).expect("read preserved model"),
+            b"previous model"
+        );
+        assert!(!backup.exists());
+    }
+
+    #[tokio::test]
+    async fn partial_cleanup_does_not_remove_an_existing_model() {
+        let test_dir = TestDir::new();
+        let destination = test_dir.0.join("model.bin");
+        let partial = test_dir.0.join("download.part");
+        std::fs::write(&destination, b"previous model").expect("write previous model");
+        std::fs::write(&partial, b"incomplete model").expect("write partial model");
+
+        remove_partial_download(&partial).await;
+
+        assert!(!partial.exists());
+        assert_eq!(
+            std::fs::read(&destination).expect("read preserved model"),
+            b"previous model"
+        );
+    }
 }
 
 #[tauri::command]
@@ -373,11 +787,17 @@ pub async fn transcribe_audio(
         let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
             samples.clone()
         } else {
-            return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+            return Err(AppError::ConfigIo(
+                "Failed to lock recorded samples".to_string(),
+            ));
         };
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-        let config = device.default_input_config().map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
+        let device = host
+            .default_input_device()
+            .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
+        let config = device.default_input_config().map_err(|e| {
+            AppError::ConfigIo(format!("Failed to get default input config: {}", e))
+        })?;
         resample(&samples, config.sample_rate(), 16000)
     } else {
         audio_data
@@ -386,7 +806,7 @@ pub async fn transcribe_audio(
     let ctx_clone = resolved_path_str.clone();
     let audio_clone = actual_audio_data;
     let lang_clone = language.unwrap_or("auto".to_string());
-    
+
     let transcription = tokio::task::spawn_blocking(move || -> Result<String, AppError> {
         let mut cache = WHISPER_CONTEXT_CACHE
             .lock()
@@ -398,15 +818,18 @@ pub async fn transcribe_audio(
         };
 
         if !matches {
-            let ctx = WhisperContext::new_with_params(
-                &ctx_clone,
-                WhisperContextParameters::default(),
-            )
-            .map_err(|e| AppError::ParseError(format!("Failed to load Whisper context: {}", e)))?;
+            let ctx =
+                WhisperContext::new_with_params(&ctx_clone, WhisperContextParameters::default())
+                    .map_err(|e| {
+                        AppError::ParseError(format!("Failed to load Whisper context: {}", e))
+                    })?;
             *cache = Some((ctx_clone.clone(), ctx));
         }
 
-        let context = &cache.as_ref().ok_or_else(|| AppError::ParseError("Whisper cache is empty".to_string()))?.1;
+        let context = &cache
+            .as_ref()
+            .ok_or_else(|| AppError::ParseError("Whisper cache is empty".to_string()))?
+            .1;
 
         let mut state = context
             .create_state()
@@ -483,7 +906,9 @@ pub async fn transcribe_audio_cloud(
     let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
         samples.clone()
     } else {
-        return Err(AppError::ConfigIo("Failed to lock recorded samples".to_string()));
+        return Err(AppError::ConfigIo(
+            "Failed to lock recorded samples".to_string(),
+        ));
     };
 
     if samples.is_empty() {
@@ -510,7 +935,9 @@ pub async fn transcribe_audio_cloud(
             use std::net::ToSocketAddrs;
             let port = parsed_url.port_or_known_default().unwrap_or(80);
             if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+                addrs
+                    .into_iter()
+                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
             } else {
                 false
             }
@@ -548,7 +975,7 @@ pub async fn transcribe_audio_cloud(
     let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("model", model);
-        
+
     if let Some(lang) = language {
         if lang != "auto" {
             form = form.text("language", lang);
@@ -565,9 +992,12 @@ pub async fn transcribe_audio_cloud(
 
     let status = res.status();
     let body = res.text().await.unwrap_or_default();
-    
+
     if !status.is_success() {
-        return Err(AppError::ParseError(format!("API Error {}: {}", status, body)));
+        return Err(AppError::ParseError(format!(
+            "API Error {}: {}",
+            status, body
+        )));
     }
 
     let json: CloudWhisperResponse = serde_json::from_str(&body)
