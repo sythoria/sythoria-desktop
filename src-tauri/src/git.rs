@@ -1,7 +1,9 @@
 use crate::AppError;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 use tauri::AppHandle;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -22,6 +24,7 @@ fn get_and_validate_git_project(
     project_id: &str,
     write_required: bool,
     worktree_path: Option<&str>,
+    allow_worktree_override: bool,
 ) -> Result<PathBuf, AppError> {
     // 1. Validate active project ID
     {
@@ -44,36 +47,226 @@ fn get_and_validate_git_project(
         .projects
         .lock()
         .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
-    let mut project = projects_guard
+    let project = projects_guard
         .get(project_id)
-        .ok_or_else(|| AppError::GitError("Access denied: Project not found in registry".to_string()))?
+        .ok_or_else(|| {
+            AppError::GitError("Access denied: Project not found in registry".to_string())
+        })?
         .clone();
-
-    // Check path override
-    if let Some(wt_path) = worktree_path {
-        project.path = wt_path.to_string();
-    } else {
-        let overrides_guard = state
-            .project_path_overrides
-            .lock()
-            .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
-        if let Some(overridden_path) = overrides_guard.get(project_id) {
-            project.path = overridden_path.clone();
-        }
-    }
+    drop(projects_guard);
 
     // 3. Check permission
-    if write_required && project.permissions == "read" {
+    if write_required && project.permissions == crate::project::ProjectPermission::Read {
         return Err(AppError::GitError(
             "Permission denied: write access not allowed".to_string(),
         ));
     }
 
-    let repo_path = std::path::Path::new(&project.path)
-        .canonicalize()
-        .map_err(|e| AppError::GitError(format!("Failed to canonicalize repository path: {}", e)))?;
+    let repo_path = if allow_worktree_override {
+        crate::project::resolve_project_root(state, &project, project_id, worktree_path)
+            .map_err(|e| AppError::GitError(e.to_string()))?
+    } else {
+        Path::new(&project.path)
+            .canonicalize()
+            .map_err(|e| AppError::GitError(format!("Failed to canonicalize project root: {e}")))?
+    };
 
     Ok(repo_path)
+}
+
+fn resolve_git_relative_path(root: &Path, relative_path: &str) -> Result<PathBuf, AppError> {
+    let relative = Path::new(relative_path);
+    if relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(AppError::GitError(
+            "Git returned an unsafe workspace-relative path".to_string(),
+        ));
+    }
+
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize workspace root: {e}")))?;
+    let candidate = canonical_root.join(relative);
+    let mut existing = candidate.as_path();
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| {
+            AppError::GitError("Git path has no existing workspace ancestor".to_string())
+        })?;
+    }
+    let canonical_ancestor = existing
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to validate Git path: {e}")))?;
+    if !canonical_ancestor.starts_with(&canonical_root) {
+        return Err(AppError::GitError(
+            "Access denied: Git path escapes the workspace".to_string(),
+        ));
+    }
+
+    Ok(candidate)
+}
+
+fn parse_changed_paths(output: &[u8]) -> Result<Vec<String>, AppError> {
+    let mut fields = output
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    let mut paths = Vec::new();
+
+    while let Some(status) = fields.next() {
+        if status.len() != 1 || !matches!(status[0], b'A' | b'M' | b'D' | b'T') {
+            return Err(AppError::GitError(format!(
+                "Git reported an unsupported worktree change status: {}",
+                String::from_utf8_lossy(status)
+            )));
+        }
+
+        let path = fields.next().ok_or_else(|| {
+            AppError::GitError("Git returned a malformed changed-path list".to_string())
+        })?;
+        let path = String::from_utf8(path.to_vec()).map_err(|_| {
+            AppError::GitError("Git returned a non-UTF-8 workspace path".to_string())
+        })?;
+        paths.push(path);
+    }
+
+    Ok(paths)
+}
+
+async fn run_git_apply(
+    repo_path: &Path,
+    patch: &[u8],
+    extra_args: &[&str],
+    operation: &str,
+) -> Result<(), AppError> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo_path).arg("apply");
+    for argument in extra_args {
+        command.arg(argument);
+    }
+    command
+        .arg("--binary")
+        .arg("--whitespace=nowarn")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| AppError::GitError(format!("Failed to start Git {operation}: {e}")))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::GitError(format!("Failed to open Git {operation} input")))?;
+    stdin
+        .write_all(patch)
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to write Git {operation} input: {e}")))?;
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to finish Git {operation}: {e}")))?;
+    if !output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Git {operation} failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    Ok(())
+}
+
+/// Apply every tracked and non-ignored untracked worktree change to the primary
+/// working tree. Git validates and applies one binary patch atomically; a reverse
+/// dry-run then verifies that the complete patch is present before callers may
+/// remove the source worktree.
+async fn apply_worktree_changes(repo_path: &Path, worktree_dir: &Path) -> Result<(), AppError> {
+    let add_output = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .arg("add")
+        .arg("-A")
+        .arg("--")
+        .arg(".")
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to stage worktree changes: {e}")))?;
+    if !add_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to stage worktree changes: {}",
+            String::from_utf8_lossy(&add_output.stderr).trim()
+        )));
+    }
+
+    // Disabling rename detection gives one explicit path per create/delete, so
+    // every path embedded in the patch can be validated against both roots.
+    let names_output = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .arg("diff")
+        .arg("--cached")
+        .arg("--name-status")
+        .arg("-z")
+        .arg("--no-renames")
+        .arg("HEAD")
+        .arg("--")
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to list worktree changes: {e}")))?;
+    if !names_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to list worktree changes: {}",
+            String::from_utf8_lossy(&names_output.stderr).trim()
+        )));
+    }
+
+    let changed_paths = parse_changed_paths(&names_output.stdout)?;
+    for path in &changed_paths {
+        resolve_git_relative_path(worktree_dir, path)?;
+        resolve_git_relative_path(repo_path, path)?;
+    }
+
+    if changed_paths.is_empty() {
+        return Ok(());
+    }
+
+    let patch_output = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .arg("diff")
+        .arg("--cached")
+        .arg("--binary")
+        .arg("--full-index")
+        .arg("--no-ext-diff")
+        .arg("--no-renames")
+        .arg("HEAD")
+        .arg("--")
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to build worktree patch: {e}")))?;
+    if !patch_output.status.success() || patch_output.stdout.is_empty() {
+        return Err(AppError::GitError(format!(
+            "Failed to build a complete worktree patch: {}",
+            String::from_utf8_lossy(&patch_output.stderr).trim()
+        )));
+    }
+
+    run_git_apply(repo_path, &patch_output.stdout, &["--check"], "apply check").await?;
+    run_git_apply(repo_path, &patch_output.stdout, &[], "apply").await?;
+    run_git_apply(
+        repo_path,
+        &patch_output.stdout,
+        &["--reverse", "--check"],
+        "apply verification",
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -97,11 +290,14 @@ pub async fn git_get_status(
     project_id: String,
     worktree_path: Option<String>,
 ) -> Result<GitStatus, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref())?;
+    let repo_path =
+        get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref(), true)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     if !repo_path.exists() {
-        return Err(AppError::GitError("Repository path does not exist".to_string()));
+        return Err(AppError::GitError(
+            "Repository path does not exist".to_string(),
+        ));
     }
 
     // 1. Check if inside work tree
@@ -223,7 +419,8 @@ pub async fn git_create_commit(
     bypass_hooks: bool,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref())?;
+    let repo_path =
+        get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref(), true)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Stage files
@@ -306,7 +503,7 @@ pub async fn git_undo_last_commit(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // Require native confirmation dialog for destructive action
@@ -323,7 +520,9 @@ pub async fn git_undo_last_commit(
     let confirmed = rx.await.unwrap_or(false);
 
     if !confirmed {
-        return Err(AppError::GitError("Undo commit cancelled by user".to_string()));
+        return Err(AppError::GitError(
+            "Undo commit cancelled by user".to_string(),
+        ));
     }
 
     let output = Command::new("git")
@@ -351,7 +550,7 @@ pub async fn git_checkout_branch(
     project_id: String,
     branch: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -379,7 +578,8 @@ pub async fn git_diff_changes(
     project_id: String,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref())?;
+    let repo_path =
+        get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref(), true)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -425,16 +625,17 @@ pub async fn git_worktree_create(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
 ) -> Result<(String, String), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Generate unique branch name and worktree path
     let uuid = uuid::Uuid::new_v4().to_string();
     let branch_name = format!("sythoria-agent-{}", &uuid[0..8]);
-    
-    let temp_dir = std::env::temp_dir().join("sythoria-worktrees").join(&uuid[0..8]);
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| AppError::GitError(format!("Failed to create worktree directory: {}", e)))?;
+
+    let worktree_root = crate::project::sythoria_worktree_root();
+    std::fs::create_dir_all(&worktree_root)
+        .map_err(|e| AppError::GitError(format!("Failed to create worktree root: {e}")))?;
+    let temp_dir = worktree_root.join(&uuid[0..8]);
     let worktree_path_str = temp_dir.to_string_lossy().into_owned();
 
     // 2. Spawn git worktree add
@@ -456,6 +657,16 @@ pub async fn git_worktree_create(
         ));
     }
 
+    let projects_guard = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
+    let project = projects_guard.get(&project_id).ok_or_else(|| {
+        AppError::GitError("Access denied: Project not found in registry".to_string())
+    })?;
+    crate::project::validate_owned_worktree(project, &worktree_path_str, Some(&branch_name))
+        .map_err(|e| AppError::GitError(e.to_string()))?;
+
     Ok((worktree_path_str, branch_name))
 }
 
@@ -466,81 +677,27 @@ pub async fn git_worktree_apply(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
-    let worktree_dir = std::path::Path::new(&worktree_path);
-    if !worktree_dir.exists() {
-        return Err(AppError::GitError("Worktree path does not exist".to_string()));
-    }
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
+        .get(&project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::GitError("Access denied: Project not found in registry".to_string())
+        })?;
+    let verified =
+        crate::project::validate_owned_worktree(&project, &worktree_path, Some(&branch_name))
+            .map_err(|e| AppError::GitError(e.to_string()))?;
+    let worktree_dir = verified.path;
 
-    // 1. Get status -z of worktree
-    let status_output = Command::new("git")
-        .arg("-C")
-        .arg(&worktree_path)
-        .arg("status")
-        .arg("-z")
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to get worktree status: {}", e)))?;
-
-    let stdout = status_output.stdout;
-    
-    // 2. Apply modifications to primary repo
-    let mut i = 0;
-    while i < stdout.len() {
-        if i + 2 >= stdout.len() {
-            break;
-        }
-        let x = stdout[i] as char;
-        let y = stdout[i + 1] as char;
-        i += 3; // skip XY and space
-        
-        let start = i;
-        while i < stdout.len() && stdout[i] != 0 {
-            i += 1;
-        }
-        let path_bytes = &stdout[start..i];
-        let file_path_relative = String::from_utf8_lossy(path_bytes).into_owned();
-        i += 1; // skip \0
-
-        if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
-            let old_start = i;
-            while i < stdout.len() && stdout[i] != 0 {
-                i += 1;
-            }
-            let old_path_bytes = &stdout[old_start..i];
-            let old_file_path_relative = String::from_utf8_lossy(old_path_bytes).into_owned();
-            i += 1; // skip \0
-
-            let old_dest_file = repo_path.join(&old_file_path_relative);
-            if old_dest_file.exists() {
-                let _ = std::fs::remove_file(&old_dest_file);
-            }
-        }
-
-        let src_file = worktree_dir.join(&file_path_relative);
-        let dest_file = repo_path.join(&file_path_relative);
-
-        if x == 'D' || y == 'D' {
-            // Deleted
-            if dest_file.exists() {
-                let _ = std::fs::remove_file(&dest_file);
-            }
-        } else {
-            // Modified or Added
-            if src_file.exists() && src_file.is_file() {
-                if let Some(parent) = dest_file.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                std::fs::copy(&src_file, &dest_file)
-                    .map_err(|e| AppError::GitError(format!("Failed to copy file {} back: {}", file_path_relative, e)))?;
-            }
-        }
-    }
-
-    // 3. Clean up worktree and delete temp branch
-    cleanup_worktree_internal(&repo_path_str, &worktree_path, &branch_name).await?;
+    // Cleanup is intentionally unreachable until the complete patch has been
+    // applied and independently verified by Git.
+    apply_worktree_changes(&repo_path, &worktree_dir).await?;
+    cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
 
     Ok(())
 }
@@ -552,20 +709,34 @@ pub async fn git_worktree_discard(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
+        .get(&project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::GitError("Access denied: Project not found in registry".to_string())
+        })?;
 
     // Clean up worktree and delete temp branch
-    cleanup_worktree_internal(&repo_path_str, &worktree_path, &branch_name).await?;
+    cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
 
     Ok(())
 }
 
 async fn cleanup_worktree_internal(
+    project: &crate::project::Project,
     repo_path: &str,
     worktree_path: &str,
     branch_name: &str,
 ) -> Result<(), AppError> {
+    let verified =
+        crate::project::validate_owned_worktree(project, worktree_path, Some(branch_name))
+            .map_err(|e| AppError::GitError(e.to_string()))?;
+
     // 1. Remove the worktree using git worktree remove --force
     let remove_output = Command::new("git")
         .arg("-C")
@@ -574,13 +745,16 @@ async fn cleanup_worktree_internal(
         .arg("remove")
         .arg("--force")
         .arg("--")
-        .arg(worktree_path)
+        .arg(&verified.path)
         .output()
         .await
         .map_err(|e| AppError::GitError(format!("Failed to remove git worktree: {}", e)))?;
 
     if !remove_output.status.success() {
-        // Log warning but don't halt, try branch deletion
+        return Err(AppError::GitError(format!(
+            "Git refused to remove the verified worktree: {}",
+            String::from_utf8_lossy(&remove_output.stderr).trim()
+        )));
     }
 
     // 2. Delete the temporary branch using git branch -D
@@ -596,15 +770,164 @@ async fn cleanup_worktree_internal(
         .map_err(|e| AppError::GitError(format!("Failed to delete temporary branch: {}", e)))?;
 
     if !delete_output.status.success() {
-        // Soft failure, could be branch was not created
+        return Err(AppError::GitError(format!(
+            "Worktree was removed, but its temporary branch could not be deleted: {}",
+            String::from_utf8_lossy(&delete_output.stderr).trim()
+        )));
     }
 
-    // 3. Delete directory recursively if still exists
-    let path = std::path::Path::new(worktree_path);
-    if path.exists() {
-        let _ = std::fs::remove_dir_all(path);
+    // Git is the sole authority allowed to remove a worktree. Never recursively
+    // delete a renderer-supplied path as a fallback.
+    if verified.path.exists() {
+        return Err(AppError::GitError(
+            "Git reported success but the worktree directory still exists".to_string(),
+        ));
     }
 
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{apply_worktree_changes, parse_changed_paths, resolve_git_relative_path};
+    use std::path::Path;
+    use std::process::Command as StdCommand;
+
+    struct TestRepository {
+        root: std::path::PathBuf,
+        repo: std::path::PathBuf,
+        worktree: std::path::PathBuf,
+    }
+
+    impl TestRepository {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "sythoria-worktree-apply-test-{}",
+                uuid::Uuid::new_v4()
+            ));
+            let repo = root.join("repo");
+            let worktree = root.join("worktree");
+            std::fs::create_dir_all(&repo).expect("create test repository");
+            run_git(&repo, &["init"]);
+            run_git(&repo, &["config", "user.email", "tests@sythoria.invalid"]);
+            run_git(&repo, &["config", "user.name", "Sythoria Tests"]);
+            run_git(&repo, &["config", "core.autocrlf", "false"]);
+            std::fs::write(repo.join("modified.txt"), b"original\n").expect("write fixture");
+            std::fs::write(repo.join("deleted.txt"), b"delete me\n").expect("write fixture");
+            run_git(&repo, &["add", "."]);
+            run_git(&repo, &["commit", "-m", "initial"]);
+            run_git(
+                &repo,
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    "sythoria-agent-test",
+                    worktree.to_str().expect("UTF-8 test path"),
+                ],
+            );
+
+            Self {
+                root,
+                repo,
+                worktree,
+            }
+        }
+    }
+
+    impl Drop for TestRepository {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn run_git(repo: &Path, args: &[&str]) {
+        let output = StdCommand::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("run Git test command");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn git_paths_cannot_escape_the_workspace() {
+        let root = std::env::current_dir().expect("current directory");
+        assert!(resolve_git_relative_path(&root, "src/lib.rs").is_ok());
+        assert!(resolve_git_relative_path(&root, "../outside").is_err());
+        assert!(resolve_git_relative_path(&root, "/outside").is_err());
+        assert!(resolve_git_relative_path(&root, "").is_err());
+    }
+
+    #[test]
+    fn changed_path_parser_rejects_malformed_or_unsupported_entries() {
+        assert_eq!(
+            parse_changed_paths(b"A\0nested/file.txt\0M\0other.txt\0").expect("valid paths"),
+            ["nested/file.txt", "other.txt"]
+        );
+        assert!(parse_changed_paths(b"A\0").is_err());
+        assert!(parse_changed_paths(b"R100\0old.txt\0new.txt\0").is_err());
+        assert!(parse_changed_paths(b"A\0../outside\0").is_ok());
+    }
+
+    #[tokio::test]
+    async fn worktree_apply_includes_nested_untracked_files_and_deletions() {
+        let fixture = TestRepository::new();
+        std::fs::write(fixture.worktree.join("modified.txt"), b"changed\n")
+            .expect("modify fixture");
+        std::fs::remove_file(fixture.worktree.join("deleted.txt")).expect("delete fixture");
+        let nested = fixture.worktree.join("new/deep/tree");
+        std::fs::create_dir_all(&nested).expect("create nested fixture");
+        std::fs::write(nested.join("payload.bin"), [0, 1, 2, 0xff]).expect("write binary fixture");
+
+        apply_worktree_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("apply complete worktree");
+
+        assert_eq!(
+            std::fs::read(fixture.repo.join("modified.txt")).expect("read modified result"),
+            b"changed\n"
+        );
+        assert!(!fixture.repo.join("deleted.txt").exists());
+        assert_eq!(
+            std::fs::read(fixture.repo.join("new/deep/tree/payload.bin"))
+                .expect("read nested result"),
+            [0, 1, 2, 0xff]
+        );
+        assert!(fixture.worktree.exists(), "apply helper must not clean up");
+    }
+
+    #[tokio::test]
+    async fn failed_apply_keeps_worktree_and_source_changes_intact() {
+        let fixture = TestRepository::new();
+        std::fs::write(fixture.worktree.join("modified.txt"), b"worktree version\n")
+            .expect("modify worktree fixture");
+        std::fs::write(
+            fixture.repo.join("modified.txt"),
+            b"conflicting primary version\n",
+        )
+        .expect("modify primary fixture");
+
+        assert!(apply_worktree_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .is_err());
+        assert!(
+            fixture.worktree.exists(),
+            "failed apply removed its worktree"
+        );
+        assert_eq!(
+            std::fs::read(fixture.worktree.join("modified.txt")).expect("read source change"),
+            b"worktree version\n"
+        );
+        assert_eq!(
+            std::fs::read(fixture.repo.join("modified.txt")).expect("read primary conflict"),
+            b"conflicting primary version\n"
+        );
+    }
+}
