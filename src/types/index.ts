@@ -45,6 +45,7 @@ export interface Message {
       isNew?: boolean;
       filename?: string;
     };
+    subagentIds?: string[];
   };
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
@@ -67,8 +68,9 @@ export interface Conversation {
   parentId?: string;
   role?: string;
   isSubagent?: boolean;
-  status?: "running" | "idle" | "error" | "completed";
+  status?: "running" | "idle" | "error" | "completed" | "stopped";
   isTemporary?: boolean;
+  recursionDepth?: number;
 }
 
 export type ProjectPermission = "read" | "write" | "full";
