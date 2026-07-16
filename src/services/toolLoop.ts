@@ -615,7 +615,7 @@ function setCancelledStatus(set: (fn: (state: ToolLoopSlice) => Partial<ToolLoop
       }
     }
     return {
-      conversations: state.conversations.map((c) => (c.id === convId ? { ...c, messages: nextMessages } : c)),
+      conversations: state.conversations.map((c) => (c.id === convId ? { ...c, messages: nextMessages, status: c.isSubagent ? "stopped" : c.status } : c)),
     };
   });
 }
@@ -640,6 +640,71 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
     }
     return updated;
   });
+}
+
+function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
+  const gen = get().generationByConversation[convId];
+  if (!gen) return false;
+  return get().isStreaming && gen.state !== "cancelled" && gen.state !== "error" && gen.state !== "idle";
+}
+
+function triggerParentResume(
+  parentId: string,
+  parentMsg: Message,
+) {
+  const chatStore = useChatStore.getState();
+  const currentConvs = chatStore.conversations;
+  const parentConv = currentConvs.find((c) => c.id === parentId);
+  const currentDepth = parentConv?.recursionDepth || 0;
+  const newDepth = currentDepth + 1;
+
+  useChatStore.setState((s) => ({
+    conversations: s.conversations.map((c) =>
+      c.id === parentId ? { ...c, recursionDepth: newDepth } : c
+    ),
+  }));
+
+  const maxDepth = 5;
+  if (newDepth > maxDepth) {
+    const warnedMsg = {
+      ...parentMsg,
+      content: `${parentMsg.content}\n\n**Warning:** The subagent loop recursion safety limit (${maxDepth} iterations) has been reached. Auto-execution is paused. Please review the output above. You can reply or manually resume if needed.`,
+    };
+
+    useChatStore.setState((s) => ({
+      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [
+        ...msgs,
+        warnedMsg,
+      ]),
+    }));
+
+    useUIStore.getState().addToast(
+      "Subagent loop paused: recursion depth safety limit reached.",
+      "info"
+    );
+    return;
+  }
+
+  const genState = chatStore.generationByConversation[parentId];
+  const parentIsGenerating = genState && genState.state !== "idle" && genState.state !== "cancelled";
+
+  if (parentIsGenerating) {
+    if (!pendingSubagentMessages.has(parentId)) {
+      pendingSubagentMessages.set(parentId, []);
+    }
+    pendingSubagentMessages.get(parentId)!.push(parentMsg);
+  } else {
+    useChatStore.setState((s) => ({
+      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [
+        ...msgs,
+        parentMsg,
+      ]),
+    }));
+    useChatStore
+      .getState()
+      .resumeConversation(parentId)
+      .catch((e) => console.error("Parent auto-resume loop error:", e));
+  }
 }
 
 export async function sendWithToolLoop(
@@ -863,7 +928,7 @@ export async function sendWithToolLoop(
         wasAborted = true;
         return;
       }
-      if (!get().isStreaming) {
+      if (!isConvStreaming(get, convId)) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
         setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
@@ -923,7 +988,7 @@ export async function sendWithToolLoop(
 
       await streamDonePromise;
 
-      if (!get().isStreaming) {
+      if (!isConvStreaming(get, convId)) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
         setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
@@ -1054,13 +1119,20 @@ export async function sendWithToolLoop(
         const toolCallPromises = toolCallDataList.map(async (td) => {
           const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
 
+          const uiStore = useUIStore.getState();
+          const taskLabel = fnName === "unknown" && rawName.includes("__")
+            ? `MCP: ${rawName.split("__")[1]} (${rawName.split("__")[0]})`
+            : `Tool: ${fnName}`;
+          uiStore.addTask(toolCall.id, taskLabel, convId);
+
           let resultContent = "";
           let images: any[] | undefined = undefined;
           let isError = false;
           let toolResultDiffSummary: any = undefined;
+          let toolResultSubagentIds: string[] | undefined = undefined;
 
           try {
-            if (!get().isStreaming) {
+            if (!isConvStreaming(get, convId)) {
               throw new Error("Tool loop aborted: stream was stopped by user");
             }
 
@@ -1093,7 +1165,7 @@ export async function sendWithToolLoop(
               }
             }
 
-            if (!get().isStreaming) {
+            if (!isConvStreaming(get, convId)) {
               throw new Error("Tool loop aborted: stream was stopped by user");
             }
 
@@ -1230,13 +1302,14 @@ export async function sendWithToolLoop(
               }
 
               resultContent = `Subagents invoked successfully with conversation IDs: ${invokedIds.join(", ")}. Wait for their responses, or communicate with them using send_message.`;
+              toolResultSubagentIds = invokedIds;
             } else if (fnName === "wait_subagents") {
               const targetIds = Array.isArray(fnArgs.conversationIds) ? fnArgs.conversationIds : [];
               const start = Date.now();
               const timeout = 600000; // 10 minutes max wait
 
               while (Date.now() - start < timeout) {
-                if (!get().isStreaming) {
+                if (!isConvStreaming(get, convId)) {
                   break;
                 }
                 const convs = get().conversations;
@@ -1502,7 +1575,8 @@ export async function sendWithToolLoop(
             resultContent = err.message || String(err);
           }
 
-          if (!get().isStreaming) {
+          if (!isConvStreaming(get, convId)) {
+            uiStore.completeTask(toolCall.id, "error");
             return { toolCallId: toolCall.id, rawName, fnName, resultContent: "Aborted", images: [], isError: true };
           }
 
@@ -1546,6 +1620,7 @@ export async function sendWithToolLoop(
                         content: resultContent,
                         images,
                         diffSummary: toolResultDiffSummary,
+                        subagentIds: toolResultSubagentIds,
                       },
                     }
                   : m,
@@ -1565,6 +1640,8 @@ export async function sendWithToolLoop(
               : {}),
           }));
 
+          uiStore.completeTask(toolCall.id, isError ? "error" : "completed");
+
           return {
             toolCallId: toolCall.id,
             rawName,
@@ -1578,7 +1655,7 @@ export async function sendWithToolLoop(
         // Wait for all tool completions
         const results = await Promise.all(toolCallPromises);
 
-        if (!get().isStreaming) {
+        if (!isConvStreaming(get, convId)) {
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
           setCancelledStatus(set, convId);
           await useChatStore.getState().persistConversations();
@@ -1668,28 +1745,7 @@ export async function sendWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-
-          const parentIsGenerating =
-            get().generationByConversation[updatedConv.parentId]?.state &&
-            get().generationByConversation[updatedConv.parentId]?.state !== "idle";
-
-          if (parentIsGenerating) {
-            if (!pendingSubagentMessages.has(updatedConv.parentId)) {
-              pendingSubagentMessages.set(updatedConv.parentId, []);
-            }
-            pendingSubagentMessages.get(updatedConv.parentId)!.push(parentMsg);
-          } else {
-            useChatStore.setState((s) => ({
-              conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
-                ...msgs,
-                parentMsg,
-              ]),
-            }));
-            useChatStore
-              .getState()
-              .resumeConversation(updatedConv.parentId)
-              .catch((e) => console.error("Parent auto-resume loop error:", e));
-          }
+          triggerParentResume(updatedConv.parentId, parentMsg);
         }
 
         return;
@@ -1753,28 +1809,7 @@ export async function sendWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-
-      const parentIsGenerating =
-        get().generationByConversation[updatedConv.parentId]?.state &&
-        get().generationByConversation[updatedConv.parentId]?.state !== "idle";
-
-      if (parentIsGenerating) {
-        if (!pendingSubagentMessages.has(updatedConv.parentId)) {
-          pendingSubagentMessages.set(updatedConv.parentId, []);
-        }
-        pendingSubagentMessages.get(updatedConv.parentId)!.push(parentMsg);
-      } else {
-        useChatStore.setState((s) => ({
-          conversations: updateConversationMessages(s.conversations, updatedConv.parentId!, (msgs) => [
-            ...msgs,
-            parentMsg,
-          ]),
-        }));
-        useChatStore
-          .getState()
-          .resumeConversation(updatedConv.parentId)
-          .catch((e) => console.error("Parent auto-resume loop error on failure:", e));
-      }
+      triggerParentResume(updatedConv.parentId, parentMsg);
     }
   } finally {
     cleanupStream?.();
