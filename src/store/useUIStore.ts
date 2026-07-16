@@ -91,7 +91,9 @@ interface UIState {
   pendingLinkUrl: string | null;
   showCommandPalette: boolean;
   showSpotlight: boolean;
+  activeSubagentId: string | null;
 
+  setActiveSubagentId: (id: string | null) => void;
   setView: (view: "chat" | "settings") => void;
   setTheme: (theme: ThemeConfig) => void;
   setActiveSection: (section: string) => void;
@@ -147,6 +149,15 @@ interface UIState {
   setShowSpotlight: (show: boolean) => void;
   setShowLinkWarningModal: (show: boolean, url?: string | null) => void;
   initSkipExternalLinkWarning: () => Promise<void>;
+  
+  isAuxPanelOpen: boolean;
+  activeAuxTab: "subagents" | "tasks" | "artifacts" | "files" | "terminals";
+  backgroundTasks: Array<{ id: string; title: string; convId: string; status: "running" | "completed" | "error"; timestamp: Date }>;
+  setAuxPanelOpen: (open: boolean) => void;
+  setActiveAuxTab: (tab: "subagents" | "tasks" | "artifacts" | "files" | "terminals") => void;
+  addTask: (id: string, title: string, convId: string) => void;
+  completeTask: (id: string, status?: "completed" | "error") => void;
+  clearTasks: () => void;
 }
 
 function isNewerVersion(current: string, latest: string): boolean {
@@ -255,12 +266,43 @@ export const useUIStore = create<UIState>((set) => ({
   pendingLinkUrl: null,
   showCommandPalette: false,
   showSpotlight: false,
+  activeSubagentId: null,
+  isAuxPanelOpen: false,
+  activeAuxTab: "subagents",
+  backgroundTasks: [],
 
+  setActiveSubagentId: (activeSubagentId) => {
+    set({ activeSubagentId });
+    if (activeSubagentId) {
+      set({ activeAuxTab: "subagents", isAuxPanelOpen: true });
+    }
+  },
   setSidebarWidth: (sidebarWidth) => {
     safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
     set({ sidebarWidth });
   },
-  setActiveArtifact: (activeArtifact) => set({ activeArtifact }),
+  setActiveArtifact: (activeArtifact) => {
+    set({ activeArtifact });
+    if (activeArtifact) {
+      set({ activeAuxTab: "artifacts", isAuxPanelOpen: true });
+    }
+  },
+  setAuxPanelOpen: (isAuxPanelOpen) => set({ isAuxPanelOpen }),
+  setActiveAuxTab: (activeAuxTab) => set({ activeAuxTab }),
+  addTask: (id, title, convId) =>
+    set((s) => ({
+      backgroundTasks: [
+        { id, title, convId, status: "running", timestamp: new Date() },
+        ...s.backgroundTasks.filter((t) => t.id !== id),
+      ],
+    })),
+  completeTask: (id, status = "completed") =>
+    set((s) => ({
+      backgroundTasks: s.backgroundTasks.map((t) =>
+        t.id === id ? { ...t, status } : t
+      ),
+    })),
+  clearTasks: () => set({ backgroundTasks: [] }),
 
   setView: (view) => set({ view }),
   setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
