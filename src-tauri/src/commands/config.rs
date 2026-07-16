@@ -1,11 +1,11 @@
-use std::fs;
-use std::io::Write;
-use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use crate::get_blocked_hosts;
 use crate::AppError;
 use crate::NetworkConfig;
 use crate::NETWORK_CONFIG;
-use crate::get_blocked_hosts;
+use serde::Deserialize;
+use std::fs;
+use std::io::Write;
+use tauri::Manager;
 
 pub const STORE_FILE: &str = "sythoria-store.json";
 pub const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
@@ -163,8 +163,10 @@ pub fn load_network_config_internal(app: &tauri::AppHandle) -> Result<NetworkCon
         .map_err(|e| AppError::AppPath(e.to_string()))?;
     let config_path = app_data_dir.join("network_config.json");
     if config_path.exists() {
-        let content = fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-        let config: NetworkConfig = serde_json::from_str(&content).map_err(|e| AppError::ParseError(e.to_string()))?;
+        let content =
+            fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
+        let config: NetworkConfig =
+            serde_json::from_str(&content).map_err(|e| AppError::ParseError(e.to_string()))?;
         Ok(config)
     } else {
         Ok(NetworkConfig::default())
@@ -179,7 +181,8 @@ pub async fn load_network_config(app: tauri::AppHandle) -> Result<String, AppErr
 
 #[tauri::command]
 pub async fn save_network_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let config_struct: NetworkConfig = serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
+    let config_struct: NetworkConfig =
+        serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -189,7 +192,7 @@ pub async fn save_network_config(app: tauri::AppHandle, config: String) -> Resul
     let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
     file.write_all(config.as_bytes())
         .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    
+
     if let Ok(mut lock) = NETWORK_CONFIG.write() {
         *lock = config_struct;
     }
@@ -230,7 +233,10 @@ pub async fn load_api_keys(app: tauri::AppHandle) -> Result<serde_json::Value, A
 }
 
 #[tauri::command]
-pub async fn save_api_keys_cmd(app: tauri::AppHandle, keys: serde_json::Value) -> Result<(), AppError> {
+pub async fn save_api_keys_cmd(
+    app: tauri::AppHandle,
+    keys: serde_json::Value,
+) -> Result<(), AppError> {
     save_secret_map(&app, "model", API_KEY_INDEX, &keys).await
 }
 
@@ -388,7 +394,10 @@ pub async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
                 if let Some(env_index) = store.get(&server_index_key) {
                     if let Some(arr) = env_index.as_array() {
                         for key in arr.iter().filter_map(|v| v.as_str()) {
-                            let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
+                            let _ = delete_keychain_secret(
+                                "mcp-env",
+                                &format!("{}:{}", server_id, key),
+                            );
                         }
                     }
                 }
@@ -437,14 +446,20 @@ pub async fn get_model_config_and_key(
         .map_err(|e| AppError::AppPath(e.to_string()))?;
     let config_path = app_data_dir.join("config.json");
     if !config_path.exists() {
-        return Err(AppError::ConfigIo("Configuration file not found".to_string()));
+        return Err(AppError::ConfigIo(
+            "Configuration file not found".to_string(),
+        ));
     }
     let config_content = fs::read_to_string(config_path)?;
     let configs: Vec<ModelConfig> = serde_json::from_str(&config_content)
         .map_err(|e| AppError::ConfigIo(format!("Failed to parse config: {}", e)))?;
 
-    let config = configs.into_iter().find(|c| c.id == config_id)
-        .ok_or_else(|| AppError::ConfigIo(format!("Model config not found for ID: {}", config_id)))?;
+    let config = configs
+        .into_iter()
+        .find(|c| c.id == config_id)
+        .ok_or_else(|| {
+            AppError::ConfigIo(format!("Model config not found for ID: {}", config_id))
+        })?;
 
     let api_key = match get_keychain_secret("model", config_id) {
         Ok(secret) => secret,
@@ -471,7 +486,9 @@ pub async fn get_model_config_and_key(
             use std::net::ToSocketAddrs;
             let port = parsed_url.port_or_known_default().unwrap_or(80);
             if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs.into_iter().any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
+                addrs
+                    .into_iter()
+                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
             } else {
                 false
             }
