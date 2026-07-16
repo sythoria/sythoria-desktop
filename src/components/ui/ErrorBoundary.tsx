@@ -9,12 +9,13 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  hasRetried: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, hasRetried: false };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
@@ -25,6 +26,14 @@ export class ErrorBoundary extends Component<Props, State> {
       action: "Try reloading the app. If the problem persists, report this issue.",
     });
   }
+
+  private retry = () => {
+    this.setState({ hasError: false, error: null, hasRetried: true });
+  };
+
+  private reload = () => {
+    window.location.reload();
+  };
 
   render() {
     if (this.state.hasError) {
@@ -51,14 +60,34 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
           <h2 className="text-lg font-semibold text-text-primary">Something went wrong</h2>
           <p className="text-sm text-text-muted max-w-md text-center">
-            {this.state.error?.message || "An unexpected error occurred."}
+            {this.state.hasRetried
+              ? "The app could not recover automatically. Reload it to start from a clean state."
+              : "The current view could not be displayed. You can try once more or reload the app."}
           </p>
-          <button
-            onClick={() => this.setState({ hasError: false, error: null })}
-            className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors min-h-[44px]"
-          >
-            Try Again
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {!this.state.hasRetried && (
+              <button
+                onClick={this.retry}
+                className="px-4 py-2 rounded-lg border border-border text-text-primary text-sm font-medium hover:bg-hover transition-colors min-h-[44px]"
+              >
+                Try Again
+              </button>
+            )}
+            <button
+              onClick={this.reload}
+              className="px-4 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent-hover transition-colors min-h-[44px]"
+            >
+              Reload App
+            </button>
+          </div>
+          {this.state.error?.message && (
+            <details className="max-w-md text-xs text-text-muted">
+              <summary className="cursor-pointer text-center hover:text-text-primary">Technical details</summary>
+              <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface p-3 text-left font-mono">
+                {this.state.error.message}
+              </pre>
+            </details>
+          )}
         </div>
       );
     }
