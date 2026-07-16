@@ -678,21 +678,22 @@ export async function sendWithToolLoop(
 
     const modelStore = useModelStore.getState();
     cleanupStream = await modelStore.ensureStreamListeners(
-      (cId, content) => {
+      convId,
+      (content) => {
         useChatStore.setState((state) => {
           const newState: Partial<typeof state> = {};
-          const currentStreamContent = state.activeStreamContent[cId] || "";
+          const currentStreamContent = state.activeStreamContent[convId] || "";
           const fullContent = currentStreamContent + content;
 
-          if (fullContent.includes("<reasoning>") && !state.activeStreamThinkingStart?.[cId]) {
-            newState.activeStreamThinkingStart = { ...state.activeStreamThinkingStart, [cId]: Date.now() };
+          if (fullContent.includes("<reasoning>") && !state.activeStreamThinkingStart?.[convId]) {
+            newState.activeStreamThinkingStart = { ...state.activeStreamThinkingStart, [convId]: Date.now() };
           }
           if (
             fullContent.includes("</reasoning>") &&
-            state.activeStreamThinkingStart?.[cId] &&
-            !state.activeStreamThinkingEnd?.[cId]
+            state.activeStreamThinkingStart?.[convId] &&
+            !state.activeStreamThinkingEnd?.[convId]
           ) {
-            newState.activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd, [cId]: Date.now() };
+            newState.activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd, [convId]: Date.now() };
           }
 
           if (state.generationState === "loading") {
@@ -717,16 +718,16 @@ export async function sendWithToolLoop(
             ...newState,
             activeStreamContent: {
               ...state.activeStreamContent,
-              [cId]: fullContent,
+              [convId]: fullContent,
             },
           };
         });
       },
-      (cId) => {
+      () => {
         useChatStore.setState((state) => {
-          const streamContent = state.activeStreamContent[cId] || "";
+          const streamContent = state.activeStreamContent[convId] || "";
           const conversations = state.conversations.map((c) => {
-            if (c.id !== cId) return c;
+            if (c.id !== convId) return c;
             const updated = [...c.messages];
             const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
             if (lastAssistantIdx >= 0) {
@@ -741,11 +742,11 @@ export async function sendWithToolLoop(
             return { ...c, messages: updated };
           });
           const nextActiveStreamContent = { ...state.activeStreamContent };
-          delete nextActiveStreamContent[cId];
+          delete nextActiveStreamContent[convId];
           const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
-          delete nextActiveStreamThinkingStart[cId];
+          delete nextActiveStreamThinkingStart[convId];
           const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
-          delete nextActiveStreamThinkingEnd[cId];
+          delete nextActiveStreamThinkingEnd[convId];
           return {
             conversations,
             activeStreamContent: nextActiveStreamContent,
@@ -753,9 +754,9 @@ export async function sendWithToolLoop(
             activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
           };
         });
-        if (streamDoneResolves.has(cId)) {
-          streamDoneResolves.get(cId)!();
-          streamDoneResolves.delete(cId);
+        if (streamDoneResolves.has(convId)) {
+          streamDoneResolves.get(convId)!();
+          streamDoneResolves.delete(convId);
         }
       },
     );
@@ -1235,6 +1236,9 @@ export async function sendWithToolLoop(
               const timeout = 600000; // 10 minutes max wait
 
               while (Date.now() - start < timeout) {
+                if (!get().isStreaming) {
+                  break;
+                }
                 const convs = get().conversations;
                 let allDone = true;
                 const results: string[] = [];
