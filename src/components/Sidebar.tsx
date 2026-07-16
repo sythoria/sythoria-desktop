@@ -153,7 +153,7 @@ export default memo(function Sidebar({
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const isSidebarCollapsed = isMobile && isOpen ? false : isCollapsed;
+  const isSidebarCollapsed = isMobile ? !isOpen : isCollapsed;
 
   const isDragging = useRef(false);
 
@@ -341,20 +341,28 @@ export default memo(function Sidebar({
 
   const sidebarVariants = {
     expanded: {
-      width: sidebarWidth,
+      width: isMobile ? sidebarWidth : sidebarWidth,
+      x: 0,
       opacity: 1,
       borderRightWidth: 1,
       display: "flex" as const,
-      transition: springs.snappy,
+      transition: {
+        ...springs.release,
+        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+      },
     },
     collapsed: {
-      width: COLLAPSED_SIDEBAR_WIDTH,
-      opacity: 0,
-      borderRightWidth: 0,
+      width: isMobile ? sidebarWidth : COLLAPSED_SIDEBAR_WIDTH,
+      x: isMobile ? "-100%" : 0,
+      opacity: isMobile ? 1 : 0,
+      borderRightWidth: isMobile ? 1 : 0,
       transitionEnd: {
         display: "none",
       },
-      transition: springs.snappy,
+      transition: {
+        ...springs.release,
+        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+      },
     },
   };
 
@@ -365,21 +373,23 @@ export default memo(function Sidebar({
 
   return (
     <>
-      {isOpen && (
-        <div
-          className="absolute inset-0 z-20 md:hidden backdrop-blur-sm"
-          style={{ backgroundColor: "var(--theme-overlay)" }}
-          onClick={onClose}
-          aria-hidden="true"
-        />
-      )}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth }}
+            className="absolute inset-0 z-20 md:hidden backdrop-blur-sm"
+            style={{ backgroundColor: "var(--theme-overlay)" }}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+        )}
+      </AnimatePresence>
 
       <motion.aside
-        className={`
-          absolute inset-y-0 left-0 md:relative z-40 h-full flex flex-col overflow-hidden
-          glass-sidebar border-r border-border
-          ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-        `}
+        className="absolute inset-y-0 left-0 md:relative z-40 h-full flex flex-col overflow-hidden glass-sidebar border-r border-border"
         initial={isSidebarCollapsed ? "collapsed" : "expanded"}
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
         variants={sidebarVariants}
@@ -387,6 +397,10 @@ export default memo(function Sidebar({
         role="navigation"
         aria-label="Sidebar navigation"
       >
+        <div
+          className="flex flex-col h-full overflow-hidden shrink-0"
+          style={{ width: sidebarWidth }}
+        >
         {/* Header */}
         {view === "settings" ? (
           <div className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30" data-tauri-drag-region>
@@ -945,6 +959,8 @@ export default memo(function Sidebar({
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
+
         {/* Resize Handle */}
         {!isSidebarCollapsed && (
           <div
