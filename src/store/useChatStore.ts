@@ -106,13 +106,17 @@ function finalizeAssistantMessage(
 ): Conversation[] {
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
-    const last = updated[updated.length - 1];
-    if (last && last.role === "assistant" && last.isStreaming) {
-      updated[updated.length - 1] = {
-        ...last,
-        isStreaming: false,
-        thinkingDuration: last.thinkingDuration ?? thinkingDuration,
-      };
+    const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+    if (lastAssistantIdx >= 0) {
+      const idx = updated.length - 1 - lastAssistantIdx;
+      const last = updated[idx];
+      if (last.isStreaming) {
+        updated[idx] = {
+          ...last,
+          isStreaming: false,
+          thinkingDuration: last.thinkingDuration ?? thinkingDuration,
+        };
+      }
     }
     return updated;
   });
@@ -122,9 +126,11 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
   const parsed = parseApiError(err);
   return updateConversationMessages(conversations, convId, (msgs) => {
     const updated = [...msgs];
-    const last = updated[updated.length - 1];
-    if (last && last.role === "assistant") {
-      updated[updated.length - 1] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
+    const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+    if (lastAssistantIdx >= 0) {
+      const idx = updated.length - 1 - lastAssistantIdx;
+      const last = updated[idx];
+      updated[idx] = { ...last, content: `**Error:** ${parsed.message}`, isStreaming: false };
     }
     return updated;
   });
@@ -1572,9 +1578,11 @@ async function sendNormal(
           const conversations = state.conversations.map((c) => {
             if (c.id !== cId) return c;
             const updated = [...c.messages];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
+            const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+            if (lastAssistantIdx >= 0) {
+              const idx = updated.length - 1 - lastAssistantIdx;
+              const last = updated[idx];
+              updated[idx] = {
                 ...last,
                 content: last.content + streamContent,
                 isStreaming: false,
@@ -1639,8 +1647,10 @@ async function sendNormal(
     });
 
     const convBeforeFinalize = get().conversations.find((c) => c.id === convId);
-    const lastMsg = convBeforeFinalize?.messages[convBeforeFinalize.messages.length - 1];
-    const streamStillActive = lastMsg && lastMsg.role === "assistant" && lastMsg.isStreaming;
+    const lastAssistant = convBeforeFinalize?.messages
+      ? [...convBeforeFinalize.messages].reverse().find((m) => m.role === "assistant")
+      : undefined;
+    const streamStillActive = lastAssistant && lastAssistant.isStreaming;
 
     if (streamStillActive) {
       useModelStore.getState().removeActiveStreamId(streamId);
