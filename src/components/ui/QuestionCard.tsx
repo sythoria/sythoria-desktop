@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import { HelpCircle, ChevronRight } from "lucide-react";
+import { springs, motionTokens } from "../../lib/motion-tokens";
 
 interface QuestionCardProps {
   id: string;
@@ -25,8 +26,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ id, title, options, 
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      initial={{ opacity: 0, y: motionTokens.distance.sm, scale: motionTokens.scale.subtle }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={springs.gentle}
       className="p-4 my-4 rounded-xl border border-border bg-surface/60 backdrop-blur-md flex flex-col gap-3 shadow-md max-w-lg w-full"
     >
       <div className="flex items-center gap-2 border-b border-border/50 pb-2">
