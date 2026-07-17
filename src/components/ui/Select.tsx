@@ -158,7 +158,7 @@ export function Select({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -4 }}
             transition={springs.snappy}
-            className="absolute right-0 z-50 mt-1 max-h-60 w-full min-w-[150px] overflow-auto rounded-xl border border-border glass-dropdown p-1 shadow-lg focus:outline-none scrollbar-none"
+            className="absolute right-0 z-50 mt-1 max-h-60 w-full min-w-[150px] overflow-auto rounded-xl border border-border glass-dropdown p-1 shadow-lg focus:outline-none scrollbar-thin"
           >
             {options.map((opt, index) => {
               const isSelected = opt.value === value;
