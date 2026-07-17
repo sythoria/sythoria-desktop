@@ -15,6 +15,7 @@ import {
   Minimize2,
   ArrowLeft,
   Ghost,
+  ListTree,
   PanelRight,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
@@ -226,6 +227,9 @@ function App() {
     updateInfo,
     autoUpdateChecking,
     isAuxPanelOpen,
+    isAuxPanelExpanded,
+    isAuxSummaryPinned,
+    auxPanelWidth,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -244,6 +248,9 @@ function App() {
       updateInfo: s.updateInfo,
       autoUpdateChecking: s.autoUpdateChecking,
       isAuxPanelOpen: s.isAuxPanelOpen,
+      isAuxPanelExpanded: s.isAuxPanelExpanded,
+      isAuxSummaryPinned: s.isAuxSummaryPinned,
+      auxPanelWidth: s.auxPanelWidth,
     })),
   );
   const {
@@ -261,6 +268,8 @@ function App() {
     checkForUpdates,
     toggleCommandPalette,
     setAuxPanelOpen,
+    setAuxSummaryPinned,
+    setAuxPanelWidth,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
@@ -277,6 +286,8 @@ function App() {
       checkForUpdates: s.checkForUpdates,
       toggleCommandPalette: s.toggleCommandPalette,
       setAuxPanelOpen: s.setAuxPanelOpen,
+      setAuxSummaryPinned: s.setAuxSummaryPinned,
+      setAuxPanelWidth: s.setAuxPanelWidth,
     })),
   );
 
@@ -1282,6 +1293,26 @@ function App() {
                       <Split size={16} />
                     </button>
                     <button
+                      onClick={() => {
+                        if (!isAuxPanelOpen) {
+                          setAuxPanelOpen(true);
+                          if (!isAuxSummaryPinned) setAuxSummaryPinned(true);
+                          return;
+                        }
+                        setAuxSummaryPinned(!isAuxSummaryPinned);
+                      }}
+                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                        isAuxSummaryPinned
+                          ? "text-accent bg-accent/10 hover:bg-accent/15"
+                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                      }`}
+                      aria-pressed={isAuxSummaryPinned}
+                      aria-label={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
+                      title={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
+                    >
+                      <ListTree size={16} />
+                    </button>
+                    <button
                       onClick={() => setAuxPanelOpen(!isAuxPanelOpen)}
                       className={`p-1.5 rounded-md transition-colors cursor-pointer ${
                         isAuxPanelOpen
@@ -1379,12 +1410,43 @@ function App() {
                     {isAuxPanelOpen && (
                       <motion.div
                         key="auxiliary-pane-split"
-                        className="w-[45%] border-l border-border bg-surface flex flex-col h-full min-h-0 min-w-[320px] relative z-20 shadow-lg"
+                        className={`border-l border-border bg-surface flex flex-col h-full min-h-0 shadow-lg transition-[width] duration-300 ease-out ${
+                          isAuxPanelExpanded
+                            ? "absolute inset-y-0 right-0 z-40 w-full md:w-[72%] md:min-w-[520px] max-w-[880px] shadow-2xl"
+                            : "relative z-20 min-w-[360px] max-w-[70vw]"
+                        }`}
+                        style={isAuxPanelExpanded ? undefined : { width: auxPanelWidth }}
                         initial={{ x: "100%", opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: "100%", opacity: 0 }}
-                        transition={springs.gentle}
+                        transition={{
+                          type: "tween",
+                          duration: motionTokens.duration.normal,
+                          ease: motionTokens.easing.smooth,
+                        }}
                       >
+                        {!isAuxPanelExpanded && (
+                          <div
+                            role="separator"
+                            aria-orientation="vertical"
+                            aria-label="Resize workspace sidebar"
+                            className="absolute inset-y-0 -left-1 z-30 w-2 cursor-col-resize transition-colors hover:bg-accent/30"
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              const target = event.currentTarget;
+                              target.setPointerCapture(event.pointerId);
+                              const handleMove = (moveEvent: PointerEvent) => {
+                                setAuxPanelWidth(window.innerWidth - moveEvent.clientX);
+                              };
+                              const handleUp = () => {
+                                window.removeEventListener("pointermove", handleMove);
+                                window.removeEventListener("pointerup", handleUp);
+                              };
+                              window.addEventListener("pointermove", handleMove);
+                              window.addEventListener("pointerup", handleUp);
+                            }}
+                          />
+                        )}
                         <AuxiliaryPanel />
                       </motion.div>
                     )}
