@@ -1,588 +1,1218 @@
-import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { invoke } from "@tauri-apps/api/core";
+import { AnimatePresence, motion } from "motion/react";
 import {
-  X,
-  Bot,
-  Cpu,
-  FileText,
-  GitCompare,
-  Terminal as TerminalIcon,
-  Loader2,
-  CheckCircle2,
+  Activity,
   AlertCircle,
-  Trash2,
-  FileCode,
-  Square,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  ClipboardCheck,
+  Code2,
+  File,
+  FileCode2,
+  FileText,
+  Folder,
+  FolderOpen,
+  GitBranch,
+  GitCommitHorizontal,
+  HardDrive,
+  Link2,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  Paperclip,
+  PanelRightClose,
+  PinOff,
+  Play,
+  RefreshCw,
+  Search,
+  ShieldCheck,
   Sparkles,
+  Square,
+  TerminalSquare,
+  Trash2,
+  X,
 } from "lucide-react";
-import { useUIStore } from "../store/useUIStore";
-import { useChatStore } from "../store/useChatStore";
-import { useGitStore } from "../store/useGitStore";
-import ChatAreaBase from "./ChatArea";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { motionTokens } from "../lib/motion-tokens";
+import { useChatStore } from "../store/useChatStore";
+import { GitStatus } from "../store/useGitStore";
+import { useProjectStore } from "../store/useProjectStore";
+import { AuxiliaryTab, useUIStore } from "../store/useUIStore";
+import type { Conversation, Project } from "../types";
+import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
-export function AuxiliaryPanel() {
-  const isAuxPanelOpen = useUIStore((s) => s.isAuxPanelOpen);
-  const setAuxPanelOpen = useUIStore((s) => s.setAuxPanelOpen);
-  const activeAuxTab = useUIStore((s) => s.activeAuxTab);
-  const setActiveAuxTab = useUIStore((s) => s.setActiveAuxTab);
+interface TerminalEntry {
+  id: number;
+  command: string;
+  output: string;
+  status: "running" | "success" | "error";
+}
 
-  const activeArtifact = useUIStore((s) => s.activeArtifact);
-  const setActiveArtifact = useUIStore((s) => s.setActiveArtifact);
-  const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
-  const [showThinking, setShowThinking] = useState(true);
+interface FileTreeEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
 
-  const activeSubagentId = useUIStore((s) => s.activeSubagentId);
-  const setActiveSubagentId = useUIStore((s) => s.setActiveSubagentId);
+interface NumberedDiffLine {
+  line: string;
+  oldLine: number | "";
+  newLine: number | "";
+  kind: "added" | "deleted" | "hunk" | "meta" | "context";
+}
 
-  const activeId = useChatStore((s) => s.activeId);
-  const conversations = useChatStore((s) => s.conversations);
-  const generationByConversation = useChatStore((s) => s.generationByConversation);
+const tabs: Array<{ id: AuxiliaryTab; label: string; icon: typeof ClipboardCheck }> = [
+  { id: "review", label: "Review", icon: ClipboardCheck },
+  { id: "files", label: "Files", icon: FileCode2 },
+  { id: "terminals", label: "Terminal", icon: TerminalSquare },
+  { id: "activity", label: "Activity", icon: Activity },
+  { id: "artifacts", label: "Preview", icon: Code2 },
+];
 
-  const backgroundTasks = useUIStore((s) => s.backgroundTasks);
-  const clearTasks = useUIStore((s) => s.clearTasks);
-  const logBuffer = useUIStore((s) => s.logBuffer);
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Something went wrong.";
+}
 
-  const gitStore = useGitStore();
+function EmptyState({ icon: Icon, title, detail }: { icon: typeof ClipboardCheck; title: string; detail: string }) {
+  return (
+    <div className="m-auto flex max-w-[300px] flex-col items-center px-6 py-10 text-center">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-border/50 bg-hover/40 text-text-muted">
+        <Icon size={18} />
+      </div>
+      <p className="text-sm font-medium text-text-primary">{title}</p>
+      <p className="mt-1.5 text-xs leading-5 text-text-muted">{detail}</p>
+    </div>
+  );
+}
 
-  const terminalEndRef = useRef<HTMLDivElement | null>(null);
+function PanelSpinner({ label }: { label: string }) {
+  return (
+    <div className="m-auto flex items-center gap-2 text-xs text-text-muted">
+      <Loader2 size={14} className="animate-spin text-accent" />
+      {label}
+    </div>
+  );
+}
 
-  // Esc key closes panel
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isAuxPanelOpen) {
-        setAuxPanelOpen(false);
-      }
+function numberDiffLines(lines: string[]): NumberedDiffLine[] {
+  let oldLine = 0;
+  let newLine = 0;
+
+  return lines.map((line) => {
+    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+    }
+
+    const isMeta =
+      line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ");
+    const isAdded = line.startsWith("+") && !line.startsWith("+++");
+    const isDeleted = line.startsWith("-") && !line.startsWith("---");
+    const isHunk = line.startsWith("@@");
+    const numberedLine: NumberedDiffLine = {
+      line,
+      oldLine: isAdded || isMeta || isHunk ? "" : oldLine || "",
+      newLine: isDeleted || isMeta || isHunk ? "" : newLine || "",
+      kind: isAdded ? "added" : isDeleted ? "deleted" : isHunk ? "hunk" : isMeta ? "meta" : "context",
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isAuxPanelOpen, setAuxPanelOpen]);
 
-  // Scroll to end of terminals on log update
+    if (!isAdded && !isMeta && !isHunk) oldLine += 1;
+    if (!isDeleted && !isMeta && !isHunk) newLine += 1;
+    return numberedLine;
+  });
+}
+
+function DiffView({ file }: { file: DiffFile }) {
+  return (
+    <div className="min-w-max font-mono text-[11px] leading-[19px]">
+      {numberDiffLines(file.lines).map(({ line, oldLine, newLine, kind }, index) => {
+        const isAdded = kind === "added";
+        const isDeleted = kind === "deleted";
+        return (
+          <div
+            key={`${index}-${line}`}
+            className={`flex min-h-[19px] select-text ${
+              kind === "added"
+                ? "bg-emerald-500/10 text-emerald-300"
+                : kind === "deleted"
+                  ? "bg-red-500/10 text-red-300"
+                  : kind === "hunk"
+                    ? "bg-accent/10 text-accent"
+                    : kind === "meta"
+                      ? "text-text-muted"
+                      : "text-text-secondary"
+            }`}
+          >
+            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
+              {oldLine}
+            </span>
+            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
+              {newLine}
+            </span>
+            <span className="w-5 shrink-0 text-center text-text-muted/60">{isAdded ? "+" : isDeleted ? "-" : ""}</span>
+            <span className="whitespace-pre pr-5">{isAdded || isDeleted ? line.slice(1) : line}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReviewPane({
+  projectId,
+  worktreePath,
+  conversationId,
+}: {
+  projectId: string | null;
+  worktreePath?: string;
+  conversationId: string | null;
+}) {
+  const [status, setStatus] = useState<GitStatus | null>(null);
+  const [files, setFiles] = useState<DiffFile[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
+  const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextStatus, diff] = await Promise.all([
+        invoke<GitStatus>("git_get_status", { projectId, worktreePath: worktreePath || null }),
+        invoke<string>("git_diff_changes", { projectId, worktreePath: worktreePath || null }),
+      ]);
+      const parsed = parseGitDiff(diff);
+      const parsedPaths = new Set(parsed.flatMap((file) => [file.path, file.oldPath]));
+      const statusOnlyFiles = [...new Set([...nextStatus.stagedFiles, ...nextStatus.unstagedFiles])]
+        .filter((path) => !parsedPaths.has(path))
+        .map<DiffFile>((path) => ({
+          path,
+          oldPath: path,
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+          lines: [`diff --git a/${path} b/${path}`, "Diff preview is unavailable for this untracked or binary file."],
+        }));
+      parsed.push(...statusOnlyFiles);
+      setStatus(nextStatus);
+      setFiles(parsed);
+      setSelectedPath((current) =>
+        current && parsed.some((file) => file.path === current) ? current : parsed[0]?.path || null,
+      );
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, worktreePath]);
+
   useEffect(() => {
-    if (activeAuxTab === "terminals") {
-      terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    queueMicrotask(() => void refresh());
+  }, [refresh]);
+
+  const selectedFile = files.find((file) => file.path === selectedPath) || files[0];
+  const additions = files.reduce((total, file) => total + file.additions, 0);
+  const deletions = files.reduce((total, file) => total + file.deletions, 0);
+
+  const resolveWorktree = async (action: "apply" | "discard") => {
+    if (!conversationId) return;
+    setActionLoading(action);
+    try {
+      if (action === "apply") await applyPendingWorktree(conversationId);
+      else await discardPendingWorktree(conversationId);
+      setFiles([]);
+      setStatus(null);
+    } finally {
+      setActionLoading(null);
     }
-  }, [logBuffer, activeAuxTab]);
-
-  if (!isAuxPanelOpen) return null;
-
-  // 1. Subagents Logic
-  const subagents = conversations.filter((c) => c.isSubagent && c.parentId === activeId);
-  const selectedSubagentConv = conversations.find((c) => c.id === activeSubagentId);
-  const subagentGenState = activeSubagentId ? generationByConversation[activeSubagentId] : undefined;
-
-  // 2. Files Changed Logic
-  const activeConversation = conversations.find((c) => c.id === activeId);
-  const diffFiles: string[] = [];
-  if (activeConversation?.pendingWorktree) {
-    // If there is an active worktree, list files from git status or just render placeholders
-    const dirty = gitStore.status
-      ? [...gitStore.status.stagedFiles, ...gitStore.status.unstagedFiles]
-      : [];
-    if (dirty.length > 0) {
-      diffFiles.push(...dirty);
-    } else {
-      diffFiles.push("No changes in isolated worktree.");
-    }
-  }
-
-  // Helper to render safe iframe document
-  const getSafeSrcDoc = (content: string, allowNetwork: boolean) => {
-    let csp = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;";
-    if (allowNetwork) {
-      csp = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:; connect-src http: https: ws: wss:;";
-    }
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta http-equiv="Content-Security-Policy" content="${csp}">
-          <style>
-            body { margin: 0; padding: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #f3f4f6; background-color: #111827; }
-            pre { background-color: #1f2937; padding: 12px; border-radius: 8px; overflow: auto; }
-          </style>
-        </head>
-        <body>
-          ${content}
-        </body>
-      </html>
-    `;
   };
 
+  if (!projectId) {
+    return (
+      <EmptyState
+        icon={Folder}
+        title="No project selected"
+        detail="Choose a project from the left sidebar to review workspace changes."
+      />
+    );
+  }
+  if (loading && !status) return <PanelSpinner label="Loading workspace changes…" />;
+
   return (
-    <div className="flex flex-col h-full bg-surface border-l border-border/40 select-none">
-      {/* Header Tabs */}
-      <div className="flex items-center justify-between border-b border-border/30 px-3 bg-input/10 shrink-0">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
-          {/* Subagents Tab */}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border/40 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
+              <GitBranch size={13} className="text-text-muted" />
+              <span className="truncate">{status?.branch || "Workspace changes"}</span>
+              {worktreePath && (
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
+                  Isolated
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-text-muted">
+              {files.length} {files.length === 1 ? "file" : "files"} changed
+              <span className="ml-2 text-emerald-500">+{additions}</span>
+              <span className="ml-1.5 text-red-400">−{deletions}</span>
+            </p>
+          </div>
           <button
-            onClick={() => setActiveAuxTab("subagents")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-              activeAuxTab === "subagents"
-                ? "border-accent text-accent"
-                : "border-transparent text-text-muted hover:text-text-secondary"
-            }`}
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+            title="Refresh changes"
           >
-            <Bot size={14} />
-            <span>Subagents</span>
-            {subagents.filter((s) => s.status === "running").length > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-            )}
-          </button>
-
-          {/* Tasks Tab */}
-          <button
-            onClick={() => setActiveAuxTab("tasks")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-              activeAuxTab === "tasks"
-                ? "border-accent text-accent"
-                : "border-transparent text-text-muted hover:text-text-secondary"
-            }`}
-          >
-            <Cpu size={14} />
-            <span>Tasks</span>
-            {backgroundTasks.filter((t) => t.status === "running").length > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-            )}
-          </button>
-
-          {/* Artifacts Tab */}
-          <button
-            onClick={() => setActiveAuxTab("artifacts")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-              activeAuxTab === "artifacts"
-                ? "border-accent text-accent"
-                : "border-transparent text-text-muted hover:text-text-secondary"
-            }`}
-          >
-            <FileText size={14} />
-            <span>Artifacts</span>
-            {activeArtifact && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-          </button>
-
-          {/* Files Tab */}
-          <button
-            onClick={() => setActiveAuxTab("files")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-              activeAuxTab === "files"
-                ? "border-accent text-accent"
-                : "border-transparent text-text-muted hover:text-text-secondary"
-            }`}
-          >
-            <GitCompare size={14} />
-            <span>Files</span>
-            {diffFiles.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
-          </button>
-
-          {/* Terminals Tab */}
-          <button
-            onClick={() => setActiveAuxTab("terminals")}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
-              activeAuxTab === "terminals"
-                ? "border-accent text-accent"
-                : "border-transparent text-text-muted hover:text-text-secondary"
-            }`}
-          >
-            <TerminalIcon size={14} />
-            <span>Terminal</span>
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
+        {worktreePath && conversationId && (
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => void resolveWorktree("discard")}
+              disabled={!!actionLoading}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+            >
+              {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              Discard
+            </button>
+            <button
+              onClick={() => void resolveWorktree("apply")}
+              disabled={!!actionLoading}
+              className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent-active disabled:opacity-50"
+            >
+              {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+              Apply changes
+            </button>
+          </div>
+        )}
+      </div>
 
-        {/* Close Button */}
+      {error ? (
+        <EmptyState icon={AlertCircle} title="Couldn’t load changes" detail={error} />
+      ) : files.length === 0 ? (
+        <EmptyState
+          icon={ShieldCheck}
+          title="Workspace is clean"
+          detail="There are no staged or unstaged changes to review."
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border/40 md:max-h-none md:w-[38%] md:border-b-0 md:border-r">
+            {files.map((file) => (
+              <button
+                key={file.path}
+                onClick={() => setSelectedPath(file.path)}
+                className={`flex w-full items-start gap-2 border-b border-border/25 px-3 py-2.5 text-left transition-colors ${selectedFile?.path === file.path ? "bg-accent/10" : "hover:bg-hover/60"}`}
+              >
+                <FileCode2
+                  size={13}
+                  className={`mt-0.5 shrink-0 ${file.status === "added" ? "text-emerald-500" : file.status === "deleted" ? "text-red-400" : "text-text-muted"}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-[11px] text-text-primary">{file.path}</p>
+                  <p className="mt-1 text-[10px] text-text-muted">
+                    <span className="text-emerald-500">+{file.additions}</span>
+                    <span className="ml-1.5 text-red-400">−{file.deletions}</span>
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto bg-chat/45">
+            {selectedFile && <DiffView file={selectedFile} />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FileTreeRow({
+  entry,
+  depth,
+  projectId,
+  worktreePath,
+  expanded,
+  onToggle,
+  onSelect,
+  selectedPath,
+}: {
+  entry: FileTreeEntry;
+  depth: number;
+  projectId: string;
+  worktreePath?: string;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+  selectedPath: string | null;
+}) {
+  const [children, setChildren] = useState<FileTreeEntry[] | null>(null);
+  const isOpen = expanded.has(entry.path);
+  const loading = entry.isDirectory && isOpen && children === null;
+
+  useEffect(() => {
+    if (!entry.isDirectory || !isOpen || children) return;
+    invoke<string[]>("project_list_dir", { projectId, path: entry.path, worktreePath: worktreePath || null })
+      .then((items) =>
+        setChildren(
+          items.map((name) => ({
+            name: name.replace(/\/$/, ""),
+            path: joinProjectPath(entry.path, name.replace(/\/$/, "")),
+            isDirectory: name.endsWith("/"),
+          })),
+        ),
+      )
+      .catch(() => setChildren([]));
+  }, [children, entry.isDirectory, entry.path, isOpen, projectId, worktreePath]);
+
+  return (
+    <>
+      <button
+        onClick={() => (entry.isDirectory ? onToggle(entry.path) : onSelect(entry.path))}
+        className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-hover/70 ${selectedPath === entry.path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+        style={{ paddingLeft: 8 + depth * 14 }}
+      >
+        {entry.isDirectory ? (
+          loading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : isOpen ? (
+            <ChevronDown size={12} />
+          ) : (
+            <ChevronRight size={12} />
+          )
+        ) : (
+          <span className="w-3" />
+        )}
+        {entry.isDirectory ? (
+          isOpen ? (
+            <FolderOpen size={13} className="shrink-0 text-accent" />
+          ) : (
+            <Folder size={13} className="shrink-0 text-text-muted" />
+          )
+        ) : (
+          <File size={13} className="shrink-0 text-text-muted" />
+        )}
+        <span className="truncate">{entry.name}</span>
+      </button>
+      {entry.isDirectory &&
+        isOpen &&
+        children?.map((child) => (
+          <FileTreeRow
+            key={child.path}
+            entry={child}
+            depth={depth + 1}
+            projectId={projectId}
+            worktreePath={worktreePath}
+            expanded={expanded}
+            onToggle={onToggle}
+            onSelect={onSelect}
+            selectedPath={selectedPath}
+          />
+        ))}
+    </>
+  );
+}
+
+function FilesPane({ projectId, worktreePath }: { projectId: string | null; worktreePath?: string }) {
+  const [entries, setEntries] = useState<FileTreeEntry[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [content, setContent] = useState("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadRoot = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const items = await invoke<string[]>("project_list_dir", {
+        projectId,
+        path: ".",
+        worktreePath: worktreePath || null,
+      });
+      setEntries(
+        items.map((name) => ({
+          name: name.replace(/\/$/, ""),
+          path: name.replace(/\/$/, ""),
+          isDirectory: name.endsWith("/"),
+        })),
+      );
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, worktreePath]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setExpanded(new Set());
+      setSelectedPath(null);
+      setContent("");
+      void loadRoot();
+    });
+  }, [loadRoot]);
+
+  const selectFile = async (path: string) => {
+    if (!projectId) return;
+    setSelectedPath(path);
+    setContent("");
+    setLoading(true);
+    try {
+      setContent(
+        await invoke<string>("project_read", {
+          projectId,
+          path,
+          offset: 1,
+          limit: 2000,
+          worktreePath: worktreePath || null,
+        }),
+      );
+    } catch (nextError) {
+      setContent(`Unable to open this file.\n\n${errorMessage(nextError)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!projectId)
+    return (
+      <EmptyState
+        icon={Folder}
+        title="No project selected"
+        detail="Choose a project to browse its files in this panel."
+      />
+    );
+  const filteredEntries = entries.filter((entry) => !query || entry.name.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/50 bg-input/40 px-2.5 py-1.5 focus-within:border-accent/60">
+          <Search size={12} className="text-text-muted" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter files"
+            className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted"
+          />
+          {query && (
+            <button onClick={() => setQuery("")} className="text-text-muted hover:text-text-primary">
+              <X size={11} />
+            </button>
+          )}
+        </div>
         <button
-          onClick={() => setAuxPanelOpen(false)}
-          className="p-1.5 rounded-lg text-text-muted hover:bg-hover hover:text-text-primary transition-colors cursor-pointer shrink-0"
-          title="Collapse Panel (Esc)"
+          onClick={() => void loadRoot()}
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+          title="Refresh files"
         >
-          <X size={15} />
+          <RefreshCw size={13} />
         </button>
       </div>
-
-      {/* Pane Content */}
-      <div className="flex-1 min-h-0 w-full overflow-hidden relative bg-chat/30">
-        <AnimatePresence mode="wait">
-          {/* Subagents Pane */}
-          {activeAuxTab === "subagents" && (
-            <motion.div
-              key="subagents-pane"
-              className="absolute inset-0 flex flex-col"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: motionTokens.duration.fast }}
-            >
-              {activeSubagentId && selectedSubagentConv ? (
-                // If a subagent is selected, display its conversation
-                <div className="flex-1 flex flex-col min-h-0">
-                  {/* Subagent Titlebar */}
-                  <div className="flex items-center justify-between p-3 border-b border-border/40 bg-input/10 shrink-0">
-                    <button
-                      onClick={() => setActiveSubagentId(null)}
-                      className="text-xs text-accent hover:underline font-medium cursor-pointer"
-                    >
-                      &larr; Back to list
-                    </button>
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <span className="font-semibold text-text-primary truncate max-w-[120px]">
-                        {selectedSubagentConv.role || selectedSubagentConv.title}
-                      </span>
-                      <button
-                        onClick={() => setShowThinking(!showThinking)}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold rounded-full border transition-colors cursor-pointer shrink-0 ${
-                          showThinking
-                            ? "bg-accent/15 text-accent border-accent/20"
-                            : "bg-surface/50 text-text-muted border-border/40 hover:text-text-secondary"
-                        }`}
-                        title={showThinking ? "Hide Subagent Thinking" : "Show Subagent Thinking"}
-                      >
-                        <Sparkles size={8} />
-                        <span>THINKING: {showThinking ? "ON" : "OFF"}</span>
-                      </button>
-                      {selectedSubagentConv.status === "running" ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="flex items-center gap-1 text-[9px] text-accent/80 font-semibold px-2 py-0.5 bg-accent/10 rounded-full shrink-0">
-                            <Loader2 size={8} className="animate-spin" />
-                            RUNNING
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              useChatStore.getState().stopStreaming(selectedSubagentConv.id);
-                            }}
-                            className="flex items-center gap-1 text-[9px] text-red-400 hover:text-red-300 font-semibold px-2 py-0.5 bg-red-500/10 rounded-full border border-red-500/20 cursor-pointer transition-colors"
-                            title="Stop Subagent Execution"
-                          >
-                            <Square size={8} className="fill-red-400" />
-                            STOP
-                          </button>
-                        </div>
-                      ) : selectedSubagentConv.status === "stopped" ? (
-                        <span className="text-[9px] text-amber-500 font-semibold px-2 py-0.5 bg-amber-500/10 rounded-full shrink-0">
-                          STOPPED
-                        </span>
-                      ) : selectedSubagentConv.status === "error" ? (
-                        <span className="text-[9px] text-red-500 font-semibold px-2 py-0.5 bg-red-500/10 rounded-full shrink-0">
-                          ERROR
-                        </span>
-                      ) : (
-                        <span className="text-[9px] text-emerald-500 font-semibold px-2 py-0.5 bg-emerald-500/10 rounded-full shrink-0">
-                          DONE
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Embedded Chat */}
-                  <div className="flex-1 min-h-0 flex flex-col relative bg-chat/30">
-                    <ChatAreaBase
-                      messages={selectedSubagentConv.messages || []}
-                      onRetry={() => {}}
-                      generationState={subagentGenState?.state || "idle"}
-                      conversationId={selectedSubagentConv.id}
-                      autoExpandReasoning={showThinking}
-                    />
-                  </div>
-                </div>
-              ) : (
-                // Else, show list of subagents
-                <div className="flex-1 flex flex-col p-4 overflow-y-auto gap-3">
-                  <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">
-                    Autonomous Collaborators
-                  </h3>
-                  {subagents.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-border/50 rounded-xl bg-surface/40 px-4">
-                      <Bot size={28} className="text-text-muted mb-2 opacity-50" />
-                      <p className="text-xs text-text-muted">No subagents spawned for this conversation yet.</p>
-                      <p className="text-[10px] text-text-muted/70 mt-1 max-w-[260px]">
-                        Spawning helper agents allows parallel search, research, and analysis workflows.
-                      </p>
-                    </div>
-                  ) : (
-                    subagents.map((sa) => (
-                      <div
-                        key={sa.id}
-                        onClick={() => setActiveSubagentId(sa.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setActiveSubagentId(sa.id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        className="w-full text-left p-3.5 border border-border/40 hover:border-accent bg-surface/50 hover:bg-hover rounded-xl transition-all flex items-center justify-between gap-4 cursor-pointer group shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      >
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="p-2 rounded-lg bg-accent/5 text-accent shrink-0 border border-accent/10">
-                            <Bot size={16} />
-                          </div>
-                          <div className="overflow-hidden">
-                            <h4 className="text-xs font-semibold text-text-primary truncate">
-                              {sa.role || "Helper Agent"}
-                            </h4>
-                            <p className="text-[10px] text-text-muted truncate mt-0.5 font-mono">
-                              ID: {sa.id}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {sa.status === "running" ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="flex items-center gap-1 text-[9px] text-accent font-semibold px-2 py-0.5 bg-accent/10 rounded-full">
-                                <Loader2 size={8} className="animate-spin" />
-                                RUNNING
-                              </span>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  useChatStore.getState().stopStreaming(sa.id);
-                                }}
-                                className="flex items-center gap-1 text-[9px] text-red-400 hover:text-red-300 font-semibold px-2 py-0.5 bg-red-500/10 rounded-full border border-red-500/20 cursor-pointer transition-colors"
-                                title="Stop Subagent"
-                              >
-                                <Square size={8} className="fill-red-400" />
-                                STOP
-                              </button>
-                            </div>
-                          ) : sa.status === "stopped" ? (
-                            <span className="text-[9px] text-amber-500 font-semibold px-2 py-0.5 bg-amber-500/10 rounded-full">
-                              STOPPED
-                            </span>
-                          ) : sa.status === "error" ? (
-                            <span className="text-[9px] text-red-500 font-semibold px-2 py-0.5 bg-red-500/10 rounded-full">
-                              ERROR
-                            </span>
-                          ) : (
-                            <span className="text-[9px] text-emerald-500 font-semibold px-2 py-0.5 bg-emerald-500/10 rounded-full">
-                              DONE
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {/* Background Tasks Pane */}
-          {activeAuxTab === "tasks" && (
-            <motion.div
-              key="tasks-pane"
-              className="absolute inset-0 flex flex-col p-4 overflow-y-auto"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: motionTokens.duration.fast }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-                  Active Tasks Loop
-                </h3>
-                {backgroundTasks.length > 0 && (
-                  <button
-                    onClick={clearTasks}
-                    className="text-[10px] text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <Trash2 size={10} />
-                    Clear History
-                  </button>
-                )}
-              </div>
-
-              {backgroundTasks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-border/50 rounded-xl bg-surface/40 px-4">
-                  <Cpu size={28} className="text-text-muted mb-2 opacity-50" />
-                  <p className="text-xs text-text-muted">No background processes have run recently.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {backgroundTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="p-3 border border-border/30 bg-surface/30 rounded-xl flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="flex items-center gap-2.5 overflow-hidden">
-                        {task.status === "running" ? (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <Loader2 size={14} className="animate-spin text-accent" />
-                            <button
-                              onClick={() => useChatStore.getState().stopStreaming(task.convId)}
-                              className="p-1 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded border border-red-500/20 cursor-pointer transition-colors"
-                              title="Stop Task Process"
-                            >
-                              <Square size={10} className="fill-red-400" />
-                            </button>
-                          </div>
-                        ) : task.status === "error" ? (
-                          <AlertCircle size={14} className="text-red-500 shrink-0" />
-                        ) : (
-                          <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
-                        )}
-                        <span className="font-medium text-text-primary truncate">{task.title}</span>
-                      </div>
-                      <span className="text-[10px] text-text-muted shrink-0">
-                        {new Date(task.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {/* Artifacts Pane */}
-          {activeAuxTab === "artifacts" && (
-            <motion.div
-              key="artifacts-pane"
-              className="absolute inset-0 flex flex-col"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: motionTokens.duration.fast }}
-            >
-              {activeArtifact ? (
-                <div className="flex-1 flex flex-col min-h-0">
-                  {/* Artifact Titlebar */}
-                  <div className="flex items-center justify-between p-3 border-b border-border/40 bg-input/10 shrink-0">
-                    <span className="text-xs font-semibold text-text-primary truncate max-w-[240px]">
-                      {activeArtifact.title}
+      {error ? (
+        <EmptyState icon={AlertCircle} title="Couldn’t browse project" detail={error} />
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div className="w-[38%] min-w-[145px] overflow-y-auto border-r border-border/40 py-1">
+            {loading && entries.length === 0 ? (
+              <PanelSpinner label="Loading files…" />
+            ) : (
+              filteredEntries.map((entry) => (
+                <FileTreeRow
+                  key={entry.path}
+                  entry={entry}
+                  depth={0}
+                  projectId={projectId}
+                  worktreePath={worktreePath}
+                  expanded={expanded}
+                  onToggle={(path) =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(path)) next.delete(path);
+                      else next.add(path);
+                      return next;
+                    })
+                  }
+                  onSelect={(path) => void selectFile(path)}
+                  selectedPath={selectedPath}
+                />
+              ))
+            )}
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col bg-chat/40">
+            {selectedPath ? (
+              <>
+                <div className="flex shrink-0 items-center justify-between border-b border-border/40 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText size={12} className="text-text-muted" />
+                    <span className="truncate font-mono text-[11px] text-text-primary">
+                      {fileNameFromPath(selectedPath)}
                     </span>
-                    <div className="flex items-center gap-2">
-                      {(activeArtifact.type === "html" || activeArtifact.type === "svg") && (
-                        <label className="flex items-center gap-1.5 text-[10px] text-text-muted select-none cursor-pointer hover:text-text-secondary transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={allowArtifactNetwork}
-                            onChange={(e) => setAllowArtifactNetwork(e.target.checked)}
-                            className="rounded border-border bg-input/50 text-accent focus:ring-accent accent-accent w-3.5 h-3.5"
-                          />
-                          <span>Network Access</span>
-                        </label>
-                      )}
-                      <button
-                        onClick={() => setActiveArtifact(null)}
-                        className="text-xs text-red-500 hover:text-red-400 font-medium cursor-pointer"
-                      >
-                        Close
-                      </button>
-                    </div>
                   </div>
-
-                  {/* Render Area */}
-                  <div className="flex-1 min-h-0 w-full overflow-hidden bg-gray-950 p-2">
-                    {activeArtifact.type === "html" || activeArtifact.type === "svg" ? (
-                      <iframe
-                        title={activeArtifact.title}
-                        className="w-full h-full border-none bg-white rounded-lg"
-                        srcDoc={getSafeSrcDoc(activeArtifact.content, allowArtifactNetwork)}
-                        sandbox="allow-scripts"
-                      />
-                    ) : (
-                      <pre className="w-full h-full m-0 p-3 bg-surface/30 border border-border/20 rounded-lg text-xs overflow-auto font-mono text-text-secondary select-text whitespace-pre-wrap">
-                        <code>{activeArtifact.content}</code>
-                      </pre>
-                    )}
-                  </div>
+                  <span className="text-[9px] font-medium uppercase tracking-wider text-text-muted">
+                    {languageFromPath(selectedPath)}
+                  </span>
                 </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-4 py-12 text-center border border-dashed border-border/50 rounded-xl bg-surface/40 m-4">
-                  <FileText size={28} className="text-text-muted mb-2 opacity-50" />
-                  <p className="text-xs text-text-muted">No active document artifact preview.</p>
-                  <p className="text-[10px] text-text-muted/70 mt-1 max-w-[260px]">
-                    Generated files, web mocks, code scripts, or implementation plan documents will appear here.
-                  </p>
-                </div>
-              )}
-            </motion.div>
-          )}
+                <pre className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-5 text-text-secondary selection:bg-accent/30">
+                  <code>{loading && !content ? "Loading…" : content}</code>
+                </pre>
+              </>
+            ) : (
+              <EmptyState
+                icon={FileText}
+                title="Open a file"
+                detail="Select a file from the project tree to inspect its contents."
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {/* Files Changed Pane */}
-          {activeAuxTab === "files" && (
-            <motion.div
-              key="files-pane"
-              className="absolute inset-0 flex flex-col p-4 overflow-y-auto"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: motionTokens.duration.fast }}
+export function TerminalPane({
+  projectId,
+  projectPath,
+  worktreePath,
+  canExecute,
+}: {
+  projectId: string | null;
+  projectPath?: string;
+  worktreePath?: string;
+  canExecute: boolean;
+}) {
+  const [command, setCommand] = useState("");
+  const [entries, setEntries] = useState<TerminalEntry[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const nextId = useRef(0);
+  const running = entries.some((entry) => entry.status === "running");
+  const cwd = worktreePath || projectPath;
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [entries]);
+
+  const runCommand = async (event: FormEvent) => {
+    event.preventDefault();
+    const nextCommand = command.trim();
+    if (!nextCommand || !projectId || !cwd || running) return;
+    const id = ++nextId.current;
+    setCommand("");
+    setHistoryIndex(-1);
+    setEntries((current) => [
+      ...current,
+      { id, command: nextCommand, output: "Waiting for confirmation…", status: "running" },
+    ]);
+    try {
+      const output = await invoke<string>("project_bash", {
+        projectId,
+        command: nextCommand,
+        cwd,
+        timeout: 120000,
+        runInBackground: false,
+        worktreePath: worktreePath || null,
+      });
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === id
+            ? { ...entry, output: output || "Command completed with no output.", status: "success" }
+            : entry,
+        ),
+      );
+    } catch (nextError) {
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === id ? { ...entry, output: errorMessage(nextError), status: "error" } : entry,
+        ),
+      );
+    }
+  };
+
+  const commandHistory = entries.map((entry) => entry.command);
+  const handleCommandKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    if (event.key === "ArrowUp" && commandHistory.length) {
+      const next = historyIndex < 0 ? commandHistory.length - 1 : Math.max(0, historyIndex - 1);
+      setHistoryIndex(next);
+      setCommand(commandHistory[next]);
+    } else if (event.key === "ArrowDown" && historyIndex >= 0) {
+      const next = historyIndex + 1;
+      setHistoryIndex(next >= commandHistory.length ? -1 : next);
+      setCommand(next >= commandHistory.length ? "" : commandHistory[next]);
+    }
+  };
+
+  if (!projectId || !cwd)
+    return (
+      <EmptyState
+        icon={TerminalSquare}
+        title="No project terminal"
+        detail="Select a project to run commands in its workspace."
+      />
+    );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#0b0d10] text-gray-200">
+      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2 font-mono text-[10px] text-gray-500">
+        <div className="flex min-w-0 items-center gap-2">
+          <Circle size={7} className="fill-emerald-500 text-emerald-500" />
+          <span className="truncate">{cwd}</span>
+        </div>
+        <button
+          onClick={() => setEntries([])}
+          className="rounded p-1 text-gray-500 hover:bg-white/10 hover:text-gray-200"
+          title="Clear terminal"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+      {!canExecute && (
+        <div className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          This project needs Full permission before terminal commands can run.
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-5 selection:bg-blue-500/30">
+        {entries.length === 0 && (
+          <div className="text-gray-600">
+            Sythoria workspace terminal
+            <br />
+            Commands require confirmation before execution.
+          </div>
+        )}
+        {entries.map((entry) => (
+          <div key={entry.id} className="mb-4">
+            <div className="flex gap-2 text-gray-200">
+              <span className="select-none text-emerald-400">❯</span>
+              <span className="whitespace-pre-wrap">{entry.command}</span>
+            </div>
+            <pre
+              className={`mt-1 whitespace-pre-wrap break-words ${entry.status === "error" ? "text-red-400" : entry.status === "running" ? "text-amber-300" : "text-gray-400"}`}
             >
-              <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-4">
-                Workspace Modifications
-              </h3>
+              {entry.output}
+            </pre>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+      <form
+        onSubmit={(event) => void runCommand(event)}
+        className="flex shrink-0 items-center gap-2 border-t border-white/10 bg-white/[0.025] px-3 py-2 font-mono"
+      >
+        <span className="text-sm text-emerald-400">❯</span>
+        <input
+          value={command}
+          onChange={(event) => setCommand(event.target.value)}
+          onKeyDown={handleCommandKeyDown}
+          disabled={!canExecute || running}
+          spellCheck={false}
+          autoCapitalize="off"
+          placeholder={canExecute ? "Run a command…" : "Full project permission required"}
+          className="min-w-0 flex-1 bg-transparent text-xs text-gray-100 outline-none placeholder:text-gray-600 disabled:cursor-not-allowed"
+        />
+        <button
+          type="submit"
+          disabled={!command.trim() || !canExecute || running}
+          className="rounded-md bg-white/10 p-1.5 text-gray-300 transition-colors hover:bg-white/15 disabled:opacity-30"
+          title="Run command"
+        >
+          {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+        </button>
+      </form>
+    </div>
+  );
+}
 
-              {diffFiles.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-border/50 rounded-xl bg-surface/40 px-4">
-                  <GitCompare size={28} className="text-text-muted mb-2 opacity-50" />
-                  <p className="text-xs text-text-muted">No files modified in isolation.</p>
-                  <p className="text-[10px] text-text-muted/70 mt-1 max-w-[260px]">
-                    Modified files inside isolated worktree environments appear here for diff inspect.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {diffFiles.map((file) => (
-                    <div
-                      key={file}
-                      className="p-3 border border-border/30 bg-surface/30 rounded-xl flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="flex items-center gap-2 overflow-hidden font-mono">
-                        <FileCode size={14} className="text-text-muted shrink-0" />
-                        <span className="truncate text-text-secondary select-all">{file}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          )}
+function ActivityPane({ activeId }: { activeId: string | null }) {
+  const conversations = useChatStore((s) => s.conversations);
+  const stopStreaming = useChatStore((s) => s.stopStreaming);
+  const setActiveSubagentId = useUIStore((s) => s.setActiveSubagentId);
+  const tasks = useUIStore((s) => s.backgroundTasks);
+  const clearTasks = useUIStore((s) => s.clearTasks);
+  const subagents = conversations.filter(
+    (conversation) => conversation.isSubagent && conversation.parentId === activeId,
+  );
 
-          {/* Terminal Pane */}
-          {activeAuxTab === "terminals" && (
-            <motion.div
-              key="terminals-pane"
-              className="absolute inset-0 flex flex-col bg-gray-950 p-4 font-mono text-xs"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: motionTokens.duration.fast }}
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Agents</h3>
+        <span className="text-[10px] text-text-muted">{subagents.length}</span>
+      </div>
+      <div className="space-y-2">
+        {subagents.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border/50 px-4 py-6 text-center text-xs text-text-muted">
+            No subagents in this task.
+          </div>
+        ) : (
+          subagents.map((agent) => (
+            <div
+              key={agent.id}
+              onClick={() => setActiveSubagentId(agent.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setActiveSubagentId(agent.id);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              className="flex w-full items-center gap-3 rounded-xl border border-border/40 bg-surface/40 p-3 text-left transition-colors hover:bg-hover/60"
             >
-              <div className="flex-1 overflow-y-auto select-text scrollbar-thin flex flex-col gap-1 pr-1">
-                {logBuffer.length === 0 ? (
-                  <div className="text-gray-500 italic">No output logs recorded yet...</div>
-                ) : (
-                  logBuffer.map((log, idx) => {
-                    const levelColors: Record<string, string> = {
-                      info: "text-blue-400",
-                      warn: "text-amber-400 font-semibold",
-                      error: "text-red-400 font-bold",
-                    };
-                    const color = levelColors[log.level] || "text-gray-300";
-                    return (
-                      <div key={idx} className="leading-5 break-words select-text">
-                        <span className="text-gray-500 select-none">
-                          [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]
-                        </span>{" "}
-                        <span className={`uppercase font-semibold select-none ${color}`}>
-                          [{log.level}]
-                        </span>{" "}
-                        <span className="text-gray-400 select-none">
-                          [{log.source}]
-                        </span>{" "}
-                        <span className="text-gray-200">{log.message}</span>
-                      </div>
-                    );
-                  })
-                )}
-                <div ref={terminalEndRef} />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <Bot size={15} />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-text-primary">{agent.role || agent.title}</p>
+                <p className="mt-0.5 text-[10px] capitalize text-text-muted">{agent.status || "idle"}</p>
+              </div>
+              {agent.status === "running" ? (
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    stopStreaming(agent.id);
+                  }}
+                  className="rounded p-1.5 text-red-400 hover:bg-red-500/10"
+                  title="Stop agent"
+                >
+                  <Square size={11} />
+                </button>
+              ) : agent.status === "error" ? (
+                <AlertCircle size={14} className="text-red-400" />
+              ) : (
+                <CheckCircle2 size={14} className="text-emerald-500" />
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      <div className="mb-3 mt-6 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Task history</h3>
+        {tasks.length > 0 && (
+          <button onClick={clearTasks} className="text-[10px] text-text-muted hover:text-text-primary">
+            Clear
+          </button>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {tasks.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border/50 px-4 py-6 text-center text-xs text-text-muted">
+            No background activity yet.
+          </div>
+        ) : (
+          tasks.map((task) => (
+            <div key={task.id} className="flex items-center gap-2.5 rounded-lg border border-border/30 px-3 py-2.5">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${task.status === "running" ? "animate-pulse bg-accent" : task.status === "error" ? "bg-red-500" : "bg-emerald-500"}`}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs text-text-secondary">{task.title}</span>
+              <span className="text-[9px] capitalize text-text-muted">{task.status}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
+  );
+}
+
+function ArtifactPane() {
+  const artifact = useUIStore((s) => s.activeArtifact);
+  const setArtifact = useUIStore((s) => s.setActiveArtifact);
+  const [allowNetwork, setAllowNetwork] = useState(false);
+  if (!artifact)
+    return (
+      <EmptyState
+        icon={Sparkles}
+        title="Nothing to preview"
+        detail="HTML, SVG, and generated artifacts can be opened here without leaving the task."
+      />
+    );
+  const csp = allowNetwork
+    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:; connect-src http: https: ws: wss:;"
+    : "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;";
+  const srcDoc = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"><style>body{margin:0;padding:16px;font-family:system-ui;background:#fff;color:#111}</style></head><body>${artifact.content}</body></html>`;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
+        <span className="truncate text-xs font-medium text-text-primary">{artifact.title}</span>
+        <div className="flex items-center gap-2">
+          {artifact.type !== "mermaid" && (
+            <label className="flex items-center gap-1.5 text-[10px] text-text-muted">
+              <input
+                type="checkbox"
+                checked={allowNetwork}
+                onChange={(event) => setAllowNetwork(event.target.checked)}
+                className="accent-accent"
+              />
+              Network
+            </label>
+          )}
+          <button
+            onClick={() => setArtifact(null)}
+            className="rounded p-1 text-text-muted hover:bg-hover hover:text-text-primary"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 bg-[#111318] p-2">
+        {artifact.type === "html" || artifact.type === "svg" ? (
+          <iframe
+            title={artifact.title}
+            srcDoc={srcDoc}
+            sandbox="allow-scripts"
+            className="h-full w-full rounded-lg border-0 bg-white"
+          />
+        ) : (
+          <pre className="h-full overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 p-3 font-mono text-xs text-gray-300">
+            {artifact.content}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PinnedSummary({
+  projectId,
+  project,
+  worktreePath,
+  conversation,
+}: {
+  projectId: string | null;
+  project?: Project;
+  worktreePath?: string;
+  conversation?: Conversation;
+}) {
+  const [status, setStatus] = useState<GitStatus | null>(null);
+  const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const tasks = useUIStore((s) => s.backgroundTasks);
+  const setActiveTab = useUIStore((s) => s.setActiveAuxTab);
+  const setPinned = useUIStore((s) => s.setAuxSummaryPinned);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) {
+      setStatus(null);
+      setDiffFiles([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [nextStatus, diff] = await Promise.all([
+        invoke<GitStatus>("git_get_status", { projectId, worktreePath: worktreePath || null }),
+        invoke<string>("git_diff_changes", { projectId, worktreePath: worktreePath || null }),
+      ]);
+      setStatus(nextStatus);
+      setDiffFiles(parseGitDiff(diff));
+    } catch {
+      setStatus(null);
+      setDiffFiles([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId, worktreePath]);
+
+  useEffect(() => {
+    queueMicrotask(() => void refresh());
+  }, [refresh]);
+
+  const additions = diffFiles.reduce((total, file) => total + file.additions, 0);
+  const deletions = diffFiles.reduce((total, file) => total + file.deletions, 0);
+  const changedFiles = new Set([
+    ...diffFiles.map((file) => file.path),
+    ...(status?.stagedFiles || []),
+    ...(status?.unstagedFiles || []),
+  ]).size;
+  const branch = conversation?.pendingWorktree?.branch || status?.branch || "No branch";
+  const recentTasks = tasks.slice(0, 3);
+
+  const sourceMap = new Map<string, { title: string; url?: string; isAttachment: boolean }>();
+  for (const message of conversation?.messages || []) {
+    for (const source of message.sources || []) {
+      sourceMap.set(source.url, { title: source.title, url: source.url, isAttachment: false });
+    }
+    for (const attachment of message.attachments || []) {
+      sourceMap.set(`attachment:${attachment.id}`, { title: attachment.name, isAttachment: true });
+    }
+  }
+  const sources = [...sourceMap.values()].slice(-3).reverse();
+
+  return (
+    <motion.aside
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: motionTokens.duration.fast }}
+      className="shrink-0 overflow-hidden border-b border-border/40 bg-chat/35"
+      aria-label="Pinned workspace summary"
+    >
+      <div className="max-h-[360px] overflow-y-auto p-3">
+        <div className="rounded-2xl border border-border/50 bg-surface/80 px-3.5 py-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-text-muted">Environment</span>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => void refresh()}
+                disabled={loading}
+                className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-50"
+                title="Refresh summary"
+              >
+                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              </button>
+              <button
+                onClick={() => setPinned(false)}
+                className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+                title="Unpin summary"
+              >
+                <PinOff size={12} />
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setActiveTab("review")}
+            className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1.5 text-left text-xs text-text-secondary hover:bg-hover/60"
+          >
+            <ClipboardCheck size={13} className="shrink-0 text-text-muted" />
+            <span className="min-w-0 flex-1">Changes</span>
+            <span className="font-mono text-[11px]">
+              <span className="text-emerald-500">+{additions}</span>
+              <span className="ml-1.5 text-red-400">−{deletions}</span>
+            </span>
+          </button>
+          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
+            <HardDrive size={13} className="shrink-0 text-text-muted" />
+            <span className="min-w-0 flex-1 truncate">{project?.name || "No local project"}</span>
+            {changedFiles > 0 && <span className="text-[10px] text-text-muted">{changedFiles} files</span>}
+          </div>
+          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
+            <GitBranch size={13} className="shrink-0 text-text-muted" />
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{branch}</span>
+            {worktreePath && (
+              <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-accent">
+                Isolated
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
+            <GitCommitHorizontal size={13} className="shrink-0 text-text-muted" />
+            <span className="min-w-0 flex-1">Workspace permission</span>
+            <span className="text-[10px] capitalize text-text-muted">{project?.permissions || "none"}</span>
+          </div>
+
+          <div className="my-3 border-t border-border/40" />
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-text-muted">Background processes</span>
+            <button
+              onClick={() => setActiveTab("activity")}
+              className="rounded p-1 text-text-muted hover:bg-hover hover:text-text-primary"
+              title="Open activity"
+            >
+              <Activity size={11} />
+            </button>
+          </div>
+          {recentTasks.length === 0 ? (
+            <p className="px-1 py-1 text-[11px] text-text-muted/70">No recent processes</p>
+          ) : (
+            <div className="space-y-0.5">
+              {recentTasks.map((task) => (
+                <button
+                  key={task.id}
+                  onClick={() => setActiveTab("activity")}
+                  className="flex w-full items-center gap-2.5 rounded-md px-1 py-1.5 text-left text-[11px] text-text-secondary hover:bg-hover/60"
+                >
+                  <TerminalSquare size={12} className="shrink-0 text-text-muted" />
+                  <span className="min-w-0 flex-1 truncate font-mono">{task.title}</span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      task.status === "running"
+                        ? "animate-pulse bg-accent"
+                        : task.status === "error"
+                          ? "bg-red-500"
+                          : "bg-emerald-500"
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="my-3 border-t border-border/40" />
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-text-muted">Sources</span>
+            <span className="text-[10px] text-text-muted">{sourceMap.size}</span>
+          </div>
+          {sources.length === 0 ? (
+            <p className="px-1 py-1 text-[11px] text-text-muted/70">No sources attached</p>
+          ) : (
+            <div className="space-y-0.5">
+              {sources.map((source) =>
+                source.url ? (
+                  <a
+                    key={source.url}
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-[11px] text-text-secondary hover:bg-hover/60 hover:text-text-primary"
+                  >
+                    <Link2 size={12} className="shrink-0 text-text-muted" />
+                    <span className="truncate">{source.title}</span>
+                  </a>
+                ) : (
+                  <div
+                    key={source.title}
+                    className="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-[11px] text-text-secondary"
+                  >
+                    <Paperclip size={12} className="shrink-0 text-text-muted" />
+                    <span className="truncate">{source.title}</span>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.aside>
+  );
+}
+
+export function AuxiliaryPanel() {
+  const activeTab = useUIStore((s) => s.activeAuxTab);
+  const setActiveTab = useUIStore((s) => s.setActiveAuxTab);
+  const setOpen = useUIStore((s) => s.setAuxPanelOpen);
+  const isPanelExpanded = useUIStore((s) => s.isAuxPanelExpanded);
+  const setPanelExpanded = useUIStore((s) => s.setAuxPanelExpanded);
+  const isSummaryPinned = useUIStore((s) => s.isAuxSummaryPinned);
+  const activeArtifact = useUIStore((s) => s.activeArtifact);
+  const activeId = useChatStore((s) => s.activeId);
+  const activeConversation = useChatStore((s) =>
+    s.conversations.find((conversation) => conversation.id === s.activeId),
+  );
+  const { activeProjectId, projects, activeWorktreePath } = useProjectStore();
+  const projectId = activeConversation?.projectId || activeProjectId;
+  const project = projects.find((item) => item.id === projectId);
+  const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
+
+  useEffect(() => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [setOpen]);
+
+  return (
+    <section className="flex h-full min-h-0 flex-col bg-surface" aria-label="Workspace sidebar">
+      <header className="shrink-0 border-b border-border/50">
+        <div className="flex h-11 items-center justify-between gap-3 px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent">
+              <Code2 size={13} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-text-primary">Workspace</p>
+              <p className="truncate text-[9px] text-text-muted">
+                {project?.name || "No project"}
+                {worktreePath ? " - isolated" : ""}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPanelExpanded(!isPanelExpanded)}
+              className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+              title={isPanelExpanded ? "Minimize workspace sidebar" : "Expand workspace sidebar"}
+              aria-label={isPanelExpanded ? "Minimize workspace sidebar" : "Expand workspace sidebar"}
+            >
+              {isPanelExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+              title="Close workspace sidebar"
+            >
+              <PanelRightClose size={14} />
+            </button>
+          </div>
+        </div>
+        <nav className="flex items-center gap-0.5 overflow-x-auto px-2" aria-label="Workspace views">
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`relative flex shrink-0 items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium transition-colors ${activeTab === id ? "text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
+              aria-current={activeTab === id ? "page" : undefined}
+            >
+              <Icon size={12} />
+              <span>{label}</span>
+              {id === "artifacts" && activeArtifact && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
+              {activeTab === id && (
+                <motion.span
+                  layoutId="aux-tab-indicator"
+                  className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent"
+                  transition={{ duration: motionTokens.duration.fast }}
+                />
+              )}
+            </button>
+          ))}
+        </nav>
+      </header>
+      <AnimatePresence initial={false}>
+        {isSummaryPinned && (
+          <PinnedSummary
+            projectId={projectId}
+            project={project}
+            worktreePath={worktreePath}
+            conversation={activeConversation}
+          />
+        )}
+      </AnimatePresence>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeTab}
+            className="absolute inset-0 flex flex-col"
+            initial={{ opacity: 0, x: 5 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -5 }}
+            transition={{ duration: motionTokens.duration.fast }}
+          >
+            {activeTab === "review" && (
+              <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
+            )}
+            {activeTab === "files" && <FilesPane projectId={projectId} worktreePath={worktreePath} />}
+            {activeTab === "terminals" && (
+              <TerminalPane
+                projectId={projectId}
+                projectPath={project?.path}
+                worktreePath={worktreePath}
+                canExecute={project?.permissions === "full"}
+              />
+            )}
+            {activeTab === "activity" && <ActivityPane activeId={activeId} />}
+            {activeTab === "artifacts" && <ArtifactPane />}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </section>
   );
 }
