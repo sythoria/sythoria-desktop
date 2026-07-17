@@ -1374,21 +1374,36 @@ function App() {
                     />
                   </div>
 
-                  {/* Right Column: Unified HTML Auxiliary Pane */}
-                  <AnimatePresence>
-                    {isAuxPanelOpen && (
-                      <motion.div
-                        key="auxiliary-pane-split"
-                        className="w-[45%] border-l border-border bg-surface flex flex-col h-full min-h-0 min-w-[320px] relative z-20 shadow-lg"
-                        initial={{ x: "100%", opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        exit={{ x: "100%", opacity: 0 }}
-                        transition={springs.gentle}
-                      >
-                        <AuxiliaryPanel />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {/* Right Column: keep it mounted so the chat width can transition with the panel. */}
+                  <motion.div
+                    className="border-l border-border bg-surface flex-none flex flex-col h-full min-h-0 min-w-0 overflow-hidden relative z-20 shadow-lg"
+                    initial={false}
+                    animate={isAuxPanelOpen ? "expanded" : "collapsed"}
+                    variants={{
+                      expanded: {
+                        flexBasis: "45%",
+                        opacity: 1,
+                        borderLeftWidth: 1,
+                        transition: {
+                          ...springs.release,
+                          opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+                        },
+                      },
+                      collapsed: {
+                        flexBasis: 0,
+                        opacity: 0,
+                        borderLeftWidth: 0,
+                        transition: {
+                          ...springs.release,
+                          opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+                        },
+                      },
+                    }}
+                    style={{ pointerEvents: isAuxPanelOpen ? "auto" : "none" }}
+                    aria-hidden={!isAuxPanelOpen}
+                  >
+                    <AuxiliaryPanel />
+                  </motion.div>
                 </div>
               </motion.main>
             )}

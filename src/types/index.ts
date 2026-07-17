@@ -87,6 +87,8 @@ export interface Project {
   autoCommitMsgTemplate?: string;
 }
 
+export type ThinkingLevel = "auto" | "off" | "low" | "medium" | "high";
+
 export interface ModelConfig {
   id: string;
   name: string;
@@ -99,6 +101,8 @@ export interface ModelConfig {
   contextSize?: number;
   maxOutputTokens?: number;
   temperature?: number;
+  /** Per-model reasoning preference. "auto" omits provider-specific controls. */
+  thinkingLevel?: ThinkingLevel;
   systemPromptOverride?: string;
 }
 

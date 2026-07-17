@@ -65,8 +65,6 @@ export function AuxiliaryPanel() {
     }
   }, [logBuffer, activeAuxTab]);
 
-  if (!isAuxPanelOpen) return null;
-
   // 1. Subagents Logic
   const subagents = conversations.filter((c) => c.isSubagent && c.parentId === activeId);
   const selectedSubagentConv = conversations.find((c) => c.id === activeSubagentId);
@@ -77,9 +75,7 @@ export function AuxiliaryPanel() {
   const diffFiles: string[] = [];
   if (activeConversation?.pendingWorktree) {
     // If there is an active worktree, list files from git status or just render placeholders
-    const dirty = gitStore.status
-      ? [...gitStore.status.stagedFiles, ...gitStore.status.unstagedFiles]
-      : [];
+    const dirty = gitStore.status ? [...gitStore.status.stagedFiles, ...gitStore.status.unstagedFiles] : [];
     if (dirty.length > 0) {
       diffFiles.push(...dirty);
     } else {
@@ -91,7 +87,8 @@ export function AuxiliaryPanel() {
   const getSafeSrcDoc = (content: string, allowNetwork: boolean) => {
     let csp = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;";
     if (allowNetwork) {
-      csp = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:; connect-src http: https: ws: wss:;";
+      csp =
+        "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http: https:; connect-src http: https: ws: wss:;";
     }
     return `
       <!DOCTYPE html>
@@ -113,8 +110,8 @@ export function AuxiliaryPanel() {
   return (
     <div className="flex flex-col h-full bg-surface border-l border-border/40 select-none">
       {/* Header Tabs */}
-      <div className="flex items-center justify-between border-b border-border/30 px-3 bg-input/10 shrink-0">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
+      <div className="flex items-center gap-2 border-b border-border/30 px-3 bg-input/10 shrink-0">
+        <div className="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto no-scrollbar py-1">
           {/* Subagents Tab */}
           <button
             onClick={() => setActiveAuxTab("subagents")}
@@ -192,7 +189,8 @@ export function AuxiliaryPanel() {
         {/* Close Button */}
         <button
           onClick={() => setAuxPanelOpen(false)}
-          className="p-1.5 rounded-lg text-text-muted hover:bg-hover hover:text-text-primary transition-colors cursor-pointer shrink-0"
+          className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-hover hover:text-text-primary transition-colors cursor-pointer"
+          aria-label="Collapse panel"
           title="Collapse Panel (Esc)"
         >
           <X size={15} />
@@ -321,9 +319,7 @@ export function AuxiliaryPanel() {
                             <h4 className="text-xs font-semibold text-text-primary truncate">
                               {sa.role || "Helper Agent"}
                             </h4>
-                            <p className="text-[10px] text-text-muted truncate mt-0.5 font-mono">
-                              ID: {sa.id}
-                            </p>
+                            <p className="text-[10px] text-text-muted truncate mt-0.5 font-mono">ID: {sa.id}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -379,9 +375,7 @@ export function AuxiliaryPanel() {
               transition={{ duration: motionTokens.duration.fast }}
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-                  Active Tasks Loop
-                </h3>
+                <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Active Tasks Loop</h3>
                 {backgroundTasks.length > 0 && (
                   <button
                     onClick={clearTasks}
@@ -425,7 +419,11 @@ export function AuxiliaryPanel() {
                         <span className="font-medium text-text-primary truncate">{task.title}</span>
                       </div>
                       <span className="text-[10px] text-text-muted shrink-0">
-                        {new Date(task.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {new Date(task.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
                       </span>
                     </div>
                   ))}
@@ -566,12 +564,8 @@ export function AuxiliaryPanel() {
                         <span className="text-gray-500 select-none">
                           [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]
                         </span>{" "}
-                        <span className={`uppercase font-semibold select-none ${color}`}>
-                          [{log.level}]
-                        </span>{" "}
-                        <span className="text-gray-400 select-none">
-                          [{log.source}]
-                        </span>{" "}
+                        <span className={`uppercase font-semibold select-none ${color}`}>[{log.level}]</span>{" "}
+                        <span className="text-gray-400 select-none">[{log.source}]</span>{" "}
                         <span className="text-gray-200">{log.message}</span>
                       </div>
                     );

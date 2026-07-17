@@ -584,7 +584,14 @@ interface ToolCallData {
 }
 
 interface ToolCallResponse {
-  choices?: { message: { content: string | null; tool_calls?: ToolCallData[] } }[];
+  choices?: {
+    message: {
+      content: string | null;
+      tool_calls?: ToolCallData[];
+      anthropic_content?: unknown[];
+      reasoning_details?: unknown[];
+    };
+  }[];
 }
 
 function updateConversationMessages(
@@ -615,7 +622,9 @@ function setCancelledStatus(set: (fn: (state: ToolLoopSlice) => Partial<ToolLoop
       }
     }
     return {
-      conversations: state.conversations.map((c) => (c.id === convId ? { ...c, messages: nextMessages, status: c.isSubagent ? "stopped" : c.status } : c)),
+      conversations: state.conversations.map((c) =>
+        c.id === convId ? { ...c, messages: nextMessages, status: c.isSubagent ? "stopped" : c.status } : c,
+      ),
     };
   });
 }
@@ -648,10 +657,7 @@ function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
   return get().isStreaming && gen.state !== "cancelled" && gen.state !== "error" && gen.state !== "idle";
 }
 
-function triggerParentResume(
-  parentId: string,
-  parentMsg: Message,
-) {
+function triggerParentResume(parentId: string, parentMsg: Message) {
   const chatStore = useChatStore.getState();
   const currentConvs = chatStore.conversations;
   const parentConv = currentConvs.find((c) => c.id === parentId);
@@ -659,9 +665,7 @@ function triggerParentResume(
   const newDepth = currentDepth + 1;
 
   useChatStore.setState((s) => ({
-    conversations: s.conversations.map((c) =>
-      c.id === parentId ? { ...c, recursionDepth: newDepth } : c
-    ),
+    conversations: s.conversations.map((c) => (c.id === parentId ? { ...c, recursionDepth: newDepth } : c)),
   }));
 
   const maxDepth = 5;
@@ -672,16 +676,10 @@ function triggerParentResume(
     };
 
     useChatStore.setState((s) => ({
-      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [
-        ...msgs,
-        warnedMsg,
-      ]),
+      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, warnedMsg]),
     }));
 
-    useUIStore.getState().addToast(
-      "Subagent loop paused: recursion depth safety limit reached.",
-      "info"
-    );
+    useUIStore.getState().addToast("Subagent loop paused: recursion depth safety limit reached.", "info");
     return;
   }
 
@@ -695,10 +693,7 @@ function triggerParentResume(
     pendingSubagentMessages.get(parentId)!.push(parentMsg);
   } else {
     useChatStore.setState((s) => ({
-      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [
-        ...msgs,
-        parentMsg,
-      ]),
+      conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, parentMsg]),
     }));
     useChatStore
       .getState()
@@ -918,6 +913,8 @@ export async function sendWithToolLoop(
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;
+      anthropic_content?: unknown[];
+      reasoning_details?: unknown[];
     }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     const maxToolSteps = useModelStore.getState().maxToolSteps;
@@ -983,6 +980,7 @@ export async function sendWithToolLoop(
         tools: JSON.stringify(allTools),
         temperature: requestTemp,
         maxTokens,
+        thinkingLevel: modelConfig.thinkingLevel ?? "auto",
         streamId,
       });
 
@@ -1007,7 +1005,13 @@ export async function sendWithToolLoop(
       const msg = choice.message;
 
       if (msg.tool_calls && msg.tool_calls.length > 0) {
-        apiMessages.push({ role: "assistant", content: msg.content, tool_calls: msg.tool_calls });
+        apiMessages.push({
+          role: "assistant",
+          content: msg.content,
+          tool_calls: msg.tool_calls,
+          ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+          ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
+        });
 
         if (typeof msg.content === "string" && msg.content.trim()) {
           set((state) => ({
@@ -1120,9 +1124,10 @@ export async function sendWithToolLoop(
           const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
 
           const uiStore = useUIStore.getState();
-          const taskLabel = fnName === "unknown" && rawName.includes("__")
-            ? `MCP: ${rawName.split("__")[1]} (${rawName.split("__")[0]})`
-            : `Tool: ${fnName}`;
+          const taskLabel =
+            fnName === "unknown" && rawName.includes("__")
+              ? `MCP: ${rawName.split("__")[1]} (${rawName.split("__")[0]})`
+              : `Tool: ${fnName}`;
           uiStore.addTask(toolCall.id, taskLabel, convId);
 
           let resultContent = "";

@@ -18,6 +18,10 @@ struct StreamDelta {
     #[serde(default)]
     reasoning_content: Option<String>,
     #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
+    reasoning_details: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
     tool_calls: Option<Vec<StreamToolCallDelta>>,
 }
 
@@ -72,6 +76,7 @@ pub(crate) struct SseParser {
     tool_call_ids: Vec<Option<String>>,
     tool_call_names: Vec<Option<String>>,
     tool_call_args: Vec<String>,
+    reasoning_details: Vec<serde_json::Value>,
     total_tool_argument_bytes: usize,
     terminal: SseStreamTerminal,
 }
@@ -112,6 +117,7 @@ impl SseParser {
             tool_call_ids: Vec::new(),
             tool_call_names: Vec::new(),
             tool_call_args: Vec::new(),
+            reasoning_details: Vec::new(),
             total_tool_argument_bytes: 0,
             terminal: SseStreamTerminal::Streaming,
         }
@@ -274,7 +280,12 @@ impl SseParser {
                 match serde_json::from_str::<StreamChunk>(data) {
                     Ok(parsed) => {
                         for choice in parsed.choices {
-                            if let Some(reasoning) = choice.delta.reasoning_content {
+                            if let Some(details) = choice.delta.reasoning_details {
+                                self.reasoning_details.extend(details);
+                            }
+                            if let Some(reasoning) =
+                                choice.delta.reasoning_content.or(choice.delta.reasoning)
+                            {
                                 if !reasoning.is_empty() {
                                     if !self.append_reasoning(&reasoning) {
                                         break;
@@ -418,6 +429,9 @@ impl SseParser {
         });
         if has_tool_calls {
             msg["tool_calls"] = serde_json::Value::Array(tool_calls);
+        }
+        if !self.reasoning_details.is_empty() {
+            msg["reasoning_details"] = serde_json::Value::Array(self.reasoning_details.clone());
         }
 
         serde_json::json!({
@@ -613,6 +627,7 @@ pub(crate) struct AnthropicSseParser {
     current_tool_name: Option<String>,
     current_tool_input: String,
     total_tool_argument_bytes: usize,
+    in_thinking: bool,
     terminal: AnthropicStreamTerminal,
 }
 
@@ -633,6 +648,7 @@ impl AnthropicSseParser {
             current_tool_name: None,
             current_tool_input: String::new(),
             total_tool_argument_bytes: 0,
+            in_thinking: false,
             terminal: AnthropicStreamTerminal::Streaming,
         }
     }
@@ -706,9 +722,8 @@ impl AnthropicSseParser {
                             match type_str {
                                 "content_block_start" => {
                                     if let Some(cb) = parsed.get("content_block") {
-                                        if cb.get("type").and_then(|v| v.as_str())
-                                            == Some("tool_use")
-                                        {
+                                        let block_type = cb.get("type").and_then(|v| v.as_str());
+                                        if block_type == Some("tool_use") {
                                             if self.tool_calls.len() >= MAX_TOOL_CALLS {
                                                 self.fail(limit_error(
                                                     "tool-call count",
@@ -728,6 +743,10 @@ impl AnthropicSseParser {
                                             self.current_tool_id = id.map(str::to_string);
                                             self.current_tool_name = name.map(str::to_string);
                                             self.current_tool_input.clear();
+                                        } else if block_type == Some("thinking") {
+                                            self.in_thinking = true;
+                                            self.full_content.push_str("<reasoning>");
+                                            on_chunk("<reasoning>");
                                         }
                                     }
                                 }
@@ -754,6 +773,26 @@ impl AnthropicSseParser {
                                                 on_chunk(text);
                                             }
                                         } else if delta.get("type").and_then(|v| v.as_str())
+                                            == Some("thinking_delta")
+                                        {
+                                            if let Some(thinking) =
+                                                delta.get("thinking").and_then(|v| v.as_str())
+                                            {
+                                                if !checked_total(
+                                                    self.full_content.len(),
+                                                    thinking.len(),
+                                                    MAX_CONTENT_BYTES,
+                                                ) {
+                                                    self.fail(limit_error(
+                                                        "content",
+                                                        MAX_CONTENT_BYTES,
+                                                    ));
+                                                    break;
+                                                }
+                                                self.full_content.push_str(thinking);
+                                                on_chunk(thinking);
+                                            }
+                                        } else if delta.get("type").and_then(|v| v.as_str())
                                             == Some("input_json_delta")
                                         {
                                             if let Some(partial_json) =
@@ -778,6 +817,11 @@ impl AnthropicSseParser {
                                     }
                                 }
                                 "content_block_stop" => {
+                                    if self.in_thinking {
+                                        self.full_content.push_str("</reasoning>");
+                                        on_chunk("</reasoning>");
+                                        self.in_thinking = false;
+                                    }
                                     if let (Some(id), Some(name)) =
                                         (&self.current_tool_id, &self.current_tool_name)
                                     {
@@ -832,7 +876,10 @@ impl AnthropicSseParser {
         &self.terminal
     }
 
-    pub(crate) fn finalize(self) -> String {
+    pub(crate) fn finalize(mut self) -> String {
+        if self.in_thinking {
+            self.full_content.push_str("</reasoning>");
+        }
         self.full_content
     }
 
