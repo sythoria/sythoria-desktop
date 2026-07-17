@@ -152,6 +152,10 @@ struct ChatMessage {
     tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anthropic_content: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_details: Option<Vec<serde_json::Value>>,
 }
 
 /// Serializes `None` as a missing field and otherwise emits the JSON value as-is.
@@ -197,17 +201,23 @@ struct ToolCallFunction {
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
-    temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
 struct ChatRequestTools {
     model: String,
     messages: Vec<serde_json::Value>,
-    temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
     tools: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
@@ -215,6 +225,65 @@ struct ChatRequestTools {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<serde_json::Value>,
+}
+
+#[derive(Default)]
+struct ReasoningParams {
+    reasoning_effort: Option<String>,
+    reasoning: Option<serde_json::Value>,
+    suppress_temperature: bool,
+}
+
+fn reasoning_params(
+    provider: Option<&str>,
+    model: &str,
+    thinking_level: Option<&str>,
+) -> ReasoningParams {
+    let Some(level) = thinking_level
+        .map(str::to_ascii_lowercase)
+        .filter(|level| matches!(level.as_str(), "off" | "low" | "medium" | "high"))
+    else {
+        return ReasoningParams::default();
+    };
+
+    let effort = if level == "off" {
+        "none".to_string()
+    } else {
+        level
+    };
+    let provider = provider.unwrap_or_default().to_ascii_lowercase();
+    let model = model.to_ascii_lowercase();
+
+    if provider.contains("openrouter") {
+        return ReasoningParams {
+            reasoning: Some(serde_json::json!({ "effort": effort })),
+            suppress_temperature: true,
+            ..Default::default()
+        };
+    }
+
+    let supports_effort = (provider.contains("openai")
+        && ["o1", "o3", "o4", "gpt-5", "gpt-oss"]
+            .iter()
+            .any(|prefix| model.starts_with(prefix)))
+        || ((provider.contains("gemini") || provider.contains("google"))
+            && (model.starts_with("gemini-2.5") || model.starts_with("gemini-3")))
+        || provider.contains("ollama")
+        || ((provider.contains("nim") || provider.contains("nvidia")) && model.contains("gpt-oss"));
+
+    if supports_effort {
+        return ReasoningParams {
+            reasoning_effort: Some(effort),
+            suppress_temperature: true,
+            ..Default::default()
+        };
+    }
+
+    ReasoningParams::default()
 }
 
 #[derive(Debug, Deserialize)]
@@ -364,11 +433,12 @@ async fn chat_completion(
     messages: Vec<ChatMessage>,
     temperature: f64,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
-        if p.to_lowercase() == "anthropic" {
+        if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_completion_anthropic(
                 api_url,
                 api_key,
@@ -376,6 +446,7 @@ async fn chat_completion(
                 messages,
                 temperature,
                 max_tokens,
+                thinking_level,
             )
             .await;
         }
@@ -383,12 +454,15 @@ async fn chat_completion(
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
+    let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let body = ChatRequest {
         model,
         messages,
-        temperature,
+        temperature: (!reasoning.suppress_temperature).then_some(temperature),
         stream: false,
         max_tokens,
+        reasoning_effort: reasoning.reasoning_effort,
+        reasoning: reasoning.reasoning,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -434,13 +508,14 @@ async fn chat_stream(
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
-        if p.to_lowercase() == "anthropic" {
+        if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_stream_anthropic(
                 api_url,
                 api_key,
@@ -449,6 +524,7 @@ async fn chat_stream(
                 temperature,
                 stream_id,
                 max_tokens,
+                thinking_level,
                 app,
             )
             .await;
@@ -457,12 +533,15 @@ async fn chat_stream(
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
+    let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let body = ChatRequest {
         model,
         messages,
-        temperature,
+        temperature: (!reasoning.suppress_temperature).then_some(temperature),
         stream: true,
         max_tokens,
+        reasoning_effort: reasoning.reasoning_effort,
+        reasoning: reasoning.reasoning,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -529,13 +608,14 @@ async fn chat_stream_tools(
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
-        if p.to_lowercase() == "anthropic" {
+        if p.to_lowercase().contains("anthropic") {
             let parsed_messages: Vec<ChatMessage> = messages
                 .into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
@@ -549,6 +629,7 @@ async fn chat_stream_tools(
                 temperature,
                 stream_id,
                 max_tokens,
+                thinking_level,
                 app,
             )
             .await;
@@ -557,14 +638,17 @@ async fn chat_stream_tools(
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
+    let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let body = ChatRequestTools {
         model,
         messages,
-        temperature,
+        temperature: (!reasoning.suppress_temperature).then_some(temperature),
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
         stream: Some(true),
+        reasoning_effort: reasoning.reasoning_effort,
+        reasoning: reasoning.reasoning,
     };
 
     let client = client_builder()
@@ -634,11 +718,12 @@ async fn chat_completion_tools(
     tools: String,
     temperature: f64,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
-        if p.to_lowercase() == "anthropic" {
+        if p.to_lowercase().contains("anthropic") {
             let parsed_messages: Vec<ChatMessage> = messages
                 .into_iter()
                 .filter_map(|v| serde_json::from_value(v).ok())
@@ -651,6 +736,7 @@ async fn chat_completion_tools(
                 tools,
                 temperature,
                 max_tokens,
+                thinking_level,
             )
             .await;
         }
@@ -658,14 +744,17 @@ async fn chat_completion_tools(
     let tools_parsed: Vec<serde_json::Value> = serde_json::from_str(&tools)
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
+    let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let body = ChatRequestTools {
         model,
         messages,
-        temperature,
+        temperature: (!reasoning.suppress_temperature).then_some(temperature),
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
         stream: None,
+        reasoning_effort: reasoning.reasoning_effort,
+        reasoning: reasoning.reasoning,
     };
 
     let client = client_builder()
@@ -970,6 +1059,8 @@ async fn generate_title(
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
+                anthropic_content: None,
+                reasoning_details: None,
             },
             ChatMessage {
                 role: "user".to_string(),
@@ -977,11 +1068,15 @@ async fn generate_title(
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
+                anthropic_content: None,
+                reasoning_details: None,
             },
         ],
-        temperature: 0.3,
+        temperature: Some(0.3),
         stream: false,
         max_tokens: None,
+        reasoning_effort: None,
+        reasoning: None,
     };
 
     let mut request = client.post(&api_url).json(&body);

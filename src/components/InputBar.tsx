@@ -4,6 +4,8 @@ import {
   Plus,
   Paperclip,
   ChevronDown,
+  ChevronRight,
+  ArrowLeft,
   Check,
   Search,
   Square,
@@ -21,6 +23,7 @@ import {
   Settings,
   Mic,
   Bot,
+  BrainCircuit,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useWhisperStore } from "../store/useWhisperStore";
@@ -40,6 +43,7 @@ import { estimateConversationTokens } from "../utils/tokens";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { Modal } from "./ui/Modal";
 import { useTranslation } from "../utils/i18n";
+import { getThinkingLabel, getThinkingLevel, supportsThinkingControl, THINKING_LEVELS } from "../utils/thinking";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -93,13 +97,14 @@ export default memo(function InputBar({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
+  const [selectorPanel, setSelectorPanel] = useState<"root" | "models" | "thinking">("root");
   const [plusOpen, setPlusOpen] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const selectorPanelRef = useRef<HTMLDivElement>(null);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore();
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
@@ -131,6 +136,7 @@ export default memo(function InputBar({
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
   const setConversationProject = useChatStore((s) => s.setConversationProject);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
+  const updateModel = useModelStore((s) => s.updateModel);
 
   const {
     isVoiceEnabled,
@@ -410,7 +416,7 @@ export default memo(function InputBar({
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setModelOpen(false);
-        setFocusedIndex(-1);
+        setSelectorPanel("root");
       }
       if (plusDropdownRef.current && !plusDropdownRef.current.contains(e.target as Node)) {
         setPlusOpen(false);
@@ -455,21 +461,7 @@ export default memo(function InputBar({
         if (e.key === "Escape") {
           setModelOpen(false);
           setPlusOpen(false);
-          setFocusedIndex(-1);
-        }
-        if (modelOpen) {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setFocusedIndex((i) => Math.min(i + 1, enabledModels.length - 1));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setFocusedIndex((i) => Math.max(i - 1, 0));
-          } else if (e.key === "Enter" && focusedIndex >= 0) {
-            e.preventDefault();
-            onModelChange(enabledModels[focusedIndex].id);
-            setModelOpen(false);
-            setFocusedIndex(-1);
-          }
+          setSelectorPanel("root");
         }
         return;
       }
@@ -493,23 +485,18 @@ export default memo(function InputBar({
         }
       }
     },
-    [
-      modelOpen,
-      plusOpen,
-      focusedIndex,
-      enabledModels,
-      onModelChange,
-      handleSubmit,
-      sendMessageShortcut,
-      clearInputOnEscape,
-    ],
+    [modelOpen, plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape],
   );
 
   useEffect(() => {
-    if (focusedIndex >= 0 && itemRefs.current[focusedIndex]) {
-      itemRefs.current[focusedIndex]?.focus();
-    }
-  }, [focusedIndex]);
+    if (!modelOpen) return;
+    const frame = requestAnimationFrame(() => {
+      selectorPanelRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-selector-panel="${selectorPanel}"] button:not(:disabled)`)
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [modelOpen, selectorPanel]);
 
   const handleClipboardPaste = useCallback(
     async (clipboardData: DataTransfer | null) => {
@@ -615,6 +602,9 @@ export default memo(function InputBar({
     models.find((m) => m.enabled !== false) ??
     models[0];
   const currentStatus = modelStatuses[selectedModel] ?? "disconnected";
+  const thinkingLevel = getThinkingLevel(currentModel);
+  const thinkingLabel = getThinkingLabel(currentModel);
+  const thinkingSupported = supportsThinkingControl(currentModel);
 
   const activeSystemPrompt =
     currentModel?.systemPromptOverride && currentModel.systemPromptOverride.trim()
@@ -1001,24 +991,32 @@ export default memo(function InputBar({
                 {/* Model selector */}
                 <div ref={dropdownRef} className="relative shrink-0">
                   <button
+                    ref={modelTriggerRef}
                     id="model-selector-button"
                     onClick={() => {
-                      setModelOpen(!modelOpen);
-                      setFocusedIndex(-1);
+                      setModelOpen((open) => !open);
+                      setSelectorPanel("root");
                     }}
-                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-hover transition-colors max-w-[140px]"
-                    aria-label={`Select model: currently ${currentModel?.name ?? "None"}`}
+                    className="flex min-h-8 max-w-[190px] items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary"
+                    aria-label={`Response settings: ${currentModel?.name ?? "no model"}, thinking ${thinkingLabel}`}
                     aria-expanded={modelOpen}
-                    aria-haspopup="listbox"
+                    aria-haspopup="dialog"
                   >
                     {!disableBgActivity && (
-                      <div
+                      <span
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[currentStatus]}`}
                         title={t(STATUS_KEYS[currentStatus]) || STATUS_LABELS[currentStatus] || currentStatus}
                         aria-hidden="true"
                       />
                     )}
                     <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
+                    <span className="text-text-muted/60" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-text-muted">
+                      <BrainCircuit size={12} aria-hidden="true" />
+                      {thinkingSupported ? thinkingLabel : "Auto"}
+                    </span>
                     <ChevronDown
                       size={14}
                       className={`shrink-0 transition-transform duration-200 ${modelOpen ? "rotate-180" : ""}`}
@@ -1029,62 +1027,186 @@ export default memo(function InputBar({
                   <AnimatePresence>
                     {modelOpen && (
                       <motion.div
-                        className="absolute bottom-full right-0 mb-2 w-64 bg-surface border border-border rounded-xl p-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
+                        ref={selectorPanelRef}
+                        className="absolute bottom-full right-1 z-50 mb-2 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-surface p-0.5"
                         style={{ boxShadow: "var(--shadow-xl)" }}
-                        role="listbox"
-                        aria-label="Available models"
+                        role="dialog"
+                        aria-label="Model and thinking settings"
                         initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                         transition={springs.gentle}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape") return;
+                          event.preventDefault();
+                          if (selectorPanel !== "root") {
+                            setSelectorPanel("root");
+                          } else {
+                            setModelOpen(false);
+                            requestAnimationFrame(() => modelTriggerRef.current?.focus());
+                          }
+                        }}
                       >
-                        {enabledModels.length === 0 ? (
-                          <div className="px-3 py-4 text-center text-xs text-text-muted">
-                            No models configured. Go to Settings &gt; Models to configure one.
-                          </div>
-                        ) : (
-                          enabledModels.map((model, idx) => {
-                            const status = modelStatuses[model.id] ?? "disconnected";
-                            const isSelected = selectedModel === model.id;
-                            return (
+                        <AnimatePresence mode="popLayout" initial={false}>
+                          {selectorPanel === "root" && (
+                            <motion.div
+                              key="selector-root"
+                              data-selector-panel="root"
+                              initial={{ opacity: 0, x: -6 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -6 }}
+                              transition={springs.snappy}
+                            >
                               <button
-                                key={model.id}
-                                ref={(el) => {
-                                  itemRefs.current[idx] = el;
-                                }}
-                                onClick={() => {
-                                  onModelChange(model.id);
-                                  setModelOpen(false);
-                                  setFocusedIndex(-1);
-                                }}
-                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left ${
-                                  isSelected
-                                    ? "bg-active text-text-primary"
-                                    : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                                }`}
-                                role="option"
-                                aria-selected={isSelected}
+                                type="button"
+                                onClick={() => setSelectorPanel("models")}
+                                className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
                               >
-                                {!disableBgActivity && (
-                                  <div
-                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                    title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                                    aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                                  />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <span className="block font-medium truncate">{model.name}</span>
-                                  <span className="block text-[10px] text-text-muted truncate" title={model.apiBase}>
-                                    {model.modelId}
-                                  </span>
-                                </div>
-                                {isSelected && (
-                                  <Check size={14} className="text-text-primary shrink-0" aria-hidden="true" />
-                                )}
+                                <span className="shrink-0 text-xs font-medium text-text-primary">Model</span>
+                                <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
+                                  {currentModel?.name || "No model configured"}
+                                </span>
+                                <ChevronRight
+                                  size={14}
+                                  className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5"
+                                  aria-hidden="true"
+                                />
                               </button>
-                            );
-                          })
-                        )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectorPanel("thinking")}
+                                className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
+                              >
+                                <span className="shrink-0 text-xs font-medium text-text-primary">Thinking</span>
+                                <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
+                                  {thinkingSupported ? thinkingLabel : "Not available"}
+                                </span>
+                                <ChevronRight
+                                  size={14}
+                                  className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5"
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            </motion.div>
+                          )}
+
+                          {selectorPanel === "models" && (
+                            <motion.div
+                              key="selector-models"
+                              data-selector-panel="models"
+                              initial={{ opacity: 0, x: 8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 8 }}
+                              transition={springs.snappy}
+                            >
+                              <div className="flex items-center gap-1 px-0.5 pb-0.5 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectorPanel("root")}
+                                  className="rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                                  aria-label="Back to response settings"
+                                >
+                                  <ArrowLeft size={14} aria-hidden="true" />
+                                </button>
+                                <span className="text-xs font-medium text-text-muted">Model</span>
+                              </div>
+                              <div className="max-h-72 overflow-y-auto overscroll-contain pr-0.5">
+                                {enabledModels.length === 0 ? (
+                                  <div className="px-3 py-5 text-center text-xs text-text-muted">
+                                    No models configured. Go to Settings &gt; Models to add one.
+                                  </div>
+                                ) : (
+                                  enabledModels.map((model) => {
+                                    const status = modelStatuses[model.id] ?? "disconnected";
+                                    const isSelected = selectedModel === model.id;
+                                    return (
+                                      <button
+                                        key={model.id}
+                                        type="button"
+                                        onClick={() => {
+                                          onModelChange(model.id);
+                                          setSelectorPanel("root");
+                                        }}
+                                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                                          isSelected
+                                            ? "bg-active text-text-primary"
+                                            : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                        }`}
+                                        aria-pressed={isSelected}
+                                      >
+                                        {!disableBgActivity && (
+                                          <span
+                                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_COLORS[status]}`}
+                                            title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
+                                            aria-hidden="true"
+                                          />
+                                        )}
+                                        <span
+                                          className="min-w-0 flex-1 truncate text-xs font-medium"
+                                          title={model.modelId}
+                                        >
+                                          {model.name}
+                                        </span>
+                                        {isSelected && <Check size={14} className="shrink-0" aria-hidden="true" />}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+
+                          {selectorPanel === "thinking" && (
+                            <motion.div
+                              key="selector-thinking"
+                              data-selector-panel="thinking"
+                              initial={{ opacity: 0, x: 8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 8 }}
+                              transition={springs.snappy}
+                            >
+                              <div className="flex items-center gap-1 px-0.5 pb-0.5 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectorPanel("root")}
+                                  className="rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                                  aria-label="Back to response settings"
+                                >
+                                  <ArrowLeft size={14} aria-hidden="true" />
+                                </button>
+                                <span className="text-xs font-medium text-text-muted">Thinking</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                {THINKING_LEVELS.map((option) => {
+                                  const isSelected = thinkingLevel === option.value;
+                                  const isDisabled = option.value !== "auto" && !thinkingSupported;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      disabled={isDisabled}
+                                      onClick={() => {
+                                        if (!currentModel) return;
+                                        updateModel(currentModel.id, { thinkingLevel: option.value });
+                                        setSelectorPanel("root");
+                                      }}
+                                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                                        isSelected
+                                          ? "bg-active text-text-primary"
+                                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                      } disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent`}
+                                      aria-pressed={isSelected}
+                                      title={isDisabled ? "This model does not expose adjustable thinking." : undefined}
+                                    >
+                                      <span className="min-w-0 flex-1 text-xs font-medium">{option.label}</span>
+                                      {isSelected && <Check size={14} className="shrink-0" aria-hidden="true" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </motion.div>
                     )}
                   </AnimatePresence>

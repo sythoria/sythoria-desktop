@@ -43,6 +43,7 @@ export const ModelConfigSchema = z.object({
   contextSize: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  thinkingLevel: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
   systemPromptOverride: z.string().optional(),
 });
 

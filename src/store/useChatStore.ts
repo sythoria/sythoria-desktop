@@ -343,9 +343,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const hasRunningStatus = c.status === "running";
         const hasStreamingMsg = c.messages.some((m) => m.isStreaming);
         if (hasRunningStatus || hasStreamingMsg) {
-          const nextMessages = c.messages.map((m) =>
-            m.isStreaming ? { ...m, isStreaming: false } : m
-          );
+          const nextMessages = c.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
           return {
             ...c,
             status: c.isSubagent ? ("stopped" as const) : c.status === "running" ? ("completed" as const) : c.status,
@@ -1111,7 +1109,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       const stillStreaming = Object.values(nextGenByConv).some(
-        (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+        (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
       );
 
       const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
@@ -1140,7 +1138,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     const stillStreaming = Object.values(get().generationByConversation).some(
-      (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+      (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
     );
     if (!stillStreaming) {
       uiLoading("sendMessage", false);
@@ -1712,6 +1710,7 @@ async function sendNormal(
       messages: apiMessages,
       temperature: requestTemp,
       maxTokens,
+      thinkingLevel: modelConfig.thinkingLevel ?? "auto",
       streamId,
     });
 
@@ -1763,7 +1762,7 @@ async function sendNormal(
       return {
         conversations: setAssistantError(state.conversations, convId, err),
         isStreaming: Object.entries(state.generationByConversation).some(
-          ([id, g]) => id !== convId && g.state !== "idle" && g.state !== "cancelled" && g.state !== "error"
+          ([id, g]) => id !== convId && g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
         ),
         generationState: "error" as GenerationState,
         generationLabel,

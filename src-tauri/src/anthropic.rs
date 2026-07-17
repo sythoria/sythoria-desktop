@@ -18,10 +18,86 @@ pub struct AnthropicRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
     pub max_tokens: u32,
-    pub temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<serde_json::Value>,
+}
+
+#[derive(Default)]
+struct AnthropicThinkingParams {
+    thinking: Option<serde_json::Value>,
+    output_config: Option<serde_json::Value>,
+    suppress_temperature: bool,
+}
+
+fn thinking_params(
+    model: &str,
+    thinking_level: Option<&str>,
+    max_tokens: u32,
+) -> AnthropicThinkingParams {
+    let level = thinking_level.unwrap_or("auto").to_ascii_lowercase();
+    if !matches!(level.as_str(), "off" | "low" | "medium" | "high") {
+        return AnthropicThinkingParams::default();
+    }
+
+    let model = model.to_ascii_lowercase();
+    let adaptive = model.contains("fable-5")
+        || model.contains("mythos")
+        || model.contains("-4-6")
+        || model.contains("-4-7")
+        || model.contains("-4-8")
+        || model.contains("sonnet-5")
+        || model.contains("opus-5");
+    let manual = model.contains("claude-3-7")
+        || (model.contains("claude-")
+            && (model.contains("-4-0")
+                || model.contains("-4-1")
+                || model.contains("-4-5")
+                || model.ends_with("-4")));
+
+    if level == "off" {
+        return if adaptive {
+            AnthropicThinkingParams {
+                thinking: Some(serde_json::json!({ "type": "disabled" })),
+                ..Default::default()
+            }
+        } else {
+            AnthropicThinkingParams::default()
+        };
+    }
+
+    if adaptive {
+        return AnthropicThinkingParams {
+            thinking: Some(serde_json::json!({ "type": "adaptive" })),
+            output_config: Some(serde_json::json!({ "effort": level })),
+            suppress_temperature: true,
+        };
+    }
+
+    if manual && max_tokens > 1024 {
+        let budget_tokens = match level.as_str() {
+            "low" => 1024,
+            "medium" => 2048,
+            _ => 4096,
+        }
+        .min(max_tokens - 1)
+        .max(1024);
+        return AnthropicThinkingParams {
+            thinking: Some(
+                serde_json::json!({ "type": "enabled", "budget_tokens": budget_tokens }),
+            ),
+            suppress_temperature: true,
+            ..Default::default()
+        };
+    }
+
+    AnthropicThinkingParams::default()
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,7 +144,7 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
             continue;
         }
 
-        let mut anthropic_content = Vec::new();
+        let mut anthropic_content = msg.anthropic_content.clone().unwrap_or_default();
 
         if msg.role == "tool" {
             let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
@@ -207,20 +283,25 @@ pub async fn chat_completion_anthropic(
     messages: Vec<ChatMessage>,
     temperature: f64,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
 
+    let max_tokens = max_tokens.unwrap_or(4096);
+    let thinking = thinking_params(&model, thinking_level.as_deref(), max_tokens);
     let body = AnthropicRequest {
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: max_tokens.unwrap_or(4096),
-        temperature,
+        max_tokens,
+        temperature: (!thinking.suppress_temperature).then_some(temperature),
         stream: false,
         tools: None,
+        thinking: thinking.thinking,
+        output_config: thinking.output_config,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -266,6 +347,7 @@ pub async fn chat_completion_tools_anthropic(
     tools_str: String,
     temperature: f64,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(120))
@@ -273,14 +355,18 @@ pub async fn chat_completion_tools_anthropic(
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
+    let max_tokens = max_tokens.unwrap_or(4096);
+    let thinking = thinking_params(&model, thinking_level.as_deref(), max_tokens);
     let body = AnthropicRequest {
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: max_tokens.unwrap_or(4096),
-        temperature,
+        max_tokens,
+        temperature: (!thinking.suppress_temperature).then_some(temperature),
         stream: false,
         tools,
+        thinking: thinking.thinking,
+        output_config: thinking.output_config,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -348,6 +434,7 @@ pub async fn chat_stream_anthropic(
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     let client = client_builder()
@@ -355,14 +442,18 @@ pub async fn chat_stream_anthropic(
         .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
 
+    let max_tokens = max_tokens.unwrap_or(4096);
+    let thinking = thinking_params(&model, thinking_level.as_deref(), max_tokens);
     let body = AnthropicRequest {
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: max_tokens.unwrap_or(4096),
-        temperature,
+        max_tokens,
+        temperature: (!thinking.suppress_temperature).then_some(temperature),
         stream: true,
         tools: None,
+        thinking: thinking.thinking,
+        output_config: thinking.output_config,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -431,6 +522,7 @@ pub async fn chat_stream_tools_anthropic(
     temperature: f64,
     stream_id: String,
     max_tokens: Option<u32>,
+    thinking_level: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     let client = client_builder()
@@ -439,14 +531,18 @@ pub async fn chat_stream_tools_anthropic(
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
+    let max_tokens = max_tokens.unwrap_or(4096);
+    let thinking = thinking_params(&model, thinking_level.as_deref(), max_tokens);
     let body = AnthropicRequest {
         model,
         messages: anthropic_messages,
         system,
-        max_tokens: max_tokens.unwrap_or(4096),
-        temperature,
+        max_tokens,
+        temperature: (!thinking.suppress_temperature).then_some(temperature),
         stream: true,
         tools,
+        thinking: thinking.thinking,
+        output_config: thinking.output_config,
     };
 
     let mut request = client.post(&api_url).json(&body);
@@ -518,9 +614,11 @@ pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<boo
         }],
         system: None,
         max_tokens: 1,
-        temperature: 0.0,
+        temperature: Some(0.0),
         stream: false,
         tools: None,
+        thinking: None,
+        output_config: None,
     };
 
     let mut request = client.post(&api_url).json(&body);

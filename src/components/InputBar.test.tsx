@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
 import { useChatStore } from "../store/useChatStore";
+import { useModelStore } from "../store/useModelStore";
 
 const mockModels: ModelConfig[] = [
   {
@@ -109,6 +110,60 @@ describe("InputBar", () => {
     );
 
     expect(screen.getByText("GPT-4o")).toBeInTheDocument();
+  });
+
+  it("organizes response settings into model and thinking sections", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /response settings/i }));
+
+    expect(screen.getByRole("button", { name: /^model/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^thinking/i })).toBeInTheDocument();
+  });
+
+  it("updates the thinking level for a supported model", async () => {
+    const user = userEvent.setup();
+    const updateModel = vi.fn();
+    const originalUpdateModel = useModelStore.getState().updateModel;
+    act(() => useModelStore.setState({ updateModel }));
+
+    const reasoningModel: ModelConfig = {
+      ...mockModels[0],
+      modelId: "gpt-5",
+      thinkingLevel: "auto",
+    };
+
+    render(
+      <InputBar
+        models={[reasoningModel]}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /response settings/i }));
+    await user.click(screen.getByRole("button", { name: /^thinking/i }));
+    await user.click(await screen.findByRole("button", { name: /^high/i }));
+
+    expect(updateModel).toHaveBeenCalledWith("model-1", { thinkingLevel: "high" });
+    act(() => useModelStore.setState({ updateModel: originalUpdateModel }));
   });
 
   it("calls onSend when Enter is pressed with content", async () => {
