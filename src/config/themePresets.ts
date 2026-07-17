@@ -157,6 +157,47 @@ export function getContrastColor(hex: string): string {
   return yiq >= 128 ? "#000000" : "#ffffff";
 }
 
+function mixColors(color1: string, color2: string, weight: number): string {
+  let c1 = color1.trim().replace("#", "");
+  let c2 = color2.trim().replace("#", "");
+
+  if (c1.length === 3) {
+    c1 = c1
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  } else if (c1.length === 8) {
+    c1 = c1.slice(0, 6);
+  }
+
+  if (c2.length === 3) {
+    c2 = c2
+      .split("")
+      .map((char) => char + char)
+      .join("");
+  } else if (c2.length === 8) {
+    c2 = c2.slice(0, 6);
+  }
+
+  const r1 = parseInt(c1.slice(0, 2), 16) || 0;
+  const g1 = parseInt(c1.slice(2, 4), 16) || 0;
+  const b1 = parseInt(c1.slice(4, 6), 16) || 0;
+
+  const r2 = parseInt(c2.slice(0, 2), 16) || 0;
+  const g2 = parseInt(c2.slice(2, 4), 16) || 0;
+  const b2 = parseInt(c2.slice(4, 6), 16) || 0;
+
+  const r = Math.round(r1 * weight + r2 * (1 - weight));
+  const g = Math.round(g1 * weight + g2 * (1 - weight));
+  const b = Math.round(b1 * weight + b2 * (1 - weight));
+
+  const rClamped = Math.min(255, Math.max(0, r));
+  const gClamped = Math.min(255, Math.max(0, g));
+  const bClamped = Math.min(255, Math.max(0, b));
+
+  return "#" + (0x1000000 + rClamped * 0x10000 + gClamped * 0x100 + bClamped).toString(16).slice(1);
+}
+
 export function applyTheme(config: ThemeConfig) {
   if (typeof document === "undefined") return;
 
@@ -198,10 +239,10 @@ export function applyTheme(config: ThemeConfig) {
 
   style.setProperty("--theme-text-primary", fg);
 
-  const textSecondaryColor = hexToRgba(fg, isDark ? 0.75 : 0.8);
+  const textSecondaryColor = mixColors(fg, bg, isDark ? 0.75 : 0.8);
   style.setProperty("--theme-text-secondary", textSecondaryColor);
 
-  const textMutedColor = hexToRgba(fg, isDark ? 0.5 : 0.6);
+  const textMutedColor = mixColors(fg, bg, isDark ? 0.5 : 0.6);
   style.setProperty("--theme-text-muted", textMutedColor);
 
   style.setProperty("--theme-user-bubble", isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08));
