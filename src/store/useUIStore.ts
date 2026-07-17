@@ -50,6 +50,8 @@ export interface ToolConfirmation {
   destination?: string;
 }
 
+export type AuxiliaryTab = "review" | "files" | "terminals" | "activity" | "artifacts";
+
 interface UIState {
   view: "chat" | "settings";
   theme: ThemeConfig;
@@ -149,12 +151,24 @@ interface UIState {
   setShowSpotlight: (show: boolean) => void;
   setShowLinkWarningModal: (show: boolean, url?: string | null) => void;
   initSkipExternalLinkWarning: () => Promise<void>;
-  
+
   isAuxPanelOpen: boolean;
-  activeAuxTab: "subagents" | "tasks" | "artifacts" | "files" | "terminals";
-  backgroundTasks: Array<{ id: string; title: string; convId: string; status: "running" | "completed" | "error"; timestamp: Date }>;
+  isAuxPanelExpanded: boolean;
+  isAuxSummaryPinned: boolean;
+  activeAuxTab: AuxiliaryTab;
+  auxPanelWidth: number;
+  backgroundTasks: Array<{
+    id: string;
+    title: string;
+    convId: string;
+    status: "running" | "completed" | "error";
+    timestamp: Date;
+  }>;
   setAuxPanelOpen: (open: boolean) => void;
-  setActiveAuxTab: (tab: "subagents" | "tasks" | "artifacts" | "files" | "terminals") => void;
+  setAuxPanelExpanded: (expanded: boolean) => void;
+  setAuxSummaryPinned: (pinned: boolean) => void;
+  setActiveAuxTab: (tab: AuxiliaryTab) => void;
+  setAuxPanelWidth: (width: number) => void;
   addTask: (id: string, title: string, convId: string) => void;
   completeTask: (id: string, status?: "completed" | "error") => void;
   clearTasks: () => void;
@@ -209,6 +223,21 @@ const safeLocalStorage =
         removeItem: () => {},
         clear: () => {},
       };
+
+const DEFAULT_AUX_PANEL_WIDTH = 520;
+const MIN_AUX_PANEL_WIDTH = 360;
+const MAX_AUX_PANEL_WIDTH = 680;
+
+function normalizeAuxPanelWidth(value: string | number | null): number {
+  const width = Number(value);
+  if (!Number.isFinite(width) || width < MIN_AUX_PANEL_WIDTH || width > MAX_AUX_PANEL_WIDTH) {
+    return DEFAULT_AUX_PANEL_WIDTH;
+  }
+  return width;
+}
+
+const initialAuxPanelWidth = normalizeAuxPanelWidth(safeLocalStorage.getItem("sythoria-aux-panel-width"));
+safeLocalStorage.setItem("sythoria-aux-panel-width", String(initialAuxPanelWidth));
 
 let toastCounter = 0;
 
@@ -268,13 +297,16 @@ export const useUIStore = create<UIState>((set) => ({
   showSpotlight: false,
   activeSubagentId: null,
   isAuxPanelOpen: false,
-  activeAuxTab: "subagents",
+  isAuxPanelExpanded: false,
+  isAuxSummaryPinned: safeLocalStorage.getItem("sythoria-aux-summary-pinned") === "true",
+  activeAuxTab: "review",
+  auxPanelWidth: initialAuxPanelWidth,
   backgroundTasks: [],
 
   setActiveSubagentId: (activeSubagentId) => {
     set({ activeSubagentId });
     if (activeSubagentId) {
-      set({ activeAuxTab: "subagents", isAuxPanelOpen: true });
+      set({ activeAuxTab: "activity", isAuxPanelOpen: true });
     }
   },
   setSidebarWidth: (sidebarWidth) => {
@@ -287,8 +319,32 @@ export const useUIStore = create<UIState>((set) => ({
       set({ activeAuxTab: "artifacts", isAuxPanelOpen: true });
     }
   },
-  setAuxPanelOpen: (isAuxPanelOpen) => set({ isAuxPanelOpen }),
+  setAuxPanelOpen: (isAuxPanelOpen) =>
+    set((state) => {
+      const auxPanelWidth = isAuxPanelOpen ? state.auxPanelWidth : normalizeAuxPanelWidth(state.auxPanelWidth);
+      if (!isAuxPanelOpen) safeLocalStorage.setItem("sythoria-aux-panel-width", String(auxPanelWidth));
+      return {
+        isAuxPanelOpen,
+        isAuxPanelExpanded: isAuxPanelOpen ? state.isAuxPanelExpanded : false,
+        auxPanelWidth,
+      };
+    }),
+  setAuxPanelExpanded: (isAuxPanelExpanded) =>
+    set((state) => {
+      const auxPanelWidth = normalizeAuxPanelWidth(state.auxPanelWidth);
+      safeLocalStorage.setItem("sythoria-aux-panel-width", String(auxPanelWidth));
+      return { isAuxPanelExpanded, auxPanelWidth };
+    }),
+  setAuxSummaryPinned: (isAuxSummaryPinned) => {
+    safeLocalStorage.setItem("sythoria-aux-summary-pinned", String(isAuxSummaryPinned));
+    set({ isAuxSummaryPinned });
+  },
   setActiveAuxTab: (activeAuxTab) => set({ activeAuxTab }),
+  setAuxPanelWidth: (auxPanelWidth) => {
+    const width = Math.max(MIN_AUX_PANEL_WIDTH, Math.min(MAX_AUX_PANEL_WIDTH, auxPanelWidth));
+    safeLocalStorage.setItem("sythoria-aux-panel-width", String(width));
+    set({ auxPanelWidth: width });
+  },
   addTask: (id, title, convId) =>
     set((s) => ({
       backgroundTasks: [
@@ -298,9 +354,7 @@ export const useUIStore = create<UIState>((set) => ({
     })),
   completeTask: (id, status = "completed") =>
     set((s) => ({
-      backgroundTasks: s.backgroundTasks.map((t) =>
-        t.id === id ? { ...t, status } : t
-      ),
+      backgroundTasks: s.backgroundTasks.map((t) => (t.id === id ? { ...t, status } : t)),
     })),
   clearTasks: () => set({ backgroundTasks: [] }),
 
