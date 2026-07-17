@@ -4,6 +4,7 @@ import { X, ZoomIn, ZoomOut, Download, ChevronLeft, ChevronRight, RefreshCw } fr
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { useKeybindStore, matchKeybind } from "../../store/useKeybindStore";
 import { formatFileSize } from "../../utils/attachments";
+import { springs, motionTokens } from "../../lib/motion-tokens";
 
 interface ImagePreviewModalProps {
   isOpen: boolean;
@@ -186,7 +187,7 @@ export function ImagePreviewModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: motionTokens.duration.fast }}
       >
         {/* Header bar */}
         <div className="absolute top-0 left-0 right-0 h-24 pt-10 pl-6 pr-6 flex items-start justify-between z-20 bg-gradient-to-b from-surface/80 to-transparent pointer-events-none">
@@ -239,12 +240,15 @@ export function ImagePreviewModal({
             onDoubleClick={handleDoubleClick}
             style={{
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              transition: isDragging ? "none" : "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+              transition: isDragging
+                ? "none"
+                : `transform ${motionTokens.duration.fast}s cubic-bezier(0.16, 1, 0.3, 1)`,
             }}
             className="max-w-[90vw] max-h-[85vh] object-contain rounded shadow-2xl z-10"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+            transition={springs.snappy}
           />
         </div>
 
