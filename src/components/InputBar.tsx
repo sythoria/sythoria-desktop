@@ -655,6 +655,8 @@ export default memo(function InputBar({
                 setIsDragging(false);
               }}
               className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-2.5 transition-all focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/30 ${
+                conversation?.isTemporary ? "border-dashed !border-text-secondary/45 bg-accent/[0.03]" : ""
+              } ${
                 isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
               } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
                 isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""

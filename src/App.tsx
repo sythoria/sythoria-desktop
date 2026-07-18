@@ -1181,23 +1181,25 @@ function App() {
                       </button>
                     )}
                   </div>
-                  <div className="absolute left-1/2 -translate-x-1/2">
-                    <motion.h2
-                      className="text-sm font-medium text-text-secondary"
-                      key={activeConversation?.id ?? "empty"}
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={springs.gentle}
-                    >
-                      {activeConversation
-                        ? activeConversation.title === "Untitled" || !activeConversation.title
-                          ? t("common.untitled")
-                          : activeConversation.title.endsWith(" (Compare)")
-                            ? `${activeConversation.title.slice(0, -10)} (${t("common.compare")})`
-                            : activeConversation.title
-                        : t("common.newChat")}
-                    </motion.h2>
-                  </div>
+                  {!activeConversation?.isTemporary && (
+                    <div className="absolute left-1/2 -translate-x-1/2">
+                      <motion.h2
+                        className="text-sm font-medium text-text-secondary"
+                        key={activeConversation?.id ?? "empty"}
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={springs.gentle}
+                      >
+                        {activeConversation
+                          ? activeConversation.title === "Untitled" || !activeConversation.title
+                            ? t("common.untitled")
+                            : activeConversation.title.endsWith(" (Compare)")
+                              ? `${activeConversation.title.slice(0, -10)} (${t("common.compare")})`
+                              : activeConversation.title
+                          : t("common.newChat")}
+                      </motion.h2>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 ml-auto relative">
                     {isCompareMode && (
                       <>

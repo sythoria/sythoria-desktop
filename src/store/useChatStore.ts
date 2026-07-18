@@ -1001,20 +1001,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const runForConversation = async (cId: string, modelConfig: ModelConfig) => {
       if (!modelConfig) return;
       const currentConvs = get().conversations;
-      const isFirstForThis = (currentConvs.find((c) => c.id === cId)?.messages?.length ?? 0) === 0;
+      const conversation = currentConvs.find((c) => c.id === cId);
+      const isFirstForThis = (conversation?.messages?.length ?? 0) === 0;
+      const isTemporary = conversation?.isTemporary === true;
 
       set((state) => ({
         conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
-          title: isFirstForThis
-            ? activeCompareIds.includes(cId)
-              ? fallbackTitle + " (Compare)"
-              : fallbackTitle
-            : undefined,
+          title:
+            isFirstForThis && !isTemporary
+              ? activeCompareIds.includes(cId)
+                ? fallbackTitle + " (Compare)"
+                : fallbackTitle
+              : undefined,
           recursionDepth: 0,
         }),
       }));
 
-      if (isFirstForThis && titleConfig.enabled) {
+      if (isFirstForThis && !isTemporary && titleConfig.enabled) {
         generateConversationTitle(cId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
       }
 

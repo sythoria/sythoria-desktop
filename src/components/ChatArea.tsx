@@ -1591,6 +1591,7 @@ function ChatAreaBase({
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   if (messages.length === 0) {
+    const isTemporary = conversation?.isTemporary === true;
     return (
       <motion.div
         className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
@@ -1607,7 +1608,17 @@ function ChatAreaBase({
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springs.gentle, delay: 0.2 }}
           >
-            <h1 className="text-2xl font-bold tracking-tight text-text-primary">What should we work on?</h1>
+            {isTemporary ? (
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="flex items-center gap-2 text-2xl font-bold tracking-tight text-text-primary">
+                  <Ghost size={22} className="text-accent" aria-hidden="true" />
+                  <h1>Temporary chat</h1>
+                </div>
+                <p className="text-sm text-text-muted">This chat won&apos;t be saved to your history.</p>
+              </div>
+            ) : (
+              <h1 className="text-2xl font-bold tracking-tight text-text-primary">What should we work on?</h1>
+            )}
           </motion.div>
         </div>
       </motion.div>
