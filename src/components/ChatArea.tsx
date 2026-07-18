@@ -122,6 +122,7 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
 
   const isPreviewable = language === "html" || language === "svg" || language === "mermaid";
   const setActiveArtifact = useUIStore((s) => s.setActiveArtifact);
+  const isProjectsEnabled = useProjectStore((s) => s.isProjectsEnabled);
 
   const handlePreview = useCallback(() => {
     setActiveArtifact({
@@ -139,7 +140,7 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
           {language}
         </span>
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          {isPreviewable && (
+          {isProjectsEnabled && isPreviewable && (
             <motion.button
               onClick={handlePreview}
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-muted hover:text-text-secondary hover:bg-hover transition-colors cursor-pointer"
@@ -618,6 +619,7 @@ function useSubagentConversationIds(message: Message): string[] {
 function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
   const generationState = useChatStore((s) => s.generationByConversation[conversationId]);
   const conv = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  const isProjectsEnabled = useProjectStore((s) => s.isProjectsEnabled);
 
   if (!conv) {
     return (
@@ -649,19 +651,21 @@ function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              useUIStore.getState().setActiveSubagentId(conv.id);
-            }}
-            className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
-            title="Inspect subagent chat in panel drawer"
-          >
-            <ExternalLink size={10} />
-            Open Drawer
-          </button>
-        </div>
+        {isProjectsEnabled && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                useUIStore.getState().setActiveSubagentId(conv.id);
+              }}
+              className="px-2 py-1 text-[11px] rounded bg-accent/10 hover:bg-accent/15 text-accent font-medium border border-accent/10 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Inspect subagent chat in panel drawer"
+            >
+              <ExternalLink size={10} />
+              Open Drawer
+            </button>
+          </div>
+        )}
       </div>
       <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
         <ChatAreaBase
@@ -1258,6 +1262,7 @@ function parseQuestionBlock(content: string): ParsedQuestion | null {
 
 function SystemNotificationBubble({ message }: { message: Message }) {
   const content = message.content;
+  const isProjectsEnabled = useProjectStore((s) => s.isProjectsEnabled);
 
   const matchSuccess = content.match(
     /Subagent\s+'([^']+)'\s+\(ID:\s*([a-zA-Z0-9]+)\)\s+has finished its task\.\s*Final response:([\s\S]*)/i,
@@ -1298,13 +1303,15 @@ function SystemNotificationBubble({ message }: { message: Message }) {
           )}
           <span>{isSuccess ? "Subagent Completed" : "Subagent Failed"}</span>
         </div>
-        <button
-          onClick={handleOpenChat}
-          className="flex items-center gap-1 text-accent hover:text-accent/80 hover:underline transition-colors font-medium cursor-pointer"
-        >
-          <span>Inspect Subagent</span>
-          <ArrowRight size={12} />
-        </button>
+        {isProjectsEnabled && (
+          <button
+            onClick={handleOpenChat}
+            className="flex items-center gap-1 text-accent hover:text-accent/80 hover:underline transition-colors font-medium cursor-pointer"
+          >
+            <span>Inspect Subagent</span>
+            <ArrowRight size={12} />
+          </button>
+        )}
       </div>
 
       <div

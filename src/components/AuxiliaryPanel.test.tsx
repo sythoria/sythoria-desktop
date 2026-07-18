@@ -125,31 +125,13 @@ describe("pinned workspace summary", () => {
     expect(useUIStore.getState().isAuxSummaryPinned).toBe(false);
   });
 
-  it("toggles between expanded and minimized sidebar layouts", () => {
+  it("keeps the expand control but removes the redundant close control", () => {
     useUIStore.setState({ isAuxSummaryPinned: false, activeAuxTab: "terminals" });
     render(<AuxiliaryPanel />);
 
     fireEvent.click(screen.getByTitle("Expand workspace sidebar"));
     expect(useUIStore.getState().isAuxPanelExpanded).toBe(true);
     expect(screen.getByTitle("Minimize workspace sidebar")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTitle("Minimize workspace sidebar"));
-    expect(useUIStore.getState().isAuxPanelExpanded).toBe(false);
-    expect(screen.getByTitle("Expand workspace sidebar")).toBeInTheDocument();
-  });
-
-  it("restores legacy expanded widths to the normal panel width when minimized", () => {
-    useUIStore.setState({
-      isAuxSummaryPinned: false,
-      activeAuxTab: "terminals",
-      isAuxPanelExpanded: true,
-      auxPanelWidth: 760,
-    });
-    render(<AuxiliaryPanel />);
-
-    fireEvent.click(screen.getByTitle("Minimize workspace sidebar"));
-
-    expect(useUIStore.getState().isAuxPanelExpanded).toBe(false);
-    expect(useUIStore.getState().auxPanelWidth).toBe(520);
+    expect(screen.queryByTitle("Close workspace sidebar")).not.toBeInTheDocument();
   });
 });

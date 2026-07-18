@@ -253,6 +253,8 @@ function App() {
       auxPanelWidth: s.auxPanelWidth,
     })),
   );
+  const isAuxPanelLayoutChange = false;
+
   const {
     setSidebarOpen,
     toggleSidebarCollapsed,
@@ -291,10 +293,11 @@ function App() {
     })),
   );
 
-  const { activeProjectId, setActiveProject } = useProjectStore(
+  const { activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore(
     useShallow((s) => ({
       activeProjectId: s.activeProjectId,
       setActiveProject: s.setActiveProject,
+      isProjectsEnabled: s.isProjectsEnabled,
     })),
   );
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
@@ -306,6 +309,12 @@ function App() {
       });
     }
   }, [activeArtifact]);
+
+  useEffect(() => {
+    if (!isProjectsEnabled && isAuxPanelOpen) {
+      setAuxPanelOpen(false);
+    }
+  }, [isAuxPanelOpen, isProjectsEnabled, setAuxPanelOpen]);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -1027,6 +1036,10 @@ function App() {
     return <StartScreen onStart={() => setHasStarted(true)} />;
   }
 
+  const showAuxiliaryPanel = isProjectsEnabled && isAuxPanelOpen;
+  const chatColumnWidth =
+    showAuxiliaryPanel && !isAuxPanelExpanded && !isMobile ? `calc(100% - ${auxPanelWidth}px)` : "100%";
+
   return (
     <div className="flex h-screen w-screen overflow-hidden flex-col bg-surface">
       <TitleBar />
@@ -1151,7 +1164,9 @@ function App() {
                 transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
               >
                 <header
-                  className="shrink-0 flex items-center justify-between px-4 py-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 pt-6"
+                  className={`shrink-0 flex items-center justify-between px-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 ${
+                    isMac ? "h-14 py-0" : "py-4 pt-6"
+                  }`}
                   data-tauri-drag-region
                 >
                   <div className="flex items-center gap-2 pl-12 md:pl-28 z-20">
@@ -1292,44 +1307,58 @@ function App() {
                     >
                       <Split size={16} />
                     </button>
-                    <button
-                      onClick={() => {
-                        if (!isAuxPanelOpen) {
-                          setAuxPanelOpen(true);
-                          if (!isAuxSummaryPinned) setAuxSummaryPinned(true);
-                          return;
-                        }
-                        setAuxSummaryPinned(!isAuxSummaryPinned);
-                      }}
-                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-                        isAuxSummaryPinned
-                          ? "text-accent bg-accent/10 hover:bg-accent/15"
-                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                      }`}
-                      aria-pressed={isAuxSummaryPinned}
-                      aria-label={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
-                      title={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
-                    >
-                      <ListTree size={16} />
-                    </button>
-                    <button
-                      onClick={() => setAuxPanelOpen(!isAuxPanelOpen)}
-                      className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-                        isAuxPanelOpen
-                          ? "text-accent bg-accent/10 hover:bg-accent/15"
-                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                      }`}
-                      aria-label={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
-                      title={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
-                    >
-                      <PanelRight size={16} />
-                    </button>
+                    {isProjectsEnabled && (
+                      <button
+                        onClick={() => {
+                          if (!isAuxPanelOpen) {
+                            setAuxPanelOpen(true);
+                            if (!isAuxSummaryPinned) setAuxSummaryPinned(true);
+                            return;
+                          }
+                          setAuxSummaryPinned(!isAuxSummaryPinned);
+                        }}
+                        className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                          isAuxSummaryPinned
+                            ? "text-accent bg-accent/10 hover:bg-accent/15"
+                            : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                        }`}
+                        aria-pressed={isAuxSummaryPinned}
+                        aria-label={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
+                        title={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
+                      >
+                        <ListTree size={16} />
+                      </button>
+                    )}
+                    {isProjectsEnabled && (
+                      <button
+                        onClick={() => setAuxPanelOpen(!isAuxPanelOpen)}
+                        className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                          isAuxPanelOpen
+                            ? "text-accent bg-accent/10 hover:bg-accent/15"
+                            : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                        }`}
+                        aria-label={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
+                        title={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
+                      >
+                        <PanelRight size={16} />
+                      </button>
+                    )}
                   </div>
                 </header>
 
                 <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
                   {/* Left Column */}
-                  <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
+                  <motion.div
+                    className="min-w-0 min-h-0 flex flex-col relative"
+                    style={{ flex: "0 0 auto" }}
+                    initial={false}
+                    animate={{ width: chatColumnWidth }}
+                    transition={{
+                      type: "tween",
+                      duration: isAuxPanelLayoutChange ? 0 : motionTokens.duration.normal,
+                      ease: motionTokens.easing.smooth,
+                    }}
+                  >
                     {isCompareMode && compareConversations.length > 0 ? (
                       <div className="comparison-grid-container">
                         {/* Primary Column */}
@@ -1403,25 +1432,25 @@ function App() {
                       onStop={stopStreaming}
                       centered={messages.length === 0}
                     />
-                  </div>
+                  </motion.div>
 
                   {/* Right Column: Unified HTML Auxiliary Pane */}
                   <AnimatePresence>
-                    {isAuxPanelOpen && (
+                    {showAuxiliaryPanel && (
                       <motion.div
                         key="auxiliary-pane-split"
-                        className={`border-l border-border bg-surface flex flex-col h-full min-h-0 shadow-lg transition-[width] duration-300 ease-out ${
+                        className={`absolute right-0 z-20 border-l border-border bg-surface flex flex-col h-full min-h-0 ${
                           isAuxPanelExpanded
-                            ? "absolute inset-y-0 right-0 z-40 w-full md:w-[72%] md:min-w-[520px] max-w-[880px] shadow-2xl"
-                            : "relative z-20 min-w-[360px] max-w-[70vw]"
+                            ? "inset-0 z-40 rounded-none shadow-2xl"
+                            : "inset-y-0 min-w-[360px] max-w-[70vw] rounded-l-xl shadow-lg"
                         }`}
-                        style={isAuxPanelExpanded ? undefined : { width: auxPanelWidth }}
+                        style={{ width: isAuxPanelExpanded ? "100%" : auxPanelWidth }}
                         initial={{ x: "100%", opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: "100%", opacity: 0 }}
                         transition={{
                           type: "tween",
-                          duration: motionTokens.duration.normal,
+                          duration: isAuxPanelLayoutChange ? 0 : motionTokens.duration.normal,
                           ease: motionTokens.easing.smooth,
                         }}
                       >

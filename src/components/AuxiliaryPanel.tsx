@@ -22,9 +22,8 @@ import {
   Link2,
   Loader2,
   Maximize2,
-  Minimize2,
   Paperclip,
-  PanelRightClose,
+  Minimize2,
   PinOff,
   Play,
   RefreshCw,
@@ -1145,13 +1144,6 @@ export function AuxiliaryPanel() {
             >
               {isPanelExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
             </button>
-            <button
-              onClick={() => setOpen(false)}
-              className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
-              title="Close workspace sidebar"
-            >
-              <PanelRightClose size={14} />
-            </button>
           </div>
         </div>
         <nav className="flex items-center gap-0.5 overflow-x-auto px-2" aria-label="Workspace views">
@@ -1165,13 +1157,7 @@ export function AuxiliaryPanel() {
               <Icon size={12} />
               <span>{label}</span>
               {id === "artifacts" && activeArtifact && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
-              {activeTab === id && (
-                <motion.span
-                  layoutId="aux-tab-indicator"
-                  className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent"
-                  transition={{ duration: motionTokens.duration.fast }}
-                />
-              )}
+              {activeTab === id && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent" />}
             </button>
           ))}
         </nav>

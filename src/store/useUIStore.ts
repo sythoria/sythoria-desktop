@@ -37,6 +37,7 @@ import {
   DARK_PRESETS,
 } from "../config/themePresets";
 import { useModelStore } from "./useModelStore";
+import { useProjectStore } from "./useProjectStore";
 export type { ThemeConfig, CustomThemeConfig };
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
@@ -304,8 +305,9 @@ export const useUIStore = create<UIState>((set) => ({
   backgroundTasks: [],
 
   setActiveSubagentId: (activeSubagentId) => {
-    set({ activeSubagentId });
-    if (activeSubagentId) {
+    const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;
+    set({ activeSubagentId: isProjectsEnabled ? activeSubagentId : null });
+    if (isProjectsEnabled && activeSubagentId) {
       set({ activeAuxTab: "activity", isAuxPanelOpen: true });
     }
   },
@@ -314,13 +316,17 @@ export const useUIStore = create<UIState>((set) => ({
     set({ sidebarWidth });
   },
   setActiveArtifact: (activeArtifact) => {
-    set({ activeArtifact });
-    if (activeArtifact) {
+    const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;
+    set({ activeArtifact: isProjectsEnabled ? activeArtifact : null });
+    if (isProjectsEnabled && activeArtifact) {
       set({ activeAuxTab: "artifacts", isAuxPanelOpen: true });
     }
   },
   setAuxPanelOpen: (isAuxPanelOpen) =>
     set((state) => {
+      if (isAuxPanelOpen && !useProjectStore.getState().isProjectsEnabled) {
+        return { isAuxPanelOpen: false, isAuxPanelExpanded: false };
+      }
       const auxPanelWidth = isAuxPanelOpen ? state.auxPanelWidth : normalizeAuxPanelWidth(state.auxPanelWidth);
       if (!isAuxPanelOpen) safeLocalStorage.setItem("sythoria-aux-panel-width", String(auxPanelWidth));
       return {
