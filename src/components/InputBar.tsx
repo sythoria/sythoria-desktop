@@ -1030,13 +1030,13 @@ export default memo(function InputBar({
                     {modelOpen && (
                       <motion.div
                         ref={selectorPanelRef}
-                        className="absolute bottom-full right-1 z-50 mb-2 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-surface p-0.5"
+                        className="absolute bottom-full left-1/2 z-50 mb-2 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-surface p-1.5"
                         style={{ boxShadow: "var(--shadow-xl)" }}
                         role="dialog"
                         aria-label="Model and thinking settings"
-                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                        initial={{ opacity: 0, x: "-50%", y: 8, scale: motionTokens.scale.subtle }}
+                        animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: "-50%", y: 8, scale: motionTokens.scale.subtle }}
                         transition={springs.gentle}
                         onKeyDown={(event) => {
                           if (event.key !== "Escape") return;
