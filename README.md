@@ -1,83 +1,127 @@
-# Sythoria 🚀
+# Sythoria
 
-Sythoria is a premium, desktop-native AI chat client and agent workspace. Built with **Tauri v2 (Rust)** and **React 19 (TypeScript)**, Sythoria delivers a secure, local, and visually stunning workspace for connecting to local and cloud-based LLM APIs.
+Sythoria is a desktop client for chatting with local and hosted language models. It combines everyday chat with model comparison, web and MCP tools, voice input, and project-aware coding workflows.
 
-Unlike generic chat clients, Sythoria is built for developers, incorporating advanced agentic sandboxing, comparative model grids, and interactive side-by-side web artifacts.
+The app runs on Tauri and talks to providers from the Rust backend. There is no Sythoria-hosted model service: add your own API credentials or connect to a local Ollama instance.
 
----
+## What it can do
 
-## Key Features 🌟
+- Stream responses from OpenAI, Anthropic, Gemini, Ollama, NVIDIA NIM, OpenRouter, and custom OpenAI-compatible endpoints.
+- Run the same prompt against as many as four models in a synchronized comparison view.
+- Give models tools for web search, page fetching, MCP servers, reusable skills, subagents, and project workspaces.
+- Read, search, edit, and run commands in a registered project with explicit `read`, `write`, or `full` permissions.
+- Preview HTML and SVG artifacts in a sandboxed split pane. Network access is off until you enable it for that preview.
+- Attach images and text files, capture the screen, and dictate with local Whisper models or a cloud transcription endpoint.
+- Render Markdown, GFM tables, math, highlighted code, reasoning sections, sources, tool calls, and interactive questions.
+- Keep separate chats, temporary chats, project chats, pinned conversations, and exported transcripts.
 
-- **Multi-Model Comparison Grid Mode**: Compare responses from up to 4 LLMs side-by-side. Includes synchronized scrolling across all virtualized viewports so you can easily review different model generations.
-- **Git Worktree Sandbox Isolation**: Securely execute file-modifying tools and agent instructions. Sythoria spawns an isolated Git worktree under your system's temp directory, letting you inspect changes and view diff cards before applying or discarding them.
-- **Split-Screen Web Preview (Artifacts)**: A Claude-like side-by-side preview panel. Prompt on the left and see interactive HTML, CSS, JavaScript, or Markdown artifacts rendered instantly on the right.
-- **Interactive Clarifying Questions**: Supports structured `<question>` XML blocks in model outputs, rendering clean radio option cards. Click to answer, and Sythoria handles the prompt submission automatically.
-- **Model Presets & Secure Keychain**: Supports OpenAI, Anthropic, Gemini, Ollama, OpenRouter, and custom endpoints. All API keys and environment secrets are encrypted and stored in your operating system's native keychain.
-- **Agentic Tool Loop (Web Search + MCP)**: Run complex multi-step agent loops. Integrates web search (Google, SearXNG, Firecrawl), webpage readers, and Std/SSE/HTTP Model Context Protocol (MCP) servers.
-- **Advanced Logging & Privacy Controls**: Monitor app behavior using the real-time Settings Log Viewer. Complete data security features allow you to toggle data writes and local log histories.
+## Connections
 
----
+| Capability    | Built-in options                                                                   |
+| ------------- | ---------------------------------------------------------------------------------- |
+| Models        | OpenAI, Anthropic, Google Gemini, Ollama, NVIDIA NIM, OpenRouter, custom endpoints |
+| Web search    | Google Custom Search, SearXNG, Firecrawl                                           |
+| Page fetching | Firecrawl, Jina Reader                                                             |
+| MCP           | stdio, SSE, and Streamable HTTP transports                                         |
+| Voice input   | Local `whisper.cpp` models or a configurable cloud endpoint                        |
 
-## Architecture & Technology Stack 🛠️
+Model presets are starting points, not a fixed allowlist. You can change the endpoint, model ID, context size, output limit, temperature, system prompt, and reasoning level where the provider supports it.
 
-- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Motion (Framer Motion)
-- **State Management**: Zustand (5 decoupled stores for Chat, Models, Search, MCP, and UI)
-- **Virtualized Rendering**: React Virtuoso (handles thousands of messages efficiently)
-- **Backend**: Tauri v2, Rust (tokio, keyring-core, rmcp for MCP servers, scraper)
-- **Theming**: Curated HSL color palette mapping, default dark mode, responsive panels
+## Project workspaces
 
----
+A project connects a conversation to a directory on your machine. The permission level controls which tools are exposed:
 
-## Getting Started 💻
+- `read` allows listing, globbing, grepping, reading, and Git inspection.
+- `write` adds file edits and commits, with confirmation before changes are made.
+- `full` adds shell access and removes the extra edit and commit prompt. Shell commands still require native confirmation. Use it only with projects and models you trust.
 
-### Prerequisites
+For a Git repository, Sythoria creates a temporary worktree before the agent loop starts. File changes and commands run there, and the chat shows the pending changes for you to apply or discard. The main working tree is left alone until you apply them.
 
-- **Node.js**: v20 or newer
-- **Rust**: Stable toolchain (cargo, rustc)
-- **Git**
+Non-Git projects still use registered-root checks, canonical path validation, exclusions, permissions, and confirmation gates, but they do not have worktree-based rollback.
 
-### Installation
+If a project contains `AGENTS.md`, its instructions are added to the project conversation automatically.
 
-1.  Clone the repository:
+## Getting started
 
-    ```bash
-    git clone https://github.com/sythoria/sythoria-desktop.git
-    cd sythoria-desktop
-    ```
+### Requirements
 
-2.  Install dependencies:
+- Node.js 20 or newer and npm
+- Rust stable, installed with `rustup`
+- Git
+- The native build dependencies required by Tauri on your operating system
 
-    ```bash
-    npm install
-    ```
+Windows needs the Microsoft C++ Build Tools and WebView2. macOS needs the Xcode Command Line Tools. On Linux, install the WebKitGTK and system libraries listed in [CONTRIBUTING.md](CONTRIBUTING.md#local-development-setup).
 
-3.  Run the application in development mode:
-    ```bash
-    npm run tauri dev
-    ```
+### Run the desktop app
 
-### Available Commands
+```bash
+git clone https://github.com/sythoria/sythoria-desktop.git
+cd sythoria-desktop
+npm install
+npm run tauri dev
+```
 
-| Command                      | Purpose                                                      |
-| :--------------------------- | :----------------------------------------------------------- |
-| `npm run tauri dev`          | Launch the app in Tauri development window (Vite, port 1420) |
-| `npm run tauri build`        | Compile the production-ready Tauri desktop bundle            |
-| `npm run dev`                | Launch the web frontend server only (without Tauri shell)    |
-| `npm run build`              | Compile the frontend static build (`tsc && vite build`)      |
-| `npm run test`               | Run frontend tests (Vitest + JSDOM)                          |
-| `npm run lint`               | Run ESLint check                                             |
-| `npm run typecheck`          | Run TypeScript check (`tsc --noEmit`)                        |
-| `npm run format:check`       | Prettier formatter verification                              |
-| `cd src-tauri && cargo test` | Run Rust unit tests                                          |
+On first launch, open **Settings > Models**, add a provider, and select a model. API-backed providers need a key; Ollama can use its local endpoint without one.
 
----
+`npm run dev` starts only the Vite frontend. Chat, storage, MCP, workspace, capture, and voice features require the Tauri desktop shell.
 
-## Contributing 🤝
+### Build an installer
 
-We welcome contributions from the community! To get started, please check out our detailed [Contributing Guidelines](CONTRIBUTING.md) for instructions on setting up your local environment, code styling, testing, and the pull request process.
+```bash
+npm run tauri build
+```
 
----
+Tauri is configured to produce NSIS installers on Windows, DMG images on macOS 12+, and AppImages on Linux.
 
-## License 📄
+## How it is put together
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+```text
+InputBar / ChatArea
+        |
+useChatStore
+        +-- direct chat -> Tauri command -> provider SSE stream
+        +-- tool loop   -> search / fetch / MCP / skills / subagents / project tools
+                                      |
+                              Rust validation and I/O
+```
+
+The frontend is React 19 and TypeScript, with Zustand stores split by feature. Tauri commands handle provider requests, streaming parsers, credential storage, MCP transports, project and Git operations, screen capture, audio, and WebSocket sessions.
+
+| Path                       | Responsibility                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/components/`          | Chat UI, comparison columns, settings, previews, and reusable controls                           |
+| `src/store/`               | Conversations, models, search, MCP, projects, Git, UI, voice, capture, keybinds, and skills      |
+| `src/services/toolLoop.ts` | Tool definitions, agent steps, confirmations, subagents, and result collection                   |
+| `src-tauri/src/`           | Native commands, networking, SSE/WebSocket parsing, keychain, MCP, Git, and workspace boundaries |
+
+Normal chats stream provider output directly into the conversation. When search, MCP, or a project is active, the tool loop sends tool definitions with the request, executes returned calls, records their results, and continues until the model finishes or the configured step limit is reached.
+
+## Local data and security
+
+- Model, search, and MCP credentials are stored through the operating system keychain. MCP environment secrets use the same mechanism.
+- Conversations, projects, preferences, and non-secret configuration are stored locally with the Tauri store plugin. Some settings use local storage as a fallback.
+- The cloud transcription key is currently saved with the voice configuration in local storage, not in the operating system keychain.
+- Imported files are represented by short-lived backend tokens instead of exposing arbitrary paths to the webview.
+- Project and Git commands are restricted to registered roots and verified worktrees.
+- URL fetching rejects blocked hosts and private-address targets; strict SSL, offline mode, and additional host blocks are configurable.
+- Untrusted MCP tools require approval until the server or tool is trusted. Project edits and commits require approval at `write` access; `full` access skips that UI gate, while shell commands retain a native confirmation dialog.
+- Artifact previews run in a sandboxed iframe. Their network access is opt-in per open preview.
+
+Requests still leave your machine when you use a hosted model, search provider, MCP service, cloud transcription, update check, or network-enabled artifact. Review each service's data policy before sending sensitive material.
+
+## Development commands
+
+| Command                      | Purpose                                        |
+| ---------------------------- | ---------------------------------------------- |
+| `npm run tauri dev`          | Run Vite on port 1420 and open the desktop app |
+| `npm run dev`                | Run the frontend only                          |
+| `npm run build`              | Type-check and build the frontend              |
+| `npm run tauri build`        | Build the desktop bundles                      |
+| `npm run test`               | Run the Vitest suite once                      |
+| `npm run test:watch`         | Run Vitest in watch mode                       |
+| `npm run lint`               | Run ESLint                                     |
+| `npm run typecheck`          | Run TypeScript without emitting files          |
+| `npm run format:check`       | Check Prettier formatting                      |
+| `cd src-tauri && cargo test` | Run the Rust tests                             |
+
+For branch conventions, platform setup, and pull request checks, see [CONTRIBUTING.md](CONTRIBUTING.md).
