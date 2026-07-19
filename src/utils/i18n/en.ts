@@ -92,11 +92,13 @@ export const en = {
 
   // Chat Area & Input
   "chat.placeholder": "Ask for follow-up changes...",
+  "chat.comparePlaceholder": "Ask all models...",
   "chat.workInProject": "Work in a project",
   "chat.disclaimer": "Sythoria can make mistakes. Consider checking important information.",
   "chat.mcp_servers_enabled": "{count} MCP server(s) enabled",
   "chat.primaryChat": "Primary Chat",
   "chat.primary": "Primary",
+  "chat.comparison": "Comparison",
   "chat.addFile": "Add File",
   "chat.webSearch": "Web Search",
   "chat.removeAttachment": "Remove attachment",
@@ -116,7 +118,7 @@ export const en = {
   "tooltip.newChat": "New Chat",
   "tooltip.syncScrolls": "Sync scrolling",
   "tooltip.disableSyncScrolls": "Disable scroll sync",
-  "tooltip.addCompareModel": "Add model to compare",
+  "tooltip.addComparison": "Add another comparison",
   "tooltip.enableCompare": "Compare responses",
   "tooltip.disableCompare": "Disable compare mode",
   "tooltip.clearSearch": "Clear search",

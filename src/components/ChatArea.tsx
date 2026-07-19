@@ -62,6 +62,7 @@ interface ChatAreaProps {
   pendingWorktree?: { path: string; branch: string };
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   autoExpandReasoning?: boolean;
+  showEmptyState?: boolean;
 }
 
 function CancelledBar({ content, onRetry }: { content: string; onRetry?: () => void }) {
@@ -1586,11 +1587,17 @@ function ChatAreaBase({
   pendingWorktree,
   scrollContainerRef,
   autoExpandReasoning,
+  showEmptyState = true,
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   if (messages.length === 0) {
+    if (!showEmptyState) {
+      return (
+        <div ref={scrollContainerRef} className="flex-1 min-h-0 bg-chat" role="region" aria-label="No messages yet" />
+      );
+    }
     const isTemporary = conversation?.isTemporary === true;
     return (
       <motion.div

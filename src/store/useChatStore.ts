@@ -566,16 +566,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       model: modelConfig?.id || selectedModel,
       projectId: (isProjectsEnabled && activeProjectId) || undefined,
     };
-    set((state) => {
-      const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
-      newHistory.push(id);
-      return {
-        conversations: [conv, ...state.conversations],
-        activeId: id,
-        navigationHistory: newHistory,
-        navigationIndex: newHistory.length - 1,
-      };
-    });
+    set((state) => ({ conversations: [conv, ...state.conversations] }));
+    get().setActiveId(id);
     uiSidebarOpen(false);
     uiView("chat");
     return id;
@@ -595,16 +587,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projectId: (isProjectsEnabled && activeProjectId) || undefined,
       isTemporary: true,
     };
-    set((state) => {
-      const newHistory = state.navigationHistory.slice(0, state.navigationIndex + 1);
-      newHistory.push(id);
-      return {
-        conversations: [conv, ...state.conversations],
-        activeId: id,
-        navigationHistory: newHistory,
-        navigationIndex: newHistory.length - 1,
-      };
-    });
+    set((state) => ({ conversations: [conv, ...state.conversations] }));
+    get().setActiveId(id);
     uiSidebarOpen(false);
     uiView("chat");
     return id;

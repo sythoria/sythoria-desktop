@@ -92,11 +92,13 @@ export const ja = {
 
   // Chat Area & Input
   "chat.placeholder": "フォローアップの変更を尋ねる...",
+  "chat.comparePlaceholder": "すべてのモデルに質問...",
   "chat.workInProject": "プロジェクトで作業する",
   "chat.disclaimer": "Sythoria は誤りを犯す可能性があります。重要な情報を確認することを検討してください。",
   "chat.mcp_servers_enabled": "{count} 個の MCP サーバーが有効",
   "chat.primaryChat": "主チャット",
   "chat.primary": "主",
+  "chat.comparison": "比較",
   "chat.addFile": "ファイル追加",
   "chat.webSearch": "ウェブ検索",
   "chat.removeAttachment": "添付ファイルを削除",
@@ -116,7 +118,7 @@ export const ja = {
   "tooltip.newChat": "新規チャット",
   "tooltip.syncScrolls": "スクロール同期",
   "tooltip.disableSyncScrolls": "スクロール同期を解除",
-  "tooltip.addCompareModel": "比較モデルを追加",
+  "tooltip.addComparison": "別の比較を追加",
   "tooltip.enableCompare": "回答を比較",
   "tooltip.disableCompare": "比較モードを無効化",
   "tooltip.clearSearch": "検索をクリア",

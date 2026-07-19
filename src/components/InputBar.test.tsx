@@ -112,6 +112,25 @@ describe("InputBar", () => {
     expect(screen.getByText("GPT-4o")).toBeInTheDocument();
   });
 
+  it("uses shared compare input without a contradictory model selector", () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        isCompareMode
+        {...defaultMcpProps}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("Ask all models...")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /response settings/i })).not.toBeInTheDocument();
+  });
+
   it("organizes response settings into model and thinking sections", async () => {
     const user = userEvent.setup();
     render(

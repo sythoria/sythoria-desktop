@@ -92,11 +92,13 @@ export const zh = {
 
   // Chat Area & Input
   "chat.placeholder": "咨询后续修改建议...",
+  "chat.comparePlaceholder": "询问所有模型...",
   "chat.workInProject": "在项目中工作",
   "chat.disclaimer": "Sythoria 可能会犯错。请考虑核实重要信息。",
   "chat.mcp_servers_enabled": "已启用 {count} 个 MCP 服务器",
   "chat.primaryChat": "主对话",
   "chat.primary": "主",
+  "chat.comparison": "对比",
   "chat.addFile": "添加文件",
   "chat.webSearch": "网页搜索",
   "chat.removeAttachment": "移除附件",
@@ -116,7 +118,7 @@ export const zh = {
   "tooltip.newChat": "新建对话",
   "tooltip.syncScrolls": "同步滚动",
   "tooltip.disableSyncScrolls": "关闭同步滚动",
-  "tooltip.addCompareModel": "添加对比模型",
+  "tooltip.addComparison": "添加另一个对比",
   "tooltip.enableCompare": "对比回复",
   "tooltip.disableCompare": "关闭对比模式",
   "tooltip.clearSearch": "清空搜索",

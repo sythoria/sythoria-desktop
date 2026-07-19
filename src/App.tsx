@@ -21,7 +21,7 @@ import {
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import { AuxiliaryPanel } from "./components/AuxiliaryPanel";
-import { type Conversation, STATUS_COLORS } from "./types";
+import { type Conversation } from "./types";
 import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import Settings from "./components/settings";
@@ -31,12 +31,6 @@ import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
 import { LinkWarningModal } from "./components/LinkWarningModal";
 
-const STATUS_LABELS: Record<string, string> = {
-  disconnected: "Disconnected",
-  connecting: "Connecting\u2026",
-  connected: "Connected",
-  error: "Connection error",
-};
 import StartScreen from "./components/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
 import { TitleBar } from "./components/TitleBar";
@@ -58,13 +52,6 @@ import { springs, motionTokens } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 
 import "./index.css";
-
-const STATUS_KEYS: Record<string, string> = {
-  disconnected: "status.disconnected",
-  connecting: "status.connecting",
-  connected: "status.connected",
-  error: "status.error",
-};
 
 function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
   const connectSrc = allowNetwork ? "*" : "'none'";
@@ -335,20 +322,6 @@ function App() {
   );
   const isInputDisabled = isPrimaryGenerating || !!activeConversation?.isSubagent;
 
-  const [showAddCompareDropdown, setShowAddCompareDropdown] = useState(false);
-  const addCompareDropdownRef = useRef<HTMLDivElement>(null);
-  const disableBgActivity = useUIStore((s) => s.disableBgActivity);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (addCompareDropdownRef.current && !addCompareDropdownRef.current.contains(e.target as Node)) {
-        setShowAddCompareDropdown(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   const [syncScrolls, setSyncScrolls] = useState(true);
   const [isArtifactFullScreen, setIsArtifactFullScreen] = useState(false);
 
@@ -357,29 +330,37 @@ function App() {
     [conversations, compareIds],
   );
 
-  const handleAddCompareModel = useCallback(
-    (modelId: string) => {
-      if (!activeId) return;
-      const activeConv = conversations.find((c) => c.id === activeId);
-      const newId = "compare-" + Date.now();
-      const clonedMessages = activeConv ? activeConv.messages.map((m) => ({ ...m })) : [];
+  const handleAddComparison = useCallback(() => {
+    const currentState = useChatStore.getState();
+    if (!currentState.activeId) return;
 
-      const newConv = {
-        id: newId,
-        title: (activeConv?.title ?? "Comparison") + " (Compare)",
-        timestamp: new Date(),
-        messages: clonedMessages,
-        model: modelId,
-        projectId: activeConv?.projectId || undefined,
-      };
+    const activeConv = currentState.conversations.find((c) => c.id === currentState.activeId);
+    const currentComparisons = currentState.compareIds
+      .map((id) => currentState.conversations.find((conversation) => conversation.id === id))
+      .filter(Boolean) as Conversation[];
+    const usedModelIds = new Set([activeConv?.model, ...currentComparisons.map((conversation) => conversation.model)]);
+    const modelId =
+      models.find((model) => model.enabled !== false && !usedModelIds.has(model.id))?.id ??
+      models.find((model) => model.enabled !== false)?.id ??
+      activeConv?.model ??
+      selectedModel;
+    const newId = `compare-${Date.now()}-${currentState.compareIds.length}`;
+    const clonedMessages = activeConv ? activeConv.messages.map((m) => ({ ...m })) : [];
 
-      useChatStore.setState({
-        conversations: [newConv, ...conversations],
-        compareIds: [...compareIds, newId],
-      });
-    },
-    [activeId, conversations, compareIds],
-  );
+    const newConv = {
+      id: newId,
+      title: (activeConv?.title ?? "Comparison") + " (Compare)",
+      timestamp: new Date(),
+      messages: clonedMessages,
+      model: modelId,
+      projectId: activeConv?.projectId || undefined,
+    };
+
+    useChatStore.setState((state) => ({
+      conversations: [newConv, ...state.conversations],
+      compareIds: [...state.compareIds, newId],
+    }));
+  }, [models, selectedModel]);
 
   const handleToggleTemporaryChat = useCallback(() => {
     if (activeConversation?.isTemporary) {
@@ -391,18 +372,19 @@ function App() {
 
   const handleToggleCompareMode = useCallback(() => {
     const nextCompareMode = !isCompareMode;
-    setIsCompareMode(nextCompareMode);
 
     if (nextCompareMode) {
       let currentActiveId = activeId;
-      let currentConvs = conversations;
 
       if (!currentActiveId) {
         currentActiveId = newChat();
-        currentConvs = useChatStore.getState().conversations;
       }
 
-      if (currentActiveId && compareIds.length === 0) {
+      const currentState = useChatStore.getState();
+      const currentConvs = currentState.conversations;
+      const currentCompareIds = currentState.compareIds;
+
+      if (currentActiveId && currentCompareIds.length === 0) {
         const activeConv = currentConvs.find((c) => c.id === currentActiveId);
         const secondaryModel =
           models.find((m) => m.id !== activeConv?.model && m.enabled !== false)?.id || selectedModel;
@@ -422,9 +404,13 @@ function App() {
         useChatStore.setState({
           conversations: [newConv, ...useChatStore.getState().conversations],
           compareIds: [newId],
+          isCompareMode: true,
         });
+      } else {
+        setIsCompareMode(true);
       }
     } else {
+      setIsCompareMode(false);
       if (compareIds.length > 0) {
         compareIds.forEach((cId) => {
           const conv = conversations.find((c) => c.id === cId);
@@ -1184,7 +1170,7 @@ function App() {
                   {!activeConversation?.isTemporary && (
                     <div className="absolute left-1/2 -translate-x-1/2">
                       <motion.h2
-                        className="text-sm font-medium text-text-secondary"
+                        className="max-w-[min(42vw,32rem)] truncate text-sm font-medium text-text-secondary"
                         key={activeConversation?.id ?? "empty"}
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1215,74 +1201,15 @@ function App() {
                         >
                           <Link size={16} />
                         </button>
-                        <div ref={addCompareDropdownRef} className="relative">
-                          <button
-                            onClick={() => setShowAddCompareDropdown(!showAddCompareDropdown)}
-                            className={`p-1.5 rounded-md transition-colors flex items-center justify-center ${
-                              showAddCompareDropdown
-                                ? "text-text-primary bg-hover"
-                                : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                            }`}
-                            aria-label={t("tooltip.addCompareModel") || "Add model to compare"}
-                            title={t("tooltip.addCompareModel") || "Add model to compare"}
-                          >
-                            <Plus size={16} />
-                          </button>
-                          <AnimatePresence>
-                            {showAddCompareDropdown && (
-                              <motion.div
-                                className="absolute right-0 mt-1.5 w-64 bg-surface border border-border rounded-xl p-1 z-50 max-h-72 overflow-y-auto overflow-x-hidden"
-                                style={{ boxShadow: "var(--shadow-xl)" }}
-                                role="listbox"
-                                aria-label="Available models to compare"
-                                initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                                transition={springs.gentle}
-                              >
-                                {models
-                                  .filter(
-                                    (m) =>
-                                      m.enabled !== false &&
-                                      m.id !== (activeConversation?.model || selectedModel) &&
-                                      !compareConversations.some((c) => c.model === m.id),
-                                  )
-                                  .map((model) => {
-                                    const status = modelStatuses[model.id] ?? "disconnected";
-                                    return (
-                                      <button
-                                        key={model.id}
-                                        onClick={() => {
-                                          handleAddCompareModel(model.id);
-                                          setShowAddCompareDropdown(false);
-                                        }}
-                                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors text-left text-text-secondary hover:bg-hover hover:text-text-primary"
-                                      >
-                                        {!disableBgActivity && (
-                                          <div
-                                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[status]}`}
-                                            title={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                                            aria-label={t(STATUS_KEYS[status]) || STATUS_LABELS[status] || status}
-                                          />
-                                        )}
-                                        <span className="truncate flex-1">{model.name}</span>
-                                      </button>
-                                    );
-                                  })}
-                                {models.filter(
-                                  (m) =>
-                                    m.enabled !== false &&
-                                    m.id !== (activeConversation?.model || selectedModel) &&
-                                    !compareConversations.some((c) => c.model === m.id),
-                                ).length === 0 && (
-                                  <div className="px-3 py-4 text-center text-xs text-text-muted italic">
-                                    No other models enabled
-                                  </div>
-                                )}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddComparison}
+                          className="p-1.5 rounded-md text-text-muted transition-colors hover:bg-hover hover:text-text-secondary"
+                          aria-label={t("tooltip.addComparison") || "Add another comparison"}
+                          title={t("tooltip.addComparison") || "Add another comparison"}
+                        >
+                          <Plus size={16} aria-hidden="true" />
+                        </button>
                       </>
                     )}
                     <button
@@ -1367,6 +1294,7 @@ function App() {
                         <ComparisonColumn
                           conversation={activeConversation!}
                           isPrimary={true}
+                          label={t("chat.primary")}
                           models={models}
                           onModelChange={handlePrimaryModelChange}
                           generationState={primaryGeneration?.state ?? generationState}
@@ -1377,12 +1305,13 @@ function App() {
                         />
 
                         {/* Comparison Columns */}
-                        {compareConversations.map((c) => {
+                        {compareConversations.map((c, index) => {
                           const compGen = generationByConversation[c.id];
                           return (
                             <ComparisonColumn
                               key={c.id}
                               conversation={c}
+                              label={`${t("chat.comparison")} ${index + 1}`}
                               models={models}
                               onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
                               onClose={() => handleCompareClose(c.id)}
@@ -1432,7 +1361,8 @@ function App() {
                       onToggleMcpServer={handleToggleMcpServer}
                       isStreaming={isPrimaryGenerating}
                       onStop={stopStreaming}
-                      centered={messages.length === 0}
+                      centered={messages.length === 0 && !isCompareMode}
+                      isCompareMode={isCompareMode}
                     />
                   </motion.div>
 

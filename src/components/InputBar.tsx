@@ -61,6 +61,7 @@ interface InputBarProps {
   isStreaming?: boolean;
   onStop?: () => void;
   centered?: boolean;
+  isCompareMode?: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -93,6 +94,7 @@ export default memo(function InputBar({
   isStreaming,
   onStop,
   centered = false,
+  isCompareMode = false,
 }: InputBarProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -881,7 +883,11 @@ export default memo(function InputBar({
                       handleClipboardPaste(clipboardData);
                     }
                   }}
-                  placeholder={t("chat.placeholder") || "Ask for follow-up changes..."}
+                  placeholder={
+                    isCompareMode
+                      ? t("chat.comparePlaceholder") || "Ask all models..."
+                      : t("chat.placeholder") || "Ask for follow-up changes..."
+                  }
                   rows={1}
                   disabled={disabled}
                   aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
@@ -892,7 +898,7 @@ export default memo(function InputBar({
                 />
 
                 {/* Context Window Radial Indicator */}
-                {showContextWindow && currentModel && (
+                {showContextWindow && currentModel && !isCompareMode && (
                   <div className="relative group shrink-0 flex items-center justify-center">
                     <button
                       type="button"
@@ -990,8 +996,8 @@ export default memo(function InputBar({
                   </div>
                 )}
 
-                {/* Model selector */}
-                <div ref={dropdownRef} className="relative shrink-0">
+                {/* Each comparison column owns its model and thinking settings. */}
+                <div ref={dropdownRef} className="relative shrink-0" hidden={isCompareMode}>
                   <button
                     ref={modelTriggerRef}
                     id="model-selector-button"

@@ -29,6 +29,13 @@ describe("ChatArea", () => {
     expect(screen.getByRole("region", { name: /empty chat/i })).toBeInTheDocument();
   });
 
+  it("can suppress repeated empty prompts in comparison columns", () => {
+    render(<ChatArea messages={[]} {...defaultProps} showEmptyState={false} />);
+
+    expect(screen.getByRole("region", { name: "No messages yet" })).toBeInTheDocument();
+    expect(screen.queryByText("What should we work on?")).not.toBeInTheDocument();
+  });
+
   it("renders user messages", () => {
     const messages = [makeMessage({ role: "user", content: "Hello world" })];
     render(<ChatArea messages={messages} {...defaultProps} />);

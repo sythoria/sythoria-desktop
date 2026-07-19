@@ -11,6 +11,7 @@ import { useTranslation } from "../utils/i18n";
 interface ComparisonColumnProps {
   conversation: Conversation;
   isPrimary?: boolean;
+  label: string;
   models: ModelConfig[];
   onModelChange: (modelId: string) => void;
   onClose?: () => void;
@@ -26,6 +27,7 @@ export const ComparisonColumn = React.memo(
       {
         conversation,
         isPrimary = false,
+        label,
         models,
         onModelChange,
         onClose,
@@ -78,24 +80,13 @@ export const ComparisonColumn = React.memo(
       }, [messages.length, isStreaming, scroll.isAtBottom]);
 
       return (
-        <div
-          className={`comparison-column-panel min-h-0 flex flex-col relative bg-chat ${isPrimary ? "primary-column" : ""}`}
+        <section
+          aria-label={`${label} response`}
+          className="comparison-column-panel min-h-0 flex flex-col relative bg-chat"
         >
-          <div
-            className={`shrink-0 px-4 py-2 text-xs font-medium border-b flex items-center justify-between gap-2 relative z-10 ${
-              isPrimary
-                ? "bg-accent-soft/40 text-text-primary font-semibold border-accent/20"
-                : "bg-surface/50 backdrop-blur-sm text-text-muted border-border"
-            }`}
-          >
-            <span className="min-w-0 flex-1 truncate">
-              {isPrimary
-                ? `${t("chat.primaryChat")} (${conversation.title || t("chat.primary")})`
-                : conversation.title?.endsWith(" (Compare)")
-                  ? `${conversation.title.slice(0, -10)} (${t("common.compare")})`
-                  : conversation.title === "Untitled" || !conversation.title
-                    ? t("common.untitled")
-                    : conversation.title}
+          <div className="shrink-0 px-4 py-2 text-xs font-medium border-b border-border/70 bg-surface/35 backdrop-blur-sm flex items-center justify-between gap-2 relative z-10">
+            <span className={`min-w-0 flex-1 truncate ${isPrimary ? "text-text-primary" : "text-text-muted"}`}>
+              {label}
             </span>
             <div className="flex shrink-0 items-center gap-1.5">
               <ResponseSettingsSelector
@@ -129,8 +120,9 @@ export const ComparisonColumn = React.memo(
             conversationId={conversation.id}
             pendingWorktree={conversation.pendingWorktree}
             scrollContainerRef={nonVirtualizedRef}
+            showEmptyState={false}
           />
-        </div>
+        </section>
       );
     },
   ),
