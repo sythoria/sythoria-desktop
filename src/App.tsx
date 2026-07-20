@@ -570,6 +570,7 @@ function App() {
     init();
     useUIStore.getState().initDownloadedThemes();
     useKeybindStore.getState().initKeybinds();
+    useAppshotStore.getState().init();
     useUIStore.getState().initSkipExternalLinkWarning();
   }, [init]);
 
@@ -682,6 +683,12 @@ function App() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && useAppshotStore.getState().isCapturing) {
+        e.preventDefault();
+        useAppshotStore.getState().cancelCapture();
+        return;
+      }
+
       if (e.key === "Escape" && isStreaming) {
         stopStreaming();
         return;
@@ -730,6 +737,7 @@ function App() {
         }, 50);
       } else if (matchKeybind(e, keys.captureAppshot.currentCombo)) {
         e.preventDefault();
+        if (e.repeat) return;
         useAppshotStore.getState().captureAndAttachToChat();
       } else if (matchKeybind(e, keys.goBack.currentCombo)) {
         if (useChatStore.getState().navigationIndex > 0) {
