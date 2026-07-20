@@ -314,7 +314,11 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         await get().loadRecentAppshots();
       }
       ui.addToast("Appshot added to the chat draft", "success");
-      setTimeout(() => document.getElementById("chat-input")?.focus(), 50);
+      setTimeout(() => {
+        if (typeof document !== "undefined") {
+          document.getElementById("chat-input")?.focus();
+        }
+      }, 50);
     } catch (error) {
       const message = errorMessage(error);
       if (!message.toLowerCase().includes("cancel")) {

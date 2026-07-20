@@ -272,7 +272,7 @@ async fn remove_partial_download(partial_path: &Path) {
 async fn promote_whisper_download(
     partial_path: &Path,
     destination_path: &Path,
-    backup_path: &Path,
+    _backup_path: &Path,
 ) -> Result<(), AppError> {
     match tokio::fs::symlink_metadata(destination_path).await {
         Ok(metadata) if !metadata.file_type().is_file() => {
@@ -301,21 +301,21 @@ async fn promote_whisper_download(
             return Ok(());
         }
 
-        tokio::fs::rename(destination_path, backup_path).await?;
+        tokio::fs::rename(destination_path, _backup_path).await?;
         if let Err(promote_error) = tokio::fs::rename(partial_path, destination_path).await {
-            return match tokio::fs::rename(backup_path, destination_path).await {
+            return match tokio::fs::rename(_backup_path, destination_path).await {
                 Ok(()) => Err(promote_error.into()),
                 Err(restore_error) => Err(AppError::ConfigIo(format!(
                     "Failed to promote Whisper model ({promote_error}) and restore the previous model ({restore_error}); the previous model remains at {}",
-                    backup_path.display()
+                    _backup_path.display()
                 ))),
             };
         }
 
-        if let Err(error) = tokio::fs::remove_file(backup_path).await {
+        if let Err(error) = tokio::fs::remove_file(_backup_path).await {
             log::warn!(
                 "Whisper model was updated, but its temporary backup could not be removed at {}: {}",
-                backup_path.display(),
+                _backup_path.display(),
                 error
             );
         }
@@ -328,6 +328,14 @@ fn validate_whisper_model_file_name(file_name: &str) -> Result<&str, AppError> {
     if file_name.is_empty() || file_name.len() > 255 {
         return Err(AppError::AppPath(
             "Invalid Whisper model file name".to_string(),
+        ));
+    }
+
+    // Reject both platform separators so a persisted model name stays safe if the
+    // app data directory is later used on another operating system.
+    if file_name.contains(['/', '\\', '\0']) {
+        return Err(AppError::AppPath(
+            "Whisper model file name must not contain a path".to_string(),
         ));
     }
 

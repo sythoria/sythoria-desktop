@@ -28,11 +28,11 @@ export default defineConfig(async () => ({
 
   build: {
     target: ["es2021", "chrome105", "safari15"],
-    minify: "esbuild",
+    minify: "oxc",
     cssMinify: true,
     sourcemap: false,
 
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id) {
           if (id.includes("highlight.js/lib/languages/")) {
