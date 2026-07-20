@@ -8,6 +8,7 @@ import { useModelStore } from "../store/useModelStore";
 import { useGitStore } from "../store/useGitStore";
 import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
+import { Select } from "./ui/Select";
 import type { ProjectPermission } from "../types";
 
 interface FormProps {
@@ -315,20 +316,17 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
               <label className="text-xs font-semibold text-text-secondary">Model Override</label>
               <span className="text-[10px] text-text-muted">Force model for this workspace</span>
             </div>
-            <select
+            <Select
               value={modelOverride}
-              onChange={(e) => setModelOverride(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg bg-input border border-input-border text-text-primary focus:outline-none focus:border-accent"
-            >
-              <option value="">Use System-wide Selected Model</option>
-              {models
-                .filter((m) => m.enabled !== false)
-                .map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name} ({model.provider})
-                  </option>
-                ))}
-            </select>
+              onChange={setModelOverride}
+              options={[
+                { value: "", label: "Use System-wide Selected Model" },
+                ...models
+                  .filter((model) => model.enabled !== false)
+                  .map((model) => ({ value: model.id, label: `${model.name} (${model.provider})` })),
+              ]}
+              aria-label="Model override"
+            />
           </div>
 
           {/* Custom System Prompt */}
