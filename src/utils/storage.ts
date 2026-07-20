@@ -750,33 +750,35 @@ const GitConfigSchema = z.object({
   gitEmail: z.string().default("assistant@sythoria.local"),
 });
 
+export type AppshotCaptureTarget = "primary" | "all" | "window";
+
 export interface AppshotConfig {
   enabled: boolean;
   captureFolder: string;
-  hotkey: string;
-  imageFormat: string;
+  captureTarget: AppshotCaptureTarget;
+  imageFormat: "png" | "jpeg";
   imageQuality: number;
   delaySeconds: number;
   autoCleanEnabled: boolean;
   autoCleanType: "count" | "size" | "age";
   autoCleanValue: number;
-  includeCursor: boolean;
   hideWindowOnCapture: boolean;
+  saveToGallery: boolean;
   screenCapturePromptShown: boolean;
 }
 
 const AppshotConfigSchema = z.object({
   enabled: z.boolean().default(true),
   captureFolder: z.string().default(""),
-  hotkey: z.string().default("Alt+Shift+S"),
-  imageFormat: z.string().default("png"),
-  imageQuality: z.number().default(85),
-  delaySeconds: z.number().default(0),
-  autoCleanEnabled: z.boolean().default(false),
+  captureTarget: z.enum(["primary", "all", "window"]).default("primary"),
+  imageFormat: z.enum(["png", "jpeg"]).default("png"),
+  imageQuality: z.number().int().min(10).max(100).default(85),
+  delaySeconds: z.number().int().min(0).max(30).default(0),
+  autoCleanEnabled: z.boolean().default(true),
   autoCleanType: z.enum(["count", "size", "age"]).default("count"),
-  autoCleanValue: z.number().default(50),
-  includeCursor: z.boolean().default(false),
+  autoCleanValue: z.number().int().min(1).max(1_000_000).default(50),
   hideWindowOnCapture: z.boolean().default(true),
+  saveToGallery: z.boolean().default(false),
   screenCapturePromptShown: z.boolean().default(false),
 });
 
@@ -1291,18 +1293,18 @@ export async function saveGitConfig(config: GitConfig): Promise<void> {
   }
 }
 
-const DEFAULT_APPSHOT_CONFIG: AppshotConfig = {
+export const DEFAULT_APPSHOT_CONFIG: AppshotConfig = {
   enabled: true,
   captureFolder: "",
-  hotkey: "Alt+Shift+S",
+  captureTarget: "primary",
   imageFormat: "png",
   imageQuality: 85,
   delaySeconds: 0,
-  autoCleanEnabled: false,
+  autoCleanEnabled: true,
   autoCleanType: "count",
   autoCleanValue: 50,
-  includeCursor: false,
   hideWindowOnCapture: true,
+  saveToGallery: false,
   screenCapturePromptShown: false,
 };
 
@@ -1337,6 +1339,7 @@ export async function saveAppshotConfig(config: AppshotConfig): Promise<void> {
       error: e,
       action: "Appshots configuration settings may not persist.",
     });
+    throw e;
   }
 }
 
