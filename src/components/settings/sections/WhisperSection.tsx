@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
 import { useModelStore } from "../../../store/useModelStore";
 
@@ -111,20 +112,22 @@ export function WhisperSection() {
                 <Globe size={13} />
                 <span>{t("settings.voice.language")}</span>
               </label>
-              <select
+              <Select
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full text-xs bg-surface border border-border/85 rounded-lg p-2 text-text-primary outline-none focus:border-accent"
-              >
-                <option value="en">{t("settings.voice.langEn", { defaultValue: "English (default)" })}</option>
-                <option value="es">{t("settings.voice.langEs", { defaultValue: "Spanish" })}</option>
-                <option value="fr">{t("settings.voice.langFr", { defaultValue: "French" })}</option>
-                <option value="de">{t("settings.voice.langDe", { defaultValue: "German" })}</option>
-                <option value="it">{t("settings.voice.langIt", { defaultValue: "Italian" })}</option>
-                <option value="ja">{t("settings.voice.langJa", { defaultValue: "Japanese" })}</option>
-                <option value="zh">{t("settings.voice.langZh", { defaultValue: "Chinese" })}</option>
-                <option value="auto">{t("settings.voice.languageAuto")}</option>
-              </select>
+                onChange={setLanguage}
+                options={[
+                  { value: "en", label: t("settings.voice.langEn", { defaultValue: "English (default)" }) },
+                  { value: "es", label: t("settings.voice.langEs", { defaultValue: "Spanish" }) },
+                  { value: "fr", label: t("settings.voice.langFr", { defaultValue: "French" }) },
+                  { value: "de", label: t("settings.voice.langDe", { defaultValue: "German" }) },
+                  { value: "it", label: t("settings.voice.langIt", { defaultValue: "Italian" }) },
+                  { value: "ja", label: t("settings.voice.langJa", { defaultValue: "Japanese" }) },
+                  { value: "zh", label: t("settings.voice.langZh", { defaultValue: "Chinese" }) },
+                  { value: "auto", label: t("settings.voice.languageAuto") },
+                ]}
+                size="compact"
+                aria-label={t("settings.voice.language")}
+              />
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -132,18 +135,16 @@ export function WhisperSection() {
                 <Sparkles size={13} />
                 <span>Refinement Model (Instant LLM Polish)</span>
               </label>
-              <select
+              <Select
                 value={refinementModelId || ""}
-                onChange={(e) => setRefinementModelId(e.target.value || null)}
-                className="w-full text-xs bg-surface border border-border/85 rounded-lg p-2 text-text-primary outline-none focus:border-accent"
-              >
-                <option value="">Same as Active Chat Model</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setRefinementModelId(value || null)}
+                options={[
+                  { value: "", label: "Same as Active Chat Model" },
+                  ...models.map((model) => ({ value: model.id, label: model.name })),
+                ]}
+                size="compact"
+                aria-label="Refinement model"
+              />
             </div>
 
             <div className="flex flex-col gap-1.5">
