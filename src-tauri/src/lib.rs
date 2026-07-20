@@ -1238,7 +1238,13 @@ async fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, AppError> {
 }
 
 pub struct FileTokenRegistry {
-    pub tokens: std::sync::Mutex<std::collections::HashMap<String, std::path::PathBuf>>,
+    tokens: std::sync::Mutex<std::collections::HashMap<String, FileTokenEntry>>,
+}
+
+#[derive(Clone)]
+struct FileTokenEntry {
+    path: std::path::PathBuf,
+    delete_after_read: bool,
 }
 
 impl FileTokenRegistry {
@@ -1249,18 +1255,59 @@ impl FileTokenRegistry {
     }
 
     pub fn register(&self, path: std::path::PathBuf) -> String {
+        self.register_with_policy(path, false)
+    }
+
+    pub fn register_ephemeral(&self, path: std::path::PathBuf) -> String {
+        self.register_with_policy(path, true)
+    }
+
+    fn register_with_policy(&self, path: std::path::PathBuf, delete_after_read: bool) -> String {
         let token = uuid::Uuid::new_v4().to_string();
         if let Ok(mut lock) = self.tokens.lock() {
-            lock.insert(token.clone(), path);
+            lock.insert(
+                token.clone(),
+                FileTokenEntry {
+                    path,
+                    delete_after_read,
+                },
+            );
         }
         token
     }
 
     pub fn consume(&self, token: &str) -> Option<std::path::PathBuf> {
+        self.consume_entry(token).map(|entry| entry.path)
+    }
+
+    fn consume_entry(&self, token: &str) -> Option<FileTokenEntry> {
         if let Ok(mut lock) = self.tokens.lock() {
             lock.remove(token)
         } else {
             None
+        }
+    }
+
+    pub fn registered_paths(&self) -> std::collections::HashSet<std::path::PathBuf> {
+        self.tokens
+            .lock()
+            .map(|lock| lock.values().map(|entry| entry.path.clone()).collect())
+            .unwrap_or_default()
+    }
+}
+
+impl Default for FileTokenRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct EphemeralFileCleanup(Option<std::path::PathBuf>);
+
+impl Drop for EphemeralFileCleanup {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
         }
     }
 }
@@ -1326,9 +1373,12 @@ async fn read_file_from_token(
     state: tauri::State<'_, FileTokenRegistry>,
     token: String,
 ) -> Result<FilePayload, AppError> {
-    let path_buf = state
-        .consume(&token)
+    let entry = state
+        .consume_entry(&token)
         .ok_or_else(|| AppError::ConfigIo("Invalid or expired file token".to_string()))?;
+    let path_buf = entry.path;
+    let _ephemeral_cleanup =
+        EphemeralFileCleanup(entry.delete_after_read.then(|| path_buf.clone()));
 
     if !path_buf.is_file() {
         return Err(AppError::ConfigIo(format!(
@@ -1400,6 +1450,11 @@ async fn read_file_from_token(
             text_content: Some(text_content),
         })
     }
+}
+
+#[tauri::command]
+fn release_file_token(state: tauri::State<'_, FileTokenRegistry>, token: String) -> bool {
+    state.consume(&token).is_some()
 }
 
 #[tauri::command]
@@ -1839,6 +1894,7 @@ pub fn run() {
             update_tray_icon,
             select_file_and_get_token,
             read_file_from_token,
+            release_file_token,
             select_save_file_and_get_token,
             write_exported_file_by_token,
             commands::audio::start_recording,
@@ -1873,8 +1929,11 @@ pub fn run() {
             project_tools::project_glob,
             project_tools::create_project_dir,
             appshots::capture_screen,
+            appshots::cancel_appshot_capture,
             appshots::list_appshots,
             appshots::delete_appshot,
+            appshots::clear_appshots,
+            appshots::wipe_appshot_data,
             appshots::run_appshots_clean,
             appshots::select_appshot_folder,
             appshots::has_screen_capture_permission,
@@ -1903,7 +1962,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_error;
+    use super::{truncate_error, EphemeralFileCleanup, FileTokenRegistry};
 
     #[test]
     fn error_preview_truncates_on_a_character_boundary() {
@@ -1918,5 +1977,19 @@ mod tests {
     #[test]
     fn short_error_preview_is_unchanged() {
         assert_eq!(truncate_error("provider error"), "provider error");
+    }
+
+    #[test]
+    fn ephemeral_file_tokens_remove_the_file_after_read_cleanup() {
+        let path =
+            std::env::temp_dir().join(format!("sythoria-token-test-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"temporary capture").unwrap();
+        let registry = FileTokenRegistry::new();
+        let token = registry.register_ephemeral(path.clone());
+        let entry = registry.consume_entry(&token).unwrap();
+
+        assert!(entry.delete_after_read);
+        drop(EphemeralFileCleanup(Some(entry.path)));
+        assert!(!path.exists());
     }
 }
