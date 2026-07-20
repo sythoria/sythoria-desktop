@@ -6,6 +6,7 @@ import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { useUIStore } from "../../../store/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
 
@@ -15,6 +16,11 @@ const STATUS_KEYS: Record<string, string> = {
   connected: "status.connected",
   error: "status.error",
 };
+
+const PROVIDER_OPTIONS = PROVIDER_PRESETS.map((preset) => ({
+  value: preset.providerId,
+  label: preset.label,
+}));
 
 interface ModelCardProps {
   id?: string;
@@ -109,41 +115,28 @@ export const ModelCard = memo(function ModelCard({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted" htmlFor={`model-provider-${model.id}`}>
+            <label className="text-xs font-medium text-text-muted" htmlFor={`model-provider-${model.id}-trigger`}>
               {t("settings.models.preset")}
             </label>
-            <div className="relative">
-              <select
-                id={`model-provider-${model.id}`}
-                value={model.provider || "custom"}
-                onChange={(e) => {
-                  const preset = PROVIDER_PRESETS.find((p) => p.providerId === e.target.value);
-                  if (preset) {
-                    onUpdate(model.id, {
-                      provider: preset.providerId,
-                      apiBase: preset.apiBase || model.apiBase,
-                      modelId: preset.defaultModel || model.modelId,
-                      name: model.name === "New Model" ? preset.label : model.name,
-                    });
-                  } else {
-                    onUpdate(model.id, { provider: e.target.value });
-                  }
-                }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                aria-label="Provider preset"
-              >
-                {PROVIDER_PRESETS.map((p) => (
-                  <option key={p.providerId} value={p.providerId}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                aria-hidden="true"
-              />
-            </div>
+            <Select
+              id={`model-provider-${model.id}`}
+              value={model.provider || "custom"}
+              options={PROVIDER_OPTIONS}
+              onChange={(providerId) => {
+                const preset = PROVIDER_PRESETS.find((candidate) => candidate.providerId === providerId);
+                if (preset) {
+                  onUpdate(model.id, {
+                    provider: preset.providerId,
+                    apiBase: preset.apiBase || model.apiBase,
+                    modelId: preset.defaultModel || model.modelId,
+                    name: model.name === "New Model" ? preset.label : model.name,
+                  });
+                } else {
+                  onUpdate(model.id, { provider: providerId });
+                }
+              }}
+              aria-label={t("settings.models.preset")}
+            />
           </div>
         </div>
 
