@@ -1,11 +1,12 @@
 import { memo } from "react";
 import { motion } from "motion/react";
-import { Trash2, ChevronDown, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Trash2, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { SearchApiConfig, SearchProvider } from "../../../types";
 import { SEARCH_PROVIDER_PRESETS } from "../../../config/searchPresets";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { validateSearchApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
 
 interface SearchApiCardProps {
@@ -79,42 +80,32 @@ export const SearchApiCard = memo(function SearchApiCard({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted" htmlFor={`search-provider-${config.id}`}>
+            <label className="text-xs font-medium text-text-muted" htmlFor={`search-provider-${config.id}-trigger`}>
               {t("settings.search.provider")}
             </label>
-            <div className="relative">
-              <select
-                id={`search-provider-${config.id}`}
-                value={config.provider}
-                onChange={(e) => {
-                  const provider = e.target.value as SearchProvider;
-                  const preset = SEARCH_PROVIDER_PRESETS.find((p) => p.provider === provider);
-                  if (preset) {
-                    onUpdate(config.id, {
-                      provider,
-                      baseUrl: preset.baseUrl || config.baseUrl,
-                      name: config.name === "New Search API" ? preset.label : config.name,
-                      maxResults: preset.defaultMaxResults,
-                    });
-                  } else {
-                    onUpdate(config.id, { provider });
-                  }
-                }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                aria-label="Search provider"
-              >
-                {SEARCH_PROVIDER_PRESETS.map((p) => (
-                  <option key={p.provider} value={p.provider}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                aria-hidden="true"
-              />
-            </div>
+            <Select
+              id={`search-provider-${config.id}`}
+              value={config.provider}
+              onChange={(value) => {
+                const provider = value as SearchProvider;
+                const preset = SEARCH_PROVIDER_PRESETS.find((candidate) => candidate.provider === provider);
+                if (preset) {
+                  onUpdate(config.id, {
+                    provider,
+                    baseUrl: preset.baseUrl || config.baseUrl,
+                    name: config.name === "New Search API" ? preset.label : config.name,
+                    maxResults: preset.defaultMaxResults,
+                  });
+                } else {
+                  onUpdate(config.id, { provider });
+                }
+              }}
+              options={SEARCH_PROVIDER_PRESETS.map((preset) => ({
+                value: preset.provider,
+                label: preset.label,
+              }))}
+              aria-label="Search provider"
+            />
           </div>
         </div>
 
