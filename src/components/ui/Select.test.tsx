@@ -41,4 +41,21 @@ describe("Select", () => {
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
   });
+
+  it("portals compact menus outside clipping containers", async () => {
+    const user = userEvent.setup();
+    render(
+      <div className="overflow-hidden">
+        <Select value="one" options={options} onChange={vi.fn()} size="compact" aria-label="Compact number" />
+      </div>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Compact number" });
+    await user.click(trigger);
+
+    const listbox = screen.getByRole("listbox", { name: "Compact number" });
+    expect(listbox.parentElement).toBe(document.body);
+    expect(trigger).toHaveClass("text-xs");
+    expect(screen.getByRole("option", { name: "One" })).toHaveClass("text-xs");
+  });
 });
