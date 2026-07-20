@@ -1,11 +1,18 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { loadAppshotConfig, saveAppshotConfig, AppshotConfig } from "../utils/storage";
+import {
+  AppshotCaptureTarget,
+  AppshotConfig,
+  DEFAULT_APPSHOT_CONFIG,
+  loadAppshotConfig,
+  saveAppshotConfig,
+} from "../utils/storage";
 import { logInfo, logError } from "../utils/logger";
 import { useChatStore } from "./useChatStore";
+import { useModelStore } from "./useModelStore";
 import { useUIStore } from "./useUIStore";
-import { Attachment } from "../types";
-import { generateId } from "../utils/generateId";
+import { MAX_ATTACHMENTS, MAX_FILE_SIZE_BYTES } from "../config/constants";
+import { parseApiError } from "../utils/parseApiError";
 
 export interface AppshotFile {
   path: string;
@@ -14,11 +21,31 @@ export interface AppshotFile {
   timestamp: string;
 }
 
+export interface AppshotCaptureResult {
+  path: string;
+  token: string;
+  name: string;
+  size: number;
+  width: number;
+  height: number;
+  isEphemeral: boolean;
+}
+
+interface CaptureOverrides {
+  persistToGallery?: boolean;
+  maxOutputBytes?: number;
+}
+
+interface ClearOptions {
+  skipConfirmation?: boolean;
+}
+
 interface AppshotStore {
   config: AppshotConfig;
   recentAppshots: AppshotFile[];
   isCapturing: boolean;
   loading: boolean;
+  initialized: boolean;
   error: string | null;
   hasPermission: boolean;
 
@@ -26,57 +53,65 @@ interface AppshotStore {
   updateConfig: (updates: Partial<AppshotConfig>) => Promise<void>;
   checkPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
-  triggerCapture: (target: "all" | "primary" | "window") => Promise<{ path: string; token: string }>;
+  triggerCapture: (target?: AppshotCaptureTarget, overrides?: CaptureOverrides) => Promise<AppshotCaptureResult>;
+  cancelCapture: () => Promise<void>;
+  runCleanup: () => Promise<number>;
   loadRecentAppshots: () => Promise<void>;
   deleteAppshot: (path: string) => Promise<void>;
-  clearAll: () => Promise<void>;
+  clearAll: (options?: ClearOptions) => Promise<void>;
   captureAndAttachToChat: () => Promise<void>;
 }
 
+let initializationPromise: Promise<void> | null = null;
+
+function errorMessage(error: unknown): string {
+  return parseApiError(error).message;
+}
+
 export const useAppshotStore = create<AppshotStore>((set, get) => ({
-  config: {
-    enabled: true,
-    captureFolder: "",
-    hotkey: "Alt+Shift+S",
-    imageFormat: "png",
-    imageQuality: 85,
-    delaySeconds: 0,
-    autoCleanEnabled: false,
-    autoCleanType: "count",
-    autoCleanValue: 50,
-    includeCursor: false,
-    hideWindowOnCapture: true,
-    screenCapturePromptShown: false,
-  },
+  config: { ...DEFAULT_APPSHOT_CONFIG },
   recentAppshots: [],
   isCapturing: false,
   loading: false,
+  initialized: false,
   error: null,
   hasPermission: true,
 
   init: async () => {
-    set({ loading: true, error: null });
-    try {
-      const config = await loadAppshotConfig();
-      set({ config });
-      const hasPerm = await get().checkPermission();
-      if (hasPerm) {
-        await get().loadRecentAppshots();
+    if (get().initialized) return;
+    if (initializationPromise) return initializationPromise;
+
+    initializationPromise = (async () => {
+      set({ loading: true, error: null });
+      try {
+        const config = await loadAppshotConfig();
+        set({ config });
+        await Promise.all([get().checkPermission(), get().loadRecentAppshots()]);
+        if (config.autoCleanEnabled) {
+          await get().runCleanup();
+          await get().loadRecentAppshots();
+        }
+        set({ initialized: true });
+      } catch (error) {
+        const message = errorMessage(error);
+        logError("appshots", "Failed to initialize Appshots store", { error });
+        set({ error: message });
+      } finally {
+        set({ loading: false });
+        initializationPromise = null;
       }
-      set({ loading: false });
-    } catch (e: any) {
-      logError("appshots", "Failed to initialize Appshots store", { error: e });
-      set({ error: e.message || String(e), loading: false });
-    }
+    })();
+
+    return initializationPromise;
   },
 
   checkPermission: async () => {
     try {
-      const hasPerm = await invoke<boolean>("has_screen_capture_permission");
-      set({ hasPermission: hasPerm });
-      return hasPerm;
-    } catch (e) {
-      logError("appshots", "Failed to check screen capture permission", { error: e });
+      const hasPermission = await invoke<boolean>("has_screen_capture_permission");
+      set({ hasPermission });
+      return hasPermission;
+    } catch (error) {
+      logError("appshots", "Failed to check screen capture permission", { error });
       set({ hasPermission: false });
       return false;
     }
@@ -94,91 +129,110 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         await get().updateConfig({ screenCapturePromptShown: true });
       }
       return granted;
-    } catch (e) {
-      logError("appshots", "Failed to request screen capture permission", { error: e });
+    } catch (error) {
+      logError("appshots", "Failed to request screen capture permission", { error });
       set({ hasPermission: false });
       return false;
     }
   },
 
   updateConfig: async (updates) => {
-    const newConfig = { ...get().config, ...updates };
-    set({ config: newConfig });
-    await saveAppshotConfig(newConfig);
-    logInfo("appshots", "Updated Appshots config settings", { details: JSON.stringify(updates) });
+    const previousConfig = get().config;
+    const newConfig = { ...previousConfig, ...updates };
+    set({ config: newConfig, error: null });
+    try {
+      await saveAppshotConfig(newConfig);
+      logInfo("appshots", "Updated Appshots configuration");
+      if (Object.prototype.hasOwnProperty.call(updates, "captureFolder")) {
+        await get().loadRecentAppshots();
+      }
+    } catch (error) {
+      set({ config: previousConfig, error: errorMessage(error) });
+      throw error;
+    }
   },
 
-  triggerCapture: async (target) => {
-    const hasPerm = await get().checkPermission();
-    if (!hasPerm) {
-      const err = "Screen recording permission is not granted. Please enable it in macOS System Settings.";
-      set({ error: err });
-      throw new Error(err);
+  triggerCapture: async (target, overrides = {}) => {
+    if (get().isCapturing) {
+      throw new Error("Another Appshot capture is already in progress");
     }
     set({ isCapturing: true, error: null });
-    const {
-      imageFormat,
-      imageQuality,
-      delaySeconds,
-      includeCursor,
-      hideWindowOnCapture,
-      captureFolder,
-      autoCleanEnabled,
-      autoCleanType,
-      autoCleanValue,
-    } = get().config;
     try {
-      // 1. Capture screen via Tauri command
-      const result = await invoke<{ path: string; token: string }>("capture_screen", {
-        target,
-        options: {
-          format: imageFormat,
-          quality: imageQuality,
-          delaySeconds,
-          includeCursor,
-          hideWindow: hideWindowOnCapture,
-          customFolder: captureFolder || null,
-        },
-      });
-
-      logInfo("appshots", `Screen captured successfully and saved to: ${result.path}`);
-
-      // 2. Run auto cleanup if enabled
-      if (autoCleanEnabled) {
-        try {
-          const cleanedCount = await invoke<number>("run_appshots_clean", {
-            cleanType: autoCleanType,
-            cleanValue: autoCleanValue,
-            customFolder: captureFolder || null,
-          });
-          if (cleanedCount > 0) {
-            logInfo("appshots", `Auto-cleanup completed: deleted ${cleanedCount} old screenshot files.`);
-          }
-        } catch (e) {
-          logError("appshots", "Auto-cleanup failed to execute", { error: e });
-        }
+      const hasPermission = await get().checkPermission();
+      if (!hasPermission) {
+        const message = "Screen capture permission is required. Enable it in your system privacy settings.";
+        set({ error: message });
+        throw new Error(message);
       }
 
-      // 3. Reload captures gallery
-      await get().loadRecentAppshots();
-      set({ isCapturing: false });
+      const config = get().config;
+      const persistToGallery = overrides.persistToGallery ?? config.saveToGallery;
+      const result = await invoke<AppshotCaptureResult>("capture_screen", {
+        target: target ?? config.captureTarget,
+        options: {
+          format: config.imageFormat,
+          quality: config.imageQuality,
+          delaySeconds: config.delaySeconds,
+          hideWindow: config.hideWindowOnCapture,
+          customFolder: persistToGallery ? config.captureFolder || null : null,
+          persistToGallery,
+          maxOutputBytes: overrides.maxOutputBytes ?? null,
+        },
+      });
+      logInfo("appshots", `Captured ${result.name} (${result.width}x${result.height})`);
+      if (persistToGallery) {
+        await get().loadRecentAppshots();
+      }
       return result;
-    } catch (e: any) {
-      logError("appshots", "Screen capture failed", { error: e });
-      set({ error: e.message || String(e), isCapturing: false });
-      throw e;
+    } catch (error) {
+      const message = errorMessage(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        logError("appshots", "Screen capture failed", { error });
+      }
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ isCapturing: false });
+    }
+  },
+
+  cancelCapture: async () => {
+    try {
+      await invoke<boolean>("cancel_appshot_capture");
+    } catch (error) {
+      logError("appshots", "Failed to cancel Appshot capture", { error });
+    }
+  },
+
+  runCleanup: async () => {
+    const { autoCleanEnabled, autoCleanType, autoCleanValue, captureFolder } = get().config;
+    if (!autoCleanEnabled) return 0;
+    try {
+      const deleted = await invoke<number>("run_appshots_clean", {
+        cleanType: autoCleanType,
+        cleanValue: autoCleanValue,
+        customFolder: captureFolder || null,
+      });
+      if (deleted > 0) {
+        logInfo("appshots", `Appshot retention removed ${deleted} old capture(s)`);
+      }
+      return deleted;
+    } catch (error) {
+      logError("appshots", "Appshot retention cleanup failed", { error });
+      return 0;
     }
   },
 
   loadRecentAppshots: async () => {
     const { captureFolder } = get().config;
     try {
-      const list = await invoke<AppshotFile[]>("list_appshots", {
+      const recentAppshots = await invoke<AppshotFile[]>("list_appshots", {
         customFolder: captureFolder || null,
       });
-      set({ recentAppshots: list });
-    } catch (e) {
-      logError("appshots", "Failed to retrieve recent screenshots", { error: e });
+      set({ recentAppshots });
+    } catch (error) {
+      logError("appshots", "Failed to load the Appshot gallery", { error });
+      set({ recentAppshots: [] });
     }
   },
 
@@ -186,97 +240,87 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
     try {
       const customFolder = get().config.captureFolder || null;
       await invoke("delete_appshot", { path, customFolder });
-      logInfo("appshots", `Deleted screenshot: ${path}`);
+      logInfo("appshots", "Deleted an Appshot from the gallery");
       await get().loadRecentAppshots();
-    } catch (e: any) {
-      logError("appshots", `Failed to delete screenshot: ${path}`, { error: e });
+    } catch (error) {
+      const message = errorMessage(error);
+      logError("appshots", "Failed to delete an Appshot", { error });
+      useUIStore.getState().addToast(message, "error");
     }
   },
 
-  clearAll: async () => {
-    const confirm = window.confirm("Are you sure you want to delete all screenshots in the capture folder?");
-    if (!confirm) return;
+  clearAll: async (options = {}) => {
+    if (!options.skipConfirmation) {
+      const confirmed = window.confirm("Delete every Appshot in the current gallery folder?");
+      if (!confirmed) return;
+    }
 
     set({ loading: true });
-    const { recentAppshots } = get();
     try {
       const customFolder = get().config.captureFolder || null;
-      for (const shot of recentAppshots) {
-        await invoke("delete_appshot", { path: shot.path, customFolder });
-      }
-      logInfo("appshots", "Cleared all screenshots in gallery");
+      const deleted = await invoke<number>("clear_appshots", { customFolder });
+      logInfo("appshots", `Cleared ${deleted} Appshot(s) from the gallery`);
       await get().loadRecentAppshots();
-    } catch (e: any) {
-      logError("appshots", "Failed to clear all screenshots", { error: e });
+    } catch (error) {
+      const message = errorMessage(error);
+      logError("appshots", "Failed to clear the Appshot gallery", { error });
+      useUIStore.getState().addToast(message, "error");
     } finally {
       set({ loading: false });
     }
   },
 
   captureAndAttachToChat: async () => {
+    const ui = useUIStore.getState();
     try {
-      const { triggerCapture, config } = get();
+      await get().init();
+      const { config } = get();
       if (!config.enabled) {
-        useUIStore.getState().addToast("Appshots utility is disabled. Enable it in Settings > Appshots.", "info");
+        ui.addToast("Appshots is disabled. Enable it in Settings > Appshots.", "info");
         return;
       }
 
-      const confirm = window.confirm("Are you sure you want to capture your screen and attach it to the chat?");
-      if (!confirm) return;
-
-      const hasPerm = await get().checkPermission();
-      if (!hasPerm) {
-        useUIStore.getState().addToast("Screen recording permission is required.", "error");
-        return;
-      }
-
-      useUIStore.getState().addToast("Capturing screen...", "info");
-
-      // 2. Capture screen
-      const captureRes = await triggerCapture("primary");
-
-      // 3. Read file to get base64 dataUrl and size
-      const payload = await invoke<{
-        name: string;
-        size: number;
-        mimeType: string;
-        dataUrl?: string;
-      }>("read_file_from_token", { token: captureRes.token });
-
-      if (!payload.dataUrl) {
-        throw new Error("Failed to read captured image data");
-      }
-
-      // 3. Create attachment object
-      const attachment: Attachment = {
-        id: generateId(),
-        name: payload.name,
-        mimeType: payload.mimeType,
-        size: payload.size,
-        kind: "image",
-        dataUrl: payload.dataUrl,
-      };
-
-      // 4. Add to draftAttachments in useChatStore
       const chatStore = useChatStore.getState();
-      const currentDrafts = chatStore.draftAttachments || [];
-
-      if (currentDrafts.length >= 6) {
-        // MAX_ATTACHMENTS = 6
-        useUIStore.getState().addToast("Maximum of 6 attachments reached", "info");
+      if (chatStore.draftAttachments.length >= MAX_ATTACHMENTS) {
+        ui.addToast(`Maximum of ${MAX_ATTACHMENTS} attachments reached`, "info");
+        return;
+      }
+      const modelStore = useModelStore.getState();
+      const selectedModel = modelStore.models.find((model) => model.id === modelStore.selectedModel);
+      if (selectedModel?.supportsImages === false) {
+        ui.addToast(`"${selectedModel.name}" does not support image inputs.`, "error");
         return;
       }
 
-      chatStore.setDraftAttachments([...currentDrafts, attachment]);
-      useUIStore.getState().addToast("Screenshot added to chat!", "success");
+      const confirmed = window.confirm("Capture the selected screen target and add it to the chat draft?");
+      if (!confirmed) return;
+      if (config.captureTarget !== "window") {
+        ui.addToast(config.delaySeconds > 0 ? "Appshot countdown started…" : "Capturing Appshot…", "info");
+      }
 
-      // 5. Ensure we focus the chat input so user can type/send immediately
-      setTimeout(() => {
-        document.getElementById("chat-input")?.focus();
-      }, 50);
-    } catch (e: any) {
-      logError("appshots", "Failed to capture and attach appshot", { error: e });
-      useUIStore.getState().addToast(`Capture failed: ${e.message || String(e)}`, "error");
+      const beforeCount = useChatStore.getState().draftAttachments.length;
+      const capture = await get().triggerCapture(config.captureTarget, {
+        persistToGallery: config.saveToGallery,
+        maxOutputBytes: MAX_FILE_SIZE_BYTES,
+      });
+      await useChatStore.getState().addDraftFileFromToken(capture.token, capture.name, capture.size);
+      const afterCount = useChatStore.getState().draftAttachments.length;
+      if (afterCount <= beforeCount) {
+        throw new Error("The Appshot was captured but could not be added to the chat draft");
+      }
+
+      if (config.saveToGallery) {
+        await get().runCleanup();
+        await get().loadRecentAppshots();
+      }
+      ui.addToast("Appshot added to the chat draft", "success");
+      setTimeout(() => document.getElementById("chat-input")?.focus(), 50);
+    } catch (error) {
+      const message = errorMessage(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        logError("appshots", "Failed to capture and attach an Appshot", { error });
+        ui.addToast(`Capture failed: ${message}`, "error");
+      }
     }
   },
 }));
