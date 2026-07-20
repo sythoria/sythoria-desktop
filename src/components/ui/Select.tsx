@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useId } from "react";
+import { useState, useRef, useEffect, useId, useCallback, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { springs } from "../../lib/motion-tokens";
@@ -15,6 +16,7 @@ interface SelectProps {
   disabled?: boolean;
   className?: string;
   id?: string;
+  size?: "default" | "compact";
   "aria-label"?: string;
 }
 
@@ -25,20 +27,55 @@ export function Select({
   disabled = false,
   className = "",
   id,
+  size = "default",
   "aria-label": ariaLabel,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
   const generatedId = useId();
   const listboxId = `${id ?? generatedId}-listbox`;
   const triggerId = `${id ?? generatedId}-trigger`;
+  const selectedOption = options.find((option) => option.value === value);
+  const safeActiveIndex = Math.min(activeIndex, Math.max(0, options.length - 1));
+  const triggerSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "px-3 py-1.5 text-sm";
+  const optionSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "px-3 py-1.5 text-sm";
+
+  const positionListbox = useCallback(() => {
+    const trigger = buttonRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const menuGap = 4;
+    const availableBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const availableAbove = rect.top - viewportPadding;
+    const openAbove = availableBelow < 200 && availableAbove > availableBelow;
+    const availableHeight = openAbove ? availableAbove : availableBelow;
+    const maxWidth = Math.max(0, window.innerWidth - viewportPadding * 2);
+    const width = Math.min(Math.max(rect.width, 150), maxWidth);
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - width - viewportPadding),
+    );
+
+    setMenuStyle({
+      left,
+      width,
+      maxHeight: Math.max(40, Math.min(240, availableHeight - menuGap)),
+      ...(openAbove
+        ? { bottom: window.innerHeight - rect.top + menuGap, top: undefined }
+        : { top: rect.bottom + menuGap, bottom: undefined }),
+    });
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (containerRef.current && !containerRef.current.contains(target) && !listboxRef.current?.contains(target)) {
         setIsOpen(false);
       }
     };
@@ -50,12 +87,21 @@ export function Select({
     };
   }, [isOpen]);
 
-  const selectedOption = options.find((opt) => opt.value === value);
-  const safeActiveIndex = Math.min(activeIndex, Math.max(0, options.length - 1));
+  useEffect(() => {
+    if (!isOpen) return;
+    positionListbox();
+    window.addEventListener("resize", positionListbox);
+    window.addEventListener("scroll", positionListbox, true);
+    return () => {
+      window.removeEventListener("resize", positionListbox);
+      window.removeEventListener("scroll", positionListbox, true);
+    };
+  }, [isOpen, positionListbox]);
 
   const openListbox = () => {
     const selectedIndex = options.findIndex((option) => option.value === value);
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    positionListbox();
     setIsOpen(true);
   };
 
@@ -79,46 +125,97 @@ export function Select({
     }
   }, [isOpen]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (event: React.KeyboardEvent) => {
     if (disabled) return;
-    if (e.key === " " || e.key === "Enter") {
-      e.preventDefault();
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
       if (isOpen) {
         closeListbox();
       } else {
         openListbox();
       }
-    } else if (e.key === "Escape") {
+    } else if (event.key === "Escape") {
       closeListbox();
-    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
       openListbox();
     }
   };
 
-  const handleListboxKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
+  const handleListboxKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
       setActiveIndex((index) => Math.min(index + 1, Math.max(0, options.length - 1)));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
       setActiveIndex((index) => Math.max(index - 1, 0));
-    } else if (e.key === "Home") {
-      e.preventDefault();
+    } else if (event.key === "Home") {
+      event.preventDefault();
       setActiveIndex(0);
-    } else if (e.key === "End") {
-      e.preventDefault();
+    } else if (event.key === "End") {
+      event.preventDefault();
       setActiveIndex(Math.max(0, options.length - 1));
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
       selectActiveOption();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
       closeListbox();
-    } else if (e.key === "Tab") {
+    } else if (event.key === "Tab") {
       closeListbox(false);
     }
   };
+
+  const listbox = (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.ul
+          ref={listboxRef}
+          id={listboxId}
+          role="listbox"
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabel ? undefined : triggerId}
+          aria-activedescendant={options[safeActiveIndex] ? `${listboxId}-option-${safeActiveIndex}` : undefined}
+          tabIndex={-1}
+          onKeyDown={handleListboxKeyDown}
+          initial={{ opacity: 0, scale: 0.95, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: -4 }}
+          transition={springs.snappy}
+          style={menuStyle}
+          className="fixed z-[100] max-h-60 min-w-[150px] overflow-auto rounded-xl border border-border glass-dropdown p-1 shadow-lg focus:outline-none scrollbar-thin"
+        >
+          {options.map((option, index) => {
+            const isSelected = option.value === value;
+            const isActive = index === safeActiveIndex;
+            return (
+              <li
+                id={`${listboxId}-option-${index}`}
+                key={option.value}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => {
+                  onChange(option.value);
+                  closeListbox();
+                }}
+                className={`flex items-center justify-between ${optionSizeClass} rounded-lg cursor-pointer transition-colors ${
+                  isSelected
+                    ? "bg-accent text-accent-foreground font-medium"
+                    : isActive
+                      ? "bg-hover text-text-primary"
+                      : "text-text-primary hover:bg-hover hover:text-text-primary"
+                }`}
+              >
+                <span className="truncate">{option.label}</span>
+                {isSelected && <Check size={14} className="shrink-0 ml-2" />}
+              </li>
+            );
+          })}
+        </motion.ul>
+      )}
+    </AnimatePresence>
+  );
 
   return (
     <div ref={containerRef} className={`relative ${className}`} id={id}>
@@ -133,7 +230,7 @@ export function Select({
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}
         aria-label={ariaLabel}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-all cursor-pointer ${
+        className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border border-input-border bg-input text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-all cursor-pointer ${
           disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
         }`}
       >
@@ -143,53 +240,7 @@ export function Select({
         </motion.div>
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.ul
-            ref={listboxRef}
-            id={listboxId}
-            role="listbox"
-            aria-label={ariaLabel}
-            aria-labelledby={ariaLabel ? undefined : triggerId}
-            aria-activedescendant={options[safeActiveIndex] ? `${listboxId}-option-${safeActiveIndex}` : undefined}
-            tabIndex={-1}
-            onKeyDown={handleListboxKeyDown}
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-            transition={springs.snappy}
-            className="absolute right-0 z-50 mt-1 max-h-60 w-full min-w-[150px] overflow-auto rounded-xl border border-border glass-dropdown p-1 shadow-lg focus:outline-none scrollbar-thin"
-          >
-            {options.map((opt, index) => {
-              const isSelected = opt.value === value;
-              const isActive = index === safeActiveIndex;
-              return (
-                <li
-                  id={`${listboxId}-option-${index}`}
-                  key={opt.value}
-                  role="option"
-                  aria-selected={isSelected}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => {
-                    onChange(opt.value);
-                    closeListbox();
-                  }}
-                  className={`flex items-center justify-between px-3 py-1.5 text-sm rounded-lg cursor-pointer transition-colors ${
-                    isSelected
-                      ? "bg-accent text-accent-foreground font-medium"
-                      : isActive
-                        ? "bg-hover text-text-primary"
-                        : "text-text-primary hover:bg-hover hover:text-text-primary"
-                  }`}
-                >
-                  <span className="truncate">{opt.label}</span>
-                  {isSelected && <Check size={14} className="shrink-0 ml-2" />}
-                </li>
-              );
-            })}
-          </motion.ul>
-        )}
-      </AnimatePresence>
+      {typeof document !== "undefined" && createPortal(listbox, document.body)}
     </div>
   );
 }
