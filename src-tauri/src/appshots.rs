@@ -1,28 +1,236 @@
-use crate::AppError;
+use crate::{AppError, FileTokenRegistry};
+use image::{
+    codecs::{jpeg::JpegEncoder, png::PngEncoder},
+    imageops::{overlay, resize, FilterType},
+    ExtendedColorType, ImageEncoder, RgbaImage,
+};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
-use xcap::Monitor;
+use std::{
+    cmp::Reverse,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex, MutexGuard},
+    time::{Duration, SystemTime},
+};
+use tauri::{AppHandle, Manager, WebviewWindow};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+use xcap::{Monitor, Window as XcapWindow};
 
-#[allow(dead_code)]
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct CaptureOptions {
-    pub format: String,
-    pub quality: u8,
-    pub delay_seconds: u64,
-    pub include_cursor: bool,
-    pub hide_window: bool,
-    pub custom_folder: Option<String>,
+const MAX_DELAY_SECONDS: u64 = 30;
+const MAX_CAPTURE_PIXELS: u64 = 150_000_000;
+const MAX_OUTPUT_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_CLEAN_VALUE: u64 = 1_000_000;
+const EPHEMERAL_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+static ACTIVE_CAPTURE: LazyLock<Mutex<Option<CancellationToken>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureTarget {
+    Primary,
+    All,
+    Window,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureFormat {
+    Png,
+    Jpeg,
+}
+
+impl CaptureFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CleanType {
+    Count,
+    Size,
+    Age,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureOptions {
+    pub format: CaptureFormat,
+    pub quality: u8,
+    pub delay_seconds: u64,
+    pub hide_window: bool,
+    pub custom_folder: Option<String>,
+    #[serde(default)]
+    pub persist_to_gallery: bool,
+    pub max_output_bytes: Option<u64>,
+}
+
+impl CaptureOptions {
+    fn validate(&self) -> Result<(), AppError> {
+        if !(10..=100).contains(&self.quality) {
+            return Err(config_error("Image quality must be between 10 and 100"));
+        }
+        if self.delay_seconds > MAX_DELAY_SECONDS {
+            return Err(config_error(format!(
+                "Capture delay cannot exceed {MAX_DELAY_SECONDS} seconds"
+            )));
+        }
+        if let Some(max_bytes) = self.max_output_bytes {
+            if !(64 * 1024..=MAX_OUTPUT_BYTES).contains(&max_bytes) {
+                return Err(config_error(
+                    "Maximum output size must be between 64 KB and 100 MB",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppshotFileMetadata {
     pub path: String,
     pub name: String,
     pub size: u64,
     pub timestamp: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureResult {
+    pub path: String,
+    pub token: String,
+    pub name: String,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub is_ephemeral: bool,
+}
+
+#[derive(Debug)]
+struct EncodedCapture {
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+struct ActiveCaptureGuard;
+
+impl Drop for ActiveCaptureGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE_CAPTURE.lock() {
+            *active = None;
+        }
+    }
+}
+
+struct WindowRestoreGuard {
+    window: Option<WebviewWindow>,
+    was_visible: bool,
+    was_minimized: bool,
+    was_maximized: bool,
+    was_focused: bool,
+    changed: bool,
+}
+
+impl WindowRestoreGuard {
+    fn unchanged() -> Self {
+        Self {
+            window: None,
+            was_visible: false,
+            was_minimized: false,
+            was_maximized: false,
+            was_focused: false,
+            changed: false,
+        }
+    }
+
+    fn minimize(app: &AppHandle) -> Result<Self, AppError> {
+        let Some(window) = app.get_webview_window("main") else {
+            return Ok(Self::unchanged());
+        };
+
+        let was_visible = window.is_visible().unwrap_or(true);
+        let was_minimized = window.is_minimized().unwrap_or(false);
+        let was_maximized = window.is_maximized().unwrap_or(false);
+        let was_focused = window.is_focused().unwrap_or(false);
+        let mut guard = Self {
+            window: Some(window.clone()),
+            was_visible,
+            was_minimized,
+            was_maximized,
+            was_focused,
+            changed: false,
+        };
+
+        if was_visible && !was_minimized {
+            window.minimize()?;
+            guard.changed = true;
+        }
+        Ok(guard)
+    }
+
+    fn restore(&mut self) {
+        if !self.changed {
+            return;
+        }
+        let Some(window) = &self.window else {
+            return;
+        };
+
+        if self.was_visible {
+            let _ = window.show();
+            if self.was_minimized {
+                let _ = window.minimize();
+            } else {
+                let _ = window.unminimize();
+            }
+            if self.was_maximized {
+                let _ = window.maximize();
+            }
+            if self.was_focused {
+                let _ = window.set_focus();
+            }
+        } else {
+            let _ = window.hide();
+        }
+        self.changed = false;
+    }
+}
+
+impl Drop for WindowRestoreGuard {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
+fn config_error(message: impl Into<String>) -> AppError {
+    AppError::ConfigIo(message.into())
+}
+
+fn lock_active_capture() -> Result<MutexGuard<'static, Option<CancellationToken>>, AppError> {
+    ACTIVE_CAPTURE
+        .lock()
+        .map_err(|_| config_error("Appshot capture state is unavailable"))
+}
+
+fn begin_capture() -> Result<(ActiveCaptureGuard, CancellationToken), AppError> {
+    let mut active = lock_active_capture()?;
+    if active.is_some() {
+        return Err(config_error(
+            "Another Appshot capture is already in progress",
+        ));
+    }
+    let token = CancellationToken::new();
+    *active = Some(token.clone());
+    Ok((ActiveCaptureGuard, token))
 }
 
 #[cfg(target_os = "macos")]
@@ -48,22 +256,16 @@ pub async fn has_screen_capture_permission() -> bool {
 pub async fn request_screen_capture_permission(first_time: bool) -> bool {
     #[cfg(target_os = "macos")]
     {
-        // 1. Request access (triggers macOS screen recording permission dialog)
         let _ = unsafe { CGRequestScreenCaptureAccess() };
-
-        // 2. Check if permission is now granted
-        let has_perm = unsafe { CGPreflightScreenCaptureAccess() };
-
-        // 3. If not granted and it's not the first time, deep link to System Settings
-        if !has_perm && !first_time {
+        let has_permission = unsafe { CGPreflightScreenCaptureAccess() };
+        if !has_permission && !first_time {
             let _ = tokio::process::Command::new("open")
                 .arg(
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
                 )
                 .spawn();
         }
-
-        has_perm
+        has_permission
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -72,207 +274,348 @@ pub async fn request_screen_capture_permission(first_time: bool) -> bool {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CaptureResult {
-    pub path: String,
-    pub token: String,
-    pub name: String,
-    pub size: u64,
+#[tauri::command]
+pub fn cancel_appshot_capture() -> Result<bool, AppError> {
+    let active = lock_active_capture()?;
+    if let Some(token) = active.as_ref() {
+        token.cancel();
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 #[tauri::command]
 pub async fn capture_screen(
     app: AppHandle,
-    target: String,
+    target: CaptureTarget,
     options: CaptureOptions,
 ) -> Result<CaptureResult, AppError> {
-    let hide_window = options.hide_window;
+    options.validate()?;
+    let (_active_guard, cancellation) = begin_capture()?;
 
-    // 1. Hide/minimize main window if checked
-    if hide_window {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.minimize();
-            // Wait to allow minimization animation to complete fully
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-        }
-    }
-
-    // 2. Handle countdown delay
     if options.delay_seconds > 0 {
-        tokio::time::sleep(std::time::Duration::from_secs(options.delay_seconds)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(options.delay_seconds)) => {}
+            _ = cancellation.cancelled() => return Err(config_error("Appshot capture cancelled")),
+        }
+    }
+    if cancellation.is_cancelled() {
+        return Err(config_error("Appshot capture cancelled"));
     }
 
-    // Resolve base path on this thread
-    let base_path = match &options.custom_folder {
-        Some(f) if !f.is_empty() => {
-            let p = PathBuf::from(f);
-            if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo(
-                    "Access denied: Custom appshot folder is not inside whitelisted paths"
-                        .to_string(),
-                ));
-            }
-            p
-        }
-        _ => app.path().app_data_dir()?.join("appshots"),
+    let mut restore_guard = if options.hide_window && target != CaptureTarget::Window {
+        let guard = WindowRestoreGuard::minimize(&app)?;
+        tokio::time::sleep(Duration::from_millis(450)).await;
+        guard
+    } else {
+        WindowRestoreGuard::unchanged()
     };
 
-    // Offload CPU-bound capturing, file writes, and image encoding to spawn_blocking
-    let output_path = tokio::task::spawn_blocking(move || -> Result<PathBuf, AppError> {
-        // 3. Capture screen
-        let monitors = Monitor::all().map_err(|e| AppError::ConfigIo(e.to_string()))?;
-        if monitors.is_empty() {
-            return Err(AppError::ConfigIo("No monitors found".to_string()));
-        }
-
-        let monitor = match target.as_str() {
-            "primary" => monitors
-                .into_iter()
-                .find(|m| m.is_primary().unwrap_or(false))
-                .ok_or_else(|| AppError::ConfigIo("Primary monitor not found".to_string()))?,
-            _ => monitors
-                .into_iter()
-                .next()
-                .ok_or_else(|| AppError::ConfigIo("No monitors found".to_string()))?,
-        };
-
-        let img = monitor
-            .capture_image()
-            .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-
-        // 4. Resolve save folder
-        std::fs::create_dir_all(&base_path)?;
-
-        // 5. Generate filename
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
-        let ext = if options.format.to_lowercase() == "jpeg" {
-            "jpg"
-        } else {
-            "png"
-        };
-        let filename = format!("appshot_{}.{}", timestamp, ext);
-        let output_path = base_path.join(&filename);
-
-        // 6. Save image using image crate codecs
-        if options.format.to_lowercase() == "jpeg" {
-            let file = std::fs::File::create(&output_path)?;
-            let ref mut writer = std::io::BufWriter::new(file);
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(writer, options.quality);
-            encoder
-                .encode(
-                    &img,
-                    img.width(),
-                    img.height(),
-                    image::ExtendedColorType::Rgba8,
-                )
-                .map_err(|e| AppError::ConfigIo(format!("Failed to encode JPEG: {}", e)))?;
-        } else {
-            img.save(&output_path)
-                .map_err(|e| AppError::ConfigIo(format!("Failed to save PNG: {}", e)))?;
-        }
-
-        Ok(output_path)
-    })
-    .await
-    .map_err(|e| AppError::ConfigIo(format!("Thread join error: {}", e)))??;
-
-    // 7. Restore window
-    if hide_window {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.set_focus();
-        }
+    if cancellation.is_cancelled() {
+        return Err(config_error("Appshot capture cancelled"));
     }
 
-    let size = std::fs::metadata(&output_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let output_dir = resolve_output_directory(
+        &app,
+        options.custom_folder.as_deref(),
+        options.persist_to_gallery,
+    )?;
+    let format = options.format;
+    let quality = options.quality;
+    let max_output_bytes = options.max_output_bytes;
+
+    let capture = tokio::task::spawn_blocking(move || {
+        let image = capture_target(target)?;
+        validate_capture_dimensions(&image)?;
+        let encoded = encode_with_limit(image, format, quality, max_output_bytes)?;
+        let output_path = write_capture_atomically(&output_dir, format, &encoded.bytes)?;
+        Ok::<_, AppError>((output_path, encoded))
+    })
+    .await
+    .map_err(|error| config_error(format!("Appshot worker failed: {error}")))??;
+
+    restore_guard.restore();
+    let (output_path, encoded) = capture;
+    let size = fs::metadata(&output_path)?.len();
     let name = output_path
         .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
+        .and_then(|name| name.to_str())
+        .unwrap_or("appshot")
         .to_string();
 
-    let token_registry = app.state::<crate::FileTokenRegistry>();
-    let token = token_registry.register(output_path.clone());
+    let token_registry = app.state::<FileTokenRegistry>();
+    let token = if options.persist_to_gallery {
+        token_registry.register(output_path.clone())
+    } else {
+        token_registry.register_ephemeral(output_path.clone())
+    };
 
     Ok(CaptureResult {
         path: output_path.to_string_lossy().into_owned(),
         token,
         name,
         size,
+        width: encoded.width,
+        height: encoded.height,
+        is_ephemeral: !options.persist_to_gallery,
     })
 }
 
-#[tauri::command]
-pub async fn list_appshots(
-    app: AppHandle,
-    custom_folder: Option<String>,
-) -> Result<Vec<AppshotFileMetadata>, AppError> {
-    let base_path = match custom_folder {
-        Some(ref f) if !f.is_empty() => {
-            let p = PathBuf::from(f);
-            if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo(
-                    "Access denied: Custom appshot folder is not inside whitelisted paths"
-                        .to_string(),
-                ));
-            }
-            p
-        }
-        _ => app.path().app_data_dir()?.join("appshots"),
-    };
-    if !base_path.exists() {
-        return Ok(Vec::new());
+fn capture_target(target: CaptureTarget) -> Result<RgbaImage, AppError> {
+    match target {
+        CaptureTarget::Primary => capture_primary_monitor(),
+        CaptureTarget::All => capture_all_monitors(),
+        CaptureTarget::Window => capture_sythoria_window(),
     }
-
-    let mut list = Vec::new();
-    let entries = std::fs::read_dir(base_path)?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            let name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            if name.starts_with("appshot_") && (name.ends_with(".png") || name.ends_with(".jpg")) {
-                let metadata = entry.metadata()?;
-                let size = metadata.len();
-                let timestamp = metadata
-                    .created()
-                    .or_else(|_| metadata.modified())
-                    .map(|system_time| {
-                        let datetime: chrono::DateTime<chrono::Local> = system_time.into();
-                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                    })
-                    .unwrap_or_else(|_| String::new());
-
-                list.push(AppshotFileMetadata {
-                    path: path.to_string_lossy().into_owned(),
-                    name,
-                    size,
-                    timestamp,
-                });
-            }
-        }
-    }
-
-    // Sort by timestamp/name descending (newest first)
-    list.sort_by(|a, b| b.name.cmp(&a.name));
-    Ok(list)
 }
 
-fn is_path_in_appshot_whitelist(app: &AppHandle, path: &PathBuf) -> Result<bool, AppError> {
-    let canonical_path = match path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => path.clone(),
-    };
+fn capture_primary_monitor() -> Result<RgbaImage, AppError> {
+    let monitors = Monitor::all().map_err(|error| config_error(error.to_string()))?;
+    let monitor = monitors
+        .iter()
+        .find(|monitor| monitor.is_primary().unwrap_or(false))
+        .or_else(|| monitors.first())
+        .ok_or_else(|| config_error("No display is available for capture"))?;
+    monitor
+        .capture_image()
+        .map_err(|error| config_error(format!("Failed to capture primary display: {error}")))
+}
 
-    let whitelisted_bases = [
+fn capture_all_monitors() -> Result<RgbaImage, AppError> {
+    let monitors = Monitor::all().map_err(|error| config_error(error.to_string()))?;
+    if monitors.is_empty() {
+        return Err(config_error("No displays are available for capture"));
+    }
+
+    let mut captured = Vec::with_capacity(monitors.len());
+    for monitor in monitors {
+        let x = i64::from(
+            monitor
+                .x()
+                .map_err(|error| config_error(error.to_string()))?,
+        );
+        let y = i64::from(
+            monitor
+                .y()
+                .map_err(|error| config_error(error.to_string()))?,
+        );
+        let image = monitor
+            .capture_image()
+            .map_err(|error| config_error(format!("Failed to capture a display: {error}")))?;
+        captured.push((x, y, image));
+    }
+
+    let min_x = captured.iter().map(|(x, _, _)| *x).min().unwrap_or(0);
+    let min_y = captured.iter().map(|(_, y, _)| *y).min().unwrap_or(0);
+    let max_x = captured
+        .iter()
+        .map(|(x, _, image)| x.saturating_add(i64::from(image.width())))
+        .max()
+        .unwrap_or(0);
+    let max_y = captured
+        .iter()
+        .map(|(_, y, image)| y.saturating_add(i64::from(image.height())))
+        .max()
+        .unwrap_or(0);
+    let width = u32::try_from(max_x.saturating_sub(min_x))
+        .map_err(|_| config_error("Combined display width is too large"))?;
+    let height = u32::try_from(max_y.saturating_sub(min_y))
+        .map_err(|_| config_error("Combined display height is too large"))?;
+
+    validate_pixel_count(width, height)?;
+    let mut canvas = RgbaImage::new(width, height);
+    for (x, y, image) in captured {
+        overlay(&mut canvas, &image, x - min_x, y - min_y);
+    }
+    Ok(canvas)
+}
+
+fn capture_sythoria_window() -> Result<RgbaImage, AppError> {
+    let process_id = std::process::id();
+    let windows = XcapWindow::all().map_err(|error| config_error(error.to_string()))?;
+    let mut candidates: Vec<XcapWindow> = windows
+        .into_iter()
+        .filter(|window| window.pid().ok() == Some(process_id))
+        .filter(|window| !window.is_minimized().unwrap_or(true))
+        .collect();
+
+    candidates.sort_by_key(|window| {
+        let focused = window.is_focused().unwrap_or(false);
+        let area = u64::from(window.width().unwrap_or(0)) * u64::from(window.height().unwrap_or(0));
+        (focused, area)
+    });
+    let window = candidates
+        .pop()
+        .ok_or_else(|| config_error("The Sythoria window is not available for capture"))?;
+    window
+        .capture_image()
+        .map_err(|error| config_error(format!("Failed to capture the Sythoria window: {error}")))
+}
+
+fn validate_capture_dimensions(image: &RgbaImage) -> Result<(), AppError> {
+    if image.width() == 0 || image.height() == 0 {
+        return Err(config_error("The captured image is empty"));
+    }
+    validate_pixel_count(image.width(), image.height())
+}
+
+fn validate_pixel_count(width: u32, height: u32) -> Result<(), AppError> {
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or_else(|| config_error("Capture dimensions overflow"))?;
+    if pixels > MAX_CAPTURE_PIXELS {
+        return Err(config_error(format!(
+            "Capture is too large ({width}x{height}); reduce the selected display area"
+        )));
+    }
+    Ok(())
+}
+
+fn encode_with_limit(
+    mut image: RgbaImage,
+    format: CaptureFormat,
+    quality: u8,
+    max_output_bytes: Option<u64>,
+) -> Result<EncodedCapture, AppError> {
+    for _ in 0..6 {
+        let bytes = encode_image(&image, format, quality)?;
+        let within_limit = max_output_bytes
+            .map(|limit| bytes.len() as u64 <= limit)
+            .unwrap_or(true);
+        if within_limit {
+            return Ok(EncodedCapture {
+                bytes,
+                width: image.width(),
+                height: image.height(),
+            });
+        }
+
+        let limit = max_output_bytes.unwrap_or(MAX_OUTPUT_BYTES) as f64;
+        let ratio = ((limit / bytes.len() as f64).sqrt() * 0.9).clamp(0.25, 0.85);
+        let next_width = ((image.width() as f64 * ratio).round() as u32).max(320);
+        let next_height = ((image.height() as f64 * ratio).round() as u32).max(200);
+        if next_width >= image.width() || next_height >= image.height() {
+            break;
+        }
+        image = resize(&image, next_width, next_height, FilterType::Lanczos3);
+    }
+
+    Err(config_error(
+        "Captured image could not be reduced below the attachment size limit",
+    ))
+}
+
+fn encode_image(
+    image: &RgbaImage,
+    format: CaptureFormat,
+    quality: u8,
+) -> Result<Vec<u8>, AppError> {
+    let mut bytes = Vec::new();
+    match format {
+        CaptureFormat::Png => {
+            PngEncoder::new(&mut bytes)
+                .write_image(
+                    image.as_raw(),
+                    image.width(),
+                    image.height(),
+                    ExtendedColorType::Rgba8,
+                )
+                .map_err(|error| config_error(format!("Failed to encode PNG: {error}")))?;
+        }
+        CaptureFormat::Jpeg => {
+            let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
+            JpegEncoder::new_with_quality(&mut bytes, quality)
+                .encode(
+                    rgb.as_raw(),
+                    rgb.width(),
+                    rgb.height(),
+                    ExtendedColorType::Rgb8,
+                )
+                .map_err(|error| config_error(format!("Failed to encode JPEG: {error}")))?;
+        }
+    }
+    Ok(bytes)
+}
+
+fn write_capture_atomically(
+    directory: &Path,
+    format: CaptureFormat,
+    bytes: &[u8],
+) -> Result<PathBuf, AppError> {
+    fs::create_dir_all(directory)?;
+    let unique = Uuid::new_v4().simple().to_string();
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    let filename = format!("appshot_{timestamp}_{unique}.{}", format.extension());
+    let output_path = directory.join(filename);
+    let temporary_path = directory.join(format!(".appshot-{unique}.tmp"));
+
+    let write_result = (|| -> Result<(), AppError> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary_path, &output_path)?;
+        Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary_path);
+    }
+    write_result?;
+    Ok(output_path)
+}
+
+fn resolve_output_directory(
+    app: &AppHandle,
+    custom_folder: Option<&str>,
+    persist_to_gallery: bool,
+) -> Result<PathBuf, AppError> {
+    if !persist_to_gallery {
+        let cache_dir = app.path().app_cache_dir()?.join("appshots");
+        fs::create_dir_all(&cache_dir)?;
+        prune_ephemeral_directory(&cache_dir);
+        return cache_dir
+            .canonicalize()
+            .map_err(|error| config_error(format!("Failed to prepare Appshot cache: {error}")));
+    }
+    resolve_gallery_directory(app, custom_folder)
+}
+
+fn resolve_gallery_directory(
+    app: &AppHandle,
+    custom_folder: Option<&str>,
+) -> Result<PathBuf, AppError> {
+    if let Some(folder) = custom_folder.filter(|folder| !folder.trim().is_empty()) {
+        let selected = PathBuf::from(folder);
+        if !selected.is_dir() {
+            return Err(config_error(
+                "The custom Appshot folder must already exist and be a directory",
+            ));
+        }
+        let canonical = selected.canonicalize().map_err(|error| {
+            config_error(format!(
+                "Failed to resolve the custom Appshot folder: {error}"
+            ))
+        })?;
+        if !is_path_in_allowed_bases(app, &canonical)? {
+            return Err(config_error(
+                "The Appshot folder must be inside Pictures, Documents, Downloads, Desktop, or App Data",
+            ));
+        }
+        return Ok(canonical);
+    }
+
+    let default = app.path().app_data_dir()?.join("appshots");
+    fs::create_dir_all(&default)?;
+    default
+        .canonicalize()
+        .map_err(|error| config_error(format!("Failed to prepare the Appshot gallery: {error}")))
+}
+
+fn is_path_in_allowed_bases(app: &AppHandle, canonical_path: &Path) -> Result<bool, AppError> {
+    let bases = [
         app.path().app_data_dir().ok(),
         app.path().picture_dir().ok(),
         app.path().document_dir().ok(),
@@ -280,50 +623,137 @@ fn is_path_in_appshot_whitelist(app: &AppHandle, path: &PathBuf) -> Result<bool,
         app.path().desktop_dir().ok(),
     ];
 
-    for base in whitelisted_bases.into_iter().flatten() {
-        if let Ok(canonical_base) = base.canonicalize() {
-            if canonical_path.starts_with(&canonical_base) {
-                return Ok(true);
-            }
-        } else if canonical_path.starts_with(&base) {
-            return Ok(true);
+    let mut canonical_bases = Vec::new();
+    for base in bases.into_iter().flatten() {
+        if !base.exists() {
+            continue;
+        }
+        let canonical_base = base.canonicalize().map_err(|error| {
+            config_error(format!(
+                "Failed to validate an allowed Appshot directory: {error}"
+            ))
+        })?;
+        canonical_bases.push(canonical_base);
+    }
+    Ok(path_is_within_bases(canonical_path, &canonical_bases))
+}
+
+fn path_is_within_bases(canonical_path: &Path, canonical_bases: &[PathBuf]) -> bool {
+    canonical_bases
+        .iter()
+        .any(|base| canonical_path.starts_with(base))
+}
+
+fn prune_ephemeral_directory(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_appshot_file(&path) {
+            continue;
+        }
+        let is_expired = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .map(|age| age > EPHEMERAL_MAX_AGE)
+            .unwrap_or(false);
+        if is_expired {
+            let _ = fs::remove_file(path);
         }
     }
+}
 
-    Ok(false)
+fn is_appshot_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let lowercase = name.to_ascii_lowercase();
+    lowercase.starts_with("appshot_")
+        && (lowercase.ends_with(".png")
+            || lowercase.ends_with(".jpg")
+            || lowercase.ends_with(".jpeg"))
+}
+
+fn collect_appshots(directory: &Path) -> Result<Vec<(PathBuf, u64, SystemTime)>, AppError> {
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() || !is_appshot_file(&path) {
+            continue;
+        }
+        let metadata = entry.metadata()?;
+        files.push((path, metadata.len(), metadata.modified()?));
+    }
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn list_appshots(
+    app: AppHandle,
+    custom_folder: Option<String>,
+) -> Result<Vec<AppshotFileMetadata>, AppError> {
+    let directory = resolve_gallery_directory(&app, custom_folder.as_deref())?;
+    tokio::task::spawn_blocking(move || {
+        let mut files = collect_appshots(&directory)?;
+        files.sort_by_key(|item| Reverse(item.2));
+        Ok(files
+            .into_iter()
+            .map(|(path, size, modified)| {
+                let timestamp = chrono::DateTime::<chrono::Local>::from(modified)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string();
+                AppshotFileMetadata {
+                    name: path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("appshot")
+                        .to_string(),
+                    path: path.to_string_lossy().into_owned(),
+                    size,
+                    timestamp,
+                }
+            })
+            .collect())
+    })
+    .await
+    .map_err(|error| config_error(format!("Appshot gallery worker failed: {error}")))?
 }
 
 #[tauri::command]
 pub async fn select_appshot_folder(app: AppHandle) -> Result<Option<String>, AppError> {
     use tauri_plugin_dialog::DialogExt;
-    let folder_path = app
+    let selection = app
         .dialog()
         .file()
         .set_title("Select Appshot Save Folder")
         .blocking_pick_folder();
-
-    if let Some(path) = folder_path {
-        let path_buf = match path {
-            tauri_plugin_dialog::FilePath::Path(p) => p,
-            tauri_plugin_dialog::FilePath::Url(u) => {
-                if let Ok(p) = u.to_file_path() {
-                    p
-                } else {
-                    return Err(AppError::ConfigIo("Invalid folder path URL".to_string()));
-                }
-            }
-        };
-
-        if !is_path_in_appshot_whitelist(&app, &path_buf)? {
-            return Err(AppError::ConfigIo(
-                "Access denied: Target folder must be inside user directory (Pictures, Documents, Downloads, Desktop, or App Data).".to_string()
-            ));
-        }
-
-        Ok(Some(path_buf.to_string_lossy().into_owned()))
-    } else {
-        Ok(None)
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let path = match selection {
+        tauri_plugin_dialog::FilePath::Path(path) => path,
+        tauri_plugin_dialog::FilePath::Url(url) => url
+            .to_file_path()
+            .map_err(|_| config_error("The selected folder URL is invalid"))?,
+    };
+    if !path.is_dir() {
+        return Err(config_error("The selected Appshot folder does not exist"));
     }
+    let canonical = path.canonicalize()?;
+    if !is_path_in_allowed_bases(&app, &canonical)? {
+        return Err(config_error(
+            "The selected folder must be inside Pictures, Documents, Downloads, Desktop, or App Data",
+        ));
+    }
+    Ok(Some(canonical.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -332,154 +762,233 @@ pub async fn delete_appshot(
     path: String,
     custom_folder: Option<String>,
 ) -> Result<(), AppError> {
-    let file_path = PathBuf::from(&path);
-
-    // 1. Check filename pattern
-    let filename = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| AppError::ConfigIo("Invalid filename".to_string()))?;
-
-    let name_lower = filename.to_lowercase();
-    let is_valid_pattern = name_lower.starts_with("appshot_")
-        && (name_lower.ends_with(".png")
-            || name_lower.ends_with(".jpg")
-            || name_lower.ends_with(".jpeg"));
-
-    if !is_valid_pattern {
-        return Err(AppError::ConfigIo(
-            "Access denied: File does not match appshot pattern".to_string(),
-        ));
-    }
-
-    // 2. Resolve base path and verify whitelist
-    let base_path = match custom_folder {
-        Some(ref f) if !f.is_empty() => {
-            let p = PathBuf::from(f);
-            if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo(
-                    "Access denied: Target folder is not whitelisted".to_string(),
-                ));
-            }
-            p
+    let directory = resolve_gallery_directory(&app, custom_folder.as_deref())?;
+    let requested = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || {
+        let canonical_file = requested
+            .canonicalize()
+            .map_err(|_| config_error("Appshot file was not found"))?;
+        if !canonical_file.starts_with(&directory) || !is_appshot_file(&canonical_file) {
+            return Err(config_error("Access denied: invalid Appshot file"));
         }
-        _ => app.path().app_data_dir()?.join("appshots"),
-    };
+        fs::remove_file(canonical_file)?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| config_error(format!("Appshot delete worker failed: {error}")))?
+}
 
-    // 3. Check folder containment
-    let canonical_file = match file_path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => return Err(AppError::ConfigIo("File not found".to_string())),
-    };
+#[tauri::command]
+pub async fn clear_appshots(
+    app: AppHandle,
+    custom_folder: Option<String>,
+) -> Result<u32, AppError> {
+    let directory = resolve_gallery_directory(&app, custom_folder.as_deref())?;
+    tokio::task::spawn_blocking(move || clear_appshot_files(&directory))
+        .await
+        .map_err(|error| config_error(format!("Appshot clear worker failed: {error}")))?
+}
 
-    let canonical_base = match base_path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => return Err(AppError::ConfigIo("Folder not found".to_string())),
-    };
-
-    if !canonical_file.starts_with(&canonical_base) {
-        return Err(AppError::ConfigIo(
-            "Access denied: File is outside appshots directory".to_string(),
-        ));
+fn clear_appshot_files(directory: &Path) -> Result<u32, AppError> {
+    let mut deleted = 0;
+    let mut failures = Vec::new();
+    for (path, _, _) in collect_appshots(directory)? {
+        match fs::remove_file(&path) {
+            Ok(()) => deleted += 1,
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
     }
+    if failures.is_empty() {
+        Ok(deleted)
+    } else {
+        Err(config_error(format!(
+            "Deleted {deleted} Appshots, but {} files failed: {}",
+            failures.len(),
+            failures.join("; ")
+        )))
+    }
+}
 
-    std::fs::remove_file(canonical_file)?;
-    Ok(())
+#[tauri::command]
+pub async fn wipe_appshot_data(
+    app: AppHandle,
+    custom_folder: Option<String>,
+) -> Result<u32, AppError> {
+    let mut directories = vec![
+        app.path().app_data_dir()?.join("appshots"),
+        app.path().app_cache_dir()?.join("appshots"),
+    ];
+    if let Some(folder) = custom_folder.filter(|folder| !folder.trim().is_empty()) {
+        let candidate = PathBuf::from(folder);
+        if candidate.is_dir() {
+            let canonical = candidate.canonicalize()?;
+            if is_path_in_allowed_bases(&app, &canonical)? {
+                directories.push(canonical);
+            }
+        }
+    }
+    directories.sort();
+    directories.dedup();
+
+    tokio::task::spawn_blocking(move || {
+        let mut deleted = 0;
+        for directory in directories {
+            deleted += clear_appshot_files(&directory)?;
+            let _ = fs::remove_dir(&directory);
+        }
+        Ok(deleted)
+    })
+    .await
+    .map_err(|error| config_error(format!("Appshot wipe worker failed: {error}")))?
 }
 
 #[tauri::command]
 pub async fn run_appshots_clean(
     app: AppHandle,
-    clean_type: String,
+    token_registry: tauri::State<'_, FileTokenRegistry>,
+    clean_type: CleanType,
     clean_value: u64,
     custom_folder: Option<String>,
 ) -> Result<u32, AppError> {
-    let base_path = match custom_folder {
-        Some(ref f) if !f.is_empty() => {
-            let p = PathBuf::from(f);
-            if !is_path_in_appshot_whitelist(&app, &p)? {
-                return Err(AppError::ConfigIo(
-                    "Access denied: Custom appshot folder is not inside whitelisted paths"
-                        .to_string(),
-                ));
-            }
-            p
-        }
-        _ => app.path().app_data_dir()?.join("appshots"),
-    };
-    if !base_path.exists() {
-        return Ok(0);
+    if clean_value == 0 || clean_value > MAX_CLEAN_VALUE {
+        return Err(config_error("Cleanup value is outside the supported range"));
     }
+    let directory = resolve_gallery_directory(&app, custom_folder.as_deref())?;
+    let protected_paths = token_registry.registered_paths();
 
-    let mut list = Vec::new();
-    let entries = std::fs::read_dir(&base_path)?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
-            let name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            if name.starts_with("appshot_") && (name.ends_with(".png") || name.ends_with(".jpg")) {
-                let metadata = entry.metadata()?;
-                let size = metadata.len();
-                let modified = metadata.modified()?;
-                list.push((path, size, modified));
+    tokio::task::spawn_blocking(move || {
+        let mut files = collect_appshots(&directory)?;
+        files.retain(|(path, _, _)| !protected_paths.contains(path));
+        files.sort_by_key(|item| item.2);
+        let mut to_delete = Vec::new();
+
+        match clean_type {
+            CleanType::Count => {
+                let excess = files.len().saturating_sub(clean_value as usize);
+                to_delete.extend(files.iter().take(excess).map(|item| item.0.clone()));
             }
-        }
-    }
-
-    // Sort by modified ascending (oldest first)
-    list.sort_by(|a, b| a.2.cmp(&b.2));
-
-    let mut deleted_count = 0;
-
-    match clean_type.as_str() {
-        "count" => {
-            // Keep at most clean_value items
-            if list.len() > clean_value as usize {
-                let to_delete = list.len() - clean_value as usize;
-                for i in 0..to_delete {
-                    if std::fs::remove_file(&list[i].0).is_ok() {
-                        deleted_count += 1;
+            CleanType::Size => {
+                let max_bytes = clean_value
+                    .checked_mul(1024 * 1024)
+                    .ok_or_else(|| config_error("Cleanup size limit overflowed"))?;
+                let mut total: u64 = files.iter().map(|item| item.1).sum();
+                for (path, size, _) in &files {
+                    if total <= max_bytes {
+                        break;
                     }
+                    to_delete.push(path.clone());
+                    total = total.saturating_sub(*size);
                 }
             }
+            CleanType::Age => {
+                let max_age = Duration::from_secs(
+                    clean_value
+                        .checked_mul(24 * 60 * 60)
+                        .ok_or_else(|| config_error("Cleanup age limit overflowed"))?,
+                );
+                let now = SystemTime::now();
+                to_delete.extend(files.iter().filter_map(|(path, _, modified)| {
+                    now.duration_since(*modified)
+                        .ok()
+                        .filter(|age| *age > max_age)
+                        .map(|_| path.clone())
+                }));
+            }
         }
-        "size" => {
-            // Keep directory size under clean_value megabytes (converted to bytes)
-            let max_bytes = clean_value * 1024 * 1024;
-            let mut current_total_bytes: u64 = list.iter().map(|item| item.1).sum();
 
-            for item in &list {
-                if current_total_bytes <= max_bytes {
-                    break;
-                }
-                if std::fs::remove_file(&item.0).is_ok() {
-                    deleted_count += 1;
-                    current_total_bytes -= item.1;
-                }
+        let mut deleted = 0;
+        for path in to_delete {
+            if fs::remove_file(path).is_ok() {
+                deleted += 1;
             }
         }
-        "age" => {
-            // Delete files older than clean_value days
-            let now = std::time::SystemTime::now();
-            let max_age_duration = std::time::Duration::from_secs(clean_value * 24 * 60 * 60);
+        Ok(deleted)
+    })
+    .await
+    .map_err(|error| config_error(format!("Appshot cleanup worker failed: {error}")))?
+}
 
-            for item in list {
-                if let Ok(age) = now.duration_since(item.2) {
-                    if age > max_age_duration {
-                        if std::fs::remove_file(&item.0).is_ok() {
-                            deleted_count += 1;
-                        }
-                    }
-                }
-            }
-        }
-        _ => {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::ImageFormat;
+
+    fn sample_image(width: u32, height: u32) -> RgbaImage {
+        RgbaImage::from_fn(width, height, |x, y| {
+            image::Rgba([(x % 255) as u8, (y % 255) as u8, 128, 200])
+        })
     }
 
-    Ok(deleted_count)
+    #[test]
+    fn jpeg_encoding_accepts_rgba_capture_data() {
+        let encoded = encode_image(&sample_image(32, 24), CaptureFormat::Jpeg, 85).unwrap();
+        let decoded = image::load_from_memory_with_format(&encoded, ImageFormat::Jpeg).unwrap();
+        assert_eq!(decoded.width(), 32);
+        assert_eq!(decoded.height(), 24);
+    }
+
+    #[test]
+    fn png_encoding_preserves_dimensions() {
+        let encoded = encode_image(&sample_image(20, 10), CaptureFormat::Png, 85).unwrap();
+        let decoded = image::load_from_memory_with_format(&encoded, ImageFormat::Png).unwrap();
+        assert_eq!(decoded.width(), 20);
+        assert_eq!(decoded.height(), 10);
+    }
+
+    #[test]
+    fn size_limit_resizes_large_capture() {
+        let original = sample_image(1600, 1200);
+        let encoded =
+            encode_with_limit(original, CaptureFormat::Jpeg, 85, Some(64 * 1024)).unwrap();
+        assert!(encoded.bytes.len() <= 64 * 1024);
+        assert!(encoded.width < 1600);
+        assert!(encoded.height < 1200);
+    }
+
+    #[test]
+    fn capture_options_reject_invalid_values() {
+        let options = CaptureOptions {
+            format: CaptureFormat::Png,
+            quality: 0,
+            delay_seconds: MAX_DELAY_SECONDS + 1,
+            hide_window: false,
+            custom_folder: None,
+            persist_to_gallery: false,
+            max_output_bytes: None,
+        };
+        assert!(options.validate().is_err());
+    }
+
+    #[test]
+    fn atomic_writer_uses_unique_names_and_leaves_no_temp_files() {
+        let directory =
+            std::env::temp_dir().join(format!("sythoria-appshot-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let first = write_capture_atomically(&directory, CaptureFormat::Png, b"one").unwrap();
+        let second = write_capture_atomically(&directory, CaptureFormat::Png, b"two").unwrap();
+        assert_ne!(first, second);
+        assert!(first.exists());
+        assert!(second.exists());
+        assert!(fs::read_dir(&directory)
+            .unwrap()
+            .flatten()
+            .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("tmp")));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn canonical_containment_rejects_parent_traversal_outside_allowed_base() {
+        let root =
+            std::env::temp_dir().join(format!("sythoria-appshot-path-test-{}", Uuid::new_v4()));
+        let allowed = root.join("allowed");
+        let outside = root.join("outside");
+        fs::create_dir_all(&allowed).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+
+        let canonical_allowed = allowed.canonicalize().unwrap();
+        let traversal = allowed.join("..").join("outside").canonicalize().unwrap();
+        assert!(!path_is_within_bases(&traversal, &[canonical_allowed]));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }
