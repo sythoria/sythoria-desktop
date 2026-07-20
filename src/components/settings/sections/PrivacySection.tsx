@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network, ChevronDown } from "lucide-react";
+import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useAppshotStore } from "../../../store/useAppshotStore";
@@ -278,24 +279,16 @@ export function PrivacySection() {
                       <label className="text-[10px] font-medium text-text-muted">
                         {t("settings.privacy.pruningRule")}
                       </label>
-                      <div className="relative w-full">
-                        <select
-                          value={appshotConfig.autoCleanType}
-                          onChange={(e) =>
-                            updateAppshotConfig({ autoCleanType: e.target.value as "count" | "size" | "age" })
-                          }
-                          className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                        >
-                          <option value="count">{t("settings.privacy.keepMaxCount")}</option>
-                          <option value="size">{t("settings.privacy.limitFolderSize")}</option>
-                          <option value="age">{t("settings.privacy.limitFileAge")}</option>
-                        </select>
-                        <ChevronDown
-                          size={14}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                          aria-hidden="true"
-                        />
-                      </div>
+                      <Select
+                        value={appshotConfig.autoCleanType}
+                        onChange={(value) => updateAppshotConfig({ autoCleanType: value as "count" | "size" | "age" })}
+                        options={[
+                          { value: "count", label: t("settings.privacy.keepMaxCount") },
+                          { value: "size", label: t("settings.privacy.limitFolderSize") },
+                          { value: "age", label: t("settings.privacy.limitFileAge") },
+                        ]}
+                        aria-label={t("settings.privacy.pruningRule")}
+                      />
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-medium text-text-muted">
