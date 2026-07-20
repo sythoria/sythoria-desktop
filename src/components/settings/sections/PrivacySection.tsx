@@ -99,7 +99,12 @@ export function PrivacySection() {
     setIsConfirmWipe2Open(false);
 
     try {
-      // 1. Wipe keyring secrets first (depends on active store server list/indices)
+      // 1. Remove persistent and temporary Appshots before clearing the folder configuration.
+      await invoke("wipe_appshot_data", {
+        customFolder: appshotConfig.captureFolder || null,
+      });
+
+      // 2. Wipe keyring secrets first (depends on active store server list/indices)
       try {
         await invoke("save_api_keys_cmd", { keys: {} });
       } catch (e) {
@@ -116,21 +121,21 @@ export function PrivacySection() {
         console.error("Failed to clear MCP env secrets keyring:", e);
       }
 
-      // 2. Wipe the Tauri plugin store (conversations, theme, config keys, etc.)
+      // 3. Wipe the Tauri plugin store (conversations, theme, config keys, etc.)
       try {
         await clearStoreData();
       } catch (e) {
         console.error("Failed to clear Tauri store data:", e);
       }
 
-      // 3. Delete config files in AppData (config.json, search_config.json, mcp_config.json, sythoria-store.json)
+      // 4. Delete config files in AppData (config.json, search_config.json, mcp_config.json, sythoria-store.json)
       try {
         await invoke("wipe_config_files");
       } catch (e) {
         console.error("Failed to wipe config files:", e);
       }
 
-      // 4. Wipe localStorage
+      // 5. Wipe localStorage
       localStorage.clear();
 
       useUIStore.getState().setHasStarted(false);
@@ -276,7 +281,9 @@ export function PrivacySection() {
                       <div className="relative w-full">
                         <select
                           value={appshotConfig.autoCleanType}
-                          onChange={(e) => updateAppshotConfig({ autoCleanType: e.target.value as any })}
+                          onChange={(e) =>
+                            updateAppshotConfig({ autoCleanType: e.target.value as "count" | "size" | "age" })
+                          }
                           className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                         >
                           <option value="count">{t("settings.privacy.keepMaxCount")}</option>
@@ -321,7 +328,7 @@ export function PrivacySection() {
             </div>
             <motion.button
               type="button"
-              onClick={clearAllAppshots}
+              onClick={() => clearAllAppshots()}
               disabled={recentAppshots.length === 0}
               whileHover={recentAppshots.length > 0 ? { scale: motionTokens.scale.pop } : undefined}
               whileTap={recentAppshots.length > 0 ? { scale: motionTokens.scale.press } : undefined}
