@@ -25,11 +25,18 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXOpeningElement[name.name='select']",
+          message: "Use the themed Select component from src/components/ui/Select instead of a native HTML select.",
+        },
+      ],
     },
     settings: {
       react: {
         version: "detect",
       },
     },
-  }
+  },
 );
