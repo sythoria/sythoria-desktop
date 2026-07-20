@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
-import { Image, Trash2, Camera, AlertCircle, Copy, Check, ChevronDown } from "lucide-react";
+import { Image, Trash2, Camera, AlertCircle, Copy, Check } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useAppshotStore } from "../../../store/useAppshotStore";
@@ -199,22 +200,16 @@ export function AppshotsSection() {
                 <span className="text-xs font-medium text-text-primary block">
                   {t("settings.appshots.captureTarget")}
                 </span>
-                <div className="relative w-full">
-                  <select
-                    value={config.captureTarget}
-                    onChange={(e) => updateConfig({ captureTarget: e.target.value as "primary" | "all" | "window" })}
-                    className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                  >
-                    <option value="primary">{t("settings.appshots.targetPrimary")}</option>
-                    <option value="all">{t("settings.appshots.targetAll")}</option>
-                    <option value="window">{t("settings.appshots.targetWindow")}</option>
-                  </select>
-                  <ChevronDown
-                    size={14}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                    aria-hidden="true"
-                  />
-                </div>
+                <Select
+                  value={config.captureTarget}
+                  onChange={(value) => updateConfig({ captureTarget: value as "primary" | "all" | "window" })}
+                  options={[
+                    { value: "primary", label: t("settings.appshots.targetPrimary") },
+                    { value: "all", label: t("settings.appshots.targetAll") },
+                    { value: "window", label: t("settings.appshots.targetWindow") },
+                  ]}
+                  aria-label={t("settings.appshots.captureTarget")}
+                />
               </div>
 
               <div className="space-y-2">
@@ -258,23 +253,17 @@ export function AppshotsSection() {
 
               <div className="space-y-2">
                 <span className="text-xs font-medium text-text-primary block">{t("settings.appshots.delayTimer")}</span>
-                <div className="relative w-full">
-                  <select
-                    value={config.delaySeconds}
-                    onChange={(e) => updateConfig({ delaySeconds: parseInt(e.target.value, 10) })}
-                    className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                  >
-                    <option value={0}>{t("settings.appshots.delayInstant")}</option>
-                    <option value={1}>{t("settings.appshots.delaySec", { seconds: "1" })}</option>
-                    <option value={3}>{t("settings.appshots.delaySec", { seconds: "3" })}</option>
-                    <option value={5}>{t("settings.appshots.delaySec", { seconds: "5" })}</option>
-                  </select>
-                  <ChevronDown
-                    size={14}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                    aria-hidden="true"
-                  />
-                </div>
+                <Select
+                  value={String(config.delaySeconds)}
+                  onChange={(value) => updateConfig({ delaySeconds: parseInt(value, 10) })}
+                  options={[
+                    { value: "0", label: t("settings.appshots.delayInstant") },
+                    { value: "1", label: t("settings.appshots.delaySec", { seconds: "1" }) },
+                    { value: "3", label: t("settings.appshots.delaySec", { seconds: "3" }) },
+                    { value: "5", label: t("settings.appshots.delaySec", { seconds: "5" }) },
+                  ]}
+                  aria-label={t("settings.appshots.delayTimer")}
+                />
               </div>
 
               <div className="space-y-4 sm:col-span-2 pt-2 border-t border-border/50">
@@ -330,24 +319,16 @@ export function AppshotsSection() {
                         <label className="text-[10px] font-medium text-text-muted">
                           {t("settings.appshots.cleanType")}
                         </label>
-                        <div className="relative w-full">
-                          <select
-                            value={config.autoCleanType}
-                            onChange={(e) =>
-                              updateConfig({ autoCleanType: e.target.value as "count" | "size" | "age" })
-                            }
-                            className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                          >
-                            <option value="count">{t("settings.appshots.cleanTypeCount")}</option>
-                            <option value="size">{t("settings.appshots.cleanTypeSize")}</option>
-                            <option value="age">{t("settings.appshots.cleanTypeAge")}</option>
-                          </select>
-                          <ChevronDown
-                            size={14}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                            aria-hidden="true"
-                          />
-                        </div>
+                        <Select
+                          value={config.autoCleanType}
+                          onChange={(value) => updateConfig({ autoCleanType: value as "count" | "size" | "age" })}
+                          options={[
+                            { value: "count", label: t("settings.appshots.cleanTypeCount") },
+                            { value: "size", label: t("settings.appshots.cleanTypeSize") },
+                            { value: "age", label: t("settings.appshots.cleanTypeAge") },
+                          ]}
+                          aria-label={t("settings.appshots.cleanType")}
+                        />
                       </div>
 
                       <div className="space-y-1.5">
