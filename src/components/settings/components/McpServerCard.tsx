@@ -28,6 +28,7 @@ import { MCP_TRANSPORT_PRESETS, MCP_SERVER_PRESETS, McpServerPreset } from "../.
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { EnvVarsEditor } from "./EnvVarsEditor";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 
 interface McpServerCardProps {
   id?: string;
@@ -160,31 +161,21 @@ export const McpServerCard = memo(function McpServerCard({
             <label className="text-xs font-medium text-text-muted flex items-center gap-1.5">
               {t("settings.mcp.template")}
             </label>
-            <div className="relative">
-              <select
-                value=""
-                onChange={(e) => {
-                  const presetId = e.target.value;
-                  const preset = MCP_SERVER_PRESETS.find((p) => p.id === presetId);
-                  if (preset) onApplyPreset(preset, config);
-                  e.target.value = "";
-                }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                aria-label="Apply MCP server template"
-              >
-                <option value="">{t("settings.mcp.chooseTemplate")}</option>
-                {MCP_SERVER_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {p.description}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                aria-hidden="true"
-              />
-            </div>
+            <Select
+              value=""
+              onChange={(presetId) => {
+                const preset = MCP_SERVER_PRESETS.find((candidate) => candidate.id === presetId);
+                if (preset) onApplyPreset(preset, config);
+              }}
+              options={[
+                { value: "", label: t("settings.mcp.chooseTemplate") },
+                ...MCP_SERVER_PRESETS.map((preset) => ({
+                  value: preset.id,
+                  label: `${preset.name} — ${preset.description}`,
+                })),
+              ]}
+              aria-label="Apply MCP server template"
+            />
           </div>
         )}
 
@@ -207,40 +198,30 @@ export const McpServerCard = memo(function McpServerCard({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-transport-${config.id}`}>
+            <label className="text-xs font-medium text-text-muted" htmlFor={`mcp-transport-${config.id}-trigger`}>
               {t("settings.mcp.transport")}
             </label>
-            <div className="relative">
-              <select
-                id={`mcp-transport-${config.id}`}
-                value={config.transport}
-                onChange={(e) => {
-                  const transport = e.target.value as McpTransport;
-                  const preset = MCP_TRANSPORT_PRESETS.find((p) => p.transport === transport);
-                  if (preset) {
-                    onUpdate(config.id, {
-                      transport,
-                      name: config.name === "New MCP Server" ? preset.label : config.name,
-                    });
-                  } else {
-                    onUpdate(config.id, { transport });
-                  }
-                }}
-                className="w-full px-3 py-2 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                aria-label="MCP transport type"
-              >
-                {MCP_TRANSPORT_PRESETS.map((p) => (
-                  <option key={p.transport} value={p.transport}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                size={14}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-                aria-hidden="true"
-              />
-            </div>
+            <Select
+              id={`mcp-transport-${config.id}`}
+              value={config.transport}
+              onChange={(value) => {
+                const transport = value as McpTransport;
+                const preset = MCP_TRANSPORT_PRESETS.find((candidate) => candidate.transport === transport);
+                if (preset) {
+                  onUpdate(config.id, {
+                    transport,
+                    name: config.name === "New MCP Server" ? preset.label : config.name,
+                  });
+                } else {
+                  onUpdate(config.id, { transport });
+                }
+              }}
+              options={MCP_TRANSPORT_PRESETS.map((preset) => ({
+                value: preset.transport,
+                label: preset.label,
+              }))}
+              aria-label="MCP transport type"
+            />
           </div>
         </div>
 
