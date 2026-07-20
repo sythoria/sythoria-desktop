@@ -20,6 +20,7 @@ export function AppshotsSection() {
     init,
     updateConfig,
     triggerCapture,
+    cancelCapture,
     deleteAppshot,
     clearAll,
     hasPermission,
@@ -41,11 +42,14 @@ export function AppshotsSection() {
 
   const handleTestCapture = async () => {
     try {
-      addToast(t("settings.appshots.testingStatus"), "info");
-      const result = await triggerCapture("primary");
+      if (config.captureTarget !== "window") {
+        addToast(t("settings.appshots.testingStatus"), "info");
+      }
+      const result = await triggerCapture(config.captureTarget, { persistToGallery: true });
+      await invoke("release_file_token", { token: result.token });
       addToast(t("settings.appshots.testSuccess", { path: result.path.slice(-40) }), "success");
-    } catch (e: any) {
-      addToast(t("settings.appshots.testFailed", { error: e.message || String(e) }), "error");
+    } catch (e: unknown) {
+      addToast(t("settings.appshots.testFailed", { error: e instanceof Error ? e.message : String(e) }), "error");
     }
   };
 
@@ -153,8 +157,8 @@ export function AppshotsSection() {
                           "success",
                         );
                       }
-                    } catch (e: any) {
-                      addToast(e.message || String(e), "error");
+                    } catch (e: unknown) {
+                      addToast(e instanceof Error ? e.message : String(e), "error");
                     }
                   }}
                 >
@@ -191,6 +195,28 @@ export function AppshotsSection() {
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-1">
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-text-primary block">
+                  {t("settings.appshots.captureTarget")}
+                </span>
+                <div className="relative w-full">
+                  <select
+                    value={config.captureTarget}
+                    onChange={(e) => updateConfig({ captureTarget: e.target.value as "primary" | "all" | "window" })}
+                    className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                  >
+                    <option value="primary">{t("settings.appshots.targetPrimary")}</option>
+                    <option value="all">{t("settings.appshots.targetAll")}</option>
+                    <option value="window">{t("settings.appshots.targetWindow")}</option>
+                  </select>
+                  <ChevronDown
+                    size={14}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <span className="text-xs font-medium text-text-primary block">
                   {t("settings.appshots.encoderFormat")}
@@ -253,10 +279,21 @@ export function AppshotsSection() {
 
               <div className="space-y-4 sm:col-span-2 pt-2 border-t border-border/50">
                 <Switch
+                  checked={config.saveToGallery}
+                  onChange={(val) => updateConfig({ saveToGallery: val })}
+                  label={t("settings.appshots.saveToGallery")}
+                  description={t("settings.appshots.saveToGalleryDesc")}
+                />
+                <Switch
                   checked={config.hideWindowOnCapture}
                   onChange={(val) => updateConfig({ hideWindowOnCapture: val })}
                   label={t("settings.appshots.minimize")}
-                  description={t("settings.appshots.minimizeDesc")}
+                  description={
+                    config.captureTarget === "window"
+                      ? t("settings.appshots.minimizeWindowDisabled")
+                      : t("settings.appshots.minimizeDesc")
+                  }
+                  disabled={config.captureTarget === "window"}
                 />
               </div>
             </div>
@@ -296,7 +333,9 @@ export function AppshotsSection() {
                         <div className="relative w-full">
                           <select
                             value={config.autoCleanType}
-                            onChange={(e) => updateConfig({ autoCleanType: e.target.value as any })}
+                            onChange={(e) =>
+                              updateConfig({ autoCleanType: e.target.value as "count" | "size" | "age" })
+                            }
                             className="w-full px-3 py-1.5 pr-8 appearance-none rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                           >
                             <option value="count">{t("settings.appshots.cleanTypeCount")}</option>
@@ -340,18 +379,23 @@ export function AppshotsSection() {
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
                   whileTap={{ scale: motionTokens.scale.press }}
-                  onClick={handleTestCapture}
-                  disabled={isCapturing}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent text-accent-foreground text-xs font-semibold shadow-sm min-h-[32px]"
+                  onClick={isCapturing ? cancelCapture : handleTestCapture}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm min-h-[32px] ${
+                    isCapturing
+                      ? "border border-red-500/30 text-red-500 bg-red-500/10"
+                      : "bg-accent text-accent-foreground"
+                  }`}
                 >
                   {isCapturing ? <Spinner size="sm" /> : <Camera size={13} />}
-                  <span>{t("settings.appshots.testCaptureBtn")}</span>
+                  <span>
+                    {isCapturing ? t("settings.appshots.cancelCaptureBtn") : t("settings.appshots.testCaptureBtn")}
+                  </span>
                 </motion.button>
                 {recentAppshots.length > 0 && (
                   <motion.button
                     whileHover={{ scale: motionTokens.scale.pop }}
                     whileTap={{ scale: motionTokens.scale.press }}
-                    onClick={clearAll}
+                    onClick={() => clearAll()}
                     disabled={loading}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 text-red-500 hover:bg-red-500/5 text-xs font-semibold min-h-[32px]"
                   >
