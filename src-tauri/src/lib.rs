@@ -137,6 +137,10 @@ use std::fs;
 use std::io::Write;
 use std::sync::{LazyLock, Mutex};
 use tauri::{Emitter, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+
+const DEFAULT_APPSHOT_SHORTCUT: &str = "Alt+Shift+S";
+static APPSHOT_SHORTCUT: LazyLock<Mutex<Option<Shortcut>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
@@ -1183,6 +1187,67 @@ fn update_tray_icon(app: tauri::AppHandle) {
     update_tray_visibility(&app);
 }
 
+fn native_shortcut(combo: &str) -> String {
+    combo
+        .split('+')
+        .map(|part| {
+            if part.trim().eq_ignore_ascii_case("ctrl") {
+                "CommandOrControl"
+            } else {
+                part.trim()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+#[tauri::command]
+fn register_appshot_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<(), AppError> {
+    let normalized = native_shortcut(&shortcut);
+    let next: Shortcut = normalized
+        .parse()
+        .map_err(|error| AppError::ConfigIo(format!("Invalid Appshot shortcut: {error}")))?;
+    let previous = APPSHOT_SHORTCUT
+        .lock()
+        .map_err(|_| AppError::ConfigIo("Appshot shortcut state is unavailable".into()))?
+        .to_owned();
+
+    if previous.as_ref().map(Shortcut::id) == Some(next.id()) {
+        return Ok(());
+    }
+
+    app.global_shortcut().register(next).map_err(|error| {
+        AppError::ConfigIo(format!("Could not register Appshot shortcut: {error}"))
+    })?;
+
+    if let Some(previous) = previous {
+        if let Err(error) = app.global_shortcut().unregister(previous) {
+            let _ = app.global_shortcut().unregister(next);
+            return Err(AppError::ConfigIo(format!(
+                "Could not replace the Appshot shortcut: {error}"
+            )));
+        }
+    }
+
+    *APPSHOT_SHORTCUT
+        .lock()
+        .map_err(|_| AppError::ConfigIo("Appshot shortcut state is unavailable".into()))? =
+        Some(next);
+    Ok(())
+}
+
+#[tauri::command]
+fn reveal_main_window(app: tauri::AppHandle) -> Result<(), AppError> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::AppPath("Main window not found".into()))?;
+    window.show()?;
+    window.unminimize()?;
+    window.set_focus()?;
+    update_tray_visibility(&app);
+    Ok(())
+}
+
 #[tauri::command]
 async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
@@ -1677,9 +1742,16 @@ pub fn run() {
             let _ = registry.load_from_disk(app.app_handle());
             #[cfg(desktop)]
             {
-                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                use tauri_plugin_global_shortcut::{Code, Modifiers};
                 let shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
                 let _ = app.global_shortcut().register(shortcut);
+                if let Ok(appshot_shortcut) = DEFAULT_APPSHOT_SHORTCUT.parse::<Shortcut>() {
+                    if app.global_shortcut().register(appshot_shortcut).is_ok() {
+                        if let Ok(mut registered) = APPSHOT_SHORTCUT.lock() {
+                            *registered = Some(appshot_shortcut);
+                        }
+                    }
+                }
             }
 
             let _window = app.get_webview_window("main").ok_or_else(|| {
@@ -1838,6 +1910,16 @@ pub fn run() {
                                 let _ = main_win.set_focus();
                                 let _ = main_win.emit("sythoria://spotlight-shown", ());
                             }
+                        } else if APPSHOT_SHORTCUT
+                            .lock()
+                            .ok()
+                            .and_then(|registered| *registered)
+                            .map(|registered| registered.id() == shortcut.id())
+                            .unwrap_or(false)
+                        {
+                            if let Some(main_win) = app.get_webview_window("main") {
+                                let _ = main_win.emit("sythoria://appshot-requested", ());
+                            }
                         }
                     }
                 })
@@ -1892,6 +1974,8 @@ pub fn run() {
             set_autostart_enabled,
             is_autostart_enabled,
             update_tray_icon,
+            register_appshot_shortcut,
+            reveal_main_window,
             select_file_and_get_token,
             read_file_from_token,
             release_file_token,
@@ -1929,7 +2013,6 @@ pub fn run() {
             project_tools::project_glob,
             project_tools::create_project_dir,
             appshots::capture_screen,
-            appshots::cancel_appshot_capture,
             appshots::list_appshots,
             appshots::delete_appshot,
             appshots::clear_appshots,

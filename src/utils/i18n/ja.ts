@@ -406,9 +406,6 @@ export const ja = {
   "settings.appshots.capturePrefs": "キャプチャおよびエンコーダー設定",
   "settings.appshots.encoderFormat": "保存形式",
   "settings.appshots.jpegQuality": "JPEG画質",
-  "settings.appshots.delayTimer": "タイマー設定",
-  "settings.appshots.delayInstant": "0秒 (即時キャプチャ)",
-  "settings.appshots.delaySec": "{seconds}秒の遅延",
   "settings.appshots.pruneRules": "ディスク整理と安全性",
   "settings.appshots.autoClean": "画面キャプチャを自動的に整理",
   "settings.appshots.autoCleanDesc":
@@ -567,8 +564,6 @@ export const ja = {
   "settings.voice.downloadSuccess": "Whisperモデルを正常に保存しました",
   "settings.voice.deleteSuccess": "モデルファイルをローカルから削除しました",
   "settings.voice.pickerError": "ファイルエクスプローラーの起動に失敗しました。",
-  "settings.appshots.minimize": "キャプチャ時に最小化",
-  "settings.appshots.minimizeDesc": "撮影カウントダウン中、Sythoriaのウィンドウを自動的に最小化します",
   "settings.appshots.galleryTitle": "キャプチャ一覧",
   "settings.appshots.noShots": "保存されたキャプチャはまだありません。",
   "settings.appshots.copyPathTooltip": "絶対パスをコピー",

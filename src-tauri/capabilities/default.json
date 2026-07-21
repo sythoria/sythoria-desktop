@@ -19,7 +19,8 @@
         { "event": "tauri://drag-leave" },
         { "event": "tauri://drag-drop" },
         { "event": "sythoria://drag-drop-tokens" },
-        { "event": "sythoria://spotlight-shown" }
+        { "event": "sythoria://spotlight-shown" },
+        { "event": "sythoria://appshot-requested" }
       ]
     },
     {

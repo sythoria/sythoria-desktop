@@ -1,12 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  AppshotCaptureTarget,
-  AppshotConfig,
-  DEFAULT_APPSHOT_CONFIG,
-  loadAppshotConfig,
-  saveAppshotConfig,
-} from "../utils/storage";
+import { AppshotConfig, DEFAULT_APPSHOT_CONFIG, loadAppshotConfig, saveAppshotConfig } from "../utils/storage";
 import { logInfo, logError } from "../utils/logger";
 import { useChatStore } from "./useChatStore";
 import { useModelStore } from "./useModelStore";
@@ -40,6 +34,11 @@ interface ClearOptions {
   skipConfirmation?: boolean;
 }
 
+interface CaptureAndAttachOptions {
+  skipConfirmation?: boolean;
+  revealChat?: boolean;
+}
+
 interface AppshotStore {
   config: AppshotConfig;
   recentAppshots: AppshotFile[];
@@ -53,13 +52,12 @@ interface AppshotStore {
   updateConfig: (updates: Partial<AppshotConfig>) => Promise<void>;
   checkPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
-  triggerCapture: (target?: AppshotCaptureTarget, overrides?: CaptureOverrides) => Promise<AppshotCaptureResult>;
-  cancelCapture: () => Promise<void>;
+  triggerCapture: (overrides?: CaptureOverrides) => Promise<AppshotCaptureResult>;
   runCleanup: () => Promise<number>;
   loadRecentAppshots: () => Promise<void>;
   deleteAppshot: (path: string) => Promise<void>;
   clearAll: (options?: ClearOptions) => Promise<void>;
-  captureAndAttachToChat: () => Promise<void>;
+  captureAndAttachToChat: (options?: CaptureAndAttachOptions) => Promise<void>;
 }
 
 let initializationPromise: Promise<void> | null = null;
@@ -152,7 +150,7 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
     }
   },
 
-  triggerCapture: async (target, overrides = {}) => {
+  triggerCapture: async (overrides = {}) => {
     if (get().isCapturing) {
       throw new Error("Another Appshot capture is already in progress");
     }
@@ -168,12 +166,9 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
       const config = get().config;
       const persistToGallery = overrides.persistToGallery ?? config.saveToGallery;
       const result = await invoke<AppshotCaptureResult>("capture_screen", {
-        target: target ?? config.captureTarget,
         options: {
           format: config.imageFormat,
           quality: config.imageQuality,
-          delaySeconds: config.delaySeconds,
-          hideWindow: config.hideWindowOnCapture,
           customFolder: persistToGallery ? config.captureFolder || null : null,
           persistToGallery,
           maxOutputBytes: overrides.maxOutputBytes ?? null,
@@ -193,14 +188,6 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
       throw error;
     } finally {
       set({ isCapturing: false });
-    }
-  },
-
-  cancelCapture: async () => {
-    try {
-      await invoke<boolean>("cancel_appshot_capture");
-    } catch (error) {
-      logError("appshots", "Failed to cancel Appshot capture", { error });
     }
   },
 
@@ -270,7 +257,7 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
     }
   },
 
-  captureAndAttachToChat: async () => {
+  captureAndAttachToChat: async (options = {}) => {
     const ui = useUIStore.getState();
     try {
       await get().init();
@@ -292,14 +279,12 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         return;
       }
 
-      const confirmed = window.confirm("Capture the selected screen target and add it to the chat draft?");
-      if (!confirmed) return;
-      if (config.captureTarget !== "window") {
-        ui.addToast(config.delaySeconds > 0 ? "Appshot countdown started…" : "Capturing Appshot…", "info");
+      if (!options.skipConfirmation) {
+        const confirmed = window.confirm("Capture the frontmost application and add it to the chat draft?");
+        if (!confirmed) return;
       }
-
       const beforeCount = useChatStore.getState().draftAttachments.length;
-      const capture = await get().triggerCapture(config.captureTarget, {
+      const capture = await get().triggerCapture({
         persistToGallery: config.saveToGallery,
         maxOutputBytes: MAX_FILE_SIZE_BYTES,
       });
@@ -314,17 +299,27 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
         await get().loadRecentAppshots();
       }
       ui.addToast("Appshot added to the chat draft", "success");
-      setTimeout(() => {
-        if (typeof document !== "undefined") {
-          document.getElementById("chat-input")?.focus();
-        }
-      }, 50);
     } catch (error) {
       const message = errorMessage(error);
       if (!message.toLowerCase().includes("cancel")) {
         logError("appshots", "Failed to capture and attach an Appshot", { error });
         ui.addToast(`Capture failed: ${message}`, "error");
       }
+    } finally {
+      if (options.revealChat) {
+        ui.setView("chat");
+        try {
+          await invoke("reveal_main_window");
+        } catch (error) {
+          logError("appshots", "Failed to reveal the chat after Appshot capture", { error });
+        }
+      }
+
+      setTimeout(() => {
+        if (typeof document !== "undefined") {
+          document.getElementById("chat-input")?.focus();
+        }
+      }, 50);
     }
   },
 }));

@@ -1,7 +1,7 @@
 use crate::{AppError, FileTokenRegistry};
 use image::{
     codecs::{jpeg::JpegEncoder, png::PngEncoder},
-    imageops::{overlay, resize, FilterType},
+    imageops::{resize, FilterType},
     ExtendedColorType, ImageEncoder, RgbaImage,
 };
 use serde::{Deserialize, Serialize};
@@ -10,30 +10,21 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{LazyLock, Mutex, MutexGuard},
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
-use tauri::{AppHandle, Manager, WebviewWindow};
-use tokio_util::sync::CancellationToken;
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
-use xcap::{Monitor, Window as XcapWindow};
+use xcap::Window as XcapWindow;
 
-const MAX_DELAY_SECONDS: u64 = 30;
 const MAX_CAPTURE_PIXELS: u64 = 150_000_000;
 const MAX_OUTPUT_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_CLEAN_VALUE: u64 = 1_000_000;
 const EPHEMERAL_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const MIN_CAPTURE_WINDOW_WIDTH: u32 = 160;
+const MIN_CAPTURE_WINDOW_HEIGHT: u32 = 120;
 
-static ACTIVE_CAPTURE: LazyLock<Mutex<Option<CancellationToken>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum CaptureTarget {
-    Primary,
-    All,
-    Window,
-}
+static ACTIVE_CAPTURE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -64,8 +55,6 @@ pub enum CleanType {
 pub struct CaptureOptions {
     pub format: CaptureFormat,
     pub quality: u8,
-    pub delay_seconds: u64,
-    pub hide_window: bool,
     pub custom_folder: Option<String>,
     #[serde(default)]
     pub persist_to_gallery: bool,
@@ -76,11 +65,6 @@ impl CaptureOptions {
     fn validate(&self) -> Result<(), AppError> {
         if !(10..=100).contains(&self.quality) {
             return Err(config_error("Image quality must be between 10 and 100"));
-        }
-        if self.delay_seconds > MAX_DELAY_SECONDS {
-            return Err(config_error(format!(
-                "Capture delay cannot exceed {MAX_DELAY_SECONDS} seconds"
-            )));
         }
         if let Some(max_bytes) = self.max_output_bytes {
             if !(64 * 1024..=MAX_OUTPUT_BYTES).contains(&max_bytes) {
@@ -125,89 +109,7 @@ struct ActiveCaptureGuard;
 
 impl Drop for ActiveCaptureGuard {
     fn drop(&mut self) {
-        if let Ok(mut active) = ACTIVE_CAPTURE.lock() {
-            *active = None;
-        }
-    }
-}
-
-struct WindowRestoreGuard {
-    window: Option<WebviewWindow>,
-    was_visible: bool,
-    was_minimized: bool,
-    was_maximized: bool,
-    was_focused: bool,
-    changed: bool,
-}
-
-impl WindowRestoreGuard {
-    fn unchanged() -> Self {
-        Self {
-            window: None,
-            was_visible: false,
-            was_minimized: false,
-            was_maximized: false,
-            was_focused: false,
-            changed: false,
-        }
-    }
-
-    fn minimize(app: &AppHandle) -> Result<Self, AppError> {
-        let Some(window) = app.get_webview_window("main") else {
-            return Ok(Self::unchanged());
-        };
-
-        let was_visible = window.is_visible().unwrap_or(true);
-        let was_minimized = window.is_minimized().unwrap_or(false);
-        let was_maximized = window.is_maximized().unwrap_or(false);
-        let was_focused = window.is_focused().unwrap_or(false);
-        let mut guard = Self {
-            window: Some(window.clone()),
-            was_visible,
-            was_minimized,
-            was_maximized,
-            was_focused,
-            changed: false,
-        };
-
-        if was_visible && !was_minimized {
-            window.minimize()?;
-            guard.changed = true;
-        }
-        Ok(guard)
-    }
-
-    fn restore(&mut self) {
-        if !self.changed {
-            return;
-        }
-        let Some(window) = &self.window else {
-            return;
-        };
-
-        if self.was_visible {
-            let _ = window.show();
-            if self.was_minimized {
-                let _ = window.minimize();
-            } else {
-                let _ = window.unminimize();
-            }
-            if self.was_maximized {
-                let _ = window.maximize();
-            }
-            if self.was_focused {
-                let _ = window.set_focus();
-            }
-        } else {
-            let _ = window.hide();
-        }
-        self.changed = false;
-    }
-}
-
-impl Drop for WindowRestoreGuard {
-    fn drop(&mut self) {
-        self.restore();
+        ACTIVE_CAPTURE.store(false, Ordering::Release);
     }
 }
 
@@ -215,22 +117,11 @@ fn config_error(message: impl Into<String>) -> AppError {
     AppError::ConfigIo(message.into())
 }
 
-fn lock_active_capture() -> Result<MutexGuard<'static, Option<CancellationToken>>, AppError> {
+fn begin_capture() -> Result<ActiveCaptureGuard, AppError> {
     ACTIVE_CAPTURE
-        .lock()
-        .map_err(|_| config_error("Appshot capture state is unavailable"))
-}
-
-fn begin_capture() -> Result<(ActiveCaptureGuard, CancellationToken), AppError> {
-    let mut active = lock_active_capture()?;
-    if active.is_some() {
-        return Err(config_error(
-            "Another Appshot capture is already in progress",
-        ));
-    }
-    let token = CancellationToken::new();
-    *active = Some(token.clone());
-    Ok((ActiveCaptureGuard, token))
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| ActiveCaptureGuard)
+        .map_err(|_| config_error("Another Appshot capture is already in progress"))
 }
 
 #[cfg(target_os = "macos")]
@@ -275,46 +166,12 @@ pub async fn request_screen_capture_permission(first_time: bool) -> bool {
 }
 
 #[tauri::command]
-pub fn cancel_appshot_capture() -> Result<bool, AppError> {
-    let active = lock_active_capture()?;
-    if let Some(token) = active.as_ref() {
-        token.cancel();
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-#[tauri::command]
 pub async fn capture_screen(
     app: AppHandle,
-    target: CaptureTarget,
     options: CaptureOptions,
 ) -> Result<CaptureResult, AppError> {
     options.validate()?;
-    let (_active_guard, cancellation) = begin_capture()?;
-
-    if options.delay_seconds > 0 {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(options.delay_seconds)) => {}
-            _ = cancellation.cancelled() => return Err(config_error("Appshot capture cancelled")),
-        }
-    }
-    if cancellation.is_cancelled() {
-        return Err(config_error("Appshot capture cancelled"));
-    }
-
-    let mut restore_guard = if options.hide_window && target != CaptureTarget::Window {
-        let guard = WindowRestoreGuard::minimize(&app)?;
-        tokio::time::sleep(Duration::from_millis(450)).await;
-        guard
-    } else {
-        WindowRestoreGuard::unchanged()
-    };
-
-    if cancellation.is_cancelled() {
-        return Err(config_error("Appshot capture cancelled"));
-    }
+    let _active_guard = begin_capture()?;
 
     let output_dir = resolve_output_directory(
         &app,
@@ -324,9 +181,10 @@ pub async fn capture_screen(
     let format = options.format;
     let quality = options.quality;
     let max_output_bytes = options.max_output_bytes;
+    let sythoria_pid = std::process::id();
 
     let capture = tokio::task::spawn_blocking(move || {
-        let image = capture_target(target)?;
+        let image = capture_frontmost_app_window(sythoria_pid)?;
         validate_capture_dimensions(&image)?;
         let encoded = encode_with_limit(image, format, quality, max_output_bytes)?;
         let output_path = write_capture_atomically(&output_dir, format, &encoded.bytes)?;
@@ -335,7 +193,6 @@ pub async fn capture_screen(
     .await
     .map_err(|error| config_error(format!("Appshot worker failed: {error}")))??;
 
-    restore_guard.restore();
     let (output_path, encoded) = capture;
     let size = fs::metadata(&output_path)?.len();
     let name = output_path
@@ -362,95 +219,39 @@ pub async fn capture_screen(
     })
 }
 
-fn capture_target(target: CaptureTarget) -> Result<RgbaImage, AppError> {
-    match target {
-        CaptureTarget::Primary => capture_primary_monitor(),
-        CaptureTarget::All => capture_all_monitors(),
-        CaptureTarget::Window => capture_sythoria_window(),
-    }
-}
-
-fn capture_primary_monitor() -> Result<RgbaImage, AppError> {
-    let monitors = Monitor::all().map_err(|error| config_error(error.to_string()))?;
-    let monitor = monitors
-        .iter()
-        .find(|monitor| monitor.is_primary().unwrap_or(false))
-        .or_else(|| monitors.first())
-        .ok_or_else(|| config_error("No display is available for capture"))?;
-    monitor
-        .capture_image()
-        .map_err(|error| config_error(format!("Failed to capture primary display: {error}")))
-}
-
-fn capture_all_monitors() -> Result<RgbaImage, AppError> {
-    let monitors = Monitor::all().map_err(|error| config_error(error.to_string()))?;
-    if monitors.is_empty() {
-        return Err(config_error("No displays are available for capture"));
-    }
-
-    let mut captured = Vec::with_capacity(monitors.len());
-    for monitor in monitors {
-        let x = i64::from(
-            monitor
-                .x()
-                .map_err(|error| config_error(error.to_string()))?,
-        );
-        let y = i64::from(
-            monitor
-                .y()
-                .map_err(|error| config_error(error.to_string()))?,
-        );
-        let image = monitor
-            .capture_image()
-            .map_err(|error| config_error(format!("Failed to capture a display: {error}")))?;
-        captured.push((x, y, image));
-    }
-
-    let min_x = captured.iter().map(|(x, _, _)| *x).min().unwrap_or(0);
-    let min_y = captured.iter().map(|(_, y, _)| *y).min().unwrap_or(0);
-    let max_x = captured
-        .iter()
-        .map(|(x, _, image)| x.saturating_add(i64::from(image.width())))
-        .max()
-        .unwrap_or(0);
-    let max_y = captured
-        .iter()
-        .map(|(_, y, image)| y.saturating_add(i64::from(image.height())))
-        .max()
-        .unwrap_or(0);
-    let width = u32::try_from(max_x.saturating_sub(min_x))
-        .map_err(|_| config_error("Combined display width is too large"))?;
-    let height = u32::try_from(max_y.saturating_sub(min_y))
-        .map_err(|_| config_error("Combined display height is too large"))?;
-
-    validate_pixel_count(width, height)?;
-    let mut canvas = RgbaImage::new(width, height);
-    for (x, y, image) in captured {
-        overlay(&mut canvas, &image, x - min_x, y - min_y);
-    }
-    Ok(canvas)
-}
-
-fn capture_sythoria_window() -> Result<RgbaImage, AppError> {
-    let process_id = std::process::id();
+fn capture_frontmost_app_window(sythoria_pid: u32) -> Result<RgbaImage, AppError> {
     let windows = XcapWindow::all().map_err(|error| config_error(error.to_string()))?;
-    let mut candidates: Vec<XcapWindow> = windows
+    let window = windows
         .into_iter()
-        .filter(|window| window.pid().ok() == Some(process_id))
-        .filter(|window| !window.is_minimized().unwrap_or(true))
-        .collect();
+        .find(|window| is_frontmost_app_candidate(window, sythoria_pid))
+        .ok_or_else(|| config_error("No frontmost application window is available for capture"))?;
 
-    candidates.sort_by_key(|window| {
-        let focused = window.is_focused().unwrap_or(false);
-        let area = u64::from(window.width().unwrap_or(0)) * u64::from(window.height().unwrap_or(0));
-        (focused, area)
-    });
-    let window = candidates
-        .pop()
-        .ok_or_else(|| config_error("The Sythoria window is not available for capture"))?;
-    window
-        .capture_image()
-        .map_err(|error| config_error(format!("Failed to capture the Sythoria window: {error}")))
+    window.capture_image().map_err(|error| {
+        config_error(format!(
+            "Failed to capture the frontmost application: {error}"
+        ))
+    })
+}
+
+fn is_frontmost_app_candidate(window: &XcapWindow, sythoria_pid: u32) -> bool {
+    let Ok(pid) = window.pid() else {
+        return false;
+    };
+    if pid == 0 || pid == sythoria_pid || window.is_minimized().unwrap_or(true) {
+        return false;
+    }
+
+    let width = window.width().unwrap_or(0);
+    let height = window.height().unwrap_or(0);
+    if width < MIN_CAPTURE_WINDOW_WIDTH || height < MIN_CAPTURE_WINDOW_HEIGHT {
+        return false;
+    }
+
+    let app_name = window.app_name().unwrap_or_default();
+    !matches!(
+        app_name.as_str(),
+        "Window Server" | "Dock" | "Control Center" | "Notification Center" | "SystemUIServer"
+    )
 }
 
 fn validate_capture_dimensions(image: &RgbaImage) -> Result<(), AppError> {
@@ -950,8 +751,6 @@ mod tests {
         let options = CaptureOptions {
             format: CaptureFormat::Png,
             quality: 0,
-            delay_seconds: MAX_DELAY_SECONDS + 1,
-            hide_window: false,
             custom_folder: None,
             persist_to_gallery: false,
             max_output_bytes: None,

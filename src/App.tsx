@@ -82,6 +82,7 @@ function App() {
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
   const [isMobile, setIsMobile] = useState(false);
   const activeListenerIdRef = useRef("");
+  const captureAppshotCombo = useKeybindStore((state) => state.keybinds.captureAppshot.currentCombo);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -575,6 +576,14 @@ function App() {
   }, [init]);
 
   useEffect(() => {
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke("register_appshot_shortcut", { shortcut: captureAppshotCombo }).catch((error) => {
+        useUIStore.getState().addToast(`Could not register the global Appshot shortcut: ${String(error)}`, "error");
+      });
+    });
+  }, [captureAppshotCombo]);
+
+  useEffect(() => {
     if (isConfigLoaded && autoUpdateChecking) {
       checkForUpdates(true);
     }
@@ -682,13 +691,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && useAppshotStore.getState().isCapturing) {
-        e.preventDefault();
-        useAppshotStore.getState().cancelCapture();
-        return;
-      }
+    let active = true;
+    let unlisten: (() => void) | undefined;
 
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const stopListening = await listen("sythoria://appshot-requested", () => {
+        void useAppshotStore.getState().captureAndAttachToChat({
+          skipConfirmation: true,
+          revealChat: true,
+        });
+      });
+      if (active) {
+        unlisten = stopListening;
+      } else {
+        stopListening();
+      }
+    })();
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && isStreaming) {
         stopStreaming();
         return;
@@ -735,10 +763,6 @@ function App() {
         setTimeout(() => {
           document.getElementById("chat-input")?.focus();
         }, 50);
-      } else if (matchKeybind(e, keys.captureAppshot.currentCombo)) {
-        e.preventDefault();
-        if (e.repeat) return;
-        useAppshotStore.getState().captureAndAttachToChat();
       } else if (matchKeybind(e, keys.goBack.currentCombo)) {
         if (useChatStore.getState().navigationIndex > 0) {
           e.preventDefault();

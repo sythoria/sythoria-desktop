@@ -4,14 +4,11 @@ const mocks = vi.hoisted(() => {
   const defaultConfig = {
     enabled: true,
     captureFolder: "",
-    captureTarget: "primary" as const,
     imageFormat: "png" as const,
     imageQuality: 85,
-    delaySeconds: 0,
     autoCleanEnabled: true,
     autoCleanType: "count" as const,
     autoCleanValue: 50,
-    hideWindowOnCapture: true,
     saveToGallery: false,
     screenCapturePromptShown: false,
   };
@@ -21,6 +18,7 @@ const mocks = vi.hoisted(() => {
     loadAppshotConfig: vi.fn(),
     saveAppshotConfig: vi.fn(),
     addToast: vi.fn(),
+    setView: vi.fn(),
     addDraftFileFromToken: vi.fn(),
     chatState: {
       draftAttachments: [] as Array<{ id: string }>,
@@ -64,7 +62,7 @@ vi.mock("./useModelStore", () => ({
 
 vi.mock("./useUIStore", () => ({
   useUIStore: {
-    getState: () => ({ addToast: mocks.addToast }),
+    getState: () => ({ addToast: mocks.addToast, setView: mocks.setView }),
   },
 }));
 
@@ -113,7 +111,6 @@ describe("useAppshotStore", () => {
   it("loads persisted settings and applies retention during startup", async () => {
     const persisted = {
       ...mocks.defaultConfig,
-      captureTarget: "window" as const,
       saveToGallery: true,
     };
     mocks.loadAppshotConfig.mockResolvedValue(persisted);
@@ -141,9 +138,9 @@ describe("useAppshotStore", () => {
       return 0;
     });
 
-    const first = useAppshotStore.getState().triggerCapture("primary");
+    const first = useAppshotStore.getState().triggerCapture();
     await vi.waitFor(() => expect(useAppshotStore.getState().isCapturing).toBe(true));
-    await expect(useAppshotStore.getState().triggerCapture("primary")).rejects.toThrow("already in progress");
+    await expect(useAppshotStore.getState().triggerCapture()).rejects.toThrow("already in progress");
     finishCapture?.(captureResult);
     await first;
 
@@ -168,12 +165,14 @@ describe("useAppshotStore", () => {
     await useAppshotStore.getState().captureAndAttachToChat();
 
     expect(mocks.invoke).toHaveBeenCalledWith("capture_screen", {
-      target: "primary",
       options: expect.objectContaining({
         persistToGallery: false,
         customFolder: null,
         maxOutputBytes: 10 * 1024 * 1024,
       }),
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith("capture_screen", {
+      options: expect.not.objectContaining({ delaySeconds: expect.anything(), hideWindow: expect.anything() }),
     });
     expect(mocks.addDraftFileFromToken).toHaveBeenCalledWith("capture-token", "appshot.png", 1024);
     expect(mocks.invoke).not.toHaveBeenCalledWith("run_appshots_clean", expect.anything());
@@ -193,6 +192,21 @@ describe("useAppshotStore", () => {
     const cleanupCall = mocks.invoke.mock.calls.findIndex(([command]) => command === "run_appshots_clean");
     const cleanupOrder = mocks.invoke.mock.invocationCallOrder[cleanupCall];
     expect(attachOrder).toBeLessThan(cleanupOrder);
+  });
+
+  it("captures globally without confirmation and reveals the chat afterward", async () => {
+    useAppshotStore.setState({ initialized: true });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await useAppshotStore.getState().captureAndAttachToChat({
+      skipConfirmation: true,
+      revealChat: true,
+    });
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(mocks.addDraftFileFromToken).toHaveBeenCalledWith("capture-token", "appshot.png", 1024);
+    expect(mocks.setView).toHaveBeenCalledWith("chat");
+    expect(mocks.invoke).toHaveBeenCalledWith("reveal_main_window");
   });
 
   it("clears the gallery with one backend operation", async () => {

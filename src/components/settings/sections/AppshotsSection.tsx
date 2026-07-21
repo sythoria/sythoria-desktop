@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { motion, AnimatePresence } from "motion/react";
-import { Image, Trash2, Camera, AlertCircle, Copy, Check } from "lucide-react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { Image, Trash2, Camera, AlertCircle, Copy, Check, HardDrive } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useAppshotStore } from "../../../store/useAppshotStore";
+import { useKeybindStore } from "../../../store/useKeybindStore";
 import { useUIStore } from "../../../store/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
 
 export function AppshotsSection() {
   const { t } = useTranslation();
+  const prefersReducedMotion = useReducedMotion();
   const {
     config,
     recentAppshots,
@@ -21,13 +23,13 @@ export function AppshotsSection() {
     init,
     updateConfig,
     triggerCapture,
-    cancelCapture,
     deleteAppshot,
     clearAll,
     hasPermission,
     requestPermission,
   } = useAppshotStore();
   const addToast = useUIStore((s) => s.addToast);
+  const captureShortcut = useKeybindStore((s) => s.keybinds.captureAppshot.currentCombo);
   const [inputFolder, setInputFolder] = useState(config.captureFolder);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [prevFolder, setPrevFolder] = useState(config.captureFolder);
@@ -43,10 +45,8 @@ export function AppshotsSection() {
 
   const handleTestCapture = async () => {
     try {
-      if (config.captureTarget !== "window") {
-        addToast(t("settings.appshots.testingStatus"), "info");
-      }
-      const result = await triggerCapture(config.captureTarget, { persistToGallery: true });
+      addToast(t("settings.appshots.testingStatus"), "info");
+      const result = await triggerCapture({ persistToGallery: true });
       await invoke("release_file_token", { token: result.token });
       addToast(t("settings.appshots.testSuccess", { path: result.path.slice(-40) }), "success");
     } catch (e: unknown) {
@@ -79,6 +79,7 @@ export function AppshotsSection() {
         <Switch
           checked={config.enabled && hasPermission}
           onChange={(val) => updateConfig({ enabled: val })}
+          ariaLabel={t("settings.appshots.title")}
           disabled={!hasPermission}
         />
       </div>
@@ -128,325 +129,376 @@ export function AppshotsSection() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springs.gentle}
-          className="space-y-6"
+          className="space-y-5"
         >
-          <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              {t("settings.appshots.saveLocation")}
-            </h4>
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inputFolder}
-                  readOnly
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-input/40 border border-border text-sm text-text-secondary focus:outline-none focus:border-border transition-colors cursor-default"
-                  placeholder="Default (Sythoria app data folder)"
-                />
-                <motion.button
-                  whileHover={{ scale: motionTokens.scale.pop }}
-                  whileTap={{ scale: motionTokens.scale.press }}
-                  className="px-4 py-1.5 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent-hover transition-colors shadow-sm"
-                  onClick={async () => {
-                    try {
-                      const selected = await invoke<string | null>("select_appshot_folder");
-                      if (selected) {
-                        setInputFolder(selected);
-                        await updateConfig({ captureFolder: selected });
-                        addToast(
-                          t("settings.appshots.pathUpdated", { defaultValue: "Appshots capture folder path updated" }),
-                          "success",
-                        );
-                      }
-                    } catch (e: unknown) {
-                      addToast(e instanceof Error ? e.message : String(e), "error");
-                    }
-                  }}
-                >
-                  {t("settings.appshots.browseBtn")}
-                </motion.button>
-                {inputFolder && (
-                  <motion.button
-                    whileHover={{ scale: motionTokens.scale.pop }}
-                    whileTap={{ scale: motionTokens.scale.press }}
-                    className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 text-sm font-medium hover:bg-red-500/20 transition-colors shadow-sm"
-                    onClick={async () => {
-                      setInputFolder("");
-                      await updateConfig({ captureFolder: "" });
-                      addToast(
-                        t("settings.appshots.resetFolderSuccess", {
-                          defaultValue: "Reset to default secure app data folder",
-                        }),
-                        "success",
-                      );
-                    }}
-                  >
-                    {t("settings.appshots.clearBtn")}
-                  </motion.button>
-                )}
+          <section className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <Camera size={16} />
               </div>
-              <p className="text-[10px] text-text-muted">{t("settings.appshots.saveLocationDesc")}</p>
+              <div>
+                <h4 className="text-sm font-semibold text-text-primary">{t("settings.appshots.capturePrefs")}</h4>
+                <p className="mt-0.5 text-xs leading-relaxed text-text-muted">
+                  {t("settings.appshots.targetFrontmostDesc")}
+                </p>
+              </div>
             </div>
-          </div>
 
-          {/* Card 2: Capture Preferences */}
-          <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              {t("settings.appshots.capturePrefs")}
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-1">
-              <div className="space-y-2">
-                <span className="text-xs font-medium text-text-primary block">
-                  {t("settings.appshots.captureTarget")}
+            <div className="mt-4 divide-y divide-border/60 border-y border-border/60">
+              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text-primary">
+                    {t("settings.appshots.targetFrontmost")}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-text-muted">{t("settings.appshots.captureTarget")}</span>
+                </div>
+                <span className="w-fit rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                  {t("settings.appshots.automatic")}
                 </span>
-                <Select
-                  value={config.captureTarget}
-                  onChange={(value) => updateConfig({ captureTarget: value as "primary" | "all" | "window" })}
-                  options={[
-                    { value: "primary", label: t("settings.appshots.targetPrimary") },
-                    { value: "all", label: t("settings.appshots.targetAll") },
-                    { value: "window", label: t("settings.appshots.targetWindow") },
-                  ]}
-                  aria-label={t("settings.appshots.captureTarget")}
-                />
               </div>
 
-              <div className="space-y-2">
-                <span className="text-xs font-medium text-text-primary block">
-                  {t("settings.appshots.encoderFormat")}
-                </span>
-                <div className="flex gap-2 bg-input/40 p-1 rounded-lg border border-border/40 w-fit">
+              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div>
+                    <span className="text-sm font-medium text-text-primary">{t("settings.appshots.shortcut")}</span>
+                    <span className="mt-0.5 block text-xs text-text-muted">{t("settings.appshots.shortcutDesc")}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {captureShortcut.split("+").map((key) => (
+                    <kbd
+                      key={key}
+                      className="rounded-md border border-border bg-input/40 px-2 py-1 font-mono text-[11px] font-semibold text-text-secondary"
+                    >
+                      {key}
+                    </kbd>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span className="text-sm font-medium text-text-primary">{t("settings.appshots.encoderFormat")}</span>
+                  <span className="mt-0.5 block text-xs text-text-muted">
+                    {t("settings.appshots.encoderFormatDesc")}
+                  </span>
+                </div>
+                <div
+                  className="flex gap-1 rounded-lg border border-border/50 bg-input/40 p-1"
+                  role="group"
+                  aria-label={t("settings.appshots.encoderFormat")}
+                >
                   {(["png", "jpeg"] as const).map((fmt) => (
                     <button
                       key={fmt}
                       type="button"
                       onClick={() => updateConfig({ imageFormat: fmt })}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold uppercase tracking-wider transition-all ${
-                        config.imageFormat === fmt
-                          ? "bg-surface text-accent shadow-sm border border-border/50"
-                          : "text-text-muted hover:text-text-primary"
+                      aria-pressed={config.imageFormat === fmt}
+                      className={`relative isolate w-14 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                        config.imageFormat === fmt ? "text-accent" : "text-text-muted hover:text-text-primary"
                       }`}
                     >
-                      {fmt}
+                      {config.imageFormat === fmt && (
+                        <motion.span
+                          layoutId="appshot-image-format-indicator"
+                          initial={false}
+                          transition={prefersReducedMotion ? { duration: 0 } : springs.snappy}
+                          className="absolute inset-0 z-0 rounded-md border border-border/50 bg-surface shadow-sm"
+                        />
+                      )}
+                      <span className="relative z-10">{fmt}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {config.imageFormat === "jpeg" && (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-text-primary">{t("settings.appshots.jpegQuality")}</span>
-                    <span className="font-semibold text-accent">{config.imageQuality}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={config.imageQuality}
-                    onChange={(e) => updateConfig({ imageQuality: parseInt(e.target.value, 10) })}
-                    className="w-full accent-accent bg-input rounded-lg appearance-none h-1.5"
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <span className="text-xs font-medium text-text-primary block">{t("settings.appshots.delayTimer")}</span>
-                <Select
-                  value={String(config.delaySeconds)}
-                  onChange={(value) => updateConfig({ delaySeconds: parseInt(value, 10) })}
-                  options={[
-                    { value: "0", label: t("settings.appshots.delayInstant") },
-                    { value: "1", label: t("settings.appshots.delaySec", { seconds: "1" }) },
-                    { value: "3", label: t("settings.appshots.delaySec", { seconds: "3" }) },
-                    { value: "5", label: t("settings.appshots.delaySec", { seconds: "5" }) },
-                  ]}
-                  aria-label={t("settings.appshots.delayTimer")}
-                />
-              </div>
-
-              <div className="space-y-4 sm:col-span-2 pt-2 border-t border-border/50">
-                <Switch
-                  checked={config.saveToGallery}
-                  onChange={(val) => updateConfig({ saveToGallery: val })}
-                  label={t("settings.appshots.saveToGallery")}
-                  description={t("settings.appshots.saveToGalleryDesc")}
-                />
-                <Switch
-                  checked={config.hideWindowOnCapture}
-                  onChange={(val) => updateConfig({ hideWindowOnCapture: val })}
-                  label={t("settings.appshots.minimize")}
-                  description={
-                    config.captureTarget === "window"
-                      ? t("settings.appshots.minimizeWindowDisabled")
-                      : t("settings.appshots.minimizeDesc")
-                  }
-                  disabled={config.captureTarget === "window"}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Auto-Clean Rules */}
-          <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              {t("settings.appshots.pruneRules")}
-            </h4>
-            <div>
-              <Switch
-                checked={config.autoCleanEnabled}
-                onChange={(val) => updateConfig({ autoCleanEnabled: val })}
-                label={t("settings.appshots.autoClean")}
-                description={t("settings.appshots.autoCleanDesc")}
-              />
-
               <AnimatePresence initial={false}>
-                {config.autoCleanEnabled && (
+                {config.imageFormat === "jpeg" && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
-                    transition={{
-                      type: "tween",
-                      ease: motionTokens.easing.smooth,
-                      duration: motionTokens.duration.normal,
-                    }}
+                    transition={springs.gentle}
                     className="overflow-hidden"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border/60 mt-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-medium text-text-muted">
-                          {t("settings.appshots.cleanType")}
-                        </label>
-                        <Select
-                          value={config.autoCleanType}
-                          onChange={(value) => updateConfig({ autoCleanType: value as "count" | "size" | "age" })}
-                          options={[
-                            { value: "count", label: t("settings.appshots.cleanTypeCount") },
-                            { value: "size", label: t("settings.appshots.cleanTypeSize") },
-                            { value: "age", label: t("settings.appshots.cleanTypeAge") },
-                          ]}
-                          aria-label={t("settings.appshots.cleanType")}
-                        />
+                    <div className="flex items-center gap-4 py-3">
+                      <div className="min-w-24">
+                        <span className="text-sm font-medium text-text-primary">
+                          {t("settings.appshots.jpegQuality")}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-text-muted">{config.imageQuality}%</span>
                       </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-medium text-text-muted">
-                          {t("settings.appshots.cleanValue")}
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={config.autoCleanValue}
-                          onChange={(e) => updateConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                          className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                        />
-                      </div>
+                      <input
+                        type="range"
+                        min="10"
+                        max="100"
+                        value={config.imageQuality}
+                        aria-label={t("settings.appshots.jpegQuality")}
+                        onChange={(e) => updateConfig({ imageQuality: parseInt(e.target.value, 10) })}
+                        className="w-full accent-accent bg-input rounded-lg appearance-none h-1.5"
+                      />
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-          </div>
+          </section>
 
-          {/* Recent Appshots / Gallery */}
-          <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-                {t("settings.appshots.galleryTitle")}
-              </h4>
-              <div className="flex gap-2">
-                <motion.button
-                  whileHover={{ scale: motionTokens.scale.pop }}
-                  whileTap={{ scale: motionTokens.scale.press }}
-                  onClick={isCapturing ? cancelCapture : handleTestCapture}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm min-h-[32px] ${
-                    isCapturing
-                      ? "border border-red-500/30 text-red-500 bg-red-500/10"
-                      : "bg-accent text-accent-foreground"
-                  }`}
-                >
-                  {isCapturing ? <Spinner size="sm" /> : <Camera size={13} />}
-                  <span>
-                    {isCapturing ? t("settings.appshots.cancelCaptureBtn") : t("settings.appshots.testCaptureBtn")}
-                  </span>
-                </motion.button>
-                {recentAppshots.length > 0 && (
-                  <motion.button
-                    whileHover={{ scale: motionTokens.scale.pop }}
-                    whileTap={{ scale: motionTokens.scale.press }}
-                    onClick={() => clearAll()}
-                    disabled={loading}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-500/20 text-red-500 hover:bg-red-500/5 text-xs font-semibold min-h-[32px]"
-                  >
-                    <Trash2 size={13} />
-                    <span>{t("settings.appshots.clearGalleryBtn") || t("settings.appshots.clearBtn")}</span>
-                  </motion.button>
-                )}
+          <section className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                  <HardDrive size={16} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-text-primary">{t("settings.appshots.galleryStorage")}</h4>
+                  <p className="mt-0.5 max-w-lg text-xs leading-relaxed text-text-muted">
+                    {t("settings.appshots.saveToGalleryDesc")}
+                  </p>
+                </div>
               </div>
+              <Switch
+                checked={config.saveToGallery}
+                onChange={(val) => updateConfig({ saveToGallery: val })}
+                ariaLabel={t("settings.appshots.saveToGallery")}
+              />
             </div>
 
-            {recentAppshots.length === 0 ? (
-              <div className="border border-dashed border-border/60 rounded-xl p-8 text-center space-y-2">
-                <Image size={24} className="mx-auto text-text-muted opacity-40 animate-pulse" />
-                <span className="text-xs text-text-muted block">{t("settings.appshots.noShots")}</span>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-                {recentAppshots.map((shot) => (
-                  <div
-                    key={shot.path}
-                    className="flex items-center justify-between p-2.5 rounded-lg bg-input/40 border border-border/40 hover:bg-input/60 transition-colors gap-4"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 shadow-inner">
-                        <Image size={15} className="text-accent" />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="text-xs font-medium text-text-primary block truncate max-w-[240px] sm:max-w-[360px]">
-                          {shot.name}
-                        </span>
-                        <span className="text-[10px] text-text-muted flex gap-2">
-                          <span>{shot.timestamp}</span>
-                          <span>•</span>
-                          <span>{formatSize(shot.size)}</span>
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <motion.button
-                        type="button"
-                        onClick={() => handleCopyPath(shot.path)}
-                        whileHover={{ scale: motionTokens.scale.pop }}
-                        whileTap={{ scale: motionTokens.scale.press }}
-                        transition={springs.snappy}
-                        className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-text-secondary hover:text-text-primary transition-colors shadow-sm"
-                        title={t("settings.appshots.copyPathTooltip")}
-                      >
-                        {copiedPath === shot.path ? (
-                          <Check size={13} className="text-emerald-500" />
-                        ) : (
-                          <Copy size={13} />
+            <AnimatePresence initial={false}>
+              {config.saveToGallery && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={springs.gentle}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 space-y-5 border-t border-border/60 pt-4">
+                    <div className="space-y-2">
+                      <span className="text-sm font-medium text-text-primary">
+                        {t("settings.appshots.saveLocation")}
+                      </span>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={inputFolder}
+                          readOnly
+                          aria-label={t("settings.appshots.saveLocation")}
+                          className="flex-1 cursor-default rounded-lg border border-border bg-input/40 px-3 py-1.5 text-sm text-text-secondary focus:border-border focus:outline-none"
+                          placeholder="Default (Sythoria app data folder)"
+                        />
+                        <motion.button
+                          whileHover={{ scale: motionTokens.scale.pop }}
+                          whileTap={{ scale: motionTokens.scale.press }}
+                          className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-accent-foreground shadow-sm transition-colors hover:bg-accent-hover"
+                          onClick={async () => {
+                            try {
+                              const selected = await invoke<string | null>("select_appshot_folder");
+                              if (selected) {
+                                setInputFolder(selected);
+                                await updateConfig({ captureFolder: selected });
+                                addToast(
+                                  t("settings.appshots.pathUpdated", {
+                                    defaultValue: "Appshots capture folder path updated",
+                                  }),
+                                  "success",
+                                );
+                              }
+                            } catch (e: unknown) {
+                              addToast(e instanceof Error ? e.message : String(e), "error");
+                            }
+                          }}
+                        >
+                          {t("settings.appshots.browseBtn")}
+                        </motion.button>
+                        {inputFolder && (
+                          <motion.button
+                            whileHover={{ scale: motionTokens.scale.pop }}
+                            whileTap={{ scale: motionTokens.scale.press }}
+                            className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-500 shadow-sm transition-colors hover:bg-red-500/20"
+                            onClick={async () => {
+                              setInputFolder("");
+                              await updateConfig({ captureFolder: "" });
+                              addToast(
+                                t("settings.appshots.resetFolderSuccess", {
+                                  defaultValue: "Reset to default secure app data folder",
+                                }),
+                                "success",
+                              );
+                            }}
+                          >
+                            {t("settings.appshots.clearBtn")}
+                          </motion.button>
                         )}
-                      </motion.button>
-                      <motion.button
-                        type="button"
-                        onClick={() => deleteAppshot(shot.path)}
-                        whileHover={{ scale: motionTokens.scale.pop }}
-                        whileTap={{ scale: motionTokens.scale.press }}
-                        transition={springs.snappy}
-                        className="p-1.5 rounded-lg bg-surface hover:bg-hover border border-border text-red-500/80 hover:text-red-500 transition-colors shadow-sm"
-                        title={t("settings.appshots.deleteImageTooltip")}
-                      >
-                        <Trash2 size={13} />
-                      </motion.button>
+                      </div>
+                      <p className="text-[10px] text-text-muted">{t("settings.appshots.saveLocationDesc")}</p>
+                    </div>
+
+                    <div className="border-t border-border/60 pt-4">
+                      <Switch
+                        checked={config.autoCleanEnabled}
+                        onChange={(val) => updateConfig({ autoCleanEnabled: val })}
+                        label={t("settings.appshots.autoClean")}
+                        description={t("settings.appshots.autoCleanDesc")}
+                      />
+
+                      <AnimatePresence initial={false}>
+                        {config.autoCleanEnabled && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{
+                              type: "tween",
+                              ease: motionTokens.easing.smooth,
+                              duration: motionTokens.duration.normal,
+                            }}
+                            className="overflow-hidden"
+                          >
+                            <div className="mt-4 grid grid-cols-1 gap-4 border-t border-border/60 pt-4 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-medium text-text-muted">
+                                  {t("settings.appshots.cleanType")}
+                                </label>
+                                <Select
+                                  value={config.autoCleanType}
+                                  onChange={(value) =>
+                                    updateConfig({ autoCleanType: value as "count" | "size" | "age" })
+                                  }
+                                  options={[
+                                    { value: "count", label: t("settings.appshots.cleanTypeCount") },
+                                    { value: "size", label: t("settings.appshots.cleanTypeSize") },
+                                    { value: "age", label: t("settings.appshots.cleanTypeAge") },
+                                  ]}
+                                  aria-label={t("settings.appshots.cleanType")}
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label
+                                  htmlFor="appshot-clean-value"
+                                  className="text-[10px] font-medium text-text-muted"
+                                >
+                                  {t("settings.appshots.cleanValue")}
+                                </label>
+                                <input
+                                  id="appshot-clean-value"
+                                  type="number"
+                                  min="1"
+                                  value={config.autoCleanValue}
+                                  onChange={(e) => updateConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
+                                  className="w-full rounded-lg border border-input-border bg-input px-3 py-1.5 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                                />
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="border-t border-border/60 pt-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h5 className="text-sm font-medium text-text-primary">
+                            {t("settings.appshots.galleryTitle")}
+                          </h5>
+                          <p className="mt-0.5 text-xs text-text-muted">{t("settings.appshots.galleryDesc")}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <motion.button
+                            whileHover={{ scale: motionTokens.scale.pop }}
+                            whileTap={{ scale: motionTokens.scale.press }}
+                            onClick={handleTestCapture}
+                            disabled={isCapturing}
+                            className="flex min-h-[32px] items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground shadow-sm disabled:opacity-60"
+                          >
+                            {isCapturing ? <Spinner size="sm" /> : <Camera size={13} />}
+                            <span>
+                              {isCapturing
+                                ? t("settings.appshots.testingStatus")
+                                : t("settings.appshots.testCaptureBtn")}
+                            </span>
+                          </motion.button>
+                          {recentAppshots.length > 0 && (
+                            <motion.button
+                              whileHover={{ scale: motionTokens.scale.pop }}
+                              whileTap={{ scale: motionTokens.scale.press }}
+                              onClick={() => clearAll()}
+                              disabled={loading}
+                              className="flex min-h-[32px] items-center gap-1 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/5"
+                            >
+                              <Trash2 size={13} />
+                              <span>{t("settings.appshots.clearGalleryBtn") || t("settings.appshots.clearBtn")}</span>
+                            </motion.button>
+                          )}
+                        </div>
+                      </div>
+
+                      {recentAppshots.length === 0 ? (
+                        <div className="mt-4 border border-dashed border-border/60 rounded-xl p-6 text-center space-y-2">
+                          <Image size={22} className="mx-auto text-text-muted opacity-40" />
+                          <span className="text-xs text-text-muted block">{t("settings.appshots.noShots")}</span>
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                          {recentAppshots.map((shot) => (
+                            <div
+                              key={shot.path}
+                              className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-input/40 p-2.5 transition-colors hover:bg-input/60"
+                            >
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/20 bg-accent/10 shadow-inner">
+                                  <Image size={15} className="text-accent" />
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="block max-w-[240px] truncate text-xs font-medium text-text-primary sm:max-w-[360px]">
+                                    {shot.name}
+                                  </span>
+                                  <span className="flex gap-2 text-[10px] text-text-muted">
+                                    <span>{shot.timestamp}</span>
+                                    <span>•</span>
+                                    <span>{formatSize(shot.size)}</span>
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 gap-1.5">
+                                <motion.button
+                                  type="button"
+                                  onClick={() => handleCopyPath(shot.path)}
+                                  whileHover={{ scale: motionTokens.scale.pop }}
+                                  whileTap={{ scale: motionTokens.scale.press }}
+                                  transition={springs.snappy}
+                                  className="rounded-lg border border-border bg-surface p-1.5 text-text-secondary shadow-sm transition-colors hover:bg-hover hover:text-text-primary"
+                                  title={t("settings.appshots.copyPathTooltip")}
+                                >
+                                  {copiedPath === shot.path ? (
+                                    <Check size={13} className="text-emerald-500" />
+                                  ) : (
+                                    <Copy size={13} />
+                                  )}
+                                </motion.button>
+                                <motion.button
+                                  type="button"
+                                  onClick={() => deleteAppshot(shot.path)}
+                                  whileHover={{ scale: motionTokens.scale.pop }}
+                                  whileTap={{ scale: motionTokens.scale.press }}
+                                  transition={springs.snappy}
+                                  className="rounded-lg border border-border bg-surface p-1.5 text-red-500/80 shadow-sm transition-colors hover:bg-hover hover:text-red-500"
+                                  title={t("settings.appshots.deleteImageTooltip")}
+                                >
+                                  <Trash2 size={13} />
+                                </motion.button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
         </motion.div>
       )}
     </div>

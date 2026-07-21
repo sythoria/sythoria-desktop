@@ -39,7 +39,7 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     id: "captureAppshot",
     label: "Capture Appshot",
     category: "Recommended",
-    description: "Takes a screenshot of the app and attaches it to the current conversation",
+    description: "Captures the frontmost application and attaches it to the current conversation",
     defaultCombo: "Alt+Shift+S",
     currentCombo: "Alt+Shift+S",
   },
