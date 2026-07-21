@@ -98,11 +98,11 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black/40 flex justify-center items-start pt-[15vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[15vh] backdrop-blur-sm"
       onClick={() => setShowCommandPalette(false)}
     >
       <div
-        className="w-full max-w-lg bg-surface border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="popup-surface w-full max-w-lg border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center px-4 py-3 border-b border-border/30">

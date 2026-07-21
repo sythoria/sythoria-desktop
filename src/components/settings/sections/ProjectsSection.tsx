@@ -140,7 +140,7 @@ export function ProjectsSection() {
                   type="text"
                   value={gitConfig.gitName}
                   onChange={(e) => updateGitConfig({ gitName: e.target.value })}
-                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                  className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 />
               </div>
               <div className="space-y-1.5">
@@ -149,7 +149,7 @@ export function ProjectsSection() {
                   type="email"
                   value={gitConfig.gitEmail}
                   onChange={(e) => updateGitConfig({ gitEmail: e.target.value })}
-                  className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                  className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 />
               </div>
             </motion.div>

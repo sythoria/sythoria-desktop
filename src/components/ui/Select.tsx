@@ -4,19 +4,21 @@ import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
 import { springs } from "../../lib/motion-tokens";
 
-interface Option {
+export interface SelectOption {
   value: string;
   label: string;
+  description?: string;
 }
 
 interface SelectProps {
   value: string;
   onChange: (value: string) => void;
-  options: Option[];
+  options: SelectOption[];
   disabled?: boolean;
   className?: string;
   id?: string;
   size?: "default" | "compact";
+  placeholder?: string;
   "aria-label"?: string;
 }
 
@@ -28,6 +30,7 @@ export function Select({
   className = "",
   id,
   size = "default",
+  placeholder,
   "aria-label": ariaLabel,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,8 +44,8 @@ export function Select({
   const triggerId = `${id ?? generatedId}-trigger`;
   const selectedOption = options.find((option) => option.value === value);
   const safeActiveIndex = Math.min(activeIndex, Math.max(0, options.length - 1));
-  const triggerSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "px-3 py-1.5 text-sm";
-  const optionSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "px-3 py-1.5 text-sm";
+  const triggerSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "h-10 px-3 py-2 text-sm";
+  const optionSizeClass = size === "compact" ? "px-2 py-1.5 text-xs" : "min-h-[44px] px-3 py-2.5 text-sm";
 
   const positionListbox = useCallback(() => {
     const trigger = buttonRef.current;
@@ -183,7 +186,7 @@ export function Select({
           exit={{ opacity: 0, scale: 0.95, y: -4 }}
           transition={springs.snappy}
           style={menuStyle}
-          className="fixed z-[100] max-h-60 min-w-[150px] overflow-auto rounded-xl border border-border glass-dropdown p-1 shadow-lg focus:outline-none scrollbar-thin"
+          className="popup-surface fixed z-[100] max-h-60 min-w-[150px] overflow-auto rounded-xl border border-border p-1 shadow-lg focus:outline-none scrollbar-thin"
         >
           {options.map((option, index) => {
             const isSelected = option.value === value;
@@ -207,7 +210,18 @@ export function Select({
                       : "text-text-primary hover:bg-hover hover:text-text-primary"
                 }`}
               >
-                <span className="truncate">{option.label}</span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate">{option.label}</span>
+                  {option.description && (
+                    <span
+                      className={`block truncate text-[10px] font-normal ${
+                        isSelected ? "text-accent-foreground/70" : "text-text-muted"
+                      }`}
+                    >
+                      {option.description}
+                    </span>
+                  )}
+                </span>
                 {isSelected && <Check size={14} className="shrink-0 ml-2" />}
               </li>
             );
@@ -234,7 +248,7 @@ export function Select({
           disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
         }`}
       >
-        <span className="truncate">{selectedOption?.label ?? value}</span>
+        <span className="truncate">{selectedOption?.label ?? placeholder ?? value}</span>
         <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={springs.snappy}>
           <ChevronDown size={14} className="text-text-muted" />
         </motion.div>

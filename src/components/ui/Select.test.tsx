@@ -16,10 +16,12 @@ describe("Select", () => {
     render(<Select value="one" options={options} onChange={onChange} aria-label="Number" />);
 
     const trigger = screen.getByRole("button", { name: "Number" });
+    expect(trigger).toHaveClass("h-10");
     await user.click(trigger);
 
     const listbox = screen.getByRole("listbox", { name: "Number" });
     expect(listbox).toHaveFocus();
+    expect(listbox).toHaveClass("popup-surface");
 
     await user.keyboard("{ArrowDown}{Enter}");
 

@@ -187,7 +187,7 @@ export function WhisperSection() {
                     value={cloudApiUrl}
                     onChange={(e) => setCloudApiUrl(e.target.value)}
                     placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
-                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -197,7 +197,7 @@ export function WhisperSection() {
                     value={cloudApiKey}
                     onChange={(e) => setCloudApiKey(e.target.value)}
                     placeholder="gsk_..."
-                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -207,7 +207,7 @@ export function WhisperSection() {
                     value={cloudModel}
                     onChange={(e) => setCloudModel(e.target.value)}
                     placeholder="whisper-large-v3"
-                    className="w-full text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
                   />
                 </div>
               </div>

@@ -158,10 +158,14 @@ export const McpServerCard = memo(function McpServerCard({
 
         {config.transport === "stdio" && (
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted flex items-center gap-1.5">
+            <label
+              className="text-xs font-medium text-text-muted flex items-center gap-1.5"
+              htmlFor={`mcp-template-${config.id}-trigger`}
+            >
               {t("settings.mcp.template")}
             </label>
             <Select
+              id={`mcp-template-${config.id}`}
               value=""
               onChange={(presetId) => {
                 const preset = MCP_SERVER_PRESETS.find((candidate) => candidate.id === presetId);
@@ -171,7 +175,8 @@ export const McpServerCard = memo(function McpServerCard({
                 { value: "", label: t("settings.mcp.chooseTemplate") },
                 ...MCP_SERVER_PRESETS.map((preset) => ({
                   value: preset.id,
-                  label: `${preset.name} — ${preset.description}`,
+                  label: preset.name,
+                  description: preset.description,
                 })),
               ]}
               aria-label="Apply MCP server template"
@@ -193,7 +198,7 @@ export const McpServerCard = memo(function McpServerCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+              className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -244,7 +249,7 @@ export const McpServerCard = memo(function McpServerCard({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
-                className={`w-full px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
+                className={`w-full h-10 px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
                   commandHasSpace
                     ? "border-yellow-500/50 focus:border-yellow-500"
                     : "border-input-border focus:border-accent/50"
@@ -289,7 +294,7 @@ export const McpServerCard = memo(function McpServerCard({
               </label>
               <div
                 id={`mcp-args-${config.id}`}
-                className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-input-border bg-input min-h-[44px]"
+                className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-input-border bg-input px-2 py-1.5"
               >
                 {args.map((arg, i) => (
                   <div
@@ -369,7 +374,7 @@ export const McpServerCard = memo(function McpServerCard({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck="false"
-                className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               />
               <p className="text-[11px] text-text-muted/60 mt-0.5">
                 {config.transport === "sse"
@@ -391,7 +396,7 @@ export const McpServerCard = memo(function McpServerCard({
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck="false"
-                  className="w-full px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                  className="w-full h-10 px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                 />
                 <button
                   onClick={() => onToggleKey(config.id)}

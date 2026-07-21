@@ -123,7 +123,7 @@ export function ResponseSettingsSelector({
         {isOpen && (
           <motion.div
             ref={panelRef}
-            className={`absolute left-1/2 z-50 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-surface p-1.5 font-normal ${
+            className={`popup-surface absolute left-1/2 z-50 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border p-1.5 font-normal ${
               opensAbove ? "bottom-full mb-2" : "top-full mt-2"
             }`}
             style={{ boxShadow: "var(--shadow-xl)" }}

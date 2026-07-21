@@ -97,7 +97,7 @@ export function TitleBar() {
         <MenuButton id="window" label="Window" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
 
         {activeMenu === "sythoria" && (
-          <div className="absolute top-[32px] left-2 w-48 bg-surface border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div className="popup-surface absolute top-[32px] left-2 w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
             <DropdownItem label="Version 0.3.0" setActiveMenu={setActiveMenu} />
             <DropdownItem
               label="Check for Updates"
@@ -108,7 +108,7 @@ export function TitleBar() {
         )}
 
         {activeMenu === "file" && (
-          <div className="absolute top-[32px] left-[70px] w-56 bg-surface border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div className="popup-surface absolute top-[32px] left-[70px] w-56 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
             <DropdownItem
               label="New Conversation"
               shortcut="Ctrl+Shift+O"
@@ -133,7 +133,7 @@ export function TitleBar() {
         )}
 
         {activeMenu === "view" && (
-          <div className="absolute top-[32px] left-[110px] w-48 bg-surface border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div className="popup-surface absolute top-[32px] left-[110px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
             <DropdownItem label="Zoom In" onClick={zoomIn} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Zoom Out" onClick={zoomOut} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Reset Zoom" onClick={zoomReset} setActiveMenu={setActiveMenu} />
@@ -141,7 +141,7 @@ export function TitleBar() {
         )}
 
         {activeMenu === "window" && (
-          <div className="absolute top-[32px] left-[150px] w-48 bg-surface border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div className="popup-surface absolute top-[32px] left-[150px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
             <DropdownItem label="Minimize" onClick={() => appWindow.minimize()} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Maximize" onClick={() => appWindow.toggleMaximize()} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Close" onClick={() => appWindow.close()} setActiveMenu={setActiveMenu} />

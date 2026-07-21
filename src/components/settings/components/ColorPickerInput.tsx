@@ -10,7 +10,7 @@ export const ColorPickerInput = ({
   return (
     <div className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
       <span className="text-sm font-medium text-text-primary">{label}</span>
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm w-[150px]">
+      <div className="flex h-10 w-[150px] items-center gap-2 rounded-lg border border-input-border bg-input px-3 text-sm">
         <label
           className="relative w-4 h-4 rounded border border-black/10 shrink-0 cursor-pointer overflow-hidden"
           style={{ backgroundColor: value }}

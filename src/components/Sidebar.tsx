@@ -716,7 +716,7 @@ export default memo(function Sidebar({
                                           createPortal(
                                             <div
                                               ref={menuRef}
-                                              className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                                              className="popup-surface fixed z-50 min-w-[160px] p-1 rounded-xl border border-border"
                                               style={{
                                                 top: `${menuPosition.top}px`,
                                                 left: `${menuPosition.left}px`,
@@ -855,7 +855,7 @@ export default memo(function Sidebar({
                               createPortal(
                                 <div
                                   ref={menuRef}
-                                  className="fixed z-50 min-w-[160px] p-1 rounded-xl glass-dropdown border border-border"
+                                  className="popup-surface fixed z-50 min-w-[160px] p-1 rounded-xl border border-border"
                                   style={{
                                     top: `${menuPosition.top}px`,
                                     left: `${menuPosition.left}px`,

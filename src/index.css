@@ -16,6 +16,7 @@
   --color-active: var(--theme-active);
   --color-border: var(--theme-border);
   --color-surface: var(--theme-surface);
+  --color-popup: var(--theme-popup);
   --color-overlay: var(--theme-overlay);
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -49,6 +50,7 @@
     --theme-active: rgba(15, 23, 42, 0.07);
     --theme-border: rgba(15, 23, 42, 0.08);
     --theme-surface: #ffffff;
+    --theme-popup: #fbfcfd;
     --theme-overlay: rgba(15, 23, 42, 0.15);
   }
   /* Dark mode — primary, near-black neutral */
@@ -70,6 +72,7 @@
     --theme-active: rgba(255, 255, 255, 0.1);
     --theme-border: rgba(255, 255, 255, 0.08);
     --theme-surface: rgba(32, 32, 32, 0.7);
+    --theme-popup: #202020;
     --theme-overlay: rgba(0, 0, 0, 0.6);
   }
   * {
@@ -215,13 +218,10 @@
 .glass-sidebar {
   background: var(--color-sidebar);
 }
-.glass-dropdown {
-  background: rgba(255, 255, 255, 0.8);
+.popup-surface {
+  background: var(--theme-popup);
   backdrop-filter: blur(12px) saturate(130%);
   -webkit-backdrop-filter: blur(12px) saturate(130%);
-}
-.dark .glass-dropdown {
-  background: rgba(20, 20, 22, 0.75);
 }
 
 .glass-app-container {

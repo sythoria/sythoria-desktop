@@ -148,7 +148,7 @@ export function SpotlightArea() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] bg-black/40 flex justify-center items-start pt-[20vh] backdrop-blur-sm"
+          className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[20vh] backdrop-blur-sm"
           onClick={handleClose}
         >
           <motion.div
@@ -156,7 +156,7 @@ export function SpotlightArea() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={springs.snappy}
-            className="w-full max-w-2xl bg-surface border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            className="popup-surface w-full max-w-2xl border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
           >
@@ -180,7 +180,7 @@ export function SpotlightArea() {
               </span>
             </div>
 
-            <div className="max-h-[350px] overflow-y-auto p-2 bg-surface">
+            <div className="max-h-[350px] overflow-y-auto p-2">
               {filteredItems.length === 0 ? (
                 <div className="py-8 text-center text-sm text-text-muted">No settings found for "{query}".</div>
               ) : (

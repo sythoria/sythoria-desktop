@@ -387,7 +387,7 @@ export function AppshotsSection() {
                                   min="1"
                                   value={config.autoCleanValue}
                                   onChange={(e) => updateConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                                  className="w-full rounded-lg border border-input-border bg-input px-3 py-1.5 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                                  className="w-full h-10 rounded-lg border border-input-border bg-input px-3 py-1.5 text-sm text-text-primary transition-colors focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
                                 />
                               </div>
                             </div>

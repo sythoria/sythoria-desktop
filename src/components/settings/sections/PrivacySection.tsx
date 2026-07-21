@@ -299,7 +299,7 @@ export function PrivacySection() {
                         min="1"
                         value={appshotConfig.autoCleanValue}
                         onChange={(e) => updateAppshotConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                        className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                        className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                       />
                     </div>
                   </div>

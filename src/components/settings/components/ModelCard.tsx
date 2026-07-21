@@ -110,7 +110,7 @@ export const ModelCard = memo(function ModelCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+              className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -155,7 +155,7 @@ export const ModelCard = memo(function ModelCard({
             spellCheck="false"
             aria-invalid={!urlValidation.valid}
             aria-describedby={!urlValidation.valid ? `url-error-${model.id}` : undefined}
-            className={`w-full px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
+            className={`w-full h-10 px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
               !urlValidation.valid
                 ? "border-red-500/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
                 : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
@@ -187,7 +187,7 @@ export const ModelCard = memo(function ModelCard({
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
-              className="w-full px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+              className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
             />
           </div>
 
@@ -207,7 +207,7 @@ export const ModelCard = memo(function ModelCard({
                 spellCheck="false"
                 aria-invalid={!keyValidation.valid}
                 aria-describedby={!keyValidation.valid ? `key-warning-${model.id}` : undefined}
-                className={`w-full px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
+                className={`w-full h-10 px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
                   !keyValidation.valid
                     ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
                     : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
@@ -277,7 +277,7 @@ export const ModelCard = memo(function ModelCard({
                       onUpdate(model.id, { contextSize: val });
                     }}
                     placeholder="e.g. 128000"
-                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                    className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   />
                 </div>
 
@@ -294,7 +294,7 @@ export const ModelCard = memo(function ModelCard({
                       onUpdate(model.id, { maxOutputTokens: val });
                     }}
                     placeholder="e.g. 4096"
-                    className="w-full px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+                    className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-xs text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
                   />
                 </div>
               </div>

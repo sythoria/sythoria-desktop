@@ -217,7 +217,6 @@ export default function Settings() {
               <PersonalizationSection
                 titleConfig={titleConfig}
                 setTitleConfig={setTitleConfig}
-                models={models}
                 enabledModels={models.filter((m) => m.enabled !== false)}
               />
             )}

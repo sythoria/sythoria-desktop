@@ -220,6 +220,11 @@ export function applyTheme(config: ThemeConfig) {
   const surfaceColor = isDark ? lightenColor(bg, 6) : bg;
   style.setProperty("--theme-surface", surfaceColor);
 
+  // Popups are portaled outside their parent cards, so they need an opaque,
+  // palette-derived surface of their own instead of a white/black fallback.
+  const popupColor = isDark ? lightenColor(bg, 10) : mixColors(bg, fg, 0.97);
+  style.setProperty("--theme-popup", popupColor);
+
   const sidebarColor = hexToRgba(bg, isDark ? 0.45 : 0.92);
   style.setProperty("--theme-sidebar", sidebarColor);
 
@@ -250,6 +255,9 @@ export function applyTheme(config: ThemeConfig) {
   style.setProperty("--theme-active", hexToRgba(fg, isDark ? 0.1 : 0.07));
   style.setProperty("--theme-border", hexToRgba(fg, 0.12));
 
-  const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(15, 23, 42, 0.15)";
+  // Keep modal backdrops in the selected palette instead of falling back to
+  // the default light/dark overlay colors.
+  const overlayBase = isDark ? mixColors(bg, "#000000", 0.55) : fg;
+  const overlayColor = hexToRgba(overlayBase, isDark ? 0.68 : 0.15);
   style.setProperty("--theme-overlay", overlayColor);
 }

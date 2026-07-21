@@ -130,7 +130,7 @@ export function SkillsSection() {
               onChange={(e) => setFormId(e.target.value)}
               disabled={!isCreating}
               placeholder={t("settings.skills.idPlaceholder") || "e.g. react-best-practices"}
-              className="w-full px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+              className="w-full h-10 px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
             />
             {isCreating && (
               <p className="text-xs text-text-muted">
@@ -148,7 +148,7 @@ export function SkillsSection() {
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder={t("settings.skills.namePlaceholder") || "e.g. React Best Practices"}
-              className="w-full px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors"
+              className="w-full h-10 px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors"
             />
           </div>
 
@@ -161,7 +161,7 @@ export function SkillsSection() {
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
               placeholder={t("settings.skills.descPlaceholder") || "Short description of what the skill teaches"}
-              className="w-full px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors"
+              className="w-full h-10 px-3 py-2 bg-input border border-input-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors"
             />
           </div>
 

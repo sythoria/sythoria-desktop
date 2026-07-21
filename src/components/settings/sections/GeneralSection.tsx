@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { ChevronDown, Check, Download } from "lucide-react";
+import { motion } from "motion/react";
+import { Download } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
@@ -36,8 +37,6 @@ export function GeneralSection() {
   const setLanguage = useUIStore((s) => s.setLanguage);
   const addToast = useUIStore((s) => s.addToast);
 
-  const [shortcutDropdownOpen, setShortcutDropdownOpen] = useState(false);
-  const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("v0.1.0");
 
   const textSizes = [
@@ -89,68 +88,21 @@ export function GeneralSection() {
       <div id="setting-general-language" className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">{t("general.language")}</h4>
         <div className="space-y-2 pt-1">
-          <label htmlFor="language-select" className="text-sm font-medium text-text-primary block">
+          <label htmlFor="language-select-trigger" className="text-sm font-medium text-text-primary block">
             {t("general.language")}
           </label>
           <p className="text-xs text-text-muted mb-2">{t("general.languageDesc")}</p>
-          <div className="relative">
-            <button
-              id="language-select"
-              onClick={() => setLangDropdownOpen(!langDropdownOpen)}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px]"
-              aria-expanded={langDropdownOpen}
-              aria-haspopup="listbox"
-            >
-              <span>{supportedLanguages.find((l) => l.code === selectedLang)?.nativeName || "English"}</span>
-              <ChevronDown
-                size={16}
-                className={`text-text-muted transition-transform ${langDropdownOpen ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-            {langDropdownOpen && (
-              <div className="fixed inset-0 z-10" onClick={() => setLangDropdownOpen(false)} aria-hidden="true" />
-            )}
-            <AnimatePresence>
-              {langDropdownOpen && (
-                <motion.div
-                  key="lang-dropdown"
-                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                  transition={springs.snappy}
-                  className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden"
-                  role="listbox"
-                  aria-label="Language options"
-                >
-                  {supportedLanguages.map((lang) => (
-                    <button
-                      key={lang.code}
-                      type="button"
-                      onClick={() => {
-                        setLanguage(lang.code);
-                        setLangDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                        selectedLang === lang.code
-                          ? "bg-accent-soft text-accent"
-                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                      }`}
-                      role="option"
-                      aria-selected={selectedLang === lang.code}
-                    >
-                      <span className="font-medium text-left">
-                        {lang.nativeName} ({lang.name})
-                      </span>
-                      {selectedLang === lang.code && (
-                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                      )}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <Select
+            id="language-select"
+            value={selectedLang}
+            onChange={setLanguage}
+            options={supportedLanguages.map((lang) => ({
+              value: lang.code,
+              label: lang.nativeName,
+              description: lang.name,
+            }))}
+            aria-label="Language options"
+          />
         </div>
       </div>
 
@@ -195,84 +147,20 @@ export function GeneralSection() {
         <div className="space-y-4 pt-1">
           {/* Send Message Shortcut Dropdown */}
           <div id="setting-general-shortcut" className="space-y-2">
-            <label htmlFor="shortcut-select" className="text-sm font-medium text-text-primary block">
+            <label htmlFor="shortcut-select-trigger" className="text-sm font-medium text-text-primary block">
               {t("general.sendShortcut")}
             </label>
             <p className="text-xs text-text-muted mb-2">{t("general.sendShortcutDesc")}</p>
-            <div className="relative">
-              <button
-                id="shortcut-select"
-                onClick={() => setShortcutDropdownOpen(!shortcutDropdownOpen)}
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-input-border bg-input text-sm text-text-primary hover:border-accent/30 transition-colors min-h-[44px]"
-                aria-expanded={shortcutDropdownOpen}
-                aria-haspopup="listbox"
-              >
-                <span>
-                  {sendMessageShortcut === "enter" ? t("general.shortcutEnter") : t("general.shortcutCtrlEnter")}
-                </span>
-                <ChevronDown
-                  size={16}
-                  className={`text-text-muted transition-transform ${shortcutDropdownOpen ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                />
-              </button>
-              {shortcutDropdownOpen && (
-                <div className="fixed inset-0 z-10" onClick={() => setShortcutDropdownOpen(false)} aria-hidden="true" />
-              )}
-              <AnimatePresence>
-                {shortcutDropdownOpen && (
-                  <motion.div
-                    key="shortcut-dropdown"
-                    initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                    transition={springs.snappy}
-                    className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border rounded-xl shadow-lg z-20 overflow-hidden"
-                    role="listbox"
-                    aria-label="Send message shortcut options"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSendMessageShortcut("enter");
-                        setShortcutDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                        sendMessageShortcut === "enter"
-                          ? "bg-accent-soft text-accent"
-                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                      }`}
-                      role="option"
-                      aria-selected={sendMessageShortcut === "enter"}
-                    >
-                      <span className="font-medium text-left">{t("general.shortcutEnter")}</span>
-                      {sendMessageShortcut === "enter" && (
-                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSendMessageShortcut("ctrl-enter");
-                        setShortcutDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors min-h-[44px] ${
-                        sendMessageShortcut === "ctrl-enter"
-                          ? "bg-accent-soft text-accent"
-                          : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                      }`}
-                      role="option"
-                      aria-selected={sendMessageShortcut === "ctrl-enter"}
-                    >
-                      <span className="font-medium text-left">{t("general.shortcutCtrlEnter")}</span>
-                      {sendMessageShortcut === "ctrl-enter" && (
-                        <Check size={14} className="text-accent shrink-0" aria-hidden="true" />
-                      )}
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            <Select
+              id="shortcut-select"
+              value={sendMessageShortcut}
+              onChange={(value) => setSendMessageShortcut(value as "enter" | "ctrl-enter")}
+              options={[
+                { value: "enter", label: t("general.shortcutEnter") },
+                { value: "ctrl-enter", label: t("general.shortcutCtrlEnter") },
+              ]}
+              aria-label="Send message shortcut options"
+            />
           </div>
 
           {/* Clear Input on Escape Switch */}
