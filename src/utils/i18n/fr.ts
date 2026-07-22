@@ -266,10 +266,17 @@ export const fr = {
   "settings.privacy.enableScreenDesc": "Permet à Sythoria de prendre des captures d'écran de vos moniteurs sur demande",
   "settings.privacy.screenPermRequired": "Permission d'enregistrement d'écran requise",
   "settings.privacy.screenPermDesc":
-    "macOS requiert la permission d'enregistrement d'écran pour capturer. Veuillez l'activer dans les Préférences Système.",
+    "Choisissez Accorder la permission pour que macOS enregistre Sythoria et affiche sa demande d’enregistrement de l’écran.",
   "settings.privacy.screenPermNote":
-    "Note : En cas de problème, désactivez et réactivez la permission dans vos réglages, puis redémarrez l'application.",
+    "Si vous avez refusé la demande, ouvrez Réglages Système et activez Sythoria. Redémarrez uniquement si macOS le demande.",
   "settings.privacy.grantPermissionBtn": "Accorder la permission",
+  "settings.privacy.openSettingsBtn": "Ouvrir Réglages Système",
+  "settings.privacy.checkingPermission": "Vérification...",
+  "settings.privacy.permissionRequested":
+    "Demande d’autorisation ouverte. Terminez l’invite macOS ; Sythoria actualisera l’état à votre retour.",
+  "settings.privacy.settingsOpened": "Les réglages d’enregistrement de l’écran ont été ouverts.",
+  "settings.privacy.permissionActionFailed":
+    "Impossible de mettre à jour l’autorisation d’enregistrement de l’écran : {error}",
   "settings.privacy.permGranted": "Permission accordée ! Veuillez redémarrer si nécessaire.",
   "settings.privacy.permDenied": "Permission refusée ou non encore configurée dans vos Réglages Système.",
   "settings.privacy.pruneScreen": "Nettoyage automatique des captures",
@@ -393,10 +400,19 @@ export const fr = {
   "settings.keybinds.action.togglePinChat.label": "Épingler ou désépingler le chat",
   "settings.keybinds.action.togglePinChat.desc": "Épingle ou désépingle la conversation active",
   "settings.appshots.screenPermRequired": "Enregistrement d'écran requis",
-  "settings.appshots.screenPermDesc": "macOS demande l'accès à la capture d'écran pour fonctionner.",
+  "settings.appshots.screenPermDesc":
+    "Choisissez Autoriser pour que macOS enregistre Sythoria et affiche sa demande d’enregistrement de l’écran.",
   "settings.appshots.screenPermNote":
-    "Note : En cas de blocage persistant, basculez l'autorisation dans les réglages système.",
+    "Si vous avez refusé la demande, ouvrez Réglages Système et activez Sythoria. Redémarrez uniquement si macOS le demande.",
   "settings.appshots.grantPermissionBtn": "Autoriser",
+  "settings.appshots.openSettingsBtn": "Ouvrir Réglages Système",
+  "settings.appshots.checkingPermission": "Vérification...",
+  "settings.appshots.permGranted": "Autorisation d’enregistrement de l’écran accordée.",
+  "settings.appshots.permissionRequested":
+    "Demande d’autorisation ouverte. Terminez l’invite macOS ; Sythoria actualisera l’état à votre retour.",
+  "settings.appshots.settingsOpened": "Les réglages d’enregistrement de l’écran ont été ouverts.",
+  "settings.appshots.permissionActionFailed":
+    "Impossible de mettre à jour l’autorisation d’enregistrement de l’écran : {error}",
   "settings.appshots.engineError": "Erreur de capture d'écran",
   "settings.appshots.saveLocation": "Dossier de sauvegarde",
   "settings.appshots.browseBtn": "Parcourir...",

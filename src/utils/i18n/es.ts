@@ -269,10 +269,16 @@ export const es = {
   "settings.privacy.enableScreenDesc": "Permite a Sythoria tomar capturas de tus monitores cuando se solicite",
   "settings.privacy.screenPermRequired": "Se Requiere Permiso de Grabación de Pantalla",
   "settings.privacy.screenPermDesc":
-    "macOS requiere permiso de grabación de pantalla para tomar capturas de la aplicación. Por favor, concede el permiso en Preferencias del Sistema.",
+    "Selecciona Conceder permiso para que macOS registre Sythoria y muestre el aviso de Grabación de Pantalla.",
   "settings.privacy.screenPermNote":
-    "Nota: Si activar el permiso no funciona, desactívalo y vuelve a activarlo en la configuración del sistema, luego reinicia la aplicación.",
+    "Si rechazaste la solicitud, abre Ajustes del Sistema y activa Sythoria. Reinicia solo si macOS te lo pide.",
   "settings.privacy.grantPermissionBtn": "Conceder Permiso",
+  "settings.privacy.openSettingsBtn": "Abrir Ajustes del Sistema",
+  "settings.privacy.checkingPermission": "Comprobando...",
+  "settings.privacy.permissionRequested":
+    "Solicitud de permiso abierta. Completa el aviso de macOS; Sythoria actualizará el estado cuando regreses.",
+  "settings.privacy.settingsOpened": "Se abrieron los ajustes de Grabación de Pantalla.",
+  "settings.privacy.permissionActionFailed": "No se pudo actualizar el permiso de grabación de pantalla: {error}",
   "settings.privacy.permGranted": "¡Permiso concedido! Por favor reinicia la aplicación si las capturas fallan.",
   "settings.privacy.permDenied":
     "El permiso no fue concedido o aún debe ser habilitado en la configuración del sistema.",
@@ -401,10 +407,17 @@ export const es = {
   "settings.keybinds.action.togglePinChat.desc": "Fija o desfija la conversación activa",
   "settings.appshots.screenPermRequired": "Se Requiere Permiso de Grabación de Pantalla",
   "settings.appshots.screenPermDesc":
-    "macOS requiere permiso de grabación de pantalla para tomar capturas de la aplicación. Por favor, concede el permiso en Preferencias del Sistema.",
+    "Selecciona Conceder permiso para que macOS registre Sythoria y muestre el aviso de Grabación de Pantalla.",
   "settings.appshots.screenPermNote":
-    "Nota: Si has reinstalado la app y ya figura como activa en la configuración, desactívala y vuelve a activarla, luego reinicia la app.",
+    "Si rechazaste la solicitud, abre Ajustes del Sistema y activa Sythoria. Reinicia solo si macOS te lo pide.",
   "settings.appshots.grantPermissionBtn": "Conceder Permiso",
+  "settings.appshots.openSettingsBtn": "Abrir Ajustes del Sistema",
+  "settings.appshots.checkingPermission": "Comprobando...",
+  "settings.appshots.permGranted": "Permiso de grabación de pantalla concedido.",
+  "settings.appshots.permissionRequested":
+    "Solicitud de permiso abierta. Completa el aviso de macOS; Sythoria actualizará el estado cuando regreses.",
+  "settings.appshots.settingsOpened": "Se abrieron los ajustes de Grabación de Pantalla.",
+  "settings.appshots.permissionActionFailed": "No se pudo actualizar el permiso de grabación de pantalla: {error}",
   "settings.appshots.engineError": "Error del Motor de Capturas",
   "settings.appshots.saveLocation": "Ubicación de Guardado",
   "settings.appshots.browseBtn": "Buscar...",

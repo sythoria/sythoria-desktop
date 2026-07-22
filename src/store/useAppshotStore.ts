@@ -46,12 +46,14 @@ interface AppshotStore {
   loading: boolean;
   initialized: boolean;
   error: string | null;
-  hasPermission: boolean;
+  hasPermission: boolean | null;
+  isRequestingPermission: boolean;
 
   init: () => Promise<void>;
   updateConfig: (updates: Partial<AppshotConfig>) => Promise<void>;
   checkPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
+  openPermissionSettings: () => Promise<void>;
   triggerCapture: (overrides?: CaptureOverrides) => Promise<AppshotCaptureResult>;
   runCleanup: () => Promise<number>;
   loadRecentAppshots: () => Promise<void>;
@@ -73,7 +75,8 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
   loading: false,
   initialized: false,
   error: null,
-  hasPermission: true,
+  hasPermission: null,
+  isRequestingPermission: false,
 
   init: async () => {
     if (get().initialized) return;
@@ -116,22 +119,24 @@ export const useAppshotStore = create<AppshotStore>((set, get) => ({
   },
 
   requestPermission: async () => {
+    if (get().isRequestingPermission) return false;
+
+    set({ isRequestingPermission: true });
     try {
-      const config = get().config;
-      const isFirstTime = !config.screenCapturePromptShown;
-      const granted = await invoke<boolean>("request_screen_capture_permission", {
-        firstTime: isFirstTime,
-      });
+      const granted = await invoke<boolean>("request_screen_capture_permission");
       set({ hasPermission: granted });
-      if (isFirstTime) {
-        await get().updateConfig({ screenCapturePromptShown: true });
-      }
       return granted;
     } catch (error) {
       logError("appshots", "Failed to request screen capture permission", { error });
       set({ hasPermission: false });
-      return false;
+      throw error;
+    } finally {
+      set({ isRequestingPermission: false });
     }
+  },
+
+  openPermissionSettings: async () => {
+    await invoke("open_screen_capture_settings");
   },
 
   updateConfig: async (updates) => {

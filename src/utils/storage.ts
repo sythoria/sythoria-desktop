@@ -759,7 +759,6 @@ export interface AppshotConfig {
   autoCleanType: "count" | "size" | "age";
   autoCleanValue: number;
   saveToGallery: boolean;
-  screenCapturePromptShown: boolean;
 }
 
 const AppshotConfigSchema = z.object({
@@ -771,7 +770,6 @@ const AppshotConfigSchema = z.object({
   autoCleanType: z.enum(["count", "size", "age"]).default("count"),
   autoCleanValue: z.number().int().min(1).max(1_000_000).default(50),
   saveToGallery: z.boolean().default(false),
-  screenCapturePromptShown: z.boolean().default(false),
 });
 
 const McpServerConfigSchema = z.object({
@@ -1294,7 +1292,6 @@ export const DEFAULT_APPSHOT_CONFIG: AppshotConfig = {
   autoCleanType: "count",
   autoCleanValue: 50,
   saveToGallery: false,
-  screenCapturePromptShown: false,
 };
 
 export async function loadAppshotConfig(): Promise<AppshotConfig> {

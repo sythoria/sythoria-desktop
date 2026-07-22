@@ -267,10 +267,17 @@ export const de = {
   "settings.privacy.enableScreenDesc": "Ermöglicht Sythoria, bei Bedarf Screenshots deiner Monitore aufzunehmen",
   "settings.privacy.screenPermRequired": "Bildschirmaufnahme-Berechtigung erforderlich",
   "settings.privacy.screenPermDesc":
-    "macOS erfordert die Berechtigung zur Bildschirmaufnahme, um Screenshots der Anwendung aufzunehmen. Bitte erteile die Berechtigung in den Systemeinstellungen.",
+    "Wähle Berechtigung erteilen, damit macOS Sythoria registriert und den Dialog zur Bildschirmaufnahme anzeigt.",
   "settings.privacy.screenPermNote":
-    "Hinweis: Wenn das Umschalten der Berechtigung nicht funktioniert, deaktiviere und aktiviere sie in den Systemeinstellungen erneut und starte die App neu.",
+    "Wenn du die Anfrage abgelehnt hast, öffne die Systemeinstellungen und aktiviere Sythoria. Starte nur neu, wenn macOS dazu auffordert.",
   "settings.privacy.grantPermissionBtn": "Berechtigung erteilen",
+  "settings.privacy.openSettingsBtn": "Systemeinstellungen öffnen",
+  "settings.privacy.checkingPermission": "Wird geprüft...",
+  "settings.privacy.permissionRequested":
+    "Berechtigungsanfrage geöffnet. Schließe den macOS-Dialog ab; Sythoria aktualisiert den Status bei deiner Rückkehr.",
+  "settings.privacy.settingsOpened": "Die Einstellungen für Bildschirmaufnahme wurden geöffnet.",
+  "settings.privacy.permissionActionFailed":
+    "Die Bildschirmaufnahme-Berechtigung konnte nicht aktualisiert werden: {error}",
   "settings.privacy.permGranted": "Berechtigung erteilt! Bitte starte die App neu, falls Aufnahmen fehlschlagen.",
   "settings.privacy.permDenied":
     "Die Berechtigung wurde nicht erteilt oder muss noch in den Systemeinstellungen aktiviert werden.",
@@ -403,10 +410,18 @@ export const de = {
   "settings.keybinds.action.togglePinChat.desc": "Heftet die aktive Unterhaltung an oder löst ihre Anheftung",
   "settings.appshots.screenPermRequired": "Bildschirmaufnahme-Berechtigung erforderlich",
   "settings.appshots.screenPermDesc":
-    "macOS erfordert die Berechtigung zur Bildschirmaufnahme, um Screenshots der Anwendung aufzunehmen. Bitte erteile die Berechtigung in den Systemeinstellungen.",
+    "Wähle Berechtigung erteilen, damit macOS Sythoria registriert und den Dialog zur Bildschirmaufnahme anzeigt.",
   "settings.appshots.screenPermNote":
-    "Hinweis: Wenn das Umschalten der Berechtigung nicht funktioniert, deaktiviere und aktiviere sie in den Systemeinstellungen erneut und starte die App neu.",
+    "Wenn du die Anfrage abgelehnt hast, öffne die Systemeinstellungen und aktiviere Sythoria. Starte nur neu, wenn macOS dazu auffordert.",
   "settings.appshots.grantPermissionBtn": "Berechtigung erteilen",
+  "settings.appshots.openSettingsBtn": "Systemeinstellungen öffnen",
+  "settings.appshots.checkingPermission": "Wird geprüft...",
+  "settings.appshots.permGranted": "Bildschirmaufnahme-Berechtigung erteilt.",
+  "settings.appshots.permissionRequested":
+    "Berechtigungsanfrage geöffnet. Schließe den macOS-Dialog ab; Sythoria aktualisiert den Status bei deiner Rückkehr.",
+  "settings.appshots.settingsOpened": "Die Einstellungen für Bildschirmaufnahme wurden geöffnet.",
+  "settings.appshots.permissionActionFailed":
+    "Die Bildschirmaufnahme-Berechtigung konnte nicht aktualisiert werden: {error}",
   "settings.appshots.engineError": "Appshot-Engine-Fehler",
   "settings.appshots.saveLocation": "Speicherort",
   "settings.appshots.browseBtn": "Durchsuchen...",

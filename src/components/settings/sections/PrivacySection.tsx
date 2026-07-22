@@ -81,7 +81,10 @@ export function PrivacySection() {
     updateConfig: updateAppshotConfig,
     clearAll: clearAllAppshots,
     hasPermission: hasAppshotPermission,
+    isRequestingPermission: isRequestingAppshotPermission,
+    checkPermission: checkAppshotPermission,
     requestPermission: requestAppshotPermission,
+    openPermissionSettings: openAppshotPermissionSettings,
   } = useAppshotStore();
 
   const [isConfirmWipe1Open, setIsConfirmWipe1Open] = useState(false);
@@ -90,6 +93,45 @@ export function PrivacySection() {
   useEffect(() => {
     initAppshot();
   }, [initAppshot]);
+
+  useEffect(() => {
+    const refreshPermission = () => {
+      void checkAppshotPermission();
+    };
+    window.addEventListener("focus", refreshPermission);
+    return () => window.removeEventListener("focus", refreshPermission);
+  }, [checkAppshotPermission]);
+
+  const handleAppshotPermissionAction = async () => {
+    try {
+      const granted = await requestAppshotPermission();
+      addToast(
+        t(granted ? "settings.privacy.permGranted" : "settings.privacy.permissionRequested"),
+        granted ? "success" : "info",
+      );
+    } catch (permissionError) {
+      addToast(
+        t("settings.privacy.permissionActionFailed", {
+          error: permissionError instanceof Error ? permissionError.message : String(permissionError),
+        }),
+        "error",
+      );
+    }
+  };
+
+  const handleOpenAppshotPermissionSettings = async () => {
+    try {
+      await openAppshotPermissionSettings();
+      addToast(t("settings.privacy.settingsOpened"), "info");
+    } catch (permissionError) {
+      addToast(
+        t("settings.privacy.permissionActionFailed", {
+          error: permissionError instanceof Error ? permissionError.message : String(permissionError),
+        }),
+        "error",
+      );
+    }
+  };
 
   const handleClearLogs = () => {
     clearLogs();
@@ -211,14 +253,14 @@ export function PrivacySection() {
         </h4>
         <div className="space-y-4 pt-1">
           <Switch
-            checked={appshotConfig.enabled && hasAppshotPermission}
+            checked={appshotConfig.enabled && hasAppshotPermission === true}
             onChange={(val) => updateAppshotConfig({ enabled: val })}
-            disabled={!hasAppshotPermission}
+            disabled={hasAppshotPermission !== true}
             label={t("settings.privacy.enableScreen")}
             description={t("settings.privacy.enableScreenDesc")}
           />
 
-          {!hasAppshotPermission && (
+          {hasAppshotPermission === false && (
             <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
               <div className="flex items-start gap-2.5">
                 <ShieldAlert size={18} className="shrink-0 mt-0.5 text-amber-500" />
@@ -232,22 +274,27 @@ export function PrivacySection() {
                   </span>
                 </div>
               </div>
-              <motion.button
-                whileHover={{ scale: motionTokens.scale.pop }}
-                whileTap={{ scale: motionTokens.scale.press }}
-                transition={springs.snappy}
-                className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm self-stretch sm:self-center text-center shrink-0"
-                onClick={async () => {
-                  const ok = await requestAppshotPermission();
-                  if (ok) {
-                    addToast(t("settings.privacy.permGranted"), "success");
-                  } else {
-                    addToast(t("settings.privacy.permDenied"), "info");
-                  }
-                }}
-              >
-                {t("settings.privacy.grantPermissionBtn")}
-              </motion.button>
+              <div className="flex shrink-0 flex-col gap-2 self-stretch sm:self-center">
+                <motion.button
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
+                  className="rounded-lg bg-amber-500 px-4 py-2 text-center font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
+                  onClick={handleAppshotPermissionAction}
+                  disabled={isRequestingAppshotPermission}
+                >
+                  {isRequestingAppshotPermission
+                    ? t("settings.privacy.checkingPermission")
+                    : t("settings.privacy.grantPermissionBtn")}
+                </motion.button>
+                <button
+                  type="button"
+                  className="px-3 py-1 text-center font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+                  onClick={handleOpenAppshotPermissionSettings}
+                >
+                  {t("settings.privacy.openSettingsBtn")}
+                </button>
+              </div>
             </div>
           )}
 

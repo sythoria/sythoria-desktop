@@ -260,10 +260,16 @@ export const en = {
   "settings.privacy.enableScreenDesc": "Allows Sythoria to take frame screenshots of your monitors when requested",
   "settings.privacy.screenPermRequired": "Screen Recording Permission Required",
   "settings.privacy.screenPermDesc":
-    "macOS requires screen recording permission to take screenshots of the application. Please grant permission in System Settings.",
+    "Choose Grant Permission so macOS can register Sythoria and show its Screen Recording prompt.",
   "settings.privacy.screenPermNote":
-    "Note: If toggling permission doesn't work, disable and re-enable it in System Settings, then restart the app.",
+    "If you previously denied the request, open System Settings and enable Sythoria. Restart only if macOS asks you to.",
   "settings.privacy.grantPermissionBtn": "Grant Permission",
+  "settings.privacy.openSettingsBtn": "Open System Settings",
+  "settings.privacy.checkingPermission": "Checking...",
+  "settings.privacy.permissionRequested":
+    "Permission request opened. Complete the macOS prompt; Sythoria will refresh the status when you return.",
+  "settings.privacy.settingsOpened": "Screen Recording settings opened.",
+  "settings.privacy.permissionActionFailed": "Could not update screen recording permission: {error}",
   "settings.privacy.permGranted": "Permission granted! Please restart the app if captures fail.",
   "settings.privacy.permDenied": "Permission was not granted or still needs to be enabled in System Settings.",
   "settings.privacy.pruneScreen": "Automatically prune screen captures",
@@ -392,10 +398,17 @@ export const en = {
   "settings.keybinds.action.togglePinChat.desc": "Pin or unpin the active conversation",
   "settings.appshots.screenPermRequired": "Screen Recording Permission Required",
   "settings.appshots.screenPermDesc":
-    "macOS requires screen recording permission to take screenshots of the application. Please grant permission in System Settings.",
+    "Choose Grant Permission so macOS can register Sythoria and show its Screen Recording prompt.",
   "settings.appshots.screenPermNote":
-    "Note: If you reinstalled or rebuilt the app and the switch in System Settings already shows as enabled, toggle it OFF and then ON again, then restart the app.",
+    "If you previously denied the request, open System Settings and enable Sythoria. Restart only if macOS asks you to.",
   "settings.appshots.grantPermissionBtn": "Grant Permission",
+  "settings.appshots.openSettingsBtn": "Open System Settings",
+  "settings.appshots.checkingPermission": "Checking...",
+  "settings.appshots.permGranted": "Screen recording permission granted.",
+  "settings.appshots.permissionRequested":
+    "Permission request opened. Complete the macOS prompt; Sythoria will refresh the status when you return.",
+  "settings.appshots.settingsOpened": "Screen Recording settings opened.",
+  "settings.appshots.permissionActionFailed": "Could not update screen recording permission: {error}",
   "settings.appshots.engineError": "Appshot Engine Error",
   "settings.appshots.saveLocation": "Save Location",
   "settings.appshots.browseBtn": "Browse...",

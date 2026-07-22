@@ -2021,6 +2021,7 @@ pub fn run() {
             appshots::select_appshot_folder,
             appshots::has_screen_capture_permission,
             appshots::request_screen_capture_permission,
+            appshots::open_screen_capture_settings,
             skills::list_skills,
             skills::read_skill,
             skills::create_skill,

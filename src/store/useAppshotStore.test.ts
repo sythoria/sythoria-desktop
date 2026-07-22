@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => {
     autoCleanType: "count" as const,
     autoCleanValue: 50,
     saveToGallery: false,
-    screenCapturePromptShown: false,
   };
   return {
     defaultConfig,
@@ -105,6 +104,7 @@ describe("useAppshotStore", () => {
       initialized: false,
       error: null,
       hasPermission: true,
+      isRequestingPermission: false,
     });
   });
 

@@ -26,7 +26,10 @@ export function AppshotsSection() {
     deleteAppshot,
     clearAll,
     hasPermission,
+    isRequestingPermission,
+    checkPermission,
     requestPermission,
+    openPermissionSettings,
   } = useAppshotStore();
   const addToast = useUIStore((s) => s.addToast);
   const captureShortcut = useKeybindStore((s) => s.keybinds.captureAppshot.currentCombo);
@@ -42,6 +45,45 @@ export function AppshotsSection() {
   useEffect(() => {
     init();
   }, [init]);
+
+  useEffect(() => {
+    const refreshPermission = () => {
+      void checkPermission();
+    };
+    window.addEventListener("focus", refreshPermission);
+    return () => window.removeEventListener("focus", refreshPermission);
+  }, [checkPermission]);
+
+  const handlePermissionAction = async () => {
+    try {
+      const granted = await requestPermission();
+      addToast(
+        t(granted ? "settings.appshots.permGranted" : "settings.appshots.permissionRequested"),
+        granted ? "success" : "info",
+      );
+    } catch (permissionError) {
+      addToast(
+        t("settings.appshots.permissionActionFailed", {
+          error: permissionError instanceof Error ? permissionError.message : String(permissionError),
+        }),
+        "error",
+      );
+    }
+  };
+
+  const handleOpenPermissionSettings = async () => {
+    try {
+      await openPermissionSettings();
+      addToast(t("settings.appshots.settingsOpened"), "info");
+    } catch (permissionError) {
+      addToast(
+        t("settings.appshots.permissionActionFailed", {
+          error: permissionError instanceof Error ? permissionError.message : String(permissionError),
+        }),
+        "error",
+      );
+    }
+  };
 
   const handleTestCapture = async () => {
     try {
@@ -77,14 +119,14 @@ export function AppshotsSection() {
           <p className="text-xs text-text-muted">{t("settings.appshots.subtitle")}</p>
         </div>
         <Switch
-          checked={config.enabled && hasPermission}
+          checked={config.enabled && hasPermission === true}
           onChange={(val) => updateConfig({ enabled: val })}
           ariaLabel={t("settings.appshots.title")}
-          disabled={!hasPermission}
+          disabled={hasPermission !== true}
         />
       </div>
 
-      {!hasPermission && (
+      {hasPermission === false && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-start gap-2.5">
             <AlertCircle size={18} className="shrink-0 mt-0.5 text-amber-500" />
@@ -96,21 +138,26 @@ export function AppshotsSection() {
               </span>
             </div>
           </div>
-          <motion.button
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors shadow-sm self-stretch sm:self-center text-center shrink-0"
-            onClick={async () => {
-              const ok = await requestPermission();
-              if (ok) {
-                addToast(t("settings.appshots.permGranted"), "success");
-              } else {
-                addToast(t("settings.appshots.permDenied"), "info");
-              }
-            }}
-          >
-            {t("settings.appshots.grantPermissionBtn")}
-          </motion.button>
+          <div className="flex shrink-0 flex-col gap-2 self-stretch sm:self-center">
+            <motion.button
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-center font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
+              onClick={handlePermissionAction}
+              disabled={isRequestingPermission}
+            >
+              {isRequestingPermission
+                ? t("settings.appshots.checkingPermission")
+                : t("settings.appshots.grantPermissionBtn")}
+            </motion.button>
+            <button
+              type="button"
+              className="px-3 py-1 text-center font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
+              onClick={handleOpenPermissionSettings}
+            >
+              {t("settings.appshots.openSettingsBtn")}
+            </button>
+          </div>
         </div>
       )}
 
@@ -124,7 +171,7 @@ export function AppshotsSection() {
         </div>
       )}
 
-      {config.enabled && hasPermission && (
+      {config.enabled && hasPermission === true && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

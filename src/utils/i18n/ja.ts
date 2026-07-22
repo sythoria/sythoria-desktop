@@ -261,10 +261,16 @@ export const ja = {
     "要求に応じてSythoriaがディスプレイのスクリーンショットをキャプチャできるようにします",
   "settings.privacy.screenPermRequired": "画面録画のアクセス許可が必要です",
   "settings.privacy.screenPermDesc":
-    "アプリケーションのスクリーンショットを撮るには、macOS의画面録画権限が必要です。システム設定で許可を与えてください。",
+    "「権限を許可する」を選ぶと、macOSにSythoriaが登録され、画面収録の許可ダイアログが表示されます。",
   "settings.privacy.screenPermNote":
-    "注意: 権限の切り替えが機能しない場合は、システム設定で一度無効にしてから再度有効にし、アプリを再起動してください。",
+    "以前に拒否した場合は、システム設定を開いてSythoriaを有効にしてください。macOSに求められた場合のみ再起動してください。",
   "settings.privacy.grantPermissionBtn": "権限を許可する",
+  "settings.privacy.openSettingsBtn": "システム設定を開く",
+  "settings.privacy.checkingPermission": "確認中...",
+  "settings.privacy.permissionRequested":
+    "権限リクエストを開きました。macOSの案内を完了すると、Sythoriaに戻った際に状態が更新されます。",
+  "settings.privacy.settingsOpened": "画面収録設定を開きました。",
+  "settings.privacy.permissionActionFailed": "画面収録権限を更新できませんでした: {error}",
   "settings.privacy.permGranted": "アクセス権が許可されました！キャプチャが失敗する場合はアプリを再起動してください。",
   "settings.privacy.permDenied": "アクセス権が許可されなかったか、まだシステム設定で有効にする必要があります。",
   "settings.privacy.pruneScreen": "画面キャプチャの自動クリーンアップ",
@@ -393,10 +399,17 @@ export const ja = {
   "settings.keybinds.action.togglePinChat.desc": "アクティブな会話をピン留めまたは解除します",
   "settings.appshots.screenPermRequired": "画面録画のアクセス許可が必要です",
   "settings.appshots.screenPermDesc":
-    "アプリケーションのスクリーンショットを撮るには、macOSの画面録画権限が必要です。システム設定で許可を与えてください。",
+    "「権限を許可する」を選ぶと、macOSにSythoriaが登録され、画面収録の許可ダイアログが表示されます。",
   "settings.appshots.screenPermNote":
-    "注意: 再インストールや再ビルドをした後に、すでに許可チェックが入っている場合は、一度チェックを外してから入れ直し、アプリを再起動してください。",
+    "以前に拒否した場合は、システム設定を開いてSythoriaを有効にしてください。macOSに求められた場合のみ再起動してください。",
   "settings.appshots.grantPermissionBtn": "権限を許可する",
+  "settings.appshots.openSettingsBtn": "システム設定を開く",
+  "settings.appshots.checkingPermission": "確認中...",
+  "settings.appshots.permGranted": "画面収録権限が許可されました。",
+  "settings.appshots.permissionRequested":
+    "権限リクエストを開きました。macOSの案内を完了すると、Sythoriaに戻った際に状態が更新されます。",
+  "settings.appshots.settingsOpened": "画面収録設定を開きました。",
+  "settings.appshots.permissionActionFailed": "画面収録権限を更新できませんでした: {error}",
   "settings.appshots.engineError": "画面キャプチャエラー",
   "settings.appshots.saveLocation": "保存場所",
   "settings.appshots.browseBtn": "参照...",

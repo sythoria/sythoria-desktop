@@ -144,25 +144,43 @@ pub async fn has_screen_capture_permission() -> bool {
 }
 
 #[tauri::command]
-pub async fn request_screen_capture_permission(first_time: bool) -> bool {
+pub async fn request_screen_capture_permission(app: AppHandle) -> Result<bool, AppError> {
     #[cfg(target_os = "macos")]
     {
-        let _ = unsafe { CGRequestScreenCaptureAccess() };
-        let has_permission = unsafe { CGPreflightScreenCaptureAccess() };
-        if !has_permission && !first_time {
-            let _ = tokio::process::Command::new("open")
-                .arg(
-                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                )
-                .spawn();
-        }
-        has_permission
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let granted = unsafe { CGRequestScreenCaptureAccess() };
+            let _ = sender.send(granted);
+        })?;
+
+        receiver
+            .await
+            .map_err(|_| config_error("Screen Recording permission request was interrupted"))
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = first_time;
-        true
+        let _ = app;
+        Ok(true)
     }
+}
+
+#[tauri::command]
+pub async fn open_screen_capture_settings() -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = tokio::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .status()
+            .await?;
+
+        if !status.success() {
+            return Err(config_error(
+                "Could not open the Screen Recording privacy settings",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -186,6 +204,7 @@ pub async fn capture_screen(
     let capture = tokio::task::spawn_blocking(move || {
         let image = capture_frontmost_app_window(sythoria_pid)?;
         validate_capture_dimensions(&image)?;
+        validate_capture_content(&image)?;
         let encoded = encode_with_limit(image, format, quality, max_output_bytes)?;
         let output_path = write_capture_atomically(&output_dir, format, &encoded.bytes)?;
         Ok::<_, AppError>((output_path, encoded))
@@ -226,11 +245,16 @@ fn capture_frontmost_app_window(sythoria_pid: u32) -> Result<RgbaImage, AppError
         .find(|window| is_frontmost_app_candidate(window, sythoria_pid))
         .ok_or_else(|| config_error("No frontmost application window is available for capture"))?;
 
-    window.capture_image().map_err(|error| {
+    let mut image = window.capture_image().map_err(|error| {
         config_error(format!(
             "Failed to capture the frontmost application: {error}"
         ))
-    })
+    })?;
+
+    #[cfg(target_os = "macos")]
+    normalize_macos_window_alpha(&mut image);
+
+    Ok(image)
 }
 
 fn is_frontmost_app_candidate(window: &XcapWindow, sythoria_pid: u32) -> bool {
@@ -259,6 +283,44 @@ fn validate_capture_dimensions(image: &RgbaImage) -> Result<(), AppError> {
         return Err(config_error("The captured image is empty"));
     }
     validate_pixel_count(image.width(), image.height())
+}
+
+fn validate_capture_content(image: &RgbaImage) -> Result<(), AppError> {
+    let pixel_count = u64::from(image.width()) * u64::from(image.height());
+    let sample_step = usize::try_from((pixel_count / 100_000).max(1)).unwrap_or(usize::MAX);
+    let mut sampled = 0usize;
+    let mut visible = 0usize;
+
+    for pixel in image.pixels().step_by(sample_step) {
+        sampled += 1;
+        if pixel[3] > 8 {
+            visible += 1;
+        }
+    }
+
+    if sampled == 0 || visible.saturating_mul(100) < sampled {
+        return Err(config_error(
+            "The captured window contains no visible pixels. Check Screen Recording permission and try again",
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_macos_window_alpha(image: &mut RgbaImage) {
+    for pixel in image.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        if alpha == 0 || alpha == 255 {
+            continue;
+        }
+
+        for channel in &mut pixel.0[..3] {
+            let straight = (u32::from(*channel) * 255 + alpha / 2) / alpha;
+            *channel = straight.min(255) as u8;
+        }
+        pixel[3] = 255;
+    }
 }
 
 fn validate_pixel_count(width: u32, height: u32) -> Result<(), AppError> {
@@ -734,6 +796,22 @@ mod tests {
         let decoded = image::load_from_memory_with_format(&encoded, ImageFormat::Png).unwrap();
         assert_eq!(decoded.width(), 20);
         assert_eq!(decoded.height(), 10);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_capture_normalizes_premultiplied_alpha() {
+        let mut image = RgbaImage::from_pixel(1, 1, image::Rgba([64, 32, 16, 128]));
+
+        normalize_macos_window_alpha(&mut image);
+
+        assert_eq!(image.get_pixel(0, 0).0, [128, 64, 32, 255]);
+    }
+
+    #[test]
+    fn transparent_capture_is_rejected() {
+        let image = RgbaImage::from_pixel(100, 100, image::Rgba([0, 0, 0, 0]));
+        assert!(validate_capture_content(&image).is_err());
     }
 
     #[test]
