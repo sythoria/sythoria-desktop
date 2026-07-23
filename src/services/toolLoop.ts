@@ -13,7 +13,7 @@ import type {
   McpServerConfig,
 } from "../types";
 import { generateId } from "../utils/generateId";
-import { logError, logInfo } from "../utils/logger";
+import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
@@ -22,6 +22,15 @@ import { useModelStore } from "../store/useModelStore";
 import { useMcpStore } from "../store/useMcpStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
+import {
+  MAX_SUBAGENTS_PER_CALL,
+  MAX_SUBAGENT_DEPTH,
+  MAX_ACTIVE_SUBAGENTS,
+  MAX_INPUT_LENGTH,
+  MAX_TOOL_IMAGE_DATA_LENGTH,
+  MAX_TOOL_IMAGES,
+  MAX_TOOL_RESULT_LENGTH,
+} from "../config/constants";
 
 export interface ToolLoopSlice {
   conversations: Conversation[];
@@ -185,6 +194,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           subagents: {
             type: "array",
+            maxItems: MAX_SUBAGENTS_PER_CALL,
             items: {
               type: "object",
               properties: {
@@ -210,6 +220,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         properties: {
           conversationIds: {
             type: "array",
+            maxItems: MAX_ACTIVE_SUBAGENTS,
             items: { type: "string" },
             description: "List of subagent conversation IDs to wait for.",
           },
@@ -668,7 +679,7 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
     conversations: s.conversations.map((c) => (c.id === parentId ? { ...c, recursionDepth: newDepth } : c)),
   }));
 
-  const maxDepth = 5;
+  const maxDepth = MAX_SUBAGENT_DEPTH;
   if (newDepth > maxDepth) {
     const warnedMsg = {
       ...parentMsg,
@@ -847,9 +858,23 @@ export async function sendWithToolLoop(
               ),
             }));
           }
+        } else if (project.permissions !== "read") {
+          throw new Error("Write-capable project tools require a Git repository for worktree isolation.");
         }
       } catch (e) {
-        console.error("Failed to setup git worktree isolation, using direct workspace path:", e);
+        const details = e instanceof Error ? e.message : String(e);
+        if (project.permissions === "read") {
+          logWarn("chat", "Git worktree isolation was unavailable; continuing with read-only project tools", {
+            details,
+          });
+        } else {
+          throw new Error(
+            `Git worktree isolation could not be established. Mutating project tools were disabled: ${details}`,
+            {
+              cause: e,
+            },
+          );
+        }
       }
     }
     logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
@@ -1261,12 +1286,25 @@ export async function sendWithToolLoop(
             } else if (fnName === "unknown") {
               throw new Error(`Unknown tool: ${rawName}`);
             } else if (fnName === "invoke_subagent") {
-              const subagents = Array.isArray(fnArgs.subagents) ? fnArgs.subagents : [];
+              const parentDepth = conv?.recursionDepth ?? 0;
+              if (parentDepth >= MAX_SUBAGENT_DEPTH) {
+                throw new Error(`Subagent depth limit (${MAX_SUBAGENT_DEPTH}) reached.`);
+              }
+              const activeSubagents = get().conversations.filter(
+                (candidate) => candidate.isSubagent && candidate.status === "running",
+              ).length;
+              const availableSlots = Math.max(0, MAX_ACTIVE_SUBAGENTS - activeSubagents);
+              if (availableSlots === 0) {
+                throw new Error(`Active subagent limit (${MAX_ACTIVE_SUBAGENTS}) reached.`);
+              }
+              const subagents = Array.isArray(fnArgs.subagents)
+                ? fnArgs.subagents.slice(0, Math.min(MAX_SUBAGENTS_PER_CALL, availableSlots))
+                : [];
               const invokedIds: string[] = [];
               for (const sub of subagents) {
                 const subagentId = generateId();
-                const subagentRole = sub.role || "Subagent";
-                const subagentPrompt = sub.prompt || "";
+                const subagentRole = String(sub.role || "Subagent").slice(0, 100);
+                const subagentPrompt = String(sub.prompt || "").slice(0, MAX_INPUT_LENGTH);
                 const newConv: Conversation = {
                   id: subagentId,
                   title: `Subagent: ${subagentRole}`,
@@ -1285,6 +1323,7 @@ export async function sendWithToolLoop(
                   role: subagentRole,
                   isSubagent: true,
                   status: "running",
+                  recursionDepth: parentDepth + 1,
                 };
                 useChatStore.setState((s) => ({ conversations: [...s.conversations, newConv] }));
 
@@ -1309,7 +1348,9 @@ export async function sendWithToolLoop(
               resultContent = `Subagents invoked successfully with conversation IDs: ${invokedIds.join(", ")}. Wait for their responses, or communicate with them using send_message.`;
               toolResultSubagentIds = invokedIds;
             } else if (fnName === "wait_subagents") {
-              const targetIds = Array.isArray(fnArgs.conversationIds) ? fnArgs.conversationIds : [];
+              const targetIds = Array.isArray(fnArgs.conversationIds)
+                ? fnArgs.conversationIds.slice(0, MAX_ACTIVE_SUBAGENTS)
+                : [];
               const start = Date.now();
               const timeout = 600000; // 10 minutes max wait
 
@@ -1324,6 +1365,10 @@ export async function sendWithToolLoop(
                   const targetConv = convs.find((c) => c.id === id);
                   if (!targetConv) {
                     results.push(`Subagent ${id} not found.`);
+                    continue;
+                  }
+                  if (!targetConv.isSubagent || targetConv.parentId !== convId) {
+                    results.push(`Subagent ${id} is outside this conversation's scope.`);
                     continue;
                   }
                   if (targetConv.status === "completed" || targetConv.status === "error") {
@@ -1352,10 +1397,13 @@ export async function sendWithToolLoop(
               if (!targetConv) {
                 throw new Error(`Conversation ${targetId} not found.`);
               }
+              if (!targetConv.isSubagent || targetConv.parentId !== convId) {
+                throw new Error(`Conversation ${targetId} is not a subagent owned by this conversation.`);
+              }
               const newMsg: Message = {
                 id: generateId(),
                 role: "user",
-                content: msgContent,
+                content: String(msgContent).slice(0, MAX_INPUT_LENGTH),
                 timestamp: new Date(),
               };
               useChatStore.setState((s) => ({
@@ -1578,6 +1626,22 @@ export async function sendWithToolLoop(
           } catch (err: any) {
             isError = true;
             resultContent = err.message || String(err);
+          }
+
+          if (resultContent.length > MAX_TOOL_RESULT_LENGTH) {
+            resultContent = `${resultContent.slice(0, MAX_TOOL_RESULT_LENGTH)}\n\n[Tool result truncated at ${MAX_TOOL_RESULT_LENGTH} characters]`;
+          }
+          if (images) {
+            const originalImageCount = images.length;
+            images = images
+              .filter(
+                (candidate) =>
+                  typeof candidate?.data === "string" && candidate.data.length <= MAX_TOOL_IMAGE_DATA_LENGTH,
+              )
+              .slice(0, MAX_TOOL_IMAGES);
+            if (images.length < originalImageCount) {
+              resultContent += "\n\n[One or more oversized tool images were omitted]";
+            }
           }
 
           if (!isConvStreaming(get, convId)) {
