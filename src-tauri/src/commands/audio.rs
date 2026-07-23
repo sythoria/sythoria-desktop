@@ -46,15 +46,17 @@ fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
     result
 }
 
-struct SendSyncStream(cpal::Stream);
-unsafe impl Send for SendSyncStream {}
-unsafe impl Sync for SendSyncStream {}
-
 static RECORDED_SAMPLES: LazyLock<Arc<Mutex<Vec<f32>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
+const MAX_RECORDED_SAMPLES: usize = 30_000_000;
+const MAX_CLOUD_STT_RESPONSE_BYTES: usize = 1024 * 1024;
 
-static RECORDING_STREAM: LazyLock<Mutex<Option<SendSyncStream>>> =
-    LazyLock::new(|| Mutex::new(None));
+fn append_recorded_samples(samples: &mut Vec<f32>, mono: &[f32]) {
+    let remaining = MAX_RECORDED_SAMPLES.saturating_sub(samples.len());
+    samples.extend_from_slice(&mono[..mono.len().min(remaining)]);
+}
+
+static RECORDING_STREAM: LazyLock<Mutex<Option<cpal::Stream>>> = LazyLock::new(|| Mutex::new(None));
 
 #[tauri::command]
 pub async fn start_recording() -> Result<(), AppError> {
@@ -84,7 +86,7 @@ pub async fn start_recording() -> Result<(), AppError> {
             move |data: &[f32], _| {
                 if let Ok(mut samples) = samples_clone.lock() {
                     let mono = convert_to_mono(data, channels);
-                    samples.extend_from_slice(&mono);
+                    append_recorded_samples(&mut samples, &mono);
                 }
             },
             error_callback,
@@ -99,7 +101,7 @@ pub async fn start_recording() -> Result<(), AppError> {
                         float_data[i] = s as f32 / 32768.0;
                     }
                     let mono = convert_to_mono(&float_data, channels);
-                    samples.extend_from_slice(&mono);
+                    append_recorded_samples(&mut samples, &mono);
                 }
             },
             error_callback,
@@ -114,7 +116,7 @@ pub async fn start_recording() -> Result<(), AppError> {
                         float_data[i] = (s as f32 - 32768.0) / 32768.0;
                     }
                     let mono = convert_to_mono(&float_data, channels);
-                    samples.extend_from_slice(&mono);
+                    append_recorded_samples(&mut samples, &mono);
                 }
             },
             error_callback,
@@ -129,7 +131,7 @@ pub async fn start_recording() -> Result<(), AppError> {
         .map_err(|e| AppError::ConfigIo(format!("Failed to play stream: {}", e)))?;
 
     if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        *active_stream = Some(SendSyncStream(stream));
+        *active_stream = Some(stream);
     }
 
     Ok(())
@@ -138,7 +140,7 @@ pub async fn start_recording() -> Result<(), AppError> {
 #[tauri::command]
 pub async fn stop_recording() -> Result<(), AppError> {
     if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        if let Some(SendSyncStream(stream)) = active_stream.take() {
+        if let Some(stream) = active_stream.take() {
             let _ = stream.pause();
         }
     }
@@ -394,6 +396,7 @@ pub async fn download_whisper_model(
     model_id: String,
     url: String,
 ) -> Result<String, AppError> {
+    crate::ensure_online()?;
     let operation_id = NEXT_WHISPER_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
     let WhisperDownloadRegistration {
         cancelled,
@@ -886,7 +889,7 @@ fn encode_wav_f32(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     out.extend_from_slice(&3u16.to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes());
     out.extend_from_slice(&sample_rate.to_le_bytes());
-    let byte_rate = sample_rate * 1 * 4;
+    let byte_rate = sample_rate * 4;
     out.extend_from_slice(&byte_rate.to_le_bytes());
     out.extend_from_slice(&4u16.to_le_bytes());
     out.extend_from_slice(&32u16.to_le_bytes());
@@ -907,10 +910,16 @@ struct CloudWhisperResponse {
 pub async fn transcribe_audio_cloud(
     _app: AppHandle,
     api_url: String,
-    api_key: String,
     model: String,
     language: Option<String>,
 ) -> Result<String, AppError> {
+    crate::ensure_online()?;
+    let api_key = crate::commands::config::get_cloud_stt_api_key().map_err(|err| match err {
+        AppError::KeyNotFound(_) => {
+            AppError::ConfigIo("Cloud speech-to-text API key is not configured".to_string())
+        }
+        other => other,
+    })?;
     let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
         samples.clone()
     } else {
@@ -925,39 +934,57 @@ pub async fn transcribe_audio_cloud(
 
     let parsed_url = url::Url::parse(&api_url)
         .map_err(|e| AppError::ConfigIo(format!("Invalid api_url: {}", e)))?;
-
-    if let Some(host) = parsed_url.host_str() {
-        let host_lower = host.to_lowercase();
-        let blocked_hosts = crate::get_blocked_hosts();
-
-        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-            let blocked_lower = blocked.to_lowercase();
-            if blocked.contains('*') {
-                crate::search::matches_wildcard(&host_lower, &blocked_lower)
-            } else {
-                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-            }
-        });
-
-        let is_blocked_ip = {
-            use std::net::ToSocketAddrs;
-            let port = parsed_url.port_or_known_default().unwrap_or(80);
-            if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs
-                    .into_iter()
-                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-            } else {
-                false
-            }
-        };
-
-        if is_blocked_host || is_blocked_ip {
-            return Err(AppError::ConfigIo(format!(
-                "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
-                host
-            )));
-        }
+    if parsed_url.scheme() != "https" {
+        return Err(AppError::ConfigIo(
+            "Cloud speech-to-text endpoints must use HTTPS".to_string(),
+        ));
     }
+
+    let endpoint_host = parsed_url
+        .host_str()
+        .ok_or_else(|| {
+            AppError::ConfigIo("Cloud speech-to-text endpoint must include a hostname".to_string())
+        })?
+        .to_string();
+    let host_lower = endpoint_host.to_lowercase();
+    let blocked_hosts = crate::get_blocked_hosts();
+    let is_blocked_host = blocked_hosts.iter().any(|blocked| {
+        let blocked_lower = blocked.to_lowercase();
+        if blocked.contains('*') {
+            crate::search::matches_wildcard(&host_lower, &blocked_lower)
+        } else {
+            host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
+        }
+    });
+    if is_blocked_host {
+        return Err(AppError::ConfigIo(format!(
+            "Access denied: Endpoint '{}' is blocked in network settings.",
+            endpoint_host
+        )));
+    }
+
+    let endpoint_port = parsed_url.port_or_known_default().unwrap_or(443);
+    let resolved_addresses: Vec<_> =
+        tokio::net::lookup_host((endpoint_host.as_str(), endpoint_port))
+            .await
+            .map_err(|e| {
+                AppError::ConfigIo(format!(
+                    "Failed to resolve cloud speech-to-text endpoint: {}",
+                    e
+                ))
+            })?
+            .collect();
+    if resolved_addresses.is_empty()
+        || resolved_addresses
+            .iter()
+            .any(|address| crate::search::is_ip_blocked(&address.ip(), &blocked_hosts))
+    {
+        return Err(AppError::ConfigIo(format!(
+            "Access denied: Endpoint '{}' resolves to a blocked or unavailable address.",
+            endpoint_host
+        )));
+    }
+    let endpoint_address = resolved_addresses[0];
 
     let host = cpal::default_host();
     let device = host
@@ -972,6 +999,9 @@ pub async fn transcribe_audio_cloud(
     let wav_bytes = encode_wav_f32(&resampled, 16000);
 
     let client = client_builder()
+        .resolve(&endpoint_host, endpoint_address)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
@@ -999,7 +1029,24 @@ pub async fn transcribe_audio_cloud(
         .map_err(|e| AppError::ParseError(format!("Network Error: {}", e)))?;
 
     let status = res.status();
-    let body = res.text().await.unwrap_or_default();
+    if res.content_length().unwrap_or_default() > MAX_CLOUD_STT_RESPONSE_BYTES as u64 {
+        return Err(AppError::ParseError(
+            "Cloud speech-to-text response exceeded the 1 MiB limit".to_string(),
+        ));
+    }
+    let mut response_bytes = Vec::new();
+    let mut response_stream = res.bytes_stream();
+    while let Some(chunk) = response_stream.next().await {
+        let chunk = chunk
+            .map_err(|e| AppError::ParseError(format!("Failed to read API response: {}", e)))?;
+        if response_bytes.len().saturating_add(chunk.len()) > MAX_CLOUD_STT_RESPONSE_BYTES {
+            return Err(AppError::ParseError(
+                "Cloud speech-to-text response exceeded the 1 MiB limit".to_string(),
+            ));
+        }
+        response_bytes.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&response_bytes);
 
     if !status.is_success() {
         return Err(AppError::ParseError(format!(
