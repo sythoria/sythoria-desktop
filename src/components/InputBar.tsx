@@ -153,6 +153,8 @@ export default memo(function InputBar({
     downloadedFiles,
     sttProvider,
     cloudApiKey,
+    cloudApiKeyConfigured,
+    ensureCloudApiKeySaved,
     cloudApiUrl,
     cloudModel,
     refinementModelId,
@@ -212,7 +214,8 @@ export default memo(function InputBar({
         return;
       }
     } else if (sttProvider === "cloud") {
-      if (!cloudApiKey || !cloudApiUrl) {
+      const cloudKeyReady = cloudApiKey ? await ensureCloudApiKeySaved() : cloudApiKeyConfigured;
+      if (!cloudKeyReady || !cloudApiUrl) {
         useUIStore.getState().addToast("Cloud STT API Key or URL is not configured.", "error");
         return;
       }
@@ -242,7 +245,6 @@ export default memo(function InputBar({
         if (sttProvider === "cloud") {
           transcription = await invoke<string>("transcribe_audio_cloud", {
             apiUrl: cloudApiUrl,
-            apiKey: cloudApiKey,
             model: cloudModel,
             language,
           });
@@ -323,7 +325,6 @@ export default memo(function InputBar({
               if (sttProvider === "cloud") {
                 transcription = await invoke<string>("transcribe_audio_cloud", {
                   apiUrl: cloudApiUrl,
-                  apiKey: cloudApiKey,
                   model: cloudModel,
                   language,
                 });
