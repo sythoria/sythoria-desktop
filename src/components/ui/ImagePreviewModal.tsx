@@ -190,8 +190,8 @@ export function ImagePreviewModal({
         transition={{ duration: motionTokens.duration.fast }}
       >
         {/* Header bar */}
-        <div className="absolute top-0 left-0 right-0 h-24 pt-10 pl-6 pr-6 flex items-start justify-between z-20 bg-gradient-to-b from-surface/80 to-transparent pointer-events-none">
-          <div className="pointer-events-auto flex flex-col max-w-[70%]">
+        <div className="relative z-20 shrink-0 min-h-24 pt-10 px-4 sm:px-6 pb-3 flex items-start justify-between gap-4 bg-gradient-to-b from-surface/80 to-transparent pointer-events-none">
+          <div className="pointer-events-auto flex min-w-0 flex-col">
             <span className="text-text-primary font-semibold text-sm truncate" title={currentImage.name}>
               {currentImage.name}
             </span>
@@ -220,7 +220,7 @@ export function ImagePreviewModal({
         {/* Viewport wrapper */}
         <div
           ref={containerRef}
-          className={`w-full h-full flex items-center justify-center overflow-hidden relative ${
+          className={`w-full min-h-0 flex-1 flex items-center justify-center overflow-hidden relative px-4 sm:px-16 ${
             scale > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-default"
           }`}
           onPointerDown={handlePointerDown}
@@ -244,67 +244,69 @@ export function ImagePreviewModal({
                 ? "none"
                 : `transform ${motionTokens.duration.fast}s cubic-bezier(0.16, 1, 0.3, 1)`,
             }}
-            className="max-w-[90vw] max-h-[85vh] object-contain rounded shadow-2xl z-10"
+            className="max-w-full max-h-full object-contain rounded shadow-2xl z-10"
             initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
             transition={springs.snappy}
           />
+
+          {/* Chevrons */}
+          {activeIndex > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePrev();
+              }}
+              className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
+              title="Previous image"
+            >
+              <ChevronLeft size={24} />
+            </button>
+          )}
+          {activeIndex < images.length - 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleNext();
+              }}
+              className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
+              title="Next image"
+            >
+              <ChevronRight size={24} />
+            </button>
+          )}
         </div>
 
-        {/* Chevrons */}
-        {activeIndex > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePrev();
-            }}
-            className="absolute left-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
-            title="Previous image"
-          >
-            <ChevronLeft size={24} />
-          </button>
-        )}
-        {activeIndex < images.length - 1 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleNext();
-            }}
-            className="absolute right-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
-            title="Next image"
-          >
-            <ChevronRight size={24} />
-          </button>
-        )}
-
         {/* Bottom Toolbar */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 rounded-full border border-border bg-surface/85 backdrop-blur-md shadow-2xl text-text-primary">
-          <button
-            onClick={handleZoomOut}
-            disabled={scale <= 1}
-            className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
-            title="Zoom Out"
-          >
-            <ZoomOut size={16} />
-          </button>
-          <span className="text-xs font-mono min-w-[44px] text-center select-none">{Math.round(scale * 100)}%</span>
-          <button
-            onClick={handleZoomIn}
-            disabled={scale >= 5}
-            className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
-            title="Zoom In"
-          >
-            <ZoomIn size={16} />
-          </button>
-          <div className="w-[1px] h-4 bg-border" />
-          <button
-            onClick={handleToggleFit}
-            className="p-1.5 hover:bg-hover rounded-full transition-colors active:scale-95 text-text-secondary hover:text-text-primary"
-            title={scale !== 1 ? "Reset zoom (Fit)" : "Zoom 200%"}
-          >
-            <RefreshCw size={16} />
-          </button>
+        <div className="relative z-20 shrink-0 flex min-h-20 items-start justify-center px-4 pt-3 pb-6 bg-gradient-to-t from-surface/80 to-transparent pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full border border-border bg-surface/85 backdrop-blur-md shadow-2xl text-text-primary">
+            <button
+              onClick={handleZoomOut}
+              disabled={scale <= 1}
+              className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
+              title="Zoom Out"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <span className="text-xs font-mono min-w-[44px] text-center select-none">{Math.round(scale * 100)}%</span>
+            <button
+              onClick={handleZoomIn}
+              disabled={scale >= 5}
+              className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
+              title="Zoom In"
+            >
+              <ZoomIn size={16} />
+            </button>
+            <div className="w-[1px] h-4 bg-border" />
+            <button
+              onClick={handleToggleFit}
+              className="p-1.5 hover:bg-hover rounded-full transition-colors active:scale-95 text-text-secondary hover:text-text-primary"
+              title={scale !== 1 ? "Reset zoom (Fit)" : "Zoom 200%"}
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
         </div>
       </motion.div>
     </AnimatePresence>
