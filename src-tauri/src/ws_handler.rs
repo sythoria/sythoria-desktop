@@ -143,6 +143,7 @@ pub async fn ws_chat_stream(
     ws_config: WsConfig,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
+    crate::ensure_online().map_err(|error| error.to_string())?;
     use tauri::Emitter;
 
     // SSRF URL Block Validation
@@ -327,6 +328,7 @@ pub async fn send_typing_event(
     is_typing: bool,
     chat_id: Option<String>,
 ) -> Result<(), String> {
+    crate::ensure_online().map_err(|error| error.to_string())?;
     if !ws_config.url.starts_with("ws") {
         return Ok(());
     }
@@ -378,6 +380,7 @@ pub async fn ws_connect(
     app_handle: tauri::AppHandle,
     session: &WsSession,
 ) -> Result<(), String> {
+    crate::ensure_online().map_err(|error| error.to_string())?;
     // SSRF URL Block Validation
     let parsed_url =
         url::Url::parse(&ws_config.url).map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
