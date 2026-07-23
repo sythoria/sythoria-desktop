@@ -25,7 +25,6 @@ export const MCP_TRANSPORT_PRESETS = [
   },
 ] as const;
 
-
 export interface McpServerPreset {
   id: string;
   /** Display name shown in the templates dropdown. */
