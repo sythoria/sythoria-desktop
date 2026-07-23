@@ -131,7 +131,8 @@ function tryParseStructuredError(raw: string): ParsedError | null {
       return userFriendlyMcpError(parsed.McpError, raw);
     }
     if (parsed.ConfigIo) {
-      const isUtf8Err = parsed.ConfigIo.toLowerCase().includes("utf-8") || parsed.ConfigIo.toLowerCase().includes("utf8");
+      const isUtf8Err =
+        parsed.ConfigIo.toLowerCase().includes("utf-8") || parsed.ConfigIo.toLowerCase().includes("utf8");
       return {
         message: parsed.ConfigIo,
         action: isUtf8Err
