@@ -409,6 +409,7 @@ pub async fn git_get_status(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn git_create_commit(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
@@ -611,7 +612,7 @@ pub async fn git_diff_changes(
     }
     if !cached_str.is_empty() {
         if !combined_diff.is_empty() {
-            combined_diff.push_str("\n");
+            combined_diff.push('\n');
         }
         combined_diff.push_str("--- STAGED CHANGES ---\n");
         combined_diff.push_str(&cached_str);
