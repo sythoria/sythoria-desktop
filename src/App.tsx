@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -20,11 +20,9 @@ import {
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
-import { AuxiliaryPanel } from "./components/AuxiliaryPanel";
 import { type Conversation } from "./types";
 import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
-import Settings from "./components/settings";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
@@ -34,10 +32,19 @@ import { LinkWarningModal } from "./components/LinkWarningModal";
 import StartScreen from "./components/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
 import { TitleBar } from "./components/TitleBar";
-import { CommandPalette } from "./components/CommandPalette";
-import ProjectConfigModal from "./components/ProjectConfigModal";
-import { SpotlightArea } from "./components/SpotlightArea";
 import { useChatStore } from "./store/useChatStore";
+
+const Settings = lazy(() => import("./components/settings"));
+const AuxiliaryPanel = lazy(() =>
+  import("./components/AuxiliaryPanel").then((module) => ({ default: module.AuxiliaryPanel })),
+);
+const CommandPalette = lazy(() =>
+  import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })),
+);
+const ProjectConfigModal = lazy(() => import("./components/ProjectConfigModal"));
+const SpotlightArea = lazy(() =>
+  import("./components/SpotlightArea").then((module) => ({ default: module.SpotlightArea })),
+);
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
@@ -218,6 +225,9 @@ function App() {
     isAuxPanelExpanded,
     isAuxSummaryPinned,
     auxPanelWidth,
+    showCommandPalette,
+    showSpotlight,
+    showProjectConfigModal,
   } = useUIStore(
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
@@ -239,6 +249,9 @@ function App() {
       isAuxPanelExpanded: s.isAuxPanelExpanded,
       isAuxSummaryPinned: s.isAuxSummaryPinned,
       auxPanelWidth: s.auxPanelWidth,
+      showCommandPalette: s.showCommandPalette,
+      showSpotlight: s.showSpotlight,
+      showProjectConfigModal: s.showProjectConfigModal,
     })),
   );
   const isAuxPanelLayoutChange = false;
@@ -1061,8 +1074,10 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden flex-col bg-surface">
       <TitleBar />
-      <CommandPalette />
-      <SpotlightArea />
+      <Suspense fallback={null}>
+        {showCommandPalette && <CommandPalette />}
+        {showSpotlight && <SpotlightArea />}
+      </Suspense>
       <div className="flex flex-1 overflow-hidden relative glass-app-container">
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
@@ -1169,7 +1184,19 @@ function App() {
                 exit={{ opacity: 0, y: -6, scale: 0.99 }}
                 transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
               >
-                <Settings />
+                <Suspense
+                  fallback={
+                    <div
+                      className="flex flex-1 items-center justify-center"
+                      role="status"
+                      aria-label="Loading settings"
+                    >
+                      <Spinner size="lg" />
+                    </div>
+                  }
+                >
+                  <Settings />
+                </Suspense>
               </motion.div>
             ) : (
               <motion.main
@@ -1440,7 +1467,19 @@ function App() {
                             }}
                           />
                         )}
-                        <AuxiliaryPanel />
+                        <Suspense
+                          fallback={
+                            <div
+                              className="flex h-full items-center justify-center"
+                              role="status"
+                              aria-label="Loading workspace"
+                            >
+                              <Spinner size="md" />
+                            </div>
+                          }
+                        >
+                          <AuxiliaryPanel />
+                        </Suspense>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1470,7 +1509,7 @@ function App() {
         )}
       </AnimatePresence>
 
-      <ProjectConfigModal />
+      <Suspense fallback={null}>{showProjectConfigModal && <ProjectConfigModal />}</Suspense>
       <ToolConfirmationModal
         confirmation={
           pendingToolConfirmations && pendingToolConfirmations.length > 0 ? pendingToolConfirmations[0] : null
