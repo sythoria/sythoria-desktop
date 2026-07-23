@@ -17,6 +17,7 @@ interface WhisperConfig {
 }
 
 interface WhisperState extends WhisperConfig {
+  cloudApiKeyConfigured: boolean;
   downloadedFiles: string[];
   isDownloading: boolean;
   downloadProgress: number;
@@ -31,6 +32,7 @@ interface WhisperState extends WhisperConfig {
   setLanguage: (lang: string) => void;
   setSttProvider: (provider: "local" | "cloud") => void;
   setCloudApiKey: (key: string) => void;
+  ensureCloudApiKeySaved: () => Promise<boolean>;
   setCloudApiUrl: (url: string) => void;
   setCloudModel: (model: string) => void;
   setRefinementModelId: (id: string | null) => void;
@@ -56,6 +58,8 @@ const DEFAULT_CONFIG: WhisperConfig = {
 
 let downloadCancelled = false;
 let isListening = false;
+let cloudKeySaveTimer: ReturnType<typeof setTimeout> | undefined;
+let cloudKeyWriteQueue: Promise<void> = Promise.resolve();
 
 const saveConfig = (state: WhisperConfig) => {
   if (typeof localStorage !== "undefined") {
@@ -67,7 +71,6 @@ const saveConfig = (state: WhisperConfig) => {
         customModelPath: state.customModelPath,
         language: state.language,
         sttProvider: state.sttProvider,
-        cloudApiKey: state.cloudApiKey,
         cloudApiUrl: state.cloudApiUrl,
         cloudModel: state.cloudModel,
         refinementModelId: state.refinementModelId,
@@ -85,6 +88,7 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     downloadingModelId: null,
     isRecording: false,
     isTranscribing: false,
+    cloudApiKeyConfigured: false,
 
     init: async () => {
       if (!isListening) {
@@ -111,21 +115,41 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
 
       try {
         let savedConfig: Partial<WhisperConfig> = {};
+        let legacyCloudApiKey = "";
         const localData = typeof localStorage !== "undefined" ? localStorage.getItem("sythoria-whisper-config") : null;
         if (localData) {
           try {
-            savedConfig = JSON.parse(localData);
+            const parsed = JSON.parse(localData) as Partial<WhisperConfig>;
+            legacyCloudApiKey = typeof parsed.cloudApiKey === "string" ? parsed.cloudApiKey : "";
+            delete parsed.cloudApiKey;
+            savedConfig = parsed;
           } catch (e) {
             logError("general", `Failed to parse saved Whisper config: ${e}`);
           }
         }
 
+        let cloudApiKeyConfigured = false;
+        let legacyKeyMigrated = !legacyCloudApiKey;
+        try {
+          cloudApiKeyConfigured = await invoke<boolean>("has_cloud_stt_api_key");
+          if (!cloudApiKeyConfigured && legacyCloudApiKey) {
+            await invoke("save_cloud_stt_api_key", { apiKey: legacyCloudApiKey });
+            cloudApiKeyConfigured = true;
+          }
+          legacyKeyMigrated = true;
+        } catch (err) {
+          logError("general", `Failed to access the cloud speech-to-text keychain entry: ${err}`);
+        }
         const downloaded = await invoke<string[]>("check_downloaded_whisper_models");
         set({
           ...DEFAULT_CONFIG,
           ...savedConfig,
           downloadedFiles: downloaded,
+          cloudApiKeyConfigured,
         });
+        if (legacyKeyMigrated) {
+          saveConfig(get());
+        }
       } catch (err) {
         logError("general", `Failed to initialize Whisper store: ${err}`);
       }
@@ -158,8 +182,37 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     },
 
     setCloudApiKey: (key) => {
-      set({ cloudApiKey: key });
-      saveConfig(get());
+      const previousConfigured = get().cloudApiKeyConfigured;
+      set({ cloudApiKey: key, cloudApiKeyConfigured: key.trim() ? previousConfigured : false });
+      if (cloudKeySaveTimer) clearTimeout(cloudKeySaveTimer);
+      cloudKeySaveTimer = setTimeout(() => {
+        void get().ensureCloudApiKeySaved();
+      }, 400);
+    },
+
+    ensureCloudApiKeySaved: async () => {
+      if (cloudKeySaveTimer) {
+        clearTimeout(cloudKeySaveTimer);
+        cloudKeySaveTimer = undefined;
+      }
+      const keyToSave = get().cloudApiKey;
+      const previousConfigured = get().cloudApiKeyConfigured;
+      cloudKeyWriteQueue = cloudKeyWriteQueue
+        .catch(() => undefined)
+        .then(() => invoke<void>("save_cloud_stt_api_key", { apiKey: keyToSave }));
+      try {
+        await cloudKeyWriteQueue;
+        if (get().cloudApiKey === keyToSave) {
+          set({ cloudApiKeyConfigured: keyToSave.trim().length > 0 });
+        }
+        return keyToSave.trim().length > 0;
+      } catch (err) {
+        if (get().cloudApiKey === keyToSave) {
+          set({ cloudApiKeyConfigured: previousConfigured });
+        }
+        logError("general", `Failed to save cloud speech-to-text API key: ${err}`);
+        return false;
+      }
     },
 
     setCloudApiUrl: (url) => {
