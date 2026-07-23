@@ -5,7 +5,7 @@ import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { springs, motionTokens } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
 import { useTranslation } from "../../utils/i18n";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternalUrl } from "../../utils/externalUrl";
 
 interface ModalProps {
   isOpen: boolean;
@@ -543,13 +543,7 @@ export function UpdateModal({
   }, [isOpen, onClose, handleTabTrap]);
 
   const handleDownload = async () => {
-    try {
-      await openUrl(releaseUrl);
-    } catch (e) {
-      console.error("Failed to open release URL:", e);
-      // Fallback
-      window.open(releaseUrl, "_blank");
-    }
+    await openExternalUrl(releaseUrl, { confirmInsecure: true });
   };
 
   return (
