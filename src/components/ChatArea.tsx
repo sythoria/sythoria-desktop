@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, memo, useCallback, useMemo, useDeferredValue, isValidElement } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
@@ -184,27 +184,7 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
 }
 
 async function openSafeUrl(href: string): Promise<void> {
-  try {
-    const url = new URL(href);
-    const scheme = url.protocol.toLowerCase();
-    if (scheme !== "http:" && scheme !== "https:" && scheme !== "mailto:") {
-      console.warn("Blocked opening disallowed scheme:", scheme);
-      return;
-    }
-    if (scheme !== "https:") {
-      const confirm = window.confirm(`Security Warning: You are about to open a non-secure link (${href}). Proceed?`);
-      if (!confirm) return;
-    }
-    await openUrl(href);
-  } catch {
-    if (href.startsWith("mailto:")) {
-      const confirm = window.confirm(`Proceed to open email client for (${href})?`);
-      if (!confirm) return;
-      await openUrl(href);
-    } else {
-      console.error("Invalid URL format:", href);
-    }
-  }
+  await openExternalUrl(href, { confirmInsecure: true });
 }
 
 const markdownComponents = {
@@ -227,19 +207,20 @@ const markdownComponents = {
     );
   },
   a({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: React.ReactNode }) {
+    const safeHref = href ? normalizeExternalUrl(href)?.href : undefined;
     const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
-      if (href) {
+      if (safeHref) {
         const { skipExternalLinkWarning, setShowLinkWarningModal } = useUIStore.getState();
         if (skipExternalLinkWarning) {
-          openSafeUrl(href);
+          openSafeUrl(safeHref);
         } else {
-          setShowLinkWarningModal(true, href);
+          setShowLinkWarningModal(true, safeHref);
         }
       }
     };
     return (
-      <a href={href} onClick={handleLinkClick} target="_blank" rel="noopener noreferrer" {...props}>
+      <a href={safeHref} onClick={handleLinkClick} target="_blank" rel="noopener noreferrer" {...props}>
         {children}
       </a>
     );
@@ -389,9 +370,13 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
         {sources.map((s, i) => (
           <motion.a
             key={i}
-            href={s.url}
+            href={normalizeExternalUrl(s.url)?.href}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(event) => {
+              event.preventDefault();
+              void openExternalUrl(s.url, { confirmInsecure: true });
+            }}
             className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-text-primary hover:bg-hover border border-border max-w-[200px] truncate transition-colors"
             title={s.title || s.url}
             whileHover={{ scale: motionTokens.scale.pop }}
