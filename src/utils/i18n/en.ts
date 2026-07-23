@@ -187,7 +187,7 @@ export const en = {
 
   // Settings: Appshots
   "settings.appshots.title": "Appshots",
-  "settings.appshots.subtitle": "Capture the frontmost application directly into your chat draft",
+  "settings.appshots.subtitle": "Capture the app in front directly into your chat; Sythoria stays out of the shot",
 
   // Settings: Workspace Projects
   "settings.projects.title": "Workspace Projects",
@@ -415,14 +415,10 @@ export const en = {
   "settings.appshots.clearBtn": "Clear",
   "settings.appshots.saveLocationDesc":
     "Appshot save directory must be inside whitelisted system directories (Pictures, Documents, Downloads, Desktop, or App Data).",
-  "settings.appshots.capturePrefs": "Capture behavior",
-  "settings.appshots.captureTarget": "Capture Target",
-  "settings.appshots.targetFrontmost": "Frontmost application",
-  "settings.appshots.targetFrontmostDesc": "Captures the top application window while always excluding Sythoria",
-  "settings.appshots.automatic": "Automatic",
+  "settings.appshots.capturePrefs": "Capture settings",
   "settings.appshots.shortcut": "Keyboard shortcut",
   "settings.appshots.shortcutDesc": "Change this in Settings › Keyboard Shortcuts",
-  "settings.appshots.encoderFormat": "Encoder Format",
+  "settings.appshots.encoderFormat": "Image format",
   "settings.appshots.encoderFormatDesc": "PNG preserves detail; JPEG creates smaller attachments",
   "settings.appshots.jpegQuality": "JPEG Quality",
   "settings.appshots.pruneRules": "Disk Pruning & Safety",
@@ -584,8 +580,8 @@ export const en = {
   "settings.voice.pickerError": "Failed to open file picker.",
   "settings.appshots.saveToGallery": "Keep chat captures in gallery",
   "settings.appshots.saveToGalleryDesc":
-    "Off by default for privacy; temporary chat captures are deleted after attachment",
-  "settings.appshots.galleryStorage": "Gallery storage",
+    "Keep a local copy of chat captures. When off, captures are deleted after they are attached.",
+  "settings.appshots.galleryStorage": "Keep captures",
   "settings.appshots.galleryTitle": "Captures Gallery",
   "settings.appshots.galleryDesc": "Saved captures are available locally in your selected folder",
   "settings.appshots.noShots": "No screenshot records found yet.",

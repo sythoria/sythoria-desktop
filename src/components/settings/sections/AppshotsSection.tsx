@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import { Image, Trash2, Camera, AlertCircle, Copy, Check, HardDrive } from "lucide-react";
+import { Image, Trash2, Camera, AlertCircle, Copy, Check, ChevronRight } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
@@ -32,6 +32,7 @@ export function AppshotsSection() {
     openPermissionSettings,
   } = useAppshotStore();
   const addToast = useUIStore((s) => s.addToast);
+  const setActiveSection = useUIStore((s) => s.setActiveSection);
   const captureShortcut = useKeybindStore((s) => s.keybinds.captureAppshot.currentCombo);
   const [inputFolder, setInputFolder] = useState(config.captureFolder);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
@@ -178,52 +179,38 @@ export function AppshotsSection() {
           transition={springs.gentle}
           className="space-y-5"
         >
-          <section className="bg-surface border border-border rounded-xl p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                <Camera size={16} />
-              </div>
-              <div>
-                <h4 className="text-sm font-semibold text-text-primary">{t("settings.appshots.capturePrefs")}</h4>
-                <p className="mt-0.5 text-xs leading-relaxed text-text-muted">
-                  {t("settings.appshots.targetFrontmostDesc")}
-                </p>
-              </div>
-            </div>
+          <section className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+            <h4 className="border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
+              {t("settings.appshots.capturePrefs")}
+            </h4>
 
-            <div className="mt-4 divide-y divide-border/60 border-y border-border/60">
-              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <span className="text-sm font-medium text-text-primary">
-                    {t("settings.appshots.targetFrontmost")}
-                  </span>
-                  <span className="mt-0.5 block text-xs text-text-muted">{t("settings.appshots.captureTarget")}</span>
-                </div>
-                <span className="w-fit rounded-full border border-accent/20 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent">
-                  {t("settings.appshots.automatic")}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="px-4">
+              <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2.5">
                   <div>
                     <span className="text-sm font-medium text-text-primary">{t("settings.appshots.shortcut")}</span>
                     <span className="mt-0.5 block text-xs text-text-muted">{t("settings.appshots.shortcutDesc")}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveSection("keybinds")}
+                  aria-label={t("settings.appshots.shortcutDesc")}
+                  className="flex w-fit items-center gap-1 rounded-lg border border-border bg-input/40 py-1 pl-1 pr-2 text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+                >
                   {captureShortcut.split("+").map((key) => (
                     <kbd
                       key={key}
-                      className="rounded-md border border-border bg-input/40 px-2 py-1 font-mono text-[11px] font-semibold text-text-secondary"
+                      className="rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] font-semibold shadow-sm"
                     >
                       {key}
                     </kbd>
                   ))}
-                </div>
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
               </div>
 
-              <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 border-t border-border/60 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <span className="text-sm font-medium text-text-primary">{t("settings.appshots.encoderFormat")}</span>
                   <span className="mt-0.5 block text-xs text-text-muted">
@@ -241,7 +228,7 @@ export function AppshotsSection() {
                       type="button"
                       onClick={() => updateConfig({ imageFormat: fmt })}
                       aria-pressed={config.imageFormat === fmt}
-                      className={`relative isolate w-14 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      className={`relative isolate min-h-8 w-14 rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
                         config.imageFormat === fmt ? "text-accent" : "text-text-muted hover:text-text-primary"
                       }`}
                     >
@@ -259,50 +246,55 @@ export function AppshotsSection() {
                 </div>
               </div>
 
-              <AnimatePresence initial={false}>
-                {config.imageFormat === "jpeg" && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={springs.gentle}
-                    className="overflow-hidden"
-                  >
-                    <div className="flex items-center gap-4 py-3">
-                      <div className="min-w-24">
-                        <span className="text-sm font-medium text-text-primary">
-                          {t("settings.appshots.jpegQuality")}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-text-muted">{config.imageQuality}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="10"
-                        max="100"
-                        value={config.imageQuality}
-                        aria-label={t("settings.appshots.jpegQuality")}
-                        onChange={(e) => updateConfig({ imageQuality: parseInt(e.target.value, 10) })}
-                        className="w-full accent-accent bg-input rounded-lg appearance-none h-1.5"
-                      />
+              <motion.div
+                initial={false}
+                animate={{
+                  gridTemplateRows: config.imageFormat === "jpeg" ? "1fr" : "0fr",
+                  opacity: config.imageFormat === "jpeg" ? 1 : 0,
+                }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : {
+                        type: "tween",
+                        duration: motionTokens.duration.normal,
+                        ease: motionTokens.easing.smooth,
+                      }
+                }
+                aria-hidden={config.imageFormat !== "jpeg"}
+                className="grid"
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="flex flex-col gap-3 border-t border-border/60 py-4 sm:flex-row sm:items-center">
+                    <div className="min-w-32">
+                      <span className="text-sm font-medium text-text-primary">
+                        {t("settings.appshots.jpegQuality")}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-text-muted">{config.imageQuality}%</span>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      value={config.imageQuality}
+                      disabled={config.imageFormat !== "jpeg"}
+                      aria-label={t("settings.appshots.jpegQuality")}
+                      onChange={(e) => updateConfig({ imageQuality: parseInt(e.target.value, 10) })}
+                      className="w-full accent-accent bg-input rounded-lg appearance-none h-1.5"
+                    />
+                  </div>
+                </div>
+              </motion.div>
             </div>
           </section>
 
-          <section className="bg-surface border border-border rounded-xl p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                  <HardDrive size={16} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-text-primary">{t("settings.appshots.galleryStorage")}</h4>
-                  <p className="mt-0.5 max-w-lg text-xs leading-relaxed text-text-muted">
-                    {t("settings.appshots.saveToGalleryDesc")}
-                  </p>
-                </div>
+          <section className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+            <div className="flex items-start justify-between gap-4 px-4 py-4">
+              <div>
+                <h4 className="text-sm font-semibold text-text-primary">{t("settings.appshots.galleryStorage")}</h4>
+                <p className="mt-0.5 max-w-lg text-xs leading-relaxed text-text-muted">
+                  {t("settings.appshots.saveToGalleryDesc")}
+                </p>
               </div>
               <Switch
                 checked={config.saveToGallery}
@@ -320,7 +312,7 @@ export function AppshotsSection() {
                   transition={springs.gentle}
                   className="overflow-hidden"
                 >
-                  <div className="mt-4 space-y-5 border-t border-border/60 pt-4">
+                  <div className="space-y-5 border-t border-border/60 px-4 pb-4 pt-4">
                     <div className="space-y-2">
                       <span className="text-sm font-medium text-text-primary">
                         {t("settings.appshots.saveLocation")}
