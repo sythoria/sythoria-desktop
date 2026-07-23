@@ -339,6 +339,7 @@ pub async fn chat_completion_anthropic(
     Ok(full_text)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_completion_tools_anthropic(
     api_url: String,
     api_key: String,
@@ -426,6 +427,7 @@ pub async fn chat_completion_tools_anthropic(
     Ok(openai_response.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_stream_anthropic(
     api_url: String,
     api_key: String,
@@ -513,6 +515,7 @@ pub async fn chat_stream_anthropic(
     Ok(parser.finalize())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_stream_tools_anthropic(
     api_url: String,
     api_key: String,

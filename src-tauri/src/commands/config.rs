@@ -13,6 +13,8 @@ pub const API_KEY_INDEX: &str = "sythoria-api-key-index";
 pub const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
 pub const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
 pub const MCP_API_KEY_INDEX: &str = "sythoria-mcp-api-key-index";
+const CLOUD_STT_NAMESPACE: &str = "whisper";
+const CLOUD_STT_KEY_ID: &str = "cloud-stt";
 
 // --- Keyring Utilities ---
 
@@ -72,6 +74,28 @@ pub fn delete_keychain_secret(namespace: &str, id: &str) -> Result<(), AppError>
             e
         ))),
     })
+}
+
+pub fn get_cloud_stt_api_key() -> Result<String, AppError> {
+    get_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID)
+}
+
+#[tauri::command]
+pub fn has_cloud_stt_api_key() -> Result<bool, AppError> {
+    match get_cloud_stt_api_key() {
+        Ok(secret) => Ok(!secret.is_empty()),
+        Err(AppError::KeyNotFound(_)) => Ok(false),
+        Err(err) => Err(err),
+    }
+}
+
+#[tauri::command]
+pub fn save_cloud_stt_api_key(api_key: String) -> Result<(), AppError> {
+    if api_key.trim().is_empty() {
+        delete_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID)
+    } else {
+        set_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID, &api_key)
+    }
 }
 
 pub async fn load_secret_map(
@@ -405,7 +429,10 @@ pub async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
         }
     }
 
-    // 5. Delete the configuration and store files
+    // 5. Delete the cloud speech-to-text credential.
+    let _ = delete_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID);
+
+    // 6. Delete the configuration and store files
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -461,45 +488,57 @@ pub async fn get_model_config_and_key(
             AppError::ConfigIo(format!("Model config not found for ID: {}", config_id))
         })?;
 
-    let api_key = match get_keychain_secret("model", config_id) {
-        Ok(secret) => secret,
-        Err(_) => String::new(),
-    };
+    let api_key = get_keychain_secret("model", config_id).unwrap_or_default();
 
     let parsed_url = url::Url::parse(&config.api_base)
         .map_err(|e| AppError::ConfigIo(format!("Invalid apiBase URL: {}", e)))?;
+    if !matches!(parsed_url.scheme(), "http" | "https")
+        || parsed_url.username() != ""
+        || parsed_url.password().is_some()
+    {
+        return Err(AppError::ConfigIo(
+            "Model endpoint must be an HTTP(S) URL without embedded credentials".to_string(),
+        ));
+    }
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| AppError::ConfigIo("Model endpoint must include a hostname".to_string()))?;
+    let host_lower = host.to_lowercase();
+    let blocked_hosts = get_blocked_hosts();
 
-    if let Some(host) = parsed_url.host_str() {
-        let host_lower = host.to_lowercase();
-        let blocked_hosts = get_blocked_hosts();
-
-        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-            let blocked_lower = blocked.to_lowercase();
-            if blocked.contains('*') {
-                crate::search::matches_wildcard(&host_lower, &blocked_lower)
-            } else {
-                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-            }
-        });
-
-        let is_blocked_ip = {
-            use std::net::ToSocketAddrs;
-            let port = parsed_url.port_or_known_default().unwrap_or(80);
-            if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs
-                    .into_iter()
-                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-            } else {
-                false
-            }
-        };
-
-        if is_blocked_host || is_blocked_ip {
-            return Err(AppError::ConfigIo(format!(
-                "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
-                host
-            )));
+    let is_blocked_host = blocked_hosts.iter().any(|blocked| {
+        let blocked_lower = blocked.to_lowercase();
+        if blocked.contains('*') {
+            crate::search::matches_wildcard(&host_lower, &blocked_lower)
+        } else {
+            host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
         }
+    });
+    let port = parsed_url.port_or_known_default().unwrap_or(80);
+    let resolved_addresses: Vec<_> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| AppError::ConfigIo(format!("Failed to resolve model endpoint: {}", e)))?
+        .collect();
+    let is_blocked_ip = resolved_addresses.is_empty()
+        || resolved_addresses
+            .iter()
+            .any(|address| crate::search::is_ip_blocked(&address.ip(), &blocked_hosts));
+
+    if is_blocked_host || is_blocked_ip {
+        return Err(AppError::ConfigIo(format!(
+            "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
+            host
+        )));
+    }
+    if !api_key.is_empty()
+        && parsed_url.scheme() != "https"
+        && !resolved_addresses
+            .iter()
+            .all(|address| address.ip().is_loopback())
+    {
+        return Err(AppError::ConfigIo(
+            "API keys may only be sent to HTTPS or loopback model endpoints".to_string(),
+        ));
     }
 
     Ok((config.api_base, api_key, config.model_id, config.provider))

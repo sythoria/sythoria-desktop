@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Modal } from "./ui/Modal";
 import { useUIStore } from "../store/useUIStore";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, AlertTriangle } from "lucide-react";
+import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 
 export function LinkWarningModal() {
   const isOpen = useUIStore((s) => s.showLinkWarningModal);
@@ -22,14 +22,8 @@ export function LinkWarningModal() {
       setSkipWarning(true);
     }
 
-    if (pendingUrl) {
-      try {
-        await openUrl(pendingUrl);
-      } catch (e) {
-        console.error("Failed to open URL:", e);
-        // Fallback
-        window.open(pendingUrl, "_blank", "noopener,noreferrer");
-      }
+    if (pendingUrl && normalizeExternalUrl(pendingUrl)) {
+      await openExternalUrl(pendingUrl);
     }
 
     setShowModal(false, null);
@@ -42,7 +36,11 @@ export function LinkWarningModal() {
         <div className="flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500">
           <AlertTriangle className="shrink-0 mt-0.5" size={18} />
           <div className="text-sm">
-            <p className="font-semibold mb-1">You are about to leave the app</p>
+            <p className="font-semibold mb-1">
+              {pendingUrl && normalizeExternalUrl(pendingUrl)
+                ? "You are about to leave the app"
+                : "This link is invalid or uses a blocked protocol"}
+            </p>
             <p className="opacity-90">Please ensure you trust this link before opening it.</p>
           </div>
         </div>
@@ -75,6 +73,7 @@ export function LinkWarningModal() {
           </button>
           <button
             onClick={handleContinue}
+            disabled={!pendingUrl || !normalizeExternalUrl(pendingUrl)}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-all min-h-[40px]"
           >
             <span>Continue</span>

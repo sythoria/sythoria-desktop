@@ -558,11 +558,12 @@ export const useUIStore = create<UIState>((set) => ({
     saveStrictSsl(value);
     import("@tauri-apps/api/core")
       .then(({ invoke }) => {
-        const { blockedHosts } = useUIStore.getState();
+        const { blockedHosts, offlineMode } = useUIStore.getState();
         invoke("save_network_config", {
           config: JSON.stringify({
             strict_ssl: value,
             blocked_hosts: blockedHosts,
+            offline_mode: offlineMode,
           }),
         }).catch((e) => console.error("Failed to sync strict SSL to Rust:", e));
       })
@@ -573,11 +574,12 @@ export const useUIStore = create<UIState>((set) => ({
     saveBlockedHosts(value);
     import("@tauri-apps/api/core")
       .then(({ invoke }) => {
-        const { strictSsl } = useUIStore.getState();
+        const { strictSsl, offlineMode } = useUIStore.getState();
         invoke("save_network_config", {
           config: JSON.stringify({
             strict_ssl: strictSsl,
             blocked_hosts: value,
+            offline_mode: offlineMode,
           }),
         }).catch((e) => console.error("Failed to sync blocked hosts to Rust:", e));
       })
@@ -586,6 +588,34 @@ export const useUIStore = create<UIState>((set) => ({
   setOfflineMode: (value) => {
     set({ offlineMode: value });
     saveOfflineMode(value);
+    if (value) {
+      useModelStore.getState().stopHealthCheck();
+      useModelStore.setState({ modelStatuses: {} });
+      import("./useMcpStore")
+        .then(async ({ useMcpStore }) => {
+          const mcpState = useMcpStore.getState();
+          const connectedIds = Object.entries(mcpState.serverStatuses)
+            .filter(([, status]) => status === "connected" || status === "connecting")
+            .map(([id]) => id);
+          await Promise.all(connectedIds.map((id) => mcpState.disconnectServer(id)));
+        })
+        .catch((error) => console.error("Failed to disconnect MCP servers for Offline Mode:", error));
+    } else if (!useUIStore.getState().disableBgActivity) {
+      useModelStore.getState().startHealthCheck();
+      void useModelStore.getState().checkModelConnections();
+    }
+    import("@tauri-apps/api/core")
+      .then(({ invoke }) => {
+        const { strictSsl, blockedHosts } = useUIStore.getState();
+        return invoke("save_network_config", {
+          config: JSON.stringify({
+            strict_ssl: strictSsl,
+            blocked_hosts: blockedHosts,
+            offline_mode: value,
+          }),
+        });
+      })
+      .catch((error) => console.error("Failed to sync Offline Mode to Rust:", error));
   },
   checkForUpdates: async (silent = false) => {
     const { addToast } = useUIStore.getState();

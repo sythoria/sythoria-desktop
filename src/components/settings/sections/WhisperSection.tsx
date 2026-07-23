@@ -42,6 +42,7 @@ export function WhisperSection() {
     init,
     sttProvider,
     cloudApiKey,
+    cloudApiKeyConfigured,
     cloudApiUrl,
     cloudModel,
     refinementModelId,
@@ -196,7 +197,7 @@ export function WhisperSection() {
                     type="password"
                     value={cloudApiKey}
                     onChange={(e) => setCloudApiKey(e.target.value)}
-                    placeholder="gsk_..."
+                    placeholder={cloudApiKeyConfigured ? "Stored securely — enter a new key to replace" : "gsk_..."}
                     className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
                   />
                 </div>

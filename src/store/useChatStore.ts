@@ -417,6 +417,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         offlineMode: hasOnboarded ? loadedOfflineMode : false,
         language: hasOnboarded ? loadedLanguage : "en",
       });
+      try {
+        await invoke("save_network_config", {
+          config: JSON.stringify({
+            strict_ssl: hasOnboarded ? loadedStrictSsl : true,
+            blocked_hosts: hasOnboarded ? loadedBlockedHosts : DEFAULT_BLOCKED_HOSTS,
+            offline_mode: hasOnboarded ? loadedOfflineMode : false,
+          }),
+        });
+      } catch (e) {
+        logWarn("general", "Could not synchronize network policy with the backend", { details: String(e) });
+      }
       if (typeof document !== "undefined") {
         document.documentElement.lang = hasOnboarded ? loadedLanguage : "en";
       }

@@ -17,12 +17,15 @@ use std::sync::RwLock;
 pub struct NetworkConfig {
     pub strict_ssl: bool,
     pub blocked_hosts: Vec<String>,
+    #[serde(default)]
+    pub offline_mode: bool,
 }
 
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             strict_ssl: true,
+            offline_mode: false,
             blocked_hosts: vec![
                 "localhost".to_string(),
                 "127.0.0.1".to_string(),
@@ -58,6 +61,22 @@ pub fn get_blocked_hosts() -> Vec<String> {
         .unwrap_or_else(|_| NetworkConfig::default().blocked_hosts)
 }
 
+pub fn get_offline_mode() -> bool {
+    NETWORK_CONFIG
+        .read()
+        .map(|config| config.offline_mode)
+        .unwrap_or(false)
+}
+
+pub fn ensure_online() -> Result<(), AppError> {
+    if get_offline_mode() {
+        return Err(AppError::RequestFailed(
+            "Network access is disabled while Offline Mode is enabled".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn init_network_settings(app: &tauri::AppHandle) {
     if let Ok(config) = commands::config::load_network_config_internal(app) {
         if let Ok(mut lock) = NETWORK_CONFIG.write() {
@@ -84,6 +103,7 @@ pub struct UpdateCheckResult {
 
 #[tauri::command]
 async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
+    ensure_online()?;
     let url = "https://api.github.com/repos/sythoria/sythoria-desktop/releases/latest";
 
     let client = client_builder()
@@ -439,6 +459,7 @@ async fn chat_completion(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -514,6 +535,7 @@ async fn chat_stream(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
@@ -604,6 +626,7 @@ async fn chat_stream(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn chat_stream_tools(
     app: tauri::AppHandle,
     config_id: String,
@@ -614,6 +637,7 @@ async fn chat_stream_tools(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
@@ -724,6 +748,7 @@ async fn chat_completion_tools(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -790,6 +815,7 @@ async fn chat_completion_tools(
 
 #[tauri::command]
 async fn check_api(app: tauri::AppHandle, config_id: String) -> Result<bool, AppError> {
+    ensure_online()?;
     let (api_url, api_key, _, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -832,6 +858,7 @@ struct OllamaModel {
 
 #[tauri::command]
 async fn check_ollama() -> Result<Vec<String>, AppError> {
+    ensure_online()?;
     let client = client_builder().build()?;
     let resp = client
         .get("http://127.0.0.1:11434/api/tags")
@@ -859,6 +886,7 @@ async fn web_search(
     config_id: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let mut config_json: serde_json::Value = serde_json::from_str(&config)
         .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
 
@@ -902,6 +930,7 @@ async fn fetch_url_content(
     format: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let mut config_json: Option<serde_json::Value> = None;
     if let Some(cfg) = config {
         let mut parsed: serde_json::Value = serde_json::from_str(&cfg)
@@ -953,6 +982,7 @@ async fn ws_chat(
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let config = ws_handler::WsConfig {
         url,
         api_key,
@@ -974,6 +1004,7 @@ async fn ws_connect(
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<(), AppError> {
+    ensure_online()?;
     let config = ws_handler::WsConfig {
         url,
         api_key,
@@ -991,6 +1022,7 @@ async fn ws_send(
     message: String,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<(), AppError> {
+    ensure_online()?;
     ws_handler::ws_send(message, &session)
         .await
         .map_err(AppError::AuthError)
@@ -1012,6 +1044,7 @@ async fn ws_authenticate(
     api_key: String,
     server_url: String,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let client = client_builder().build()?;
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
 
@@ -1051,6 +1084,7 @@ async fn generate_title(
     user_message: String,
     system_prompt: String,
 ) -> Result<String, AppError> {
+    ensure_online()?;
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
@@ -1455,9 +1489,9 @@ async fn read_file_from_token(
     let metadata = fs::metadata(&path_buf)?;
     let size = metadata.len();
     if size > 10 * 1024 * 1024 {
-        return Err(AppError::ConfigIo(format!(
-            "File size exceeds the 10 MB limit"
-        )));
+        return Err(AppError::ConfigIo(
+            "File size exceeds the 10 MB limit".to_string(),
+        ));
     }
 
     let name = path_buf
@@ -1879,7 +1913,7 @@ pub fn run() {
                             .and_then(|n| n.to_str())
                             .unwrap_or("unknown")
                             .to_string();
-                        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
                         let token = state.register(path.clone());
                         payload.push(serde_json::json!({
                             "token": token,
@@ -1939,6 +1973,8 @@ pub fn run() {
             commands::config::save_search_config,
             commands::config::load_api_keys,
             commands::config::save_api_keys_cmd,
+            commands::config::has_cloud_stt_api_key,
+            commands::config::save_cloud_stt_api_key,
             commands::config::load_search_api_keys,
             commands::config::save_search_api_keys_cmd,
             chat_completion,
@@ -2046,7 +2082,15 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{truncate_error, EphemeralFileCleanup, FileTokenRegistry};
+    use super::{truncate_error, EphemeralFileCleanup, FileTokenRegistry, NetworkConfig};
+
+    #[test]
+    fn legacy_network_config_defaults_to_online_mode() {
+        let config: NetworkConfig =
+            serde_json::from_str(r#"{"strict_ssl":true,"blocked_hosts":["localhost"]}"#).unwrap();
+
+        assert!(!config.offline_mode);
+    }
 
     #[test]
     fn error_preview_truncates_on_a_character_boundary() {

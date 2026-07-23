@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Activity,
@@ -1068,9 +1069,13 @@ function PinnedSummary({
                 source.url ? (
                   <a
                     key={source.url}
-                    href={source.url}
+                    href={normalizeExternalUrl(source.url)?.href}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void openExternalUrl(source.url!, { confirmInsecure: true });
+                    }}
                     className="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-[11px] text-text-secondary hover:bg-hover/60 hover:text-text-primary"
                   >
                     <Link2 size={12} className="shrink-0 text-text-muted" />

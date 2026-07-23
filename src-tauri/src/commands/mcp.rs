@@ -9,6 +9,7 @@ pub async fn mcp_start_server(
     env_secrets: String,
     _app: tauri::AppHandle,
 ) -> Result<String, AppError> {
+    crate::ensure_online()?;
     let mut server_config: mcp::McpServerConfig = serde_json::from_str(&config)
         .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
     let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
@@ -57,17 +58,19 @@ pub async fn mcp_list_tools(server_id: String) -> Result<String, AppError> {
 
 #[tauri::command]
 pub async fn mcp_list_resources(server_id: String) -> Result<String, AppError> {
+    crate::ensure_online()?;
     let result = mcp::client::list_resources_on_server(&server_id)
         .await
-        .map_err(|e| AppError::McpError(e))?;
+        .map_err(AppError::McpError)?;
     Ok(serde_json::to_string(&result).unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn mcp_list_prompts(server_id: String) -> Result<String, AppError> {
+    crate::ensure_online()?;
     let result = mcp::client::list_prompts_on_server(&server_id)
         .await
-        .map_err(|e| AppError::McpError(e))?;
+        .map_err(AppError::McpError)?;
     Ok(serde_json::to_string(&result).unwrap_or_default())
 }
 
@@ -77,15 +80,20 @@ pub async fn mcp_call_tool(
     tool_name: String,
     arguments: String,
 ) -> Result<String, AppError> {
+    crate::ensure_online()?;
     let args: serde_json::Value = serde_json::from_str(&arguments)
         .map_err(|e| AppError::ParseError(format!("Invalid tool arguments JSON: {}", e)))?;
 
-    let result = mcp::client::call_tool_on_server(&server_id, &tool_name, &args)
-        .await
-        .map_err(|e| {
-            log::error!("MCP tool call failed: {}", e);
-            AppError::McpError(e)
-        })?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        mcp::client::call_tool_on_server(&server_id, &tool_name, &args),
+    )
+    .await
+    .map_err(|_| AppError::McpError("MCP tool call timed out after 120 seconds".to_string()))?
+    .map_err(|e| {
+        log::error!("MCP tool call failed: {}", e);
+        AppError::McpError(e)
+    })?;
 
     Ok(serde_json::to_string(&result).unwrap_or_default())
 }

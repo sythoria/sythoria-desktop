@@ -42,10 +42,13 @@ const mockConversations: any[] = [];
 const mockActiveStreamContent: Record<string, string> = {};
 const mockResumeConversation = vi.fn().mockResolvedValue(undefined);
 const mockSetState = vi.fn((fn: any) => {
-  const next = typeof fn === "function" ? fn({
-    conversations: mockConversations,
-    activeStreamContent: mockActiveStreamContent,
-  }) : fn;
+  const next =
+    typeof fn === "function"
+      ? fn({
+          conversations: mockConversations,
+          activeStreamContent: mockActiveStreamContent,
+        })
+      : fn;
   if (next.conversations) {
     mockConversations.length = 0;
     mockConversations.push(...next.conversations);
@@ -257,7 +260,7 @@ describe("sendWithToolLoop", () => {
         isSubagent: true,
         parentId: "parent-1",
         role: "UI Researcher",
-      }
+      },
     );
 
     // Mock invoke to return subagent completion
@@ -269,7 +272,7 @@ describe("sendWithToolLoop", () => {
       generationState: "loading" as const,
       generationLabel: "",
       generationByConversation: {
-        "sub-1": { state: "loading", label: "Loading" }
+        "sub-1": { state: "loading", label: "Loading" },
       },
     };
 
@@ -304,7 +307,7 @@ describe("sendWithToolLoop", () => {
     );
 
     // 1. Verify parent's recursionDepth is incremented to 6
-    const parent = mockConversations.find(c => c.id === "parent-1");
+    const parent = mockConversations.find((c) => c.id === "parent-1");
     expect(parent?.recursionDepth).toBe(6);
 
     // 2. Verify parent did NOT auto-resume
