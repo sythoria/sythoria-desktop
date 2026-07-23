@@ -74,39 +74,37 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
 
     let entries = fs::read_dir(skills_dir).map_err(|e| e.to_string())?;
 
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_dir() {
-                let skill_md_path = path.join("SKILL.md");
-                let skill_md_path_alt = path.join("SKILL.MD"); // Check both cases
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let skill_md_path = path.join("SKILL.md");
+            let skill_md_path_alt = path.join("SKILL.MD"); // Check both cases
 
-                let file_to_read = if skill_md_path.exists() {
-                    Some(skill_md_path)
-                } else if skill_md_path_alt.exists() {
-                    Some(skill_md_path_alt)
-                } else {
-                    None
-                };
+            let file_to_read = if skill_md_path.exists() {
+                Some(skill_md_path)
+            } else if skill_md_path_alt.exists() {
+                Some(skill_md_path_alt)
+            } else {
+                None
+            };
 
-                if let Some(md_path) = file_to_read {
-                    if let Ok(content) = fs::read_to_string(md_path) {
-                        let id = path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let (mut name, description) = parse_frontmatter(&content);
-                        if name.is_empty() {
-                            name = id.clone();
-                        }
-                        skills.push(SkillInfo {
-                            id,
-                            name,
-                            description,
-                            content,
-                        });
+            if let Some(md_path) = file_to_read {
+                if let Ok(content) = fs::read_to_string(md_path) {
+                    let id = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let (mut name, description) = parse_frontmatter(&content);
+                    if name.is_empty() {
+                        name = id.clone();
                     }
+                    skills.push(SkillInfo {
+                        id,
+                        name,
+                        description,
+                        content,
+                    });
                 }
             }
         }
