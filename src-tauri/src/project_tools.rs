@@ -2,7 +2,13 @@ use crate::project::{ProjectPermission, ProjectRegistry};
 use crate::AppError;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tauri::{AppHandle, Manager};
+use tokio::io::AsyncReadExt;
+
+const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 120_000;
+const MAX_COMMAND_TIMEOUT_MS: u64 = 600_000;
+const MAX_COMMAND_OUTPUT_BYTES: usize = 1024 * 1024;
 
 fn get_and_validate_project(
     state: &ProjectRegistry,
@@ -154,15 +160,13 @@ pub async fn project_list_dir(
         let dir = fs::read_dir(validated_path)
             .map_err(|e| AppError::AppPath(format!("Failed to read dir: {}", e)))?;
 
-        for entry in dir {
-            if let Ok(entry) = entry {
-                let file_name = entry.file_name().to_string_lossy().to_string();
-                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                if is_dir {
-                    entries.push(format!("{}/", file_name));
-                } else {
-                    entries.push(file_name);
-                }
+        for entry in dir.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                entries.push(format!("{}/", file_name));
+            } else {
+                entries.push(file_name);
             }
         }
         entries.sort();
@@ -173,6 +177,7 @@ pub async fn project_list_dir(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn project_bash(
     app: AppHandle,
     state: tauri::State<'_, ProjectRegistry>,
@@ -281,45 +286,88 @@ pub async fn project_bash(
         return Ok("Command started in background successfully.".to_string());
     }
 
-    let output_future = tcmd.output();
-    let output = if let Some(t) = timeout {
-        match tokio::time::timeout(std::time::Duration::from_millis(t), output_future).await {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => {
-                return Err(AppError::AppPath(format!(
-                    "Failed to execute command: {}",
-                    e
-                )))
+    let timeout_ms = timeout
+        .unwrap_or(DEFAULT_COMMAND_TIMEOUT_MS)
+        .clamp(1_000, MAX_COMMAND_TIMEOUT_MS);
+    tcmd.kill_on_drop(true)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = tcmd
+        .spawn()
+        .map_err(|e| AppError::AppPath(format!("Failed to execute command: {}", e)))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::AppPath("Failed to capture command stdout".to_string()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::AppPath("Failed to capture command stderr".to_string()))?;
+
+    let output_future = async move {
+        let stdout_read = async move {
+            let mut captured = Vec::new();
+            let mut buffer = [0_u8; 8192];
+            let mut truncated = false;
+            loop {
+                let count = stdout.read(&mut buffer).await?;
+                if count == 0 {
+                    break;
+                }
+                let remaining = MAX_COMMAND_OUTPUT_BYTES.saturating_sub(captured.len());
+                captured.extend_from_slice(&buffer[..count.min(remaining)]);
+                truncated |= count > remaining;
             }
-            Err(_) => {
-                return Err(AppError::AppPath(format!(
-                    "Command timed out after {}ms",
-                    t
-                )))
+            Ok::<_, std::io::Error>((captured, truncated))
+        };
+        let stderr_read = async move {
+            let mut captured = Vec::new();
+            let mut buffer = [0_u8; 8192];
+            let mut truncated = false;
+            loop {
+                let count = stderr.read(&mut buffer).await?;
+                if count == 0 {
+                    break;
+                }
+                let remaining = MAX_COMMAND_OUTPUT_BYTES.saturating_sub(captured.len());
+                captured.extend_from_slice(&buffer[..count.min(remaining)]);
+                truncated |= count > remaining;
             }
-        }
-    } else {
-        output_future
-            .await
-            .map_err(|e| AppError::AppPath(format!("Failed to execute command: {}", e)))?
+            Ok::<_, std::io::Error>((captured, truncated))
+        };
+        let (status, stdout_result, stderr_result) =
+            tokio::try_join!(child.wait(), stdout_read, stderr_read)?;
+        Ok::<_, std::io::Error>((status, stdout_result, stderr_result))
     };
 
+    let (status, (stdout_bytes, stdout_truncated), (stderr_bytes, stderr_truncated)) =
+        tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), output_future)
+            .await
+            .map_err(|_| AppError::AppPath(format!("Command timed out after {}ms", timeout_ms)))?
+            .map_err(|e| AppError::AppPath(format!("Failed to execute command: {}", e)))?;
+
     let mut result = String::new();
-    if !output.stdout.is_empty() {
-        result.push_str(&String::from_utf8_lossy(&output.stdout));
+    if !stdout_bytes.is_empty() {
+        result.push_str(&String::from_utf8_lossy(&stdout_bytes));
+        if stdout_truncated {
+            result.push_str("\n--- STDOUT TRUNCATED AT 1 MiB ---\n");
+        }
     }
-    if !output.stderr.is_empty() {
+    if !stderr_bytes.is_empty() {
         if !result.is_empty() {
             result.push('\n');
         }
         result.push_str("--- STDERR ---\n");
-        result.push_str(&String::from_utf8_lossy(&output.stderr));
+        result.push_str(&String::from_utf8_lossy(&stderr_bytes));
+        if stderr_truncated {
+            result.push_str("\n--- STDERR TRUNCATED AT 1 MiB ---\n");
+        }
     }
 
-    if !output.status.success() {
+    if !status.success() {
         result = format!(
             "Command exited with error code: {}\n{}",
-            output.status.code().unwrap_or(-1),
+            status.code().unwrap_or(-1),
             result
         );
     }
@@ -490,9 +538,8 @@ pub async fn project_grep(
             .git_ignore(true)
             .build();
 
-        for result in walker {
-            if let Ok(entry) = result {
-                if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+        for entry in walker.flatten() {
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                     let mut is_large = false;
                     let mut size = 0;
                     if let Ok(metadata) = entry.metadata() {
@@ -507,10 +554,8 @@ pub async fn project_grep(
                         fs::File::open(entry.path()).ok().map(|file| {
                             let reader = BufReader::new(file);
                             let mut lines = Vec::new();
-                            for line in reader.lines().take(5000) {
-                                if let Ok(l) = line {
-                                    lines.push(l);
-                                }
+                            for line in reader.lines().take(5000).flatten() {
+                                lines.push(line);
                             }
                             lines.push(format!("\n--- [WARNING: File size is {:.2}MB, which exceeds the 10MB limit. Loaded first 5000 lines only] ---", size as f64 / (1024.0 * 1024.0)));
                             lines.join("\n")
@@ -552,7 +597,6 @@ pub async fn project_grep(
                             }
                         }
                     }
-                }
             }
         }
 
@@ -599,15 +643,13 @@ pub async fn project_glob(
             .build();
 
         let mut results = Vec::new();
-        for result in walker {
-            if let Ok(entry) = result {
-                if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                    let rel_path = entry
-                        .path()
-                        .strip_prefix(&validated_root)
-                        .unwrap_or(entry.path());
-                    results.push(rel_path.to_string_lossy().into_owned());
-                }
+        for entry in walker.flatten() {
+            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&validated_root)
+                    .unwrap_or(entry.path());
+                results.push(rel_path.to_string_lossy().into_owned());
             }
         }
 
