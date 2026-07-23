@@ -209,6 +209,12 @@ impl ProjectRegistry {
     }
 }
 
+impl Default for ProjectRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn load_projects(
     app: AppHandle,
@@ -328,12 +334,10 @@ pub(crate) fn validate_project_path(
                 ));
             }
         }
-        "full" => {
-            if project.permissions != ProjectPermission::Full {
-                return Err(AppError::AppPath(
-                    "Permission denied: full shell access not allowed".to_string(),
-                ));
-            }
+        "full" if project.permissions != ProjectPermission::Full => {
+            return Err(AppError::AppPath(
+                "Permission denied: full shell access not allowed".to_string(),
+            ));
         }
         _ => {} // read requires no check, since all projects have at least read permissions
     }
@@ -408,14 +412,14 @@ pub(crate) fn validate_project_path(
         let resolved_str = resolved.to_string_lossy().to_string();
         for pattern in patterns {
             let pattern_trimmed = pattern.trim();
-            if !pattern_trimmed.is_empty() {
-                if crate::search::matches_wildcard(&resolved_str, pattern_trimmed) {
-                    return Err(AppError::AppPath(format!(
-                        "Access denied: path '{}' matches exclude pattern '{}'",
-                        resolved.display(),
-                        pattern_trimmed
-                    )));
-                }
+            if !pattern_trimmed.is_empty()
+                && crate::search::matches_wildcard(&resolved_str, pattern_trimmed)
+            {
+                return Err(AppError::AppPath(format!(
+                    "Access denied: path '{}' matches exclude pattern '{}'",
+                    resolved.display(),
+                    pattern_trimmed
+                )));
             }
         }
     }
