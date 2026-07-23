@@ -359,7 +359,7 @@ pub async fn connect_server(
             let program = resolve_executable_name(&command_raw)?;
 
             let extra_args = config.args.as_deref().unwrap_or(&[]);
-            let resolved_args: Vec<String> = extra_args.iter().cloned().collect();
+            let resolved_args: Vec<String> = extra_args.to_vec();
 
             let resolved_program = match resolve_executable_via_shell(&program).await {
                 Some(path) => path,
