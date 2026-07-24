@@ -75,7 +75,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ id, title, options, 
             disabled={!selectedValue}
             className={`mt-2 flex items-center justify-center gap-1 px-4 py-2 text-xs font-semibold rounded-lg transition-all shadow-sm ${
               selectedValue
-                ? "bg-accent hover:bg-accent-active text-white cursor-pointer hover:shadow"
+                ? "bg-accent hover:bg-accent-active text-accent-foreground cursor-pointer hover:shadow"
                 : "bg-hover text-text-muted cursor-not-allowed"
             }`}
           >
