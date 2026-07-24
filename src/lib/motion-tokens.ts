@@ -1,8 +1,19 @@
 import { useUIStore } from "../store/useUIStore";
 
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+export function shouldReduceMotion() {
+  const systemPrefersReducedMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(REDUCED_MOTION_QUERY).matches;
+
+  return useUIStore.getState().animationsDisabled || systemPrefersReducedMotion;
+}
+
 export const motionTokens = {
   get duration() {
-    const disabled = useUIStore.getState().animationsDisabled;
+    const disabled = shouldReduceMotion();
     return {
       instant: disabled ? 0 : 0.08,
       fast: disabled ? 0 : 0.18,
@@ -25,7 +36,7 @@ export const motionTokens = {
     xl: 48,
   },
   get scale() {
-    const disabled = useUIStore.getState().animationsDisabled;
+    const disabled = shouldReduceMotion();
     return {
       subtle: disabled ? 1 : 0.98,
       press: disabled ? 1 : 0.95,
@@ -36,27 +47,27 @@ export const motionTokens = {
 
 export const springs = {
   get snappy() {
-    return useUIStore.getState().animationsDisabled
+    return shouldReduceMotion()
       ? { type: "tween" as const, duration: 0 }
       : { type: "spring" as const, stiffness: 300, damping: 30 };
   },
   get gentle() {
-    return useUIStore.getState().animationsDisabled
+    return shouldReduceMotion()
       ? { type: "tween" as const, duration: 0 }
       : { type: "spring" as const, stiffness: 120, damping: 14 };
   },
   get bouncy() {
-    return useUIStore.getState().animationsDisabled
+    return shouldReduceMotion()
       ? { type: "tween" as const, duration: 0 }
       : { type: "spring" as const, stiffness: 400, damping: 10 };
   },
   get instant() {
-    return useUIStore.getState().animationsDisabled
+    return shouldReduceMotion()
       ? { type: "tween" as const, duration: 0 }
       : { type: "spring" as const, stiffness: 600, damping: 35 };
   },
   get release() {
-    return useUIStore.getState().animationsDisabled
+    return shouldReduceMotion()
       ? { type: "tween" as const, duration: 0 }
       : { type: "spring" as const, stiffness: 200, damping: 20, restDelta: 0.001 };
   },

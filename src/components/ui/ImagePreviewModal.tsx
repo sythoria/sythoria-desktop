@@ -245,9 +245,9 @@ export function ImagePreviewModal({
                 : `transform ${motionTokens.duration.fast}s cubic-bezier(0.16, 1, 0.3, 1)`,
             }}
             className="max-w-full max-h-full object-contain rounded shadow-2xl z-10"
-            initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             transition={springs.snappy}
           />
 
