@@ -116,7 +116,7 @@ export const AppearanceSection = ({
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("section.appearance")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("section.appearance")}</h3>
         <p className="text-xs text-text-muted">{t("settings.appearance.subtitle")}</p>
       </div>{" "}
       <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
