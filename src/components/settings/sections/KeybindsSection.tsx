@@ -90,7 +90,9 @@ export const KeybindsSection = () => {
     <div id="setting-keybinds-shortcuts" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.keybinds.title")}</h3>
+          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">
+            {t("settings.keybinds.title")}
+          </h3>
           <p className="text-xs text-text-muted">{t("settings.keybinds.subtitle")}</p>
         </div>
         <motion.button
