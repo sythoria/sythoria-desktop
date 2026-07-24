@@ -302,6 +302,13 @@
   cursor: col-resize !important;
   user-select: none !important;
 }
+/* WKWebView can alternate filtered/shadowed layers while their bounds change. */
+.sidebar-resizing .glass-sidebar {
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
 
 .glass-app-container {
   backdrop-filter: blur(20px) saturate(120%);

@@ -178,7 +178,7 @@ export default memo(function Sidebar({
   }, [sidebarWidth]);
 
   const updateVisualSidebarWidth = useCallback((width: number) => {
-    const nextWidth = clampSidebarWidth(width, window.innerWidth);
+    const nextWidth = Math.round(clampSidebarWidth(width, window.innerWidth));
     visualSidebarWidthRef.current = nextWidth;
     setVisualSidebarWidth(nextWidth);
   }, []);
@@ -414,19 +414,15 @@ export default memo(function Sidebar({
 
   const sidebarVariants = {
     expanded: {
-      width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth,
       x: 0,
       opacity: 1,
       borderRightWidth: 1,
-      transition: isResizing
-        ? { duration: 0 }
-        : {
-            ...springs.release,
-            opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
-          },
+      transition: {
+        ...springs.release,
+        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+      },
     },
     collapsed: {
-      width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : COLLAPSED_SIDEBAR_WIDTH,
       x: isMobile ? "-100%" : 0,
       opacity: isMobile ? 1 : 0,
       borderRightWidth: isMobile ? 1 : 0,
@@ -464,7 +460,14 @@ export default memo(function Sidebar({
         initial={isSidebarCollapsed ? "collapsed" : "expanded"}
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
         variants={sidebarVariants}
-        style={{ pointerEvents: isSidebarCollapsed ? "none" : "auto" }}
+        style={{
+          width: isMobile
+            ? `min(${visualSidebarWidth}px, calc(100vw - 24px))`
+            : isSidebarCollapsed
+              ? COLLAPSED_SIDEBAR_WIDTH
+              : visualSidebarWidth,
+          pointerEvents: isSidebarCollapsed ? "none" : "auto",
+        }}
         role="navigation"
         aria-label="Sidebar navigation"
         aria-hidden={isSidebarCollapsed}
