@@ -93,7 +93,7 @@ export function WhisperSection() {
   return (
     <div id="setting-whisper-voice" className="space-y-6">
       <div>
-        <h3 className="text-base font-semibold text-text-primary mb-1">{t("settings.voice.title")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.voice.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.voice.subtitle")}</p>
       </div>
 
@@ -158,7 +158,7 @@ export function WhisperSection() {
                   onClick={() => setSttProvider("cloud")}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
                     sttProvider === "cloud"
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-accent-foreground"
                       : "text-text-secondary hover:bg-hover hover:text-text-primary"
                   }`}
                 >
@@ -169,7 +169,7 @@ export function WhisperSection() {
                   onClick={() => setSttProvider("local")}
                   className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
                     sttProvider === "local"
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-accent-foreground"
                       : "text-text-secondary hover:bg-hover hover:text-text-primary"
                   }`}
                 >
@@ -357,7 +357,7 @@ export function WhisperSection() {
                         <button
                           onClick={() => downloadModel(model.id)}
                           disabled={isDownloading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white hover:bg-accent/80 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         >
                           <Download size={13} />
                           <span>{t("settings.voice.downloadBtn")}</span>
