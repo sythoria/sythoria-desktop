@@ -1651,7 +1651,7 @@ function ChatAreaBase({
             Header: () =>
               conversation?.isTemporary ? (
                 <div className="max-w-3xl mx-auto w-full px-6 pt-8 pb-2">
-                  <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-accent-soft text-xs leading-relaxed select-none">
+                  <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none">
                     <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
                     <div>
                       <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
@@ -1801,7 +1801,7 @@ function NonVirtualizedChatArea({
     >
       <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-0.5">
         {conversation?.isTemporary && (
-          <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-accent-soft text-xs leading-relaxed select-none mb-4 animate-fade-in">
+          <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
             <div>
               <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
@@ -1920,7 +1920,7 @@ function PendingWorktreeCard({
             setLoading(false);
           }}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-active border border-accent rounded-lg transition-all shadow-sm cursor-pointer hover:shadow"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-foreground bg-accent hover:bg-accent-active border border-accent rounded-lg transition-all shadow-sm cursor-pointer hover:shadow"
         >
           <Check size={12} className="shrink-0" />
           <span>Apply to Workspace</span>
