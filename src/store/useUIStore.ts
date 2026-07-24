@@ -225,6 +225,16 @@ const safeLocalStorage =
         clear: () => {},
       };
 
+const DEFAULT_SIDEBAR_WIDTH = 260;
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 480;
+
+function normalizeSidebarWidth(value: string | null): number {
+  const width = Number(value);
+  if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH;
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+}
+
 const DEFAULT_AUX_PANEL_WIDTH = 520;
 const MIN_AUX_PANEL_WIDTH = 360;
 const MAX_AUX_PANEL_WIDTH = 680;
@@ -239,6 +249,8 @@ function normalizeAuxPanelWidth(value: string | number | null): number {
 
 const initialAuxPanelWidth = normalizeAuxPanelWidth(safeLocalStorage.getItem("sythoria-aux-panel-width"));
 safeLocalStorage.setItem("sythoria-aux-panel-width", String(initialAuxPanelWidth));
+const initialSidebarWidth = normalizeSidebarWidth(safeLocalStorage.getItem("sythoria-sidebar-width"));
+safeLocalStorage.setItem("sythoria-sidebar-width", String(initialSidebarWidth));
 
 let toastCounter = 0;
 
@@ -285,7 +297,7 @@ export const useUIStore = create<UIState>((set) => ({
   blockedHosts: [],
   offlineMode: false,
   language: "en",
-  sidebarWidth: Number(safeLocalStorage.getItem("sythoria-sidebar-width") || 260),
+  sidebarWidth: initialSidebarWidth,
   activeArtifact: null,
   pendingToolConfirmations: [],
   isCheckingUpdates: false,
@@ -312,8 +324,9 @@ export const useUIStore = create<UIState>((set) => ({
     }
   },
   setSidebarWidth: (sidebarWidth) => {
-    safeLocalStorage.setItem("sythoria-sidebar-width", String(sidebarWidth));
-    set({ sidebarWidth });
+    const normalizedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, sidebarWidth));
+    safeLocalStorage.setItem("sythoria-sidebar-width", String(normalizedWidth));
+    set({ sidebarWidth: normalizedWidth });
   },
   setActiveArtifact: (activeArtifact) => {
     const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;
