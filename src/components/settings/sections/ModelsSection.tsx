@@ -53,7 +53,7 @@ export const ModelsSection = ({
     <div id="setting-models-providers" className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.models.title")}</h3>
+          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.models.title")}</h3>
           <p className="text-xs text-text-muted">{t("settings.models.subtitle")}</p>
         </div>{" "}
         <div className="flex items-center gap-2">
