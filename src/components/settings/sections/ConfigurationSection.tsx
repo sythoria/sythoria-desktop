@@ -181,11 +181,11 @@ export const ConfigurationSection = ({
                 step={TEMPERATURE_STEP}
                 value={temperature}
                 onChange={(e) => handleTemperatureChange(e.target.value)}
-                className="peer absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className="peer absolute inset-0 w-full h-full opacity-0 cursor-pointer focus:outline-none"
                 aria-label="Temperature"
               />
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-1"
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
                 style={{ left: `calc(${tempPercent}% - 6px)` }}
                 aria-hidden="true"
               />
@@ -224,11 +224,11 @@ export const ConfigurationSection = ({
                 step={1}
                 value={maxToolSteps}
                 onChange={(e) => handleMaxToolStepsChange(e.target.value)}
-                className="peer absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className="peer absolute inset-0 w-full h-full opacity-0 cursor-pointer focus:outline-none"
                 aria-label="Maximum Tool Steps"
               />
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-1"
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
                 style={{ left: `calc(${stepsPercent}% - 6px)` }}
                 aria-hidden="true"
               />

@@ -200,7 +200,7 @@ export function Select({
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => {
                   onChange(option.value);
-                  closeListbox();
+                  closeListbox(false);
                 }}
                 className={`flex items-center justify-between ${optionSizeClass} rounded-lg cursor-pointer transition-colors ${
                   isSelected
@@ -244,7 +244,9 @@ export function Select({
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}
         aria-label={ariaLabel}
-        className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border border-input-border bg-input text-text-primary focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:outline-none transition-[border-color,box-shadow,background-color,color] cursor-pointer ${
+        className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border bg-input text-text-primary focus-visible:border-accent focus-visible:outline-none transition-[border-color,background-color,color] cursor-pointer ${
+          isOpen ? "border-accent bg-hover/50" : "border-input-border"
+        } ${
           disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
         }`}
       >

@@ -56,6 +56,8 @@
     --theme-surface: #ffffff;
     --theme-popup: #fbfcfd;
     --theme-overlay: rgba(15, 23, 42, 0.15);
+    --theme-focus-outline: var(--theme-accent);
+    --theme-focus-border: var(--theme-accent);
   }
   /* Dark mode — primary, near-black neutral */
   .dark {
@@ -78,6 +80,8 @@
     --theme-surface: rgba(32, 32, 32, 0.7);
     --theme-popup: #202020;
     --theme-overlay: rgba(0, 0, 0, 0.6);
+    --theme-focus-outline: var(--theme-accent);
+    --theme-focus-border: var(--theme-accent);
   }
   * {
     margin: 0;
@@ -120,18 +124,24 @@
     background: var(--theme-text-muted);
   }
   :focus-visible {
+    outline: 1px solid var(--theme-focus-outline);
+    outline-offset: 2px;
+  }
+  .chat-focus-scope :focus-visible {
     outline: 2px solid var(--theme-accent);
     outline-offset: 2px;
   }
   .popup-surface :where(button, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):focus-visible {
-    outline: none;
+    outline: 1px solid var(--theme-focus-outline);
+    outline-offset: -1px;
     background-color: var(--theme-hover);
-    box-shadow: inset 2px 0 0 var(--theme-accent);
+    box-shadow: none;
   }
   .menu-trigger:focus-visible {
-    outline: none;
+    outline: 1px solid var(--theme-focus-outline);
+    outline-offset: 1px;
     background-color: var(--theme-hover);
-    box-shadow: inset 0 -2px 0 var(--theme-accent);
+    box-shadow: none;
   }
   .sr-only {
     position: absolute;
@@ -145,6 +155,35 @@
     border-width: 0;
   }
 }
+
+/*
+ * Quiet focus language for dense UI.
+ * Form controls use their existing border instead of a ring, while buttons
+ * keep a thin keyboard-only outline. Chat retains its established treatment.
+ */
+.minimal-focus :where(button, a[href], input, textarea, select, [role="button"], [tabindex]):focus-visible,
+:where([role="dialog"], [role="alertdialog"])
+  :where(button, a[href], input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  box-shadow: none;
+}
+
+.minimal-focus
+  :where(
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+    textarea,
+    select
+  ):focus,
+:where([role="dialog"], [role="alertdialog"])
+  :where(
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+    textarea,
+    select
+  ):focus {
+  border-color: var(--theme-focus-border);
+  box-shadow: none;
+  outline: none;
+}
+
 @keyframes blink {
   0%,
   100% {

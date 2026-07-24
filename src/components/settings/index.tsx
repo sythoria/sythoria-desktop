@@ -151,7 +151,7 @@ export default function Settings() {
   };
 
   return (
-    <main className="flex-1 flex flex-col min-w-0 overflow-hidden" aria-label="Settings">
+    <main className="minimal-focus flex-1 flex flex-col min-w-0 overflow-hidden" aria-label="Settings">
       <header className="shrink-0 flex items-center justify-end px-4 py-4 md:px-6 h-14" data-tauri-drag-region>
         <motion.button
           onClick={handleCreateChat}
