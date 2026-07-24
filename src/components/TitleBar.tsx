@@ -7,7 +7,8 @@ import { useUIStore } from "../store/useUIStore";
 import { generateId } from "../utils/generateId";
 import { uiToast } from "../store/helpers";
 
-type MenuType = "sythoria" | "file" | "view" | "window" | null;
+type MenuId = "sythoria" | "file" | "view" | "window";
+type MenuType = MenuId | null;
 
 const MenuButton = ({
   id,
@@ -15,14 +16,19 @@ const MenuButton = ({
   activeMenu,
   handleMenuClick,
 }: {
-  id: MenuType;
+  id: MenuId;
   label: string;
   activeMenu: MenuType;
   handleMenuClick: (menu: MenuType) => void;
 }) => (
   <button
+    type="button"
+    role="menuitem"
     onClick={() => handleMenuClick(id)}
-    className={`px-2 py-1 rounded-md transition-colors ${
+    aria-haspopup="menu"
+    aria-expanded={activeMenu === id}
+    aria-controls={activeMenu === id ? `titlebar-menu-${id}` : undefined}
+    className={`menu-trigger px-2 py-1 rounded-md transition-colors ${
       activeMenu === id ? "bg-hover text-text-primary" : "hover:bg-hover hover:text-text-primary"
     }`}
   >
@@ -42,14 +48,16 @@ const DropdownItem = ({
   setActiveMenu: (menu: MenuType) => void;
 }) => (
   <button
+    type="button"
+    role="menuitem"
     onClick={() => {
       onClick?.();
       setActiveMenu(null);
     }}
-    className="w-full text-left px-3 py-1.5 text-sm hover:bg-hover text-text-secondary hover:text-text-primary transition-colors flex justify-between items-center"
+    className="w-full text-left px-3 py-1.5 text-sm hover:bg-hover text-text-secondary hover:text-text-primary transition-colors flex justify-between items-center gap-4"
   >
-    <span>{label}</span>
-    {shortcut && <span className="text-text-muted text-xs ml-4">{shortcut}</span>}
+    <span className="whitespace-nowrap">{label}</span>
+    {shortcut && <span className="shrink-0 whitespace-nowrap text-text-muted text-xs">{shortcut}</span>}
   </button>
 );
 
@@ -68,8 +76,15 @@ export function TitleBar() {
         setActiveMenu(null);
       }
     }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setActiveMenu(null);
+    }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, []);
 
   const handleMenuClick = (menu: MenuType) => {
@@ -90,14 +105,24 @@ export function TitleBar() {
       data-tauri-drag-region
       className="h-[32px] w-full flex justify-between items-center select-none shrink-0 border-b border-border/30 bg-surface z-50 relative"
     >
-      <div ref={menuRef} className="flex items-center h-full px-2 text-xs font-medium text-text-muted relative">
+      <div
+        ref={menuRef}
+        className="flex items-center h-full px-2 text-xs font-medium text-text-muted relative"
+        role="menubar"
+        aria-label="Application menu"
+      >
         <MenuButton id="sythoria" label="Sythoria" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
         <MenuButton id="file" label="File" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
         <MenuButton id="view" label="View" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
         <MenuButton id="window" label="Window" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
 
         {activeMenu === "sythoria" && (
-          <div className="popup-surface absolute top-[32px] left-2 w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div
+            id="titlebar-menu-sythoria"
+            className="popup-surface absolute top-[32px] left-2 w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50"
+            role="menu"
+            aria-label="Sythoria"
+          >
             <DropdownItem label="Version 0.3.0" setActiveMenu={setActiveMenu} />
             <DropdownItem
               label="Check for Updates"
@@ -108,7 +133,12 @@ export function TitleBar() {
         )}
 
         {activeMenu === "file" && (
-          <div className="popup-surface absolute top-[32px] left-[70px] w-56 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div
+            id="titlebar-menu-file"
+            className="popup-surface absolute top-[32px] left-[70px] w-56 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50"
+            role="menu"
+            aria-label="File"
+          >
             <DropdownItem
               label="New Conversation"
               shortcut="Ctrl+Shift+O"
@@ -133,7 +163,12 @@ export function TitleBar() {
         )}
 
         {activeMenu === "view" && (
-          <div className="popup-surface absolute top-[32px] left-[110px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div
+            id="titlebar-menu-view"
+            className="popup-surface absolute top-[32px] left-[110px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50"
+            role="menu"
+            aria-label="View"
+          >
             <DropdownItem label="Zoom In" onClick={zoomIn} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Zoom Out" onClick={zoomOut} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Reset Zoom" onClick={zoomReset} setActiveMenu={setActiveMenu} />
@@ -141,7 +176,12 @@ export function TitleBar() {
         )}
 
         {activeMenu === "window" && (
-          <div className="popup-surface absolute top-[32px] left-[150px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50">
+          <div
+            id="titlebar-menu-window"
+            className="popup-surface absolute top-[32px] left-[150px] w-48 border border-border/30 rounded-md shadow-lg py-1 flex flex-col z-50"
+            role="menu"
+            aria-label="Window"
+          >
             <DropdownItem label="Minimize" onClick={() => appWindow.minimize()} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Maximize" onClick={() => appWindow.toggleMaximize()} setActiveMenu={setActiveMenu} />
             <DropdownItem label="Close" onClick={() => appWindow.close()} setActiveMenu={setActiveMenu} />
@@ -151,25 +191,31 @@ export function TitleBar() {
 
       <div className="flex h-full z-50 relative">
         <button
+          type="button"
           onClick={() => appWindow.minimize()}
           className="inline-flex justify-center items-center w-11 h-full hover:bg-hover text-text-muted hover:text-text-primary transition-colors cursor-default"
-          tabIndex={-1}
+          aria-label="Minimize window"
+          title="Minimize"
         >
-          <Minus size={16} strokeWidth={1.5} />
+          <Minus size={16} strokeWidth={1.5} aria-hidden="true" />
         </button>
         <button
+          type="button"
           onClick={() => appWindow.toggleMaximize()}
           className="inline-flex justify-center items-center w-11 h-full hover:bg-hover text-text-muted hover:text-text-primary transition-colors cursor-default"
-          tabIndex={-1}
+          aria-label="Maximize window"
+          title="Maximize"
         >
-          <Square size={13} strokeWidth={1.5} />
+          <Square size={13} strokeWidth={1.5} aria-hidden="true" />
         </button>
         <button
+          type="button"
           onClick={() => appWindow.close()}
           className="inline-flex justify-center items-center w-11 h-full hover:bg-red-500 hover:text-white text-text-muted transition-colors cursor-default"
-          tabIndex={-1}
+          aria-label="Close window"
+          title="Close"
         >
-          <X size={16} strokeWidth={1.5} />
+          <X size={16} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </div>
     </div>
