@@ -28,7 +28,7 @@ export function ProjectsSection() {
   return (
     <div id="setting-projects-config" className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.projects.title")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.projects.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.projects.subtitle")}</p>
       </div>
 
