@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, BrainCircuit, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import type { ModelConfig, ModelStatuses } from "../types";
 import { STATUS_COLORS } from "../types";
 import { useModelStore } from "../store/useModelStore";
@@ -45,9 +45,12 @@ export function ResponseSettingsSelector({
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [panel, setPanel] = useState<"root" | "models" | "thinking">("root");
+  const [submenuSide, setSubmenuSide] = useState<"left" | "right">("right");
+  const [collapsedWidth, setCollapsedWidth] = useState<number | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerMeasureRef = useRef<HTMLDivElement>(null);
   const updateModel = useModelStore((state) => state.updateModel);
   const disableBgActivity = useUIStore((state) => state.disableBgActivity);
 
@@ -59,6 +62,36 @@ export function ResponseSettingsSelector({
   const thinkingLabel = getThinkingLabel(currentModel);
   const thinkingSupported = supportsThinkingControl(currentModel);
   const opensAbove = placement === "above";
+
+  useLayoutEffect(() => {
+    const measuredWidth = triggerMeasureRef.current?.getBoundingClientRect().width;
+    if (measuredWidth) setCollapsedWidth(measuredWidth);
+  }, [currentModel?.name, disableBgActivity, thinkingLabel, thinkingSupported, triggerClassName]);
+
+  const openSubmenu = (nextPanel: "models" | "thinking", moveFocus = false) => {
+    const mainPanel = panelRef.current;
+    if (mainPanel) {
+      const mainBounds = mainPanel.getBoundingClientRect();
+      const compareColumn = mainPanel.closest<HTMLElement>(".comparison-column-panel");
+      const rightBoundary = compareColumn?.getBoundingClientRect().right ?? window.innerWidth;
+      setSubmenuSide(rightBoundary - mainBounds.right >= mainBounds.width ? "right" : "left");
+    }
+    setPanel(nextPanel);
+    if (moveFocus) {
+      requestAnimationFrame(() => {
+        panelRef.current
+          ?.querySelector<HTMLButtonElement>(`[data-selector-panel="${nextPanel}"] button:not(:disabled)`)
+          ?.focus();
+      });
+    }
+  };
+
+  const closeSubmenu = (trigger: "models" | "thinking") => {
+    setPanel("root");
+    requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLButtonElement>(`[data-selector-trigger="${trigger}"]`)?.focus();
+    });
+  };
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -75,16 +108,14 @@ export function ResponseSettingsSelector({
   useEffect(() => {
     if (!isOpen) return;
     const frame = requestAnimationFrame(() => {
-      panelRef.current
-        ?.querySelector<HTMLButtonElement>(`[data-selector-panel="${panel}"] button:not(:disabled)`)
-        ?.focus();
+      panelRef.current?.querySelector<HTMLButtonElement>('[data-selector-panel="root"] button:not(:disabled)')?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [isOpen, panel]);
+  }, [isOpen]);
 
   return (
     <div ref={dropdownRef} className="relative z-20 shrink-0">
-      <button
+      <motion.button
         ref={triggerRef}
         id={buttonId}
         type="button"
@@ -92,7 +123,14 @@ export function ResponseSettingsSelector({
           setIsOpen((open) => !open);
           setPanel("root");
         }}
-        className={`flex min-h-8 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary ${triggerClassName}`}
+        initial={false}
+        animate={{ width: isOpen ? "11.5rem" : (collapsedWidth ?? "auto") }}
+        transition={{
+          type: "tween",
+          duration: motionTokens.duration.fast,
+          ease: motionTokens.easing.sharp,
+        }}
+        className={`flex min-h-8 items-center justify-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary ${triggerClassName}`}
         aria-label={`Response settings: ${currentModel?.name ?? "no model"}, thinking ${thinkingLabel}`}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
@@ -104,12 +142,8 @@ export function ResponseSettingsSelector({
             aria-hidden="true"
           />
         )}
-        <span className="truncate">{currentModel?.name || "No Model Configured"}</span>
-        <span className="text-text-muted/60" aria-hidden="true">
-          ·
-        </span>
+        <span className="min-w-0 truncate">{currentModel?.name || "No Model Configured"}</span>
         <span className="inline-flex shrink-0 items-center gap-1 text-text-secondary">
-          <BrainCircuit size={12} aria-hidden="true" />
           {thinkingSupported ? thinkingLabel : "Auto"}
         </span>
         <ChevronDown
@@ -117,22 +151,43 @@ export function ResponseSettingsSelector({
           className={`shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
           aria-hidden="true"
         />
-      </button>
+      </motion.button>
 
-      <AnimatePresence>
+      <div
+        ref={triggerMeasureRef}
+        className={`pointer-events-none invisible absolute left-0 top-0 flex min-h-8 w-max items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium ${triggerClassName}`}
+        aria-hidden="true"
+      >
+        {!disableBgActivity && <span className="h-1.5 w-1.5 shrink-0 rounded-full" />}
+        <span>{currentModel?.name || "No Model Configured"}</span>
+        <span className="shrink-0">{thinkingSupported ? thinkingLabel : "Auto"}</span>
+        <ChevronDown size={14} className="shrink-0" />
+      </div>
+
+      <AnimatePresence mode="sync">
         {isOpen && (
           <motion.div
             ref={panelRef}
-            className={`popup-surface absolute left-1/2 z-50 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border p-1.5 font-normal ${
+            className={`popup-surface absolute right-0 z-50 w-[min(11.5rem,calc(100vw-2rem))] rounded-xl border border-border p-1.5 font-normal ${
               opensAbove ? "bottom-full mb-2" : "top-full mt-2"
             }`}
             style={{ boxShadow: "var(--shadow-xl)" }}
             role="dialog"
             aria-label="Model and thinking settings"
-            initial={{ opacity: 0, x: "-50%", y: opensAbove ? 8 : -8, scale: motionTokens.scale.subtle }}
-            animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
-            exit={{ opacity: 0, x: "-50%", y: opensAbove ? 8 : -8, scale: motionTokens.scale.subtle }}
-            transition={springs.gentle}
+            initial={{ opacity: 0, y: opensAbove ? 8 : -8, scale: motionTokens.scale.subtle }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              transition: { ...springs.gentle, delay: motionTokens.duration.instant },
+            }}
+            exit={{
+              opacity: 0,
+              y: opensAbove ? 8 : -8,
+              scale: motionTokens.scale.subtle,
+              transition: springs.gentle,
+            }}
+            onMouseLeave={() => setPanel("root")}
             onKeyDown={(event) => {
               if (event.key !== "Escape") return;
               event.preventDefault();
@@ -144,69 +199,86 @@ export function ResponseSettingsSelector({
               }
             }}
           >
-            <AnimatePresence mode="popLayout" initial={false}>
-              {panel === "root" && (
-                <motion.div
-                  key="selector-root"
-                  data-selector-panel="root"
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -6 }}
-                  transition={springs.snappy}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPanel("models")}
-                    className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
-                  >
-                    <span className="shrink-0 text-xs font-medium text-text-primary">Model</span>
-                    <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
-                      {currentModel?.name || "No model configured"}
-                    </span>
-                    <ChevronRight
-                      size={14}
-                      className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5"
-                      aria-hidden="true"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPanel("thinking")}
-                    className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
-                  >
-                    <span className="shrink-0 text-xs font-medium text-text-primary">Thinking</span>
-                    <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
-                      {thinkingSupported ? thinkingLabel : "Not available"}
-                    </span>
-                    <ChevronRight
-                      size={14}
-                      className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5"
-                      aria-hidden="true"
-                    />
-                  </button>
-                </motion.div>
-              )}
+            <div data-selector-panel="root">
+              <button
+                type="button"
+                data-selector-trigger="models"
+                onMouseEnter={() => openSubmenu("models")}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => openSubmenu("models", event.detail === 0)}
+                className={`group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                  panel === "models" ? "bg-active" : "hover:bg-hover"
+                }`}
+                aria-expanded={panel === "models"}
+              >
+                <span className="shrink-0 text-xs font-medium text-text-primary">Model</span>
+                <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
+                  {currentModel?.name || "No model configured"}
+                </span>
+                <ChevronRight
+                  size={14}
+                  className={`shrink-0 text-text-muted transition-transform ${
+                    panel === "models" && submenuSide === "left"
+                      ? "-translate-x-0.5 rotate-180"
+                      : "group-hover:translate-x-0.5"
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+              <button
+                type="button"
+                data-selector-trigger="thinking"
+                onMouseEnter={() => openSubmenu("thinking")}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => openSubmenu("thinking", event.detail === 0)}
+                className={`group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                  panel === "thinking" ? "bg-active" : "hover:bg-hover"
+                }`}
+                aria-expanded={panel === "thinking"}
+              >
+                <span className="shrink-0 text-xs font-medium text-text-primary">Thinking</span>
+                <span className="min-w-0 flex-1 truncate text-right text-xs text-text-muted">
+                  {thinkingSupported ? thinkingLabel : "Not available"}
+                </span>
+                <ChevronRight
+                  size={14}
+                  className={`shrink-0 text-text-muted transition-transform ${
+                    panel === "thinking" && submenuSide === "left"
+                      ? "-translate-x-0.5 rotate-180"
+                      : "group-hover:translate-x-0.5"
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
 
+            <AnimatePresence mode="sync" initial={false}>
               {panel === "models" && (
                 <motion.div
                   key="selector-models"
                   data-selector-panel="models"
-                  initial={{ opacity: 0, x: 8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 8 }}
+                  className={`popup-surface absolute z-50 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border p-1.5 ${
+                    submenuSide === "right" ? "left-full -ml-px" : "right-full -mr-px"
+                  } ${opensAbove ? "bottom-0" : "top-0"}`}
+                  style={{
+                    boxShadow: "var(--shadow-xl)",
+                    transformOrigin: submenuSide === "right" ? "left center" : "right center",
+                  }}
+                  role="group"
+                  aria-label="Model options"
+                  initial={{
+                    opacity: 0,
+                    x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
+                    scale: motionTokens.scale.subtle,
+                  }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
+                    scale: motionTokens.scale.subtle,
+                  }}
                   transition={springs.snappy}
                 >
-                  <div className="flex items-center gap-1 px-0.5 pb-0.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setPanel("root")}
-                      className="rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
-                      aria-label="Back to response settings"
-                    >
-                      <ArrowLeft size={14} aria-hidden="true" />
-                    </button>
-                    <span className="text-xs font-medium text-text-muted">Model</span>
-                  </div>
                   <div className="max-h-72 overflow-y-auto overscroll-contain pr-0.5">
                     {enabledModels.length === 0 ? (
                       <div className="px-3 py-5 text-center text-xs text-text-muted">
@@ -220,9 +292,10 @@ export function ResponseSettingsSelector({
                           <button
                             key={model.id}
                             type="button"
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {
                               onModelChange(model.id);
-                              setPanel("root");
+                              closeSubmenu("models");
                             }}
                             className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
                               isSelected
@@ -254,22 +327,28 @@ export function ResponseSettingsSelector({
                 <motion.div
                   key="selector-thinking"
                   data-selector-panel="thinking"
-                  initial={{ opacity: 0, x: 8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 8 }}
+                  className={`popup-surface absolute z-50 w-[min(11.5rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border p-1.5 ${
+                    submenuSide === "right" ? "left-full -ml-px" : "right-full -mr-px"
+                  } ${opensAbove ? "bottom-0" : "top-0"}`}
+                  style={{
+                    boxShadow: "var(--shadow-xl)",
+                    transformOrigin: submenuSide === "right" ? "left center" : "right center",
+                  }}
+                  role="group"
+                  aria-label="Thinking options"
+                  initial={{
+                    opacity: 0,
+                    x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
+                    scale: motionTokens.scale.subtle,
+                  }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{
+                    opacity: 0,
+                    x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
+                    scale: motionTokens.scale.subtle,
+                  }}
                   transition={springs.snappy}
                 >
-                  <div className="flex items-center gap-1 px-0.5 pb-0.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setPanel("root")}
-                      className="rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
-                      aria-label="Back to response settings"
-                    >
-                      <ArrowLeft size={14} aria-hidden="true" />
-                    </button>
-                    <span className="text-xs font-medium text-text-muted">Thinking</span>
-                  </div>
                   <div className="space-y-0.5">
                     {THINKING_LEVELS.map((option) => {
                       const isSelected = thinkingLevel === option.value;
@@ -279,10 +358,11 @@ export function ResponseSettingsSelector({
                           key={option.value}
                           type="button"
                           disabled={isDisabled}
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() => {
                             if (!currentModel) return;
                             updateModel(currentModel.id, { thinkingLevel: option.value });
-                            setPanel("root");
+                            closeSubmenu("thinking");
                           }}
                           className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
                             isSelected
