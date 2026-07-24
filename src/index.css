@@ -34,7 +34,7 @@
   /* Light mode — warm neutral */
   :root {
     color-scheme: light;
-    --theme-sidebar: rgba(248, 250, 252, 0.92);
+    --theme-sidebar: rgba(255, 255, 255, 0.9);
     --theme-chat: #ffffff;
     --theme-input: rgba(241, 245, 249, 0.85);
     --theme-input-border: rgba(15, 23, 42, 0.08);
@@ -56,7 +56,7 @@
   /* Dark mode — primary, near-black neutral */
   .dark {
     color-scheme: dark;
-    --theme-sidebar: rgba(8, 8, 10, 0.45);
+    --theme-sidebar: rgba(9, 9, 11, 0.4);
     --theme-chat: rgba(22, 22, 22, 0.96);
     --theme-input: rgba(38, 38, 38, 0.6);
     --theme-input-border: rgba(255, 255, 255, 0.08);
@@ -217,6 +217,26 @@
 
 .glass-sidebar {
   background: var(--color-sidebar);
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.14), transparent 55%);
+  backdrop-filter: blur(32px) saturate(135%);
+  -webkit-backdrop-filter: blur(32px) saturate(135%);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.28),
+    8px 0 28px rgba(0, 0, 0, 0.05);
+}
+.dark .glass-sidebar {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.06), transparent 55%);
+  backdrop-filter: blur(40px) saturate(170%);
+  -webkit-backdrop-filter: blur(40px) saturate(170%);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.1),
+    8px 0 28px rgba(0, 0, 0, 0.06);
+}
+.sidebar-translucency-disabled .glass-sidebar {
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 .popup-surface {
   background: var(--theme-popup);

@@ -1072,7 +1072,7 @@ function App() {
     showAuxiliaryPanel && !isAuxPanelExpanded && !isMobile ? `calc(100% - ${auxPanelWidth}px)` : "100%";
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden flex-col bg-surface">
+    <div className="flex h-screen w-screen overflow-hidden flex-col bg-transparent">
       <TitleBar />
       <Suspense fallback={null}>
         {showCommandPalette && <CommandPalette />}

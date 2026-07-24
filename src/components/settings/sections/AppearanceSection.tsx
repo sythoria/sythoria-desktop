@@ -148,6 +148,15 @@ export const AppearanceSection = ({
             description={t("settings.appearance.animationsDesc")}
           />
         </div>
+
+        <div id="setting-appearance-translucent-sidebar">
+          <Switch
+            checked={theme.translucentSidebar ?? true}
+            onChange={(translucentSidebar) => setTheme({ ...theme, translucentSidebar })}
+            label={t("settings.appearance.translucentSidebar")}
+            description={t("settings.appearance.translucentSidebarDesc")}
+          />
+        </div>
       </div>
       <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">

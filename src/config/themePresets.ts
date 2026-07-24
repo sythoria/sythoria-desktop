@@ -9,6 +9,7 @@ export interface ThemeConfig {
   mode: "light" | "dark" | "system";
   lightTheme: CustomThemeConfig;
   darkTheme: CustomThemeConfig;
+  translucentSidebar: boolean;
 }
 
 export const LIGHT_PRESETS: Record<string, CustomThemeConfig> = {
@@ -93,6 +94,7 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
   mode: "system",
   lightTheme: { ...LIGHT_PRESETS["Sythoria Light"] },
   darkTheme: { ...DARK_PRESETS["Sythoria Dark"] },
+  translucentSidebar: true,
 };
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -214,6 +216,7 @@ export function applyTheme(config: ThemeConfig) {
   const fg = normalizeHex(colors.foreground, isDark ? "#f4f4f5" : "#0f172a");
   const accent = normalizeHex(colors.accent, isDark ? "#ffffff" : "#0f172a");
   const style = document.documentElement.style;
+  const translucentSidebar = config.translucentSidebar ?? true;
 
   style.setProperty("--theme-chat", bg);
 
@@ -225,8 +228,9 @@ export function applyTheme(config: ThemeConfig) {
   const popupColor = isDark ? lightenColor(bg, 10) : mixColors(bg, fg, 0.97);
   style.setProperty("--theme-popup", popupColor);
 
-  const sidebarColor = hexToRgba(bg, isDark ? 0.45 : 0.92);
+  const sidebarColor = translucentSidebar ? hexToRgba(bg, isDark ? 0.4 : 0.9) : bg;
   style.setProperty("--theme-sidebar", sidebarColor);
+  document.documentElement.classList.toggle("sidebar-translucency-disabled", !translucentSidebar);
 
   const inputColor = isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08);
   style.setProperty("--theme-input", inputColor);

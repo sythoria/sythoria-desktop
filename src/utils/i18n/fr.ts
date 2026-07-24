@@ -239,6 +239,9 @@ export const fr = {
   "settings.appearance.system": "Système",
   "settings.appearance.animations": "Animations",
   "settings.appearance.animationsDesc": "Activer transitions et ressorts (désactiver pour de meilleures performances)",
+  "settings.appearance.translucentSidebar": "Barre latérale translucide",
+  "settings.appearance.translucentSidebarDesc":
+    "Utiliser un arrière-plan flouté et translucide pour la barre latérale gauche",
   "settings.appearance.lightTheme": "Thème Clair",
   "settings.appearance.darkTheme": "Thème Sombre",
   "settings.appearance.preset": "Préréglage",

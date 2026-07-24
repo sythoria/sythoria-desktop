@@ -241,6 +241,9 @@ export const es = {
   "settings.appearance.animations": "Animaciones de la App",
   "settings.appearance.animationsDesc":
     "Habilitar transiciones y animaciones de resorte (desactivar para mejor rendimiento)",
+  "settings.appearance.translucentSidebar": "Barra lateral translúcida",
+  "settings.appearance.translucentSidebarDesc":
+    "Usar un fondo translúcido y desenfocado para la barra lateral izquierda",
   "settings.appearance.lightTheme": "Tema Claro",
   "settings.appearance.darkTheme": "Tema Oscuro",
   "settings.appearance.preset": "Preajuste",

@@ -276,6 +276,14 @@ export const SEARCHABLE_SETTINGS: SearchableSetting[] = [
     keywords: ["animations", "transitions", "motion", "prefers-reduced-motion", "speed"],
   },
   {
+    id: "setting-appearance-translucent-sidebar",
+    label: "Translucent Sidebar",
+    description: "Show the left sidebar with a blurred translucent background",
+    sectionId: "appearance",
+    sectionLabel: "Appearance",
+    keywords: ["sidebar", "translucent", "transparency", "blur", "glass", "vibrancy"],
+  },
+  {
     id: "setting-configuration-model",
     label: "Default Model Selector",
     description: "Select the primary model used for new conversations",

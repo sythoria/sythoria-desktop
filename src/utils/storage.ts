@@ -99,6 +99,7 @@ const ThemeConfigSchema = z.object({
   mode: z.enum(["light", "dark", "system"]),
   lightTheme: CustomThemeConfigSchema,
   darkTheme: CustomThemeConfigSchema,
+  translucentSidebar: z.boolean().default(true),
 });
 
 export const DownloadedThemesSchema = z.object({

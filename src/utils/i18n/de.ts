@@ -238,6 +238,9 @@ export const de = {
   "settings.appearance.animations": "App-Animationen",
   "settings.appearance.animationsDesc":
     "Aktiviert Übergänge und Spring-Animationen (für bessere Leistung deaktivieren)",
+  "settings.appearance.translucentSidebar": "Transparente Seitenleiste",
+  "settings.appearance.translucentSidebarDesc":
+    "Einen unscharfen, transparenten Hintergrund für die linke Seitenleiste verwenden",
   "settings.appearance.lightTheme": "Helles Thema",
   "settings.appearance.darkTheme": "Dunkles Thema",
   "settings.appearance.preset": "Voreinstellung",

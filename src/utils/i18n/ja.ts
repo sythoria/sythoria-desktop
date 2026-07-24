@@ -232,6 +232,8 @@ export const ja = {
   "settings.appearance.animations": "アニメーション効果",
   "settings.appearance.animationsDesc":
     "画面遷移などのアニメーション効果を有効にします（オフにするとパフォーマンスが向上します）",
+  "settings.appearance.translucentSidebar": "半透明サイドバー",
+  "settings.appearance.translucentSidebarDesc": "左サイドバーにぼかし付きの半透明背景を使用します",
   "settings.appearance.lightTheme": "ライトテーマ",
   "settings.appearance.darkTheme": "ダークテーマ",
   "settings.appearance.preset": "プリセット",

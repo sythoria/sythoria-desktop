@@ -233,6 +233,8 @@ export const en = {
   "settings.appearance.system": "System",
   "settings.appearance.animations": "App Animations",
   "settings.appearance.animationsDesc": "Enable transitions and spring animations (disable for better performance)",
+  "settings.appearance.translucentSidebar": "Translucent Sidebar",
+  "settings.appearance.translucentSidebarDesc": "Use a blurred, translucent background for the left sidebar",
   "settings.appearance.lightTheme": "Light Theme",
   "settings.appearance.darkTheme": "Dark Theme",
   "settings.appearance.preset": "Preset",

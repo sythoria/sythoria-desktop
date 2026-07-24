@@ -17,7 +17,7 @@
         "title": "Sythoria",
         "width": 1400,
         "height": 900,
-        "transparent": false,
+        "transparent": true,
         "decorations": true,
         "visible": true,
         "titleBarStyle": "Overlay",

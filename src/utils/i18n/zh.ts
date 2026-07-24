@@ -230,6 +230,8 @@ export const zh = {
   "settings.appearance.system": "跟随系统",
   "settings.appearance.animations": "应用动画",
   "settings.appearance.animationsDesc": "启用过渡和弹性动画（禁用可提升性能）",
+  "settings.appearance.translucentSidebar": "半透明侧边栏",
+  "settings.appearance.translucentSidebarDesc": "为左侧边栏使用模糊的半透明背景",
   "settings.appearance.lightTheme": "浅色主题",
   "settings.appearance.darkTheme": "深色主题",
   "settings.appearance.preset": "预设",
