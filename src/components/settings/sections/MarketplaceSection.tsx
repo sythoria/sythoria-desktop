@@ -264,7 +264,7 @@ export const MarketplaceSection = () => {
   return (
     <>
       <div className="mb-4">
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("section.marketplace")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("section.marketplace")}</h3>
         <p className="text-xs text-text-muted">{t("settings.marketplace.subtitle")}</p>
       </div>
 
