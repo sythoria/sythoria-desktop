@@ -100,6 +100,9 @@ export function CommandPalette() {
     <div
       className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[15vh] backdrop-blur-sm"
       onClick={() => setShowCommandPalette(false)}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
     >
       <div
         className="popup-surface w-full max-w-lg border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
@@ -110,8 +113,9 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             type="text"
-            className="flex-1 bg-transparent border-none outline-none text-text-primary text-sm placeholder:text-text-muted/70"
+            className="flex-1 bg-transparent border-none outline-none text-text-primary text-sm placeholder:text-text-muted"
             placeholder="Type a command or search..."
+            aria-label="Search commands"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={handleKeyDown}
