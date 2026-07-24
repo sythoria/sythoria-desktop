@@ -108,7 +108,7 @@ export function ResponseSettingsSelector({
         <span className="text-text-muted/60" aria-hidden="true">
           ·
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 text-text-muted">
+        <span className="inline-flex shrink-0 items-center gap-1 text-text-secondary">
           <BrainCircuit size={12} aria-hidden="true" />
           {thinkingSupported ? thinkingLabel : "Auto"}
         </span>
