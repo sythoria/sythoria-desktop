@@ -52,6 +52,17 @@ const STATUS_KEYS: Record<ConnectionStatus, string> = {
   error: "status.error",
 };
 
+const MIN_SIDEBAR_WIDTH = 180;
+const MAX_SIDEBAR_WIDTH = 480;
+
+function getResponsiveMaxSidebarWidth(viewportWidth = Number.POSITIVE_INFINITY) {
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, viewportWidth - 480));
+}
+
+function clampSidebarWidth(width: number, viewportWidth = Number.POSITIVE_INFINITY) {
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(getResponsiveMaxSidebarWidth(viewportWidth), width));
+}
+
 interface SidebarProps {
   conversations: Conversation[];
   activeId: string | null;
@@ -154,43 +165,103 @@ export default memo(function Sidebar({
   }, []);
 
   const isSidebarCollapsed = isMobile ? !isOpen : isCollapsed;
-
   const isDragging = useRef(false);
+  const activeResizePointer = useRef<number | null>(null);
+  const visualSidebarWidthRef = useRef(sidebarWidth);
+  const [visualSidebarWidth, setVisualSidebarWidth] = useState(sidebarWidth);
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => {
+    if (isDragging.current) return;
+    visualSidebarWidthRef.current = sidebarWidth;
+    setVisualSidebarWidth(sidebarWidth);
+  }, [sidebarWidth]);
+
+  const updateVisualSidebarWidth = useCallback((width: number) => {
+    const nextWidth = clampSidebarWidth(width, window.innerWidth);
+    visualSidebarWidthRef.current = nextWidth;
+    setVisualSidebarWidth(nextWidth);
+  }, []);
+
+  useEffect(() => {
+    const fitSidebarToViewport = () => {
+      if (window.innerWidth < 768) return;
+      updateVisualSidebarWidth(visualSidebarWidthRef.current);
+    };
+    fitSidebarToViewport();
+    window.addEventListener("resize", fitSidebarToViewport);
+    return () => window.removeEventListener("resize", fitSidebarToViewport);
+  }, [updateVisualSidebarWidth]);
+
+  const stopResize = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    activeResizePointer.current = null;
+    setIsResizing(false);
+    document.documentElement.classList.remove("sidebar-resizing");
+    setSidebarWidth(visualSidebarWidthRef.current);
+  }, [setSidebarWidth]);
+
+  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    isDragging.current = true;
+    activeResizePointer.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsResizing(true);
+    document.documentElement.classList.add("sidebar-resizing");
+  }, []);
 
   const resize = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      const newWidth = Math.max(180, Math.min(480, e.clientX));
-      setSidebarWidth(newWidth);
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDragging.current || activeResizePointer.current !== event.pointerId) return;
+      updateVisualSidebarWidth(event.clientX);
     },
-    [setSidebarWidth],
+    [updateVisualSidebarWidth],
   );
 
-  const stopResize = useCallback(
-    function stopResizeFn() {
-      isDragging.current = false;
-      document.removeEventListener("mousemove", resize);
-      document.removeEventListener("mouseup", stopResizeFn);
+  const handleResizeEnd = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (activeResizePointer.current !== event.pointerId) return;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      stopResize();
     },
-    [resize],
+    [stopResize],
   );
 
-  const startResize = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      isDragging.current = true;
-      document.addEventListener("mousemove", resize);
-      document.addEventListener("mouseup", stopResize);
+  const handleResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
+      if (!direction && event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      const step = event.shiftKey ? 24 : 8;
+      const nextWidth =
+        event.key === "Home"
+          ? MIN_SIDEBAR_WIDTH
+          : event.key === "End"
+            ? MAX_SIDEBAR_WIDTH
+            : visualSidebarWidthRef.current + direction * step;
+      updateVisualSidebarWidth(nextWidth);
+      setSidebarWidth(clampSidebarWidth(nextWidth, window.innerWidth));
     },
-    [resize, stopResize],
+    [setSidebarWidth, updateVisualSidebarWidth],
   );
 
   useEffect(() => {
+    if (!isResizing) return;
+    window.addEventListener("blur", stopResize);
     return () => {
-      document.removeEventListener("mousemove", resize);
-      document.removeEventListener("mouseup", stopResize);
+      window.removeEventListener("blur", stopResize);
     };
-  }, [resize, stopResize]);
+  }, [isResizing, stopResize]);
+
+  useEffect(
+    () => () => {
+      document.documentElement.classList.remove("sidebar-resizing");
+    },
+    [],
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
@@ -241,7 +312,9 @@ export default memo(function Sidebar({
       const findAndHighlight = () => {
         const el = document.getElementById(setting.id);
         if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          const reduceMotion =
+            useUIStore.getState().animationsDisabled || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
           el.classList.add("setting-highlighted");
           setTimeout(() => {
             el.classList.remove("setting-highlighted");
@@ -341,17 +414,19 @@ export default memo(function Sidebar({
 
   const sidebarVariants = {
     expanded: {
-      width: isMobile ? sidebarWidth : sidebarWidth,
+      width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth,
       x: 0,
       opacity: 1,
       borderRightWidth: 1,
-      transition: {
-        ...springs.release,
-        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
-      },
+      transition: isResizing
+        ? { duration: 0 }
+        : {
+            ...springs.release,
+            opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+          },
     },
     collapsed: {
-      width: isMobile ? sidebarWidth : COLLAPSED_SIDEBAR_WIDTH,
+      width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : COLLAPSED_SIDEBAR_WIDTH,
       x: isMobile ? "-100%" : 0,
       opacity: isMobile ? 1 : 0,
       borderRightWidth: isMobile ? 1 : 0,
@@ -395,7 +470,10 @@ export default memo(function Sidebar({
         aria-hidden={isSidebarCollapsed}
         inert={isSidebarCollapsed}
       >
-        <div className="flex flex-col h-full overflow-hidden shrink-0" style={{ width: sidebarWidth }}>
+        <div
+          className="flex flex-col h-full overflow-hidden shrink-0"
+          style={{ width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth }}
+        >
           {/* Header */}
           {view === "settings" ? (
             <div className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30" data-tauri-drag-region>
@@ -630,7 +708,7 @@ export default memo(function Sidebar({
                                 <Folder size={14} className="shrink-0" />
                                 <span className="truncate flex-1 text-left">{project.name}</span>
                               </button>
-                              <div className="absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <div className="absolute right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -962,9 +1040,23 @@ export default memo(function Sidebar({
         {/* Resize Handle */}
         {!isSidebarCollapsed && (
           <div
-            className="absolute top-0 right-0 w-1 h-full cursor-col-resize select-none z-50 hover:bg-accent/20 active:bg-accent/40 transition-colors"
-            onMouseDown={startResize}
-          />
+            className="group absolute top-0 -right-1 z-50 hidden h-full w-2 cursor-col-resize touch-none select-none focus-visible:outline-none md:block"
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SIDEBAR_WIDTH}
+            aria-valuemax={getResponsiveMaxSidebarWidth(typeof window === "undefined" ? undefined : window.innerWidth)}
+            aria-valuenow={Math.round(visualSidebarWidth)}
+            tabIndex={0}
+            onPointerDown={startResize}
+            onPointerMove={resize}
+            onPointerUp={handleResizeEnd}
+            onPointerCancel={handleResizeEnd}
+            onLostPointerCapture={stopResize}
+            onKeyDown={handleResizeKeyDown}
+          >
+            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-focus-visible:opacity-60" />
+          </div>
         )}
       </motion.aside>
 
