@@ -62,7 +62,7 @@ export const McpSection = ({
     <div id="setting-mcp-servers" className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.mcp.title")}</h3>
+          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.mcp.title")}</h3>
           <p className="text-xs text-text-muted">{t("settings.mcp.subtitle")}</p>
         </div>{" "}
         <motion.button
