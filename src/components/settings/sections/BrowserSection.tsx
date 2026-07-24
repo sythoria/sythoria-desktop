@@ -77,7 +77,9 @@ export const BrowserSection = ({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.search.title")}</h3>
+            <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">
+              {t("settings.search.title")}
+            </h3>
             <p className="text-xs text-text-muted">{t("settings.search.subtitle")}</p>
           </div>
           <motion.button
@@ -124,7 +126,7 @@ export const BrowserSection = ({
       <div className="space-y-4 pt-6 border-t border-border/50">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1">Web Fetching APIs</h3>
+            <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">Web Fetching APIs</h3>
             <p className="text-xs text-text-muted">Configure APIs for fetching page contents directly.</p>
           </div>
           <motion.button
