@@ -155,8 +155,14 @@ export function getContrastColor(hex: string): string {
   const r = parseInt(cleanHex.slice(0, 2), 16) || 0;
   const g = parseInt(cleanHex.slice(2, 4), 16) || 0;
   const b = parseInt(cleanHex.slice(4, 6), 16) || 0;
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  return yiq >= 128 ? "#000000" : "#ffffff";
+  const toLinear = (channel: number) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const contrastWithBlack = (luminance + 0.05) / 0.05;
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  return contrastWithBlack >= contrastWithWhite ? "#000000" : "#ffffff";
 }
 
 function mixColors(color1: string, color2: string, weight: number): string {
@@ -238,13 +244,14 @@ export function applyTheme(config: ThemeConfig) {
   style.setProperty("--theme-input-border", hexToRgba(fg, 0.12));
   style.setProperty("--theme-accent", accent);
 
-  const accentHoverColor = isDark ? lightenColor(accent, 10) : hexToRgba(accent, 0.85);
+  const accentForeground = getContrastColor(accent);
+  const accentHoverColor = lightenColor(accent, accentForeground === "#ffffff" ? -8 : 8);
   style.setProperty("--theme-accent-hover", accentHoverColor);
 
   const accentSoftColor = hexToRgba(accent, isDark ? 0.15 : 0.08);
   style.setProperty("--theme-accent-soft", accentSoftColor);
 
-  style.setProperty("--theme-accent-foreground", getContrastColor(accent));
+  style.setProperty("--theme-accent-foreground", accentForeground);
 
   style.setProperty("--theme-text-primary", fg);
 
