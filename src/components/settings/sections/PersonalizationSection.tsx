@@ -20,7 +20,7 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.title")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.prompts.title")}</h3>
         <p className="text-xs text-text-muted">{t("settings.prompts.subtitle")}</p>
       </div>
       <div id="setting-personalization-title" className="bg-surface border border-border rounded-xl p-4 shadow-sm">
