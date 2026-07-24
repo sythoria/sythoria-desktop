@@ -80,7 +80,7 @@ export function GeneralSection() {
   return (
     <>
       <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("general.title")}</h3>
+        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("general.title")}</h3>
         <p className="text-xs text-text-muted">{t("general.subtitle")}</p>
       </div>
 
