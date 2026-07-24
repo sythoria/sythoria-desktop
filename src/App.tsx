@@ -1397,13 +1397,19 @@ function App() {
                       />
                     )}
 
-                    <motion.div
-                      className={`absolute left-1/2 -translate-x-1/2 bottom-[180px] md:bottom-[160px] z-30 ${showScrollToBottom && messages.length > 0 && !isPrimaryGenerating ? "opacity-100 translate-y-0 scale-100 pointer-events-auto" : "opacity-0 translate-y-3 scale-90 pointer-events-none"}`}
-                      transition={{ duration: motionTokens.duration.fast }}
-                      initial={false}
-                    >
-                      <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
-                    </motion.div>
+                    <AnimatePresence>
+                      {showScrollToBottom && messages.length > 0 && !isPrimaryGenerating && (
+                        <motion.div
+                          className="absolute left-1/2 bottom-[180px] z-30 -translate-x-1/2 md:bottom-[160px]"
+                          initial={{ opacity: 0, y: 12, scale: 0.9 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 12, scale: 0.9 }}
+                          transition={{ duration: motionTokens.duration.fast }}
+                        >
+                          <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     <InputBar
                       models={models}
@@ -1450,7 +1456,24 @@ function App() {
                             role="separator"
                             aria-orientation="vertical"
                             aria-label="Resize workspace sidebar"
-                            className="absolute inset-y-0 -left-1 z-30 w-2 cursor-col-resize transition-colors hover:bg-accent/30"
+                            aria-valuemin={360}
+                            aria-valuemax={680}
+                            aria-valuenow={Math.round(auxPanelWidth)}
+                            tabIndex={0}
+                            className="group absolute inset-y-0 -left-1 z-30 w-2 cursor-col-resize touch-none select-none focus-visible:outline-none"
+                            onKeyDown={(event) => {
+                              const direction = event.key === "ArrowLeft" ? 1 : event.key === "ArrowRight" ? -1 : 0;
+                              if (!direction && event.key !== "Home" && event.key !== "End") return;
+                              event.preventDefault();
+                              const step = event.shiftKey ? 24 : 8;
+                              setAuxPanelWidth(
+                                event.key === "Home"
+                                  ? 360
+                                  : event.key === "End"
+                                    ? 680
+                                    : auxPanelWidth + direction * step,
+                              );
+                            }}
                             onPointerDown={(event) => {
                               event.preventDefault();
                               const target = event.currentTarget;
@@ -1465,7 +1488,9 @@ function App() {
                               window.addEventListener("pointermove", handleMove);
                               window.addEventListener("pointerup", handleUp);
                             }}
-                          />
+                          >
+                            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-focus-visible:opacity-60" />
+                          </div>
                         )}
                         <Suspense
                           fallback={
