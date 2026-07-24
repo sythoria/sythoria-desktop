@@ -244,7 +244,7 @@ export function Select({
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}
         aria-label={ariaLabel}
-        className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border border-input-border bg-input text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-all cursor-pointer ${
+        className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border border-input-border bg-input text-text-primary focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:outline-none transition-[border-color,box-shadow,background-color,color] cursor-pointer ${
           disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
         }`}
       >
