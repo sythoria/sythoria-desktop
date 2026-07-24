@@ -104,7 +104,7 @@ export function SkillsSection() {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold text-text-primary mb-1">
+          <h2 className="text-lg font-semibold tracking-tight text-text-primary mb-1">
             {isCreating
               ? t("settings.skills.createNew") || "Create New Skill"
               : t("settings.skills.edit") || "Edit Skill"}
