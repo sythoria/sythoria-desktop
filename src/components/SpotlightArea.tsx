@@ -150,6 +150,9 @@ export function SpotlightArea() {
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[20vh] backdrop-blur-sm"
           onClick={handleClose}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search settings"
         >
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
@@ -173,8 +176,9 @@ export function SpotlightArea() {
                 placeholder="Search settings..."
                 className="flex-1 bg-transparent border-none text-text-primary placeholder-text-muted text-lg font-medium outline-none"
                 autoFocus
+                aria-label="Search settings"
               />
-              <span className="shrink-0 flex items-center gap-1 text-xs text-text-muted opacity-60">
+              <span className="shrink-0 flex items-center gap-1 text-xs text-text-muted">
                 <Command size={12} />
                 <span>Esc to close</span>
               </span>
