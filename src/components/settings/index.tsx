@@ -151,14 +151,14 @@ export default function Settings() {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden" role="region" aria-label="Settings">
+    <main className="flex-1 flex flex-col min-w-0 overflow-hidden" aria-label="Settings">
       <header className="shrink-0 flex items-center justify-end px-4 py-4 md:px-6 h-14" data-tauri-drag-region>
         <motion.button
           onClick={handleCreateChat}
           whileHover={{ scale: motionTokens.scale.pop }}
           whileTap={{ scale: motionTokens.scale.press }}
           transition={springs.snappy}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 border border-accent/30 text-sm font-medium transition-all"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent text-accent-foreground hover:bg-accent-hover border border-accent text-sm font-medium transition-colors"
           aria-label={t("common.newChat")}
         >
           <Plus size={16} />
@@ -289,6 +289,6 @@ export default function Settings() {
           </motion.div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
