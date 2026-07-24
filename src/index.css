@@ -6,6 +6,7 @@
   --color-input-border: var(--theme-input-border);
   --color-accent: var(--theme-accent);
   --color-accent-hover: var(--theme-accent-hover);
+  --color-accent-active: var(--theme-accent-hover);
   --color-accent-soft: var(--theme-accent-soft);
   --color-accent-foreground: var(--theme-accent-foreground);
   --color-text-primary: var(--theme-text-primary);
@@ -13,9 +14,12 @@
   --color-text-muted: var(--theme-text-muted);
   --color-user-bubble: var(--theme-user-bubble);
   --color-hover: var(--theme-hover);
+  --color-hover-active: var(--theme-active);
   --color-active: var(--theme-active);
   --color-border: var(--theme-border);
   --color-surface: var(--theme-surface);
+  --color-surface-raised: var(--theme-surface);
+  --color-surface-elevated: var(--theme-surface);
   --color-popup: var(--theme-popup);
   --color-overlay: var(--theme-overlay);
   --radius-sm: 6px;
@@ -27,8 +31,8 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.06);
   --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.18), 0 8px 16px rgba(0, 0, 0, 0.08);
-  --font-sans: "DM Sans", sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: "DM Sans", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
 }
 @layer base {
   /* Light mode — warm neutral */
@@ -118,6 +122,16 @@
   :focus-visible {
     outline: 2px solid var(--theme-accent);
     outline-offset: 2px;
+  }
+  .popup-surface :where(button, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):focus-visible {
+    outline: none;
+    background-color: var(--theme-hover);
+    box-shadow: inset 2px 0 0 var(--theme-accent);
+  }
+  .menu-trigger:focus-visible {
+    outline: none;
+    background-color: var(--theme-hover);
+    box-shadow: inset 0 -2px 0 var(--theme-accent);
   }
   .sr-only {
     position: absolute;
@@ -242,6 +256,12 @@
   background: var(--theme-popup);
   backdrop-filter: blur(12px) saturate(130%);
   -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+
+.sidebar-resizing,
+.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .glass-app-container {
@@ -662,23 +682,15 @@ pre,
 /* Settings spotlight search highlighting animation */
 @keyframes setting-highlight-pulse {
   0% {
-    outline: 2px solid transparent;
-    outline-offset: 4px;
     background-color: transparent;
   }
   15% {
-    outline: 2px solid var(--theme-accent);
-    outline-offset: 4px;
     background-color: var(--theme-accent-soft);
   }
   85% {
-    outline: 2px solid var(--theme-accent);
-    outline-offset: 4px;
     background-color: var(--theme-accent-soft);
   }
   100% {
-    outline: 2px solid transparent;
-    outline-offset: 4px;
     background-color: transparent;
   }
 }
