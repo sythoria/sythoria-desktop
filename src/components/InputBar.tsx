@@ -585,7 +585,7 @@ export default memo(function InputBar({
           : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
       }`}
     >
-      <div className={`w-full max-w-3xl mx-auto px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
+      <div className={`w-full max-w-3xl mx-auto px-2 sm:px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
         {conversation?.isSubagent ? (
           <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
             <Bot size={24} className="mb-2 text-text-muted/70" />
@@ -721,7 +721,7 @@ export default memo(function InputBar({
                 )}
               </AnimatePresence>
 
-              <div className="flex items-center gap-2 w-full">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 w-full lg:flex-nowrap">
                 {/* Plus / tools button */}
                 <div ref={plusDropdownRef} className="relative shrink-0">
                   <button
@@ -848,7 +848,7 @@ export default memo(function InputBar({
                   disabled={disabled}
                   aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
                   aria-invalid={isOverLimit}
-                  className={`flex-1 min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                  className={`order-first basis-full min-w-0 bg-transparent lg:order-none lg:basis-auto lg:flex-1 ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
                     voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
                   }`}
                 />
@@ -1347,7 +1347,7 @@ export default memo(function InputBar({
                   setSubagentPrompt("");
                 }}
                 disabled={!subagentRole.trim() || !subagentPrompt.trim()}
-                className="px-4 py-2 text-xs font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="px-4 py-2 text-xs font-medium rounded-lg bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
                 Invoke Subagent
               </button>
