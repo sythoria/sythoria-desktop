@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Image, Trash2, Camera, AlertCircle, Copy, Check, ChevronRight } from "lucide-react";
 import { Switch } from "../../ui/Switch";
+import { SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
@@ -114,20 +115,18 @@ export function AppshotsSection() {
 
   return (
     <div id="setting-appshots-config" className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">
-            {t("settings.appshots.title")}
-          </h3>
-          <p className="text-xs text-text-muted">{t("settings.appshots.subtitle")}</p>
-        </div>
-        <Switch
-          checked={config.enabled && hasPermission === true}
-          onChange={(val) => updateConfig({ enabled: val })}
-          ariaLabel={t("settings.appshots.title")}
-          disabled={hasPermission !== true}
-        />
-      </div>
+      <SettingsSectionHeader
+        title={t("settings.appshots.title")}
+        description={t("settings.appshots.subtitle")}
+        actions={
+          <Switch
+            checked={config.enabled && hasPermission === true}
+            onChange={(val) => updateConfig({ enabled: val })}
+            ariaLabel={t("settings.appshots.title")}
+            disabled={hasPermission !== true}
+          />
+        }
+      />
 
       {hasPermission === false && (
         <div className="bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl p-4 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">

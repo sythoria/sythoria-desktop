@@ -9,6 +9,7 @@ import {
   MAX_TOOL_STEPS_LIMIT,
 } from "../../../config/constants";
 import { ModelConfig, SearchApiConfig } from "../../../types";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 interface ConfigurationSectionProps {
   models: ModelConfig[];
@@ -87,11 +88,8 @@ export const ConfigurationSection = ({
 
   return (
     <>
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.chat.title")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.chat.subtitle")}</p>
-      </div>{" "}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsSectionHeader title={t("settings.chat.title")} description={t("settings.chat.subtitle")} />
+      <SettingsPanel>
         <div id="setting-configuration-model" className="space-y-2">
           <label htmlFor="default-model-select-trigger" className="text-sm font-medium text-text-primary block">
             {t("settings.chat.defaultModel")}
@@ -241,7 +239,7 @@ export const ConfigurationSection = ({
             <span>{t("settings.chat.stepsMax", { defaultValue: "Maximum (100)" })}</span>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
     </>
   );
 };

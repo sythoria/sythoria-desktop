@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Plus, Loader2 } from "lucide-react";
 import { ModelCard } from "../components/ModelCard";
+import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { ConfirmModal } from "../../ui/Modal";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { ModelConfig, ConnectionStatus } from "../../../types";
@@ -51,37 +52,30 @@ export const ModelsSection = ({
 
   return (
     <div id="setting-models-providers" className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.models.title")}</h3>
-          <p className="text-xs text-text-muted">{t("settings.models.subtitle")}</p>
-        </div>{" "}
-        <div className="flex items-center gap-2">
-          <motion.button
-            onClick={handleRefreshConnections}
-            disabled={loadingCheckConnection}
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            transition={springs.snappy}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover border border-border text-xs transition-colors min-h-[44px]"
-            aria-label="Refresh connection status"
-          >
-            {loadingCheckConnection ? <Loader2 size={14} className="animate-spin" /> : null}
-            {t("settings.models.refresh")}
-          </motion.button>
-          <motion.button
-            onClick={addModel}
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            transition={springs.snappy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-            aria-label="Add provider"
-          >
-            <Plus size={14} />
-            <span>{t("settings.models.addProvider")}</span>
-          </motion.button>
-        </div>
-      </div>
+      <SettingsSectionHeader
+        title={t("settings.models.title")}
+        description={t("settings.models.subtitle")}
+        actions={
+          <div className="flex items-center gap-2">
+            <motion.button
+              onClick={handleRefreshConnections}
+              disabled={loadingCheckConnection}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover border border-border text-xs transition-colors min-h-[44px]"
+              aria-label="Refresh connection status"
+            >
+              {loadingCheckConnection ? <Loader2 size={14} className="animate-spin" /> : null}
+              {t("settings.models.refresh")}
+            </motion.button>
+            <SettingsHeaderButton onClick={addModel} ariaLabel="Add provider">
+              <Plus size={14} />
+              <span>{t("settings.models.addProvider")}</span>
+            </SettingsHeaderButton>
+          </div>
+        }
+      />
 
       <div className="space-y-4">
         {models.map((model: ModelConfig) => (
@@ -97,15 +91,11 @@ export const ModelsSection = ({
           />
         ))}
         {models.length === 0 && (
-          <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
-            <p className="text-text-muted text-sm">{t("settings.models.noProviders")}</p>
-            <button
-              onClick={addModel}
-              className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
-            >
-              {t("settings.models.addProvider")}
-            </button>
-          </div>
+          <SettingsEmptyState
+            message={t("settings.models.noProviders")}
+            actionLabel={t("settings.models.addProvider")}
+            onAction={addModel}
+          />
         )}
       </div>
 

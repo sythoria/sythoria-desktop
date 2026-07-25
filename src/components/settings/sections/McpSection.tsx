@@ -1,8 +1,7 @@
 import { useRef, useEffect } from "react";
-import { motion } from "motion/react";
 import { Plus } from "lucide-react";
 import { McpServerCard } from "../components/McpServerCard";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { McpServerConfig, McpServerStatus, McpTool, ExecutableCheck } from "../../../types";
 import { McpServerPreset } from "../../../config/mcpPresets";
 import { useTranslation } from "../../../utils/i18n";
@@ -60,23 +59,16 @@ export const McpSection = ({
 
   return (
     <div id="setting-mcp-servers" className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.mcp.title")}</h3>
-          <p className="text-xs text-text-muted">{t("settings.mcp.subtitle")}</p>
-        </div>{" "}
-        <motion.button
-          onClick={addMcpConfig}
-          whileHover={{ scale: motionTokens.scale.pop }}
-          whileTap={{ scale: motionTokens.scale.press }}
-          transition={springs.snappy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-          aria-label={t("settings.mcp.addBtn")}
-        >
-          <Plus size={14} />
-          <span>{t("settings.mcp.addBtn")}</span>
-        </motion.button>
-      </div>
+      <SettingsSectionHeader
+        title={t("settings.mcp.title")}
+        description={t("settings.mcp.subtitle")}
+        actions={
+          <SettingsHeaderButton onClick={addMcpConfig} ariaLabel={t("settings.mcp.addBtn")}>
+            <Plus size={14} />
+            <span>{t("settings.mcp.addBtn")}</span>
+          </SettingsHeaderButton>
+        }
+      />
 
       <div className="space-y-4">
         {mcpConfigs.map((mcpConfig: McpServerConfig) => (
@@ -101,16 +93,12 @@ export const McpSection = ({
           />
         ))}
         {mcpConfigs.length === 0 && (
-          <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
-            <p className="text-text-muted text-sm">{t("settings.mcp.noServers")}</p>
-            <p className="text-text-muted text-xs mt-1">{t("settings.mcp.noServersDesc")}</p>
-            <button
-              onClick={addMcpConfig}
-              className="mt-2 text-accent hover:text-accent-hover text-sm font-medium min-h-[44px]"
-            >
-              {t("settings.mcp.addFirst")}
-            </button>
-          </div>
+          <SettingsEmptyState
+            message={t("settings.mcp.noServers")}
+            description={t("settings.mcp.noServersDesc")}
+            actionLabel={t("settings.mcp.addFirst")}
+            onAction={addMcpConfig}
+          />
         )}
       </div>
     </div>

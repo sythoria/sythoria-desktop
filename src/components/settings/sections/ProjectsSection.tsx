@@ -6,6 +6,7 @@ import { useProjectStore } from "../../../store/useProjectStore";
 import { useGitStore } from "../../../store/useGitStore";
 import type { ProjectPermission } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 export function ProjectsSection() {
   const { t } = useTranslation();
@@ -27,13 +28,10 @@ export function ProjectsSection() {
 
   return (
     <div id="setting-projects-config" className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.projects.title")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.projects.subtitle")}</p>
-      </div>
+      <SettingsSectionHeader title={t("settings.projects.title")} description={t("settings.projects.subtitle")} />
 
       {/* Card 1: Opt-in Toggle & Default Permission Controls */}
-      <div className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+      <SettingsPanel spacing="none">
         <Switch
           checked={isProjectsEnabled}
           onChange={setIsProjectsEnabled}
@@ -111,10 +109,10 @@ export function ProjectsSection() {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </SettingsPanel>
 
       {/* Card 2: Commit Author overrides (preserved from GitSection) */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
           {t("settings.projects.identityTitle")}
         </h4>
@@ -155,7 +153,7 @@ export function ProjectsSection() {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </SettingsPanel>
     </div>
   );
 }

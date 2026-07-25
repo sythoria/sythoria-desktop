@@ -9,6 +9,7 @@ import { useChatStore } from "../../../store/useChatStore";
 import { getVersion } from "@tauri-apps/api/app";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 export function GeneralSection() {
   const { t, language: selectedLang, supportedLanguages } = useTranslation();
@@ -79,13 +80,10 @@ export function GeneralSection() {
 
   return (
     <>
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("general.title")}</h3>
-        <p className="text-xs text-text-muted">{t("general.subtitle")}</p>
-      </div>
+      <SettingsSectionHeader title={t("general.title")} description={t("general.subtitle")} />
 
       {/* Language Section */}
-      <div id="setting-general-language" className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel id="setting-general-language">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">{t("general.language")}</h4>
         <div className="space-y-2 pt-1">
           <label htmlFor="language-select-trigger" className="text-sm font-medium text-text-primary block">
@@ -104,10 +102,10 @@ export function GeneralSection() {
             aria-label="Language options"
           />
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Window Behavior Section */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
           {t("general.windowBehavior")}
         </h4>
@@ -137,10 +135,10 @@ export function GeneralSection() {
             />
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Chat & Composition Section */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
           {t("general.chatComposition")}
         </h4>
@@ -214,10 +212,10 @@ export function GeneralSection() {
             </div>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Data Management Section */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
           {t("general.dataManagement")}
         </h4>
@@ -241,10 +239,10 @@ export function GeneralSection() {
             </motion.button>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Updates & Info Section */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">{t("general.updatesInfo")}</h4>
         <div className="space-y-4 pt-1">
           <Switch
@@ -283,7 +281,7 @@ export function GeneralSection() {
             </motion.button>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
     </>
   );
 }

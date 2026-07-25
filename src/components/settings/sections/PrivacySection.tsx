@@ -11,6 +11,7 @@ import { clearStoreData, DEFAULT_BLOCKED_HOSTS } from "../../../utils/storage";
 import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 export function PrivacySection() {
   const { t } = useTranslation();
@@ -191,13 +192,10 @@ export function PrivacySection() {
 
   return (
     <div id="setting-privacy-network" className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.privacy.title")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.privacy.subtitle")}</p>
-      </div>
+      <SettingsSectionHeader title={t("settings.privacy.title")} description={t("settings.privacy.subtitle")} />
 
       {/* 1. Keychain and Local Storage Status */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t("settings.privacy.dataSecurity")}
         </h4>
@@ -209,10 +207,10 @@ export function PrivacySection() {
             <span className="opacity-90">{t("settings.privacy.keychainDesc")}</span>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* 2. Event Logging Control */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t("settings.privacy.loggingTitle")}
         </h4>
@@ -244,10 +242,10 @@ export function PrivacySection() {
             </motion.button>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* 3. Appshot Privacy Settings */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t("settings.privacy.screenTitle")}
         </h4>
@@ -380,10 +378,10 @@ export function PrivacySection() {
             </motion.button>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Network Settings */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsPanel>
         <div className="flex items-center gap-2">
           <Network size={16} className="text-text-muted" />
           <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">
@@ -434,10 +432,10 @@ export function PrivacySection() {
             description={t("settings.privacy.offlineModeDesc")}
           />
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* 4. Data destruct */}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm border-red-500/20 dark:border-red-500/10">
+      <SettingsPanel className="border-red-500/20 dark:border-red-500/10">
         <h4 className="text-xs font-medium text-red-500 uppercase tracking-wider">
           {t("settings.privacy.dangerZone")}
         </h4>
@@ -460,7 +458,7 @@ export function PrivacySection() {
             </motion.button>
           </div>
         </div>
-      </div>
+      </SettingsPanel>
 
       {/* Double Confirmation Modals */}
       <ConfirmModal

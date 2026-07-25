@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Pencil, Save, X } from "lucide-react";
 import { ConfirmModal } from "../../ui/Modal";
+import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { useSkillStore } from "../../../store/useSkillStore";
 import { SkillInfo } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
@@ -206,40 +207,32 @@ export function SkillsSection() {
 
   return (
     <>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary mb-1">
-            {t("settings.skills.title") || "Agent Skills"}
-          </h3>
-          <p className="text-xs text-text-muted">
-            {t("settings.skills.subtitle") ||
-              "Manage custom skills that provide instructions and context to your AI agents."}
-          </p>
-        </div>
-        <motion.button
-          onClick={handleCreateNew}
-          whileHover={{ scale: motionTokens.scale.pop }}
-          whileTap={{ scale: motionTokens.scale.press }}
-          transition={springs.snappy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-          aria-label={t("settings.skills.newSkill") || "New Skill"}
-        >
-          <Plus size={14} />
-          <span>{t("settings.skills.newSkill") || "New Skill"}</span>
-        </motion.button>
-      </div>
+      <SettingsSectionHeader
+        compact
+        title={t("settings.skills.title") || "Agent Skills"}
+        description={
+          t("settings.skills.subtitle") ||
+          "Manage custom skills that provide instructions and context to your AI agents."
+        }
+        actions={
+          <SettingsHeaderButton onClick={handleCreateNew} ariaLabel={t("settings.skills.newSkill") || "New Skill"}>
+            <Plus size={14} />
+            <span>{t("settings.skills.newSkill") || "New Skill"}</span>
+          </SettingsHeaderButton>
+        }
+      />
 
       <div className="space-y-4">
         {loading && skills.length === 0 ? (
           <div className="text-sm text-text-muted">{t("settings.skills.loading") || "Loading skills..."}</div>
         ) : skills.length === 0 ? (
-          <div className="text-center py-8 bg-surface border border-border border-dashed rounded-xl">
-            <p className="text-text-muted text-sm">{t("settings.skills.noSkills") || "No skills found"}</p>
-            <p className="text-text-muted text-xs mt-1">
-              {t("settings.skills.noSkillsDesc") ||
-                "Create a skill to provide specialized instructions, examples, and knowledge to your AI agents."}
-            </p>
-          </div>
+          <SettingsEmptyState
+            message={t("settings.skills.noSkills") || "No skills found"}
+            description={
+              t("settings.skills.noSkillsDesc") ||
+              "Create a skill to provide specialized instructions, examples, and knowledge to your AI agents."
+            }
+          />
         ) : (
           skills.map((skill) => (
             <div

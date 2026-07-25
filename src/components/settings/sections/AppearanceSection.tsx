@@ -5,6 +5,7 @@ import { ColorPickerInput } from "../components/ColorPickerInput";
 import { LIGHT_PRESETS, DARK_PRESETS, CustomThemeConfig, ThemeConfig } from "../../../config/themePresets";
 import { useUIStore } from "../../../store/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 interface AppearanceSectionProps {
   theme: ThemeConfig;
@@ -115,11 +116,8 @@ export const AppearanceSection = ({
 
   return (
     <>
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("section.appearance")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.appearance.subtitle")}</p>
-      </div>{" "}
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm">
+      <SettingsSectionHeader title={t("section.appearance")} description={t("settings.appearance.subtitle")} />
+      <SettingsPanel>
         <div id="setting-appearance-theme-mode" className="flex items-center justify-between">
           <div>
             <span className="text-sm font-medium text-text-primary block">{t("section.appearance")}</span>
@@ -157,8 +155,8 @@ export const AppearanceSection = ({
             description={t("settings.appearance.translucentSidebarDesc")}
           />
         </div>
-      </div>
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
+      </SettingsPanel>
+      <SettingsPanel spacing="sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
           {t("settings.appearance.lightTheme")}
         </h4>
@@ -191,8 +189,8 @@ export const AppearanceSection = ({
           value={theme.lightTheme.accent}
           onChange={(val) => handleColorChange("light", "accent", val)}
         />
-      </div>
-      <div className="bg-surface border border-border rounded-xl p-4 space-y-2 shadow-sm">
+      </SettingsPanel>
+      <SettingsPanel spacing="sm">
         <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
           {t("settings.appearance.darkTheme")}
         </h4>
@@ -225,7 +223,7 @@ export const AppearanceSection = ({
           value={theme.darkTheme.accent}
           onChange={(val) => handleColorChange("dark", "accent", val)}
         />
-      </div>
+      </SettingsPanel>
     </>
   );
 };

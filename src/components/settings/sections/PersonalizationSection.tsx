@@ -5,6 +5,7 @@ import { motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 import { DEFAULT_TITLE_SYSTEM_PROMPT, TitleGenerationConfig, ModelConfig } from "../../../types";
 import { useModelStore } from "../../../store/useModelStore";
+import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 interface PersonalizationSectionProps {
   titleConfig: TitleGenerationConfig;
@@ -19,11 +20,8 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
 
   return (
     <>
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.prompts.title")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.prompts.subtitle")}</p>
-      </div>
-      <div id="setting-personalization-title" className="bg-surface border border-border rounded-xl p-4 shadow-sm">
+      <SettingsSectionHeader title={t("settings.prompts.title")} description={t("settings.prompts.subtitle")} />
+      <SettingsPanel id="setting-personalization-title" spacing="none">
         <Switch
           checked={titleConfig.enabled}
           onChange={(checked) => setTitleConfig({ enabled: checked })}
@@ -96,15 +94,13 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
-      <div>
-        <h3 className="text-sm font-semibold text-text-primary mb-1">{t("settings.prompts.behaviorTitle")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.prompts.behaviorSubtitle")}</p>
-      </div>
-      <div
-        id="setting-personalization-system"
-        className="bg-surface border border-border rounded-xl p-4 space-y-4 shadow-sm"
-      >
+      </SettingsPanel>
+      <SettingsSectionHeader
+        compact
+        title={t("settings.prompts.behaviorTitle")}
+        description={t("settings.prompts.behaviorSubtitle")}
+      />
+      <SettingsPanel id="setting-personalization-system">
         <div className="space-y-2">
           <label htmlFor="global-system-prompt" className="text-sm font-medium text-text-primary block">
             {t("settings.prompts.globalPrompt")}
@@ -127,7 +123,7 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
             </button>
           )}
         </div>
-      </div>
+      </SettingsPanel>
     </>
   );
 };

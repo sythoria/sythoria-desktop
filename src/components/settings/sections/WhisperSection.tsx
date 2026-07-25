@@ -19,6 +19,7 @@ import {
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
+import { SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { useModelStore } from "../../../store/useModelStore";
 
 export function WhisperSection() {
@@ -92,10 +93,7 @@ export function WhisperSection() {
 
   return (
     <div id="setting-whisper-voice" className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.voice.title")}</h3>
-        <p className="text-xs text-text-muted">{t("settings.voice.subtitle")}</p>
-      </div>
+      <SettingsSectionHeader title={t("settings.voice.title")} description={t("settings.voice.subtitle")} />
 
       <div className="bg-surface-elevated border border-border/60 rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between">

@@ -1,11 +1,10 @@
 import { useState, useCallback } from "react";
-import { motion } from "motion/react";
 import { Search, Filter, Copy, X, Check } from "lucide-react";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { LogEntry, LogSource } from "../../../types/log";
 import { clearLogs } from "../../../utils/logger";
 import { useTranslation } from "../../../utils/i18n";
 import { Select } from "../../ui/Select";
+import { SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 const LOG_SOURCE_OPTIONS: { value: LogSource | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -139,38 +138,27 @@ export const LogsSection = ({
 
   return (
     <div id="setting-logs-viewer" className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold tracking-tight text-text-primary mb-1">{t("settings.logs.title")}</h3>
-          <p className="text-xs text-text-muted">{t("settings.logs.subtitle")}</p>
-        </div>{" "}
-        <div className="flex items-center gap-2">
-          <motion.button
-            onClick={handleCopyLogs}
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            transition={springs.snappy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-            aria-label={t("settings.logs.copy")}
-          >
-            {copiedLogs ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-            <span>{copiedLogs ? t("settings.logs.copied") : t("settings.logs.copy")}</span>
-          </motion.button>
-          <motion.button
-            onClick={() => {
-              clearLogs();
-            }}
-            whileHover={{ scale: motionTokens.scale.pop }}
-            whileTap={{ scale: motionTokens.scale.press }}
-            transition={springs.snappy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
-            aria-label={t("settings.logs.clear")}
-          >
-            <X size={14} />
-            <span>{t("settings.logs.clear")}</span>
-          </motion.button>
-        </div>
-      </div>
+      <SettingsSectionHeader
+        title={t("settings.logs.title")}
+        description={t("settings.logs.subtitle")}
+        actions={
+          <div className="flex items-center gap-2">
+            <SettingsHeaderButton onClick={handleCopyLogs} ariaLabel={t("settings.logs.copy")}>
+              {copiedLogs ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              <span>{copiedLogs ? t("settings.logs.copied") : t("settings.logs.copy")}</span>
+            </SettingsHeaderButton>
+            <SettingsHeaderButton
+              onClick={() => {
+                clearLogs();
+              }}
+              ariaLabel={t("settings.logs.clear")}
+            >
+              <X size={14} />
+              <span>{t("settings.logs.clear")}</span>
+            </SettingsHeaderButton>
+          </div>
+        }
+      />
 
       <div className="bg-surface border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="flex items-center gap-2 p-3 border-b border-border/50 flex-wrap">
