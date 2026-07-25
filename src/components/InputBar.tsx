@@ -576,6 +576,13 @@ export default memo(function InputBar({
   const radius = 7;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
+  const composerVisualStateClasses = `${
+    conversation?.isTemporary
+      ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
+      : ""
+  } ${isOverLimit ? "ring-red-500/50 border-red-500/30" : ""} ${
+    isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""
+  } ${isDragging ? "ring-accent border-accent bg-active/40" : ""}`;
 
   return (
     <div
@@ -610,15 +617,11 @@ export default memo(function InputBar({
                 e.preventDefault();
                 setIsDragging(false);
               }}
-              className={`flex flex-col items-stretch bg-input border border-input-border rounded-3xl px-4 py-2.5 transition-all focus-within:border-accent/60 ${
-                conversation?.isTemporary
-                  ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
-                  : ""
-              } ${
-                isOverLimit ? "ring-red-500/50 border-red-500/30" : ""
-              } ${isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""} ${
-                isDragging ? "ring-accent border-accent bg-active/40 scale-[1.01]" : ""
-              }`}
+              className={`group/input-bar relative flex flex-col items-stretch transition-all ${
+                isProjectsEnabled
+                  ? ""
+                  : `rounded-3xl border border-input-border bg-input px-4 py-2.5 focus-within:border-accent/60 ${composerVisualStateClasses}`
+              } ${isDragging ? "scale-[1.01]" : ""}`}
             >
               {/* Hidden input element */}
               <input
@@ -631,21 +634,68 @@ export default memo(function InputBar({
                 className="hidden"
               />
 
-              {/* Attachments strip */}
-              <AnimatePresence>
-                {attachments.length > 0 && (
-                  <motion.div
-                    layout
-                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    transition={springs.gentle}
-                    className="w-full overflow-hidden"
-                  >
-                    <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
-                      {attachments.map((a) => {
-                        const isImg = a.kind === "image" && a.dataUrl;
-                        if (isImg) {
+              <div
+                className={
+                  isProjectsEnabled
+                    ? `relative z-10 flex flex-col items-stretch rounded-3xl border border-input-border bg-input px-4 py-2.5 transition-all after:pointer-events-none after:absolute after:-bottom-px after:left-6 after:right-6 after:h-[2px] ${
+                        conversation?.isTemporary ? "after:bg-accent/[0.03]" : "after:bg-input"
+                      } group-focus-within/input-bar:border-accent/60 ${composerVisualStateClasses}`
+                    : "contents"
+                }
+              >
+                {/* Attachments strip */}
+                <AnimatePresence>
+                  {attachments.length > 0 && (
+                    <motion.div
+                      layout
+                      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                      animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
+                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                      transition={springs.gentle}
+                      className="w-full overflow-hidden"
+                    >
+                      <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
+                        {attachments.map((a) => {
+                          const isImg = a.kind === "image" && a.dataUrl;
+                          if (isImg) {
+                            return (
+                              <motion.div
+                                layout
+                                key={a.id}
+                                initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                                transition={springs.gentle}
+                                onClick={() => {
+                                  const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
+                                  if (imgIdx !== -1) {
+                                    setPreviewImageIndex(imgIdx);
+                                  }
+                                }}
+                                className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
+                                title={`View ${a.name}`}
+                              >
+                                <img
+                                  src={a.dataUrl}
+                                  alt={a.name}
+                                  className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
+                                />
+                                <span className="sr-only">{a.name}</span>
+                                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAttachments((prev) => prev.filter((item) => item.id !== a.id));
+                                  }}
+                                  className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
+                                  title={t("chat.removeAttachment") || "Remove attachment"}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </motion.div>
+                            );
+                          }
+
                           return (
                             <motion.div
                               layout
@@ -654,368 +704,343 @@ export default memo(function InputBar({
                               animate={{ opacity: 1, scale: 1 }}
                               exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
                               transition={springs.gentle}
-                              onClick={() => {
-                                const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-                                if (imgIdx !== -1) {
-                                  setPreviewImageIndex(imgIdx);
-                                }
-                              }}
-                              className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
-                              title={`View ${a.name}`}
+                              className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                             >
-                              <img
-                                src={a.dataUrl}
-                                alt={a.name}
-                                className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
-                              />
-                              <span className="sr-only">{a.name}</span>
-                              <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                              {a.kind === "image" ? (
+                                <ImageIcon size={13} className="text-text-muted shrink-0" />
+                              ) : (
+                                <FileTextIcon size={13} className="text-text-muted shrink-0" />
+                              )}
+                              <span className="max-w-[120px] truncate font-medium" title={a.name}>
+                                {a.name}
+                              </span>
+                              <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setAttachments((prev) => prev.filter((item) => item.id !== a.id));
                                 }}
-                                className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
                                 title={t("chat.removeAttachment") || "Remove attachment"}
                               >
                                 <X size={12} />
                               </button>
                             </motion.div>
                           );
-                        }
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-                        return (
-                          <motion.div
-                            layout
-                            key={a.id}
-                            initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                            transition={springs.gentle}
-                            className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
-                          >
-                            {a.kind === "image" ? (
-                              <ImageIcon size={13} className="text-text-muted shrink-0" />
-                            ) : (
-                              <FileTextIcon size={13} className="text-text-muted shrink-0" />
-                            )}
-                            <span className="max-w-[120px] truncate font-medium" title={a.name}>
-                              {a.name}
-                            </span>
-                            <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                              }}
-                              className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
-                              title={t("chat.removeAttachment") || "Remove attachment"}
-                            >
-                              <X size={12} />
-                            </button>
-                          </motion.div>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 w-full lg:flex-nowrap">
-                {/* Plus / tools button */}
-                <div ref={plusDropdownRef} className="relative shrink-0">
-                  <button
-                    onClick={() => setPlusOpen(!plusOpen)}
-                    className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
-                      anyToolActive
-                        ? "text-text-primary bg-active"
-                        : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                    }`}
-                    aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
-                    title={t("tooltip.attachOrSearch") || "Attach or search"}
-                    aria-expanded={plusOpen}
-                    aria-haspopup="menu"
-                  >
-                    <Plus size={20} />
-                  </button>
-
-                  <AnimatePresence>
-                    {plusOpen && (
-                      <motion.div
-                        className="popup-surface absolute bottom-full left-0 mb-2 w-56 border border-border rounded-xl p-1 z-50"
-                        style={{ boxShadow: "var(--shadow-xl)" }}
-                        role="menu"
-                        aria-label="Attachment and search options"
-                        initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                        transition={springs.gentle}
-                      >
-                        <button
-                          onClick={() => {
-                            setPlusOpen(false);
-                            fileInputRef.current?.click();
-                          }}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                          role="menuitem"
-                        >
-                          <Paperclip size={15} className="text-text-muted" />
-                          <span>{t("chat.addFile") || "Add File"}</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            onToggleSearch(!isSearchEnabled);
-                            setPlusOpen(false);
-                          }}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                            isSearchEnabled
-                              ? "text-text-primary bg-active"
-                              : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                          }`}
-                          role="menuitemcheckbox"
-                          aria-checked={isSearchEnabled}
-                        >
-                          <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
-                          <span>{t("chat.webSearch") || "Web Search"}</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setPlusOpen(false);
-                            setSubagentModalOpen(true);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                          role="menuitem"
-                        >
-                          <Bot size={15} className="text-text-muted" />
-                          <span>Invoke Subagent</span>
-                        </button>
-                        {connectedMcpServers.length > 0 && (
-                          <>
-                            <div className="border-t border-border my-1 -mx-1" />
-                            {connectedMcpServers.map((server) => {
-                              const isEnabled = enabledMcpServerIds.has(server.id);
-                              return (
-                                <button
-                                  key={server.id}
-                                  onClick={() => {
-                                    onToggleMcpServer(server.id);
-                                  }}
-                                  className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                                    isEnabled
-                                      ? "text-text-primary bg-active"
-                                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                                  }`}
-                                  role="menuitemcheckbox"
-                                  aria-checked={isEnabled}
-                                >
-                                  <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
-                                  <span className="truncate flex-1 text-left">{server.name}</span>
-                                  {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
-                                </button>
-                              );
-                            })}
-                          </>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <textarea
-                  id="chat-input"
-                  ref={textareaRef}
-                  value={value}
-                  onChange={handleChange}
-                  onKeyDown={handleKeyDown}
-                  onPaste={(e) => {
-                    if (disabled || isStreaming) return;
-                    const clipboardData = e.clipboardData;
-                    const types = clipboardData.types;
-                    const isFileOrImage =
-                      types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
-
-                    if (isFileOrImage) {
-                      e.preventDefault();
-                      handleClipboardPaste(clipboardData);
-                    }
-                  }}
-                  placeholder={
-                    isCompareMode
-                      ? t("chat.comparePlaceholder") || "Ask all models..."
-                      : t("chat.placeholder") || "Ask for follow-up changes..."
-                  }
-                  rows={1}
-                  disabled={disabled}
-                  aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
-                  aria-invalid={isOverLimit}
-                  className={`order-first basis-full min-w-0 bg-transparent lg:order-none lg:basis-auto lg:flex-1 ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
-                    voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
-                  }`}
-                />
-
-                {/* Context Window Radial Indicator */}
-                {showContextWindow && currentModel && !isCompareMode && (
-                  <div className="relative group shrink-0 flex items-center justify-center">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 w-full">
+                  {/* Plus / tools button */}
+                  <div ref={plusDropdownRef} className="relative shrink-0">
                     <button
-                      type="button"
-                      className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
-                      aria-label="Context Window Usage"
+                      onClick={() => setPlusOpen(!plusOpen)}
+                      className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
+                        anyToolActive
+                          ? "text-text-primary bg-active"
+                          : "text-text-muted hover:text-text-secondary hover:bg-hover"
+                      }`}
+                      aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
+                      title={t("tooltip.attachOrSearch") || "Attach or search"}
+                      aria-expanded={plusOpen}
+                      aria-haspopup="menu"
                     >
-                      <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
-                        <circle
-                          className="text-border/60"
-                          strokeWidth="2"
-                          stroke="currentColor"
-                          fill="transparent"
-                          r={radius}
-                          cx="10"
-                          cy="10"
-                        />
-                        <circle
-                          className={
-                            percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
-                          }
-                          strokeWidth="2"
-                          strokeDasharray={circumference}
-                          strokeDashoffset={strokeDashoffset}
-                          strokeLinecap="round"
-                          stroke="currentColor"
-                          fill="transparent"
-                          r={radius}
-                          cx="10"
-                          cy="10"
-                        />
-                      </svg>
+                      <Plus size={20} />
                     </button>
 
-                    {/* Hover Details Card */}
-                    <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
-                      <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
-                        <span>Context Window</span>
-                        <span
-                          className={
-                            percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
-                          }
+                    <AnimatePresence>
+                      {plusOpen && (
+                        <motion.div
+                          className="popup-surface absolute bottom-full left-0 mb-2 w-56 border border-border rounded-xl p-1 z-50"
+                          style={{ boxShadow: "var(--shadow-xl)" }}
+                          role="menu"
+                          aria-label="Attachment and search options"
+                          initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                          transition={springs.gentle}
                         >
-                          {percentage.toFixed(0)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
-                        <div
-                          className={`h-full ${percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        />
-                      </div>
-                      <div className="space-y-1.5 text-[11px] text-text-secondary">
-                        <div className="flex justify-between">
-                          <span>Usage:</span>
-                          <span className="font-semibold font-mono text-text-primary">
-                            {estimatedTokens.toLocaleString()} /{" "}
-                            {contextSizeSet ? contextSize.toLocaleString() : "128,000"} tokens
+                          <button
+                            onClick={() => {
+                              setPlusOpen(false);
+                              fileInputRef.current?.click();
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                            role="menuitem"
+                          >
+                            <Paperclip size={15} className="text-text-muted" />
+                            <span>{t("chat.addFile") || "Add File"}</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              onToggleSearch(!isSearchEnabled);
+                              setPlusOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                              isSearchEnabled
+                                ? "text-text-primary bg-active"
+                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                            }`}
+                            role="menuitemcheckbox"
+                            aria-checked={isSearchEnabled}
+                          >
+                            <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
+                            <span>{t("chat.webSearch") || "Web Search"}</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPlusOpen(false);
+                              setSubagentModalOpen(true);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                            role="menuitem"
+                          >
+                            <Bot size={15} className="text-text-muted" />
+                            <span>Invoke Subagent</span>
+                          </button>
+                          {connectedMcpServers.length > 0 && (
+                            <>
+                              <div className="border-t border-border my-1 -mx-1" />
+                              {connectedMcpServers.map((server) => {
+                                const isEnabled = enabledMcpServerIds.has(server.id);
+                                return (
+                                  <button
+                                    key={server.id}
+                                    onClick={() => {
+                                      onToggleMcpServer(server.id);
+                                    }}
+                                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                                      isEnabled
+                                        ? "text-text-primary bg-active"
+                                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
+                                    }`}
+                                    role="menuitemcheckbox"
+                                    aria-checked={isEnabled}
+                                  >
+                                    <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
+                                    <span className="truncate flex-1 text-left">{server.name}</span>
+                                    {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="flex-1" aria-hidden="true" />
+
+                  <textarea
+                    id="chat-input"
+                    ref={textareaRef}
+                    value={value}
+                    onChange={handleChange}
+                    onKeyDown={handleKeyDown}
+                    onPaste={(e) => {
+                      if (disabled || isStreaming) return;
+                      const clipboardData = e.clipboardData;
+                      const types = clipboardData.types;
+                      const isFileOrImage =
+                        types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
+
+                      if (isFileOrImage) {
+                        e.preventDefault();
+                        handleClipboardPaste(clipboardData);
+                      }
+                    }}
+                    placeholder={
+                      isCompareMode
+                        ? t("chat.comparePlaceholder") || "Ask all models..."
+                        : t("chat.placeholder") || "Ask for follow-up changes..."
+                    }
+                    rows={1}
+                    disabled={disabled}
+                    aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
+                    aria-invalid={isOverLimit}
+                    className={`order-first mb-1 basis-full min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                      voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
+                    }`}
+                  />
+
+                  {/* Context Window Radial Indicator */}
+                  {showContextWindow && currentModel && !isCompareMode && (
+                    <div className="relative group shrink-0 flex items-center justify-center">
+                      <button
+                        type="button"
+                        className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
+                        aria-label="Context Window Usage"
+                      >
+                        <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                          <circle
+                            className="text-border/60"
+                            strokeWidth="2"
+                            stroke="currentColor"
+                            fill="transparent"
+                            r={radius}
+                            cx="10"
+                            cy="10"
+                          />
+                          <circle
+                            className={
+                              percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
+                            }
+                            strokeWidth="2"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={strokeDashoffset}
+                            strokeLinecap="round"
+                            stroke="currentColor"
+                            fill="transparent"
+                            r={radius}
+                            cx="10"
+                            cy="10"
+                          />
+                        </svg>
+                      </button>
+
+                      {/* Hover Details Card */}
+                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
+                        <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
+                          <span>Context Window</span>
+                          <span
+                            className={
+                              percentage > 90 ? "text-red-500" : percentage > 75 ? "text-amber-500" : "text-accent"
+                            }
+                          >
+                            {percentage.toFixed(0)}%
                           </span>
                         </div>
-                        {contextSizeSet ? (
-                          <>
-                            <div className="h-px bg-border/40 my-1" />
-                            <div className="flex justify-between">
-                              <span>System Prompt:</span>
-                              <span className="font-mono text-text-primary">
-                                {tokenBreakdown.systemPromptTokens.toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Messages:</span>
-                              <span className="font-mono text-text-primary">
-                                {tokenBreakdown.messagesTokens.toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Attachments:</span>
-                              <span className="font-mono text-text-primary">
-                                {tokenBreakdown.attachmentsTokens.toLocaleString()}
-                              </span>
-                            </div>
-                            <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
-                              <span>Remaining:</span>
-                              <span className="font-semibold font-mono text-text-primary">
-                                {Math.max(0, contextSize - estimatedTokens).toLocaleString()}
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
-                            No context limit configured for this model. Click Settings &gt; Models to configure it.
-                          </p>
-                        )}
+                        <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
+                          <div
+                            className={`h-full ${percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
+                            style={{ width: `${Math.min(percentage, 100)}%` }}
+                          />
+                        </div>
+                        <div className="space-y-1.5 text-[11px] text-text-secondary">
+                          <div className="flex justify-between">
+                            <span>Usage:</span>
+                            <span className="font-semibold font-mono text-text-primary">
+                              {estimatedTokens.toLocaleString()} /{" "}
+                              {contextSizeSet ? contextSize.toLocaleString() : "128,000"} tokens
+                            </span>
+                          </div>
+                          {contextSizeSet ? (
+                            <>
+                              <div className="h-px bg-border/40 my-1" />
+                              <div className="flex justify-between">
+                                <span>System Prompt:</span>
+                                <span className="font-mono text-text-primary">
+                                  {tokenBreakdown.systemPromptTokens.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Messages:</span>
+                                <span className="font-mono text-text-primary">
+                                  {tokenBreakdown.messagesTokens.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Attachments:</span>
+                                <span className="font-mono text-text-primary">
+                                  {tokenBreakdown.attachmentsTokens.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
+                                <span>Remaining:</span>
+                                <span className="font-semibold font-mono text-text-primary">
+                                  {Math.max(0, contextSize - estimatedTokens).toLocaleString()}
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
+                              No context limit configured for this model. Click Settings &gt; Models to configure it.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Each comparison column owns its model and thinking settings. */}
-                {!isCompareMode && (
-                  <ResponseSettingsSelector
-                    models={models}
-                    selectedModel={selectedModel}
-                    onModelChange={onModelChange}
-                    modelStatuses={modelStatuses}
-                    buttonId="model-selector-button"
-                  />
-                )}
+                  {/* Each comparison column owns its model and thinking settings. */}
+                  {!isCompareMode && (
+                    <ResponseSettingsSelector
+                      models={models}
+                      selectedModel={selectedModel}
+                      onModelChange={onModelChange}
+                      modelStatuses={modelStatuses}
+                      buttonId="model-selector-button"
+                    />
+                  )}
 
-                {/* Voice-to-Text Button */}
-                {isVoiceEnabled && (
+                  {/* Voice-to-Text Button */}
+                  {isVoiceEnabled && (
+                    <button
+                      type="button"
+                      onClick={handleToggleVoice}
+                      disabled={isTranscribing}
+                      className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
+                        isRecording
+                          ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                          : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
+                      }`}
+                      aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                      title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                    >
+                      {isTranscribing ? (
+                        <Loader2 size={16} className="animate-spin text-accent" />
+                      ) : (
+                        <Mic size={16} className={isRecording ? "text-white" : ""} />
+                      )}
+                    </button>
+                  )}
+
+                  {/* Send / Stop button */}
                   <button
-                    type="button"
-                    onClick={handleToggleVoice}
-                    disabled={isTranscribing}
-                    className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
-                      isRecording
-                        ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                        : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
+                    onClick={isStreaming ? onStop : handleSubmit}
+                    disabled={!isStreaming && !canSend}
+                    className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
+                      isStreaming
+                        ? "bg-red-500/90 hover:bg-red-600 text-white"
+                        : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
                     }`}
-                    aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
-                    title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                    aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
+                    title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
                   >
-                    {isTranscribing ? (
-                      <Loader2 size={16} className="animate-spin text-accent" />
+                    {isStreaming ? (
+                      <Square size={16} className="fill-current" />
                     ) : (
-                      <Mic size={16} className={isRecording ? "text-white" : ""} />
+                      <ArrowUp size={16} strokeWidth={2.5} />
                     )}
                   </button>
-                )}
-
-                {/* Send / Stop button */}
-                <button
-                  onClick={isStreaming ? onStop : handleSubmit}
-                  disabled={!isStreaming && !canSend}
-                  className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
-                    isStreaming
-                      ? "bg-red-500/90 hover:bg-red-600 text-white"
-                      : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
-                  }`}
-                  aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
-                  title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
-                >
-                  {isStreaming ? (
-                    <Square size={16} className="fill-current" />
-                  ) : (
-                    <ArrowUp size={16} strokeWidth={2.5} />
-                  )}
-                </button>
+                </div>
               </div>
 
               {/* Active Tools and Context Row */}
               {(isProjectsEnabled || isSearchEnabled || enabledServers.length > 0) && (
-                <div className="flex flex-wrap items-center gap-2 w-full mt-2 pt-2 border-t border-border/30">
+                <div
+                  className={`relative flex flex-wrap items-center gap-2 ${
+                    isProjectsEnabled
+                      ? `-mt-px mx-6 min-h-10 w-[calc(100%-3rem)] rounded-b-2xl border-x border-b border-input-border bg-input px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
+                          conversation?.isTemporary
+                            ? "border-dashed before:pointer-events-none before:absolute before:inset-0 before:rounded-b-2xl before:bg-accent/[0.03]"
+                            : ""
+                        }`
+                      : "mt-2 w-full border-t border-border/30 pt-2"
+                  }`}
+                >
                   {/* Project Row */}
                   {isProjectsEnabled && (
                     <div ref={projectDropdownRef} className="relative">
                       <button
                         onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-colors ${
                           activeProject
-                            ? "text-accent bg-accent-soft/40 hover:bg-accent-soft"
+                            ? "text-text-primary hover:bg-hover"
                             : "text-text-secondary hover:bg-hover hover:text-text-primary"
                         }`}
                         aria-label="Project context"
