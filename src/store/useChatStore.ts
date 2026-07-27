@@ -183,6 +183,7 @@ interface ChatState {
   compareIds: string[];
   isCompareMode: boolean;
   activeStreamContent: Record<string, string>;
+  activeStreamReasoning: Record<string, string>;
   activeStreamThinkingStart: Record<string, number>;
   activeStreamThinkingEnd: Record<string, number>;
   activeStreamStartTime: Record<string, number>;
@@ -249,6 +250,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   compareIds: [],
   isCompareMode: false,
   activeStreamContent: {},
+  activeStreamReasoning: {},
   activeStreamThinkingStart: {},
   activeStreamThinkingEnd: {},
   activeStreamStartTime: {},
@@ -979,7 +981,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           }
           return ids;
-      })()
+        })()
       : null;
 
     const uiStore = useUIStore.getState();
@@ -1010,6 +1012,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
             return {
               ...m,
+              content: m.content + (state.activeStreamContent[c.id] || ""),
+              reasoningContent: (m.reasoningContent || "") + (state.activeStreamReasoning[c.id] || "") || undefined,
               isStreaming: false,
               thinkingDuration: m.thinkingDuration ?? thinkingDuration,
             };
@@ -1038,13 +1042,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
       const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
       const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
+      const nextActiveStreamContent = { ...state.activeStreamContent };
+      const nextActiveStreamReasoning = { ...state.activeStreamReasoning };
       if (targetConvIds) {
         for (const convId of targetConvIds) {
+          delete nextActiveStreamContent[convId];
+          delete nextActiveStreamReasoning[convId];
           delete nextActiveStreamThinkingStart[convId];
           delete nextActiveStreamThinkingEnd[convId];
           delete nextActiveStreamStartTime[convId];
         }
       } else {
+        Object.keys(nextActiveStreamContent).forEach((k) => delete nextActiveStreamContent[k]);
+        Object.keys(nextActiveStreamReasoning).forEach((k) => delete nextActiveStreamReasoning[k]);
         Object.keys(nextActiveStreamThinkingStart).forEach((k) => delete nextActiveStreamThinkingStart[k]);
         Object.keys(nextActiveStreamThinkingEnd).forEach((k) => delete nextActiveStreamThinkingEnd[k]);
         Object.keys(nextActiveStreamStartTime).forEach((k) => delete nextActiveStreamStartTime[k]);
@@ -1056,6 +1066,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         generationLabel: stillStreaming ? state.generationLabel : "",
         generationByConversation: nextGenByConv,
         conversations: convs,
+        activeStreamContent: nextActiveStreamContent,
+        activeStreamReasoning: nextActiveStreamReasoning,
         activeStreamThinkingStart: nextActiveStreamThinkingStart,
         activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
         activeStreamStartTime: nextActiveStreamStartTime,
@@ -1432,6 +1444,10 @@ async function sendNormal(
   };
 
   set((state) => {
+    const nextContent = { ...state.activeStreamContent };
+    delete nextContent[convId];
+    const nextReasoning = { ...state.activeStreamReasoning };
+    delete nextReasoning[convId];
     const nextStart = { ...state.activeStreamThinkingStart };
     delete nextStart[convId];
     const nextEnd = { ...state.activeStreamThinkingEnd };
@@ -1444,6 +1460,8 @@ async function sendNormal(
       generationLabel: "Loading",
       generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
       conversations: updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, assistantMsg]),
+      activeStreamContent: nextContent,
+      activeStreamReasoning: nextReasoning,
       activeStreamThinkingStart: nextStart,
       activeStreamThinkingEnd: nextEnd,
       activeStreamStartTime: nextStreamStartTime,
@@ -1464,90 +1482,39 @@ async function sendNormal(
   try {
     cleanupStream = await modelStore.ensureStreamListeners(
       convId,
-      (content) => {
+      ({ kind, content }) => {
         set((state) => {
-          const newState: Partial<ChatState> = {};
-          let nextGenerationByConversation = state.generationByConversation;
-
-          const currentStreamContent = state.activeStreamContent[convId] || "";
-          const fullContent = currentStreamContent + content;
-
-          // Track thinking start and end timestamps
           const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
           const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
-
-          // Track stream start timestamp when we get the first chunk
           const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
-          if (!nextActiveStreamStartTime[convId]) {
-            nextActiveStreamStartTime[convId] = Date.now();
-          }
+          nextActiveStreamStartTime[convId] ||= Date.now();
 
-          if (fullContent.includes("<reasoning>") && !nextActiveStreamThinkingStart[convId]) {
-            nextActiveStreamThinkingStart[convId] = Date.now();
-          }
-          if (
-            fullContent.includes("</reasoning>") &&
-            nextActiveStreamThinkingStart[convId] &&
-            !nextActiveStreamThinkingEnd[convId]
-          ) {
+          const isReasoning = kind === "reasoning";
+          if (isReasoning) {
+            nextActiveStreamThinkingStart[convId] ||= Date.now();
+          } else if (nextActiveStreamThinkingStart[convId] && !nextActiveStreamThinkingEnd[convId]) {
             nextActiveStreamThinkingEnd[convId] = Date.now();
           }
-
-          if (state.generationState === "loading") {
-            if (fullContent.includes("<reasoning>")) {
-              newState.generationState = "thinking";
-              newState.generationLabel = "Thinking";
-              nextGenerationByConversation = setConversationGeneration(
-                state,
-                convId,
-                "thinking" as GenerationState,
-                "Thinking",
-              );
-            } else if (content.trim() !== "") {
-              newState.generationState = "responding";
-              newState.generationLabel = "Responding";
-              nextGenerationByConversation = setConversationGeneration(
-                state,
-                convId,
-                "responding" as GenerationState,
-                "Responding",
-              );
-            }
-          } else if (state.generationState === "thinking" && !fullContent.includes("<reasoning>")) {
-            // Fallback in case of some weird chunking, but we stay in thinking until done if we saw it
-          } else if (
-            state.generationState === "thinking" &&
-            fullContent.includes("</reasoning>") &&
-            content.trim() !== "" &&
-            !content.includes("</reasoning>")
-          ) {
-            // If we already closed reasoning and now getting new content, we are responding
-          }
-
-          if (
-            state.generationState === "thinking" &&
-            fullContent.includes("</reasoning>") &&
-            content.trim() !== "" &&
-            !content.includes("</reasoning>") &&
-            !content.includes("<reasoning>")
-          ) {
-            newState.generationState = "responding";
-            newState.generationLabel = "Responding";
-            nextGenerationByConversation = setConversationGeneration(
-              state,
-              convId,
-              "responding" as GenerationState,
-              "Responding",
-            );
-          }
+          const generationState = isReasoning ? ("thinking" as GenerationState) : ("responding" as GenerationState);
+          const generationLabel = isReasoning ? "Thinking" : "Responding";
 
           return {
-            ...newState,
-            generationByConversation: nextGenerationByConversation,
-            activeStreamContent: {
-              ...state.activeStreamContent,
-              [convId]: fullContent,
-            },
+            generationState,
+            generationLabel,
+            generationByConversation: setConversationGeneration(state, convId, generationState, generationLabel),
+            ...(isReasoning
+              ? {
+                  activeStreamReasoning: {
+                    ...state.activeStreamReasoning,
+                    [convId]: (state.activeStreamReasoning[convId] || "") + content,
+                  },
+                }
+              : {
+                  activeStreamContent: {
+                    ...state.activeStreamContent,
+                    [convId]: (state.activeStreamContent[convId] || "") + content,
+                  },
+                }),
             activeStreamThinkingStart: nextActiveStreamThinkingStart,
             activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
             activeStreamStartTime: nextActiveStreamStartTime,
@@ -1560,6 +1527,7 @@ async function sendNormal(
         });
         set((state) => {
           const streamContent = state.activeStreamContent[convId] || "";
+          const streamReasoning = state.activeStreamReasoning[convId] || "";
           let thinkingDuration: number | undefined = undefined;
           const start = state.activeStreamThinkingStart?.[convId];
           if (start) {
@@ -1577,6 +1545,7 @@ async function sendNormal(
               updated[idx] = {
                 ...last,
                 content: last.content + streamContent,
+                reasoningContent: (last.reasoningContent || "") + streamReasoning || undefined,
                 isStreaming: false,
                 thinkingDuration: last.thinkingDuration ?? thinkingDuration,
               };
@@ -1587,6 +1556,8 @@ async function sendNormal(
 
           const nextActiveStreamContent = { ...state.activeStreamContent };
           delete nextActiveStreamContent[convId];
+          const nextActiveStreamReasoning = { ...state.activeStreamReasoning };
+          delete nextActiveStreamReasoning[convId];
 
           const nextStart = { ...state.activeStreamThinkingStart };
           delete nextStart[convId];
@@ -1598,6 +1569,7 @@ async function sendNormal(
           return {
             conversations,
             activeStreamContent: nextActiveStreamContent,
+            activeStreamReasoning: nextActiveStreamReasoning,
             activeStreamThinkingStart: nextStart,
             activeStreamThinkingEnd: nextEnd,
             activeStreamStartTime: nextStreamStartTime,

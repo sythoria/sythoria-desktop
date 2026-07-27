@@ -102,16 +102,8 @@ fn thinking_params(
 
 #[derive(Debug, Deserialize)]
 pub struct AnthropicResponse {
-    pub content: Vec<AnthropicContent>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AnthropicContent {
-    pub r#type: String,
-    pub text: Option<String>,
-    pub id: Option<String>,
-    pub name: Option<String>,
-    pub input: Option<serde_json::Value>,
+    pub content: Vec<serde_json::Value>,
+    pub stop_reason: Option<String>,
 }
 
 pub fn convert_tools(tools_str: &str) -> Option<Vec<serde_json::Value>> {
@@ -144,7 +136,8 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
             continue;
         }
 
-        let mut anthropic_content = msg.anthropic_content.clone().unwrap_or_default();
+        let native_anthropic_content = msg.anthropic_content.clone();
+        let mut anthropic_content = native_anthropic_content.clone().unwrap_or_default();
 
         if msg.role == "tool" {
             let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
@@ -164,61 +157,68 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
             continue;
         }
 
-        if let Some(val) = msg.content.clone() {
-            if let Some(s) = val.as_str() {
-                if !s.is_empty() {
-                    anthropic_content.push(serde_json::json!({
-                        "type": "text",
-                        "text": s
-                    }));
-                }
-            } else if let Some(arr) = val.as_array() {
-                for item in arr {
-                    if item.get("type").and_then(|v| v.as_str()) == Some("image_url") {
-                        if let Some(img_url_obj) = item.get("image_url") {
-                            if let Some(url_str) = img_url_obj.get("url").and_then(|v| v.as_str()) {
-                                if let Some(data) = url_str.strip_prefix("data:") {
-                                    if let Some((mime, rest)) = data.split_once(';') {
-                                        if let Some(base64_data) = rest.strip_prefix("base64,") {
-                                            anthropic_content.push(serde_json::json!({
-                                                "type": "image",
-                                                "source": {
-                                                    "type": "base64",
-                                                    "media_type": mime,
-                                                    "data": base64_data
-                                                }
-                                            }));
+        if native_anthropic_content.is_none() {
+            if let Some(val) = msg.content.clone() {
+                if let Some(s) = val.as_str() {
+                    if !s.is_empty() {
+                        anthropic_content.push(serde_json::json!({
+                            "type": "text",
+                            "text": s
+                        }));
+                    }
+                } else if let Some(arr) = val.as_array() {
+                    for item in arr {
+                        if item.get("type").and_then(|v| v.as_str()) == Some("image_url") {
+                            if let Some(img_url_obj) = item.get("image_url") {
+                                if let Some(url_str) =
+                                    img_url_obj.get("url").and_then(|v| v.as_str())
+                                {
+                                    if let Some(data) = url_str.strip_prefix("data:") {
+                                        if let Some((mime, rest)) = data.split_once(';') {
+                                            if let Some(base64_data) = rest.strip_prefix("base64,")
+                                            {
+                                                anthropic_content.push(serde_json::json!({
+                                                    "type": "image",
+                                                    "source": {
+                                                        "type": "base64",
+                                                        "media_type": mime,
+                                                        "data": base64_data
+                                                    }
+                                                }));
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    } else if item.get("type").and_then(|v| v.as_str()) == Some("text") {
-                        if let Some(text) = item.get("text") {
-                            anthropic_content.push(serde_json::json!({
-                                "type": "text",
-                                "text": text
-                            }));
+                        } else if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                            if let Some(text) = item.get("text") {
+                                anthropic_content.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": text
+                                }));
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if let Some(tool_calls) = msg.tool_calls.clone() {
-            for tc in tool_calls {
-                let input: serde_json::Value =
-                    serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::json!({}));
-                anthropic_content.push(serde_json::json!({
-                    "type": "tool_use",
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "input": input
-                }));
+            if let Some(tool_calls) = msg.tool_calls.clone() {
+                for tc in tool_calls {
+                    let input: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                        .unwrap_or(serde_json::json!({}));
+                    anthropic_content.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "input": input
+                    }));
+                }
             }
         }
 
-        let content_json = if anthropic_content.is_empty()
+        let content_json = if native_anthropic_content.is_some() {
+            serde_json::Value::Array(anthropic_content)
+        } else if anthropic_content.is_empty()
             && msg.role == "assistant"
             && msg.tool_calls.is_some()
         {
@@ -329,8 +329,8 @@ pub async fn chat_completion_anthropic(
 
     let mut full_text = String::new();
     for c in anthropic_resp.content {
-        if c.r#type == "text" {
-            if let Some(t) = c.text {
+        if c.get("type").and_then(|value| value.as_str()) == Some("text") {
+            if let Some(t) = c.get("text").and_then(|value| value.as_str()) {
                 full_text.push_str(&t);
             }
         }
@@ -394,15 +394,26 @@ pub async fn chat_completion_tools_anthropic(
         .map_err(|e| AppError::ParseError(e.to_string()))?;
 
     let mut full_text = String::new();
+    let mut full_reasoning = String::new();
     let mut tool_calls = Vec::new();
+    let native_content = anthropic_resp.content.clone();
 
     for c in anthropic_resp.content {
-        if c.r#type == "text" {
-            if let Some(t) = c.text {
+        let content_type = c.get("type").and_then(|value| value.as_str());
+        if content_type == Some("text") {
+            if let Some(t) = c.get("text").and_then(|value| value.as_str()) {
                 full_text.push_str(&t);
             }
-        } else if c.r#type == "tool_use" {
-            if let (Some(id), Some(name), Some(input)) = (c.id, c.name, c.input) {
+        } else if content_type == Some("thinking") {
+            if let Some(thinking) = c.get("thinking").and_then(|value| value.as_str()) {
+                full_reasoning.push_str(thinking);
+            }
+        } else if content_type == Some("tool_use") {
+            if let (Some(id), Some(name), Some(input)) = (
+                c.get("id").and_then(|value| value.as_str()),
+                c.get("name").and_then(|value| value.as_str()),
+                c.get("input"),
+            ) {
                 tool_calls.push(serde_json::json!({
                     "id": id,
                     "type": "function",
@@ -417,9 +428,12 @@ pub async fn chat_completion_tools_anthropic(
 
     let openai_response = serde_json::json!({
         "choices": [{
+            "finish_reason": anthropic_resp.stop_reason,
             "message": {
                 "content": if full_text.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(full_text) },
-                "tool_calls": if tool_calls.is_empty() { serde_json::Value::Null } else { serde_json::Value::Array(tool_calls) }
+                "reasoning": if full_reasoning.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(full_reasoning) },
+                "tool_calls": if tool_calls.is_empty() { serde_json::Value::Null } else { serde_json::Value::Array(tool_calls) },
+                "anthropic_content": native_content
             }
         }]
     });
@@ -500,8 +514,12 @@ pub async fn chat_stream_anthropic(
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(|content| {
-            stream_parser::emit_stream_chunk(&app, &stream_id, content);
+        parser.process_lines(|content, is_reasoning| {
+            if is_reasoning {
+                stream_parser::emit_stream_reasoning_chunk(&app, &stream_id, content);
+            } else {
+                stream_parser::emit_stream_chunk(&app, &stream_id, content);
+            }
         });
         match parser.terminal().clone() {
             stream_parser::AnthropicStreamTerminal::Streaming => {}
@@ -512,6 +530,14 @@ pub async fn chat_stream_anthropic(
         }
     }
 
+    if matches!(
+        parser.terminal(),
+        stream_parser::AnthropicStreamTerminal::Streaming
+    ) {
+        return Err(AppError::StreamError(
+            "Anthropic stream ended before message_stop.".to_string(),
+        ));
+    }
     Ok(parser.finalize())
 }
 
@@ -590,8 +616,12 @@ pub async fn chat_stream_tools_anthropic(
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
         parser.push_bytes(&chunk);
-        parser.process_lines(|content| {
-            stream_parser::emit_stream_chunk(&app, &stream_id, content);
+        parser.process_lines(|content, is_reasoning| {
+            if is_reasoning {
+                stream_parser::emit_stream_reasoning_chunk(&app, &stream_id, content);
+            } else {
+                stream_parser::emit_stream_chunk(&app, &stream_id, content);
+            }
         });
         match parser.terminal().clone() {
             stream_parser::AnthropicStreamTerminal::Streaming => {}
@@ -602,6 +632,14 @@ pub async fn chat_stream_tools_anthropic(
         }
     }
 
+    if matches!(
+        parser.terminal(),
+        stream_parser::AnthropicStreamTerminal::Streaming
+    ) {
+        return Err(AppError::StreamError(
+            "Anthropic tool stream ended before message_stop.".to_string(),
+        ));
+    }
     Ok(parser.finalize_tools())
 }
 
@@ -632,4 +670,43 @@ pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<boo
 
     let resp = request.send().await?;
     Ok(resp.status().is_success())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_assistant_content_is_replayed_without_reconstruction() {
+        let native = vec![
+            serde_json::json!({
+                "type": "thinking",
+                "thinking": "analysis",
+                "signature": "signed"
+            }),
+            serde_json::json!({
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "lookup",
+                "input": {"query": "weather"}
+            }),
+        ];
+        let message = ChatMessage {
+            role: "assistant".to_string(),
+            content: Some(serde_json::Value::String(
+                "This must not be duplicated.".to_string(),
+            )),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            anthropic_content: Some(native.clone()),
+            reasoning_details: None,
+            reasoning: None,
+        };
+
+        let (_, converted) = convert_messages(vec![message]);
+
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].content, serde_json::Value::Array(native));
+    }
 }

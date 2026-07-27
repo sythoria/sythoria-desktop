@@ -1374,9 +1374,18 @@ const MessageBubble = memo(function MessageBubble({
   const streamContent = useChatStore((s) =>
     isStreaming && message.role === "assistant" && conversationId ? s.activeStreamContent[conversationId] : undefined,
   );
+  const streamReasoning = useChatStore((s) =>
+    isStreaming && message.role === "assistant" && conversationId ? s.activeStreamReasoning[conversationId] : undefined,
+  );
   const combinedContent = streamContent !== undefined ? message.content + streamContent : message.content;
+  const combinedReasoning =
+    streamReasoning !== undefined ? (message.reasoningContent ?? "") + streamReasoning : message.reasoningContent;
 
-  const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(combinedContent, message.role);
+  const { reasoningContent, displayContent, hasOpenReasoning } = parseReasoning(
+    combinedContent,
+    message.role,
+    combinedReasoning,
+  );
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const imageAttachments = message.attachments?.filter((a) => a.kind === "image" && a.dataUrl) || [];
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
@@ -1478,11 +1487,7 @@ const MessageBubble = memo(function MessageBubble({
           <ReasoningBubble
             content={reasoningContent}
             isStreaming={isStreaming}
-            isReasoningComplete={
-              combinedContent.includes("</reasoning>") ||
-              combinedContent.includes("</thinking>") ||
-              combinedContent.includes("</thought>")
-            }
+            isReasoningComplete={!isStreaming || displayContent.length > 0}
             thinkingDuration={message.thinkingDuration}
             conversationId={conversationId}
             autoExpandReasoning={autoExpandReasoning}

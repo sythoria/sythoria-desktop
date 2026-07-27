@@ -597,13 +597,135 @@ interface ToolCallData {
 
 interface ToolCallResponse {
   choices?: {
+    finish_reason?: string | null;
     message: {
       content: string | null;
+      reasoning?: string | null;
       tool_calls?: ToolCallData[];
       anthropic_content?: unknown[];
       reasoning_details?: unknown[];
     };
   }[];
+}
+
+export function assertUsableFinishReason(finishReason: string | null | undefined, hasToolCalls: boolean) {
+  if (hasToolCalls && !finishReason) {
+    throw new Error(
+      "The model stream ended without a tool-call finish reason. The incomplete calls were not executed.",
+    );
+  }
+  if (!finishReason) return;
+  if (hasToolCalls && !["tool_calls", "tool_use"].includes(finishReason)) {
+    throw new Error(
+      `The model returned tool calls with finish reason "${finishReason}". The calls were not executed because the response may be incomplete.`,
+    );
+  }
+  if (
+    ["length", "max_tokens", "content_filter", "refusal", "error", "model_context_window_exceeded"].includes(
+      finishReason,
+    )
+  ) {
+    throw new Error(`The model response stopped with "${finishReason}" and may be incomplete.`);
+  }
+}
+
+function matchesJsonSchemaType(value: unknown, type: string): boolean {
+  switch (type) {
+    case "null":
+      return value === null;
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    default:
+      return typeof value === type;
+  }
+}
+
+function validateJsonSchemaValue(value: unknown, schema: unknown, path: string): string[] {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
+  const definition = schema as {
+    type?: unknown;
+    enum?: unknown;
+    properties?: unknown;
+    required?: unknown;
+    items?: unknown;
+    additionalProperties?: unknown;
+  };
+  const allowedTypes =
+    typeof definition.type === "string"
+      ? [definition.type]
+      : Array.isArray(definition.type)
+        ? definition.type.filter((type): type is string => typeof type === "string")
+        : [];
+  if (allowedTypes.length > 0 && !allowedTypes.some((type) => matchesJsonSchemaType(value, type))) {
+    return [`${path} must be ${allowedTypes.join(" or ")}`];
+  }
+  if (Array.isArray(definition.enum) && !definition.enum.some((candidate) => Object.is(candidate, value))) {
+    return [`${path} must be one of the declared enum values`];
+  }
+
+  const errors: string[] = [];
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const objectValue = value as Record<string, unknown>;
+    const properties =
+      definition.properties && typeof definition.properties === "object" && !Array.isArray(definition.properties)
+        ? (definition.properties as Record<string, unknown>)
+        : {};
+    if (Array.isArray(definition.required)) {
+      for (const key of definition.required) {
+        if (typeof key === "string" && !(key in objectValue)) errors.push(`${path}.${key} is required`);
+      }
+    }
+    for (const [key, item] of Object.entries(objectValue)) {
+      if (key in properties) {
+        errors.push(...validateJsonSchemaValue(item, properties[key], `${path}.${key}`));
+      } else if (definition.additionalProperties === false) {
+        errors.push(`${path}.${key} is not allowed`);
+      }
+    }
+  } else if (Array.isArray(value) && definition.items) {
+    value.forEach((item, index) => {
+      errors.push(...validateJsonSchemaValue(item, definition.items, `${path}[${index}]`));
+    });
+  }
+  return errors;
+}
+
+// Tool arguments are dynamically typed by each JSON Schema definition.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseToolArguments(toolCall: ToolCallData, tools: unknown[]): Record<string, any> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(toolCall.function.arguments || "{}");
+  } catch (error) {
+    throw new Error(
+      `Tool "${toolCall.function.name}" returned invalid JSON arguments and was not executed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Tool "${toolCall.function.name}" arguments must be a JSON object.`);
+  }
+
+  const definition = tools.find((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const fn = (candidate as { function?: { name?: unknown } }).function;
+    return fn?.name === toolCall.function.name;
+  }) as { function?: { parameters?: unknown } } | undefined;
+  const validationErrors = validateJsonSchemaValue(parsed, definition?.function?.parameters, "arguments");
+  if (validationErrors.length > 0) {
+    throw new Error(
+      `Tool "${toolCall.function.name}" arguments failed schema validation: ${validationErrors.slice(0, 5).join("; ")}.`,
+    );
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return parsed as Record<string, any>;
 }
 
 function updateConversationMessages(
@@ -751,53 +873,40 @@ export async function sendWithToolLoop(
     const modelStore = useModelStore.getState();
     cleanupStream = await modelStore.ensureStreamListeners(
       convId,
-      (content) => {
+      ({ kind, content }) => {
         useChatStore.setState((state) => {
-          const newState: Partial<typeof state> = {};
-          const currentStreamContent = state.activeStreamContent[convId] || "";
-          const fullContent = currentStreamContent + content;
-
-          if (fullContent.includes("<reasoning>") && !state.activeStreamThinkingStart?.[convId]) {
-            newState.activeStreamThinkingStart = { ...state.activeStreamThinkingStart, [convId]: Date.now() };
-          }
-          if (
-            fullContent.includes("</reasoning>") &&
-            state.activeStreamThinkingStart?.[convId] &&
-            !state.activeStreamThinkingEnd?.[convId]
-          ) {
-            newState.activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd, [convId]: Date.now() };
-          }
-
-          if (state.generationState === "loading") {
-            if (fullContent.includes("<reasoning>")) {
-              newState.generationState = "thinking";
-              newState.generationLabel = "Thinking";
-            } else if (content.trim() !== "") {
-              newState.generationState = "responding";
-              newState.generationLabel = "Responding";
-            }
-          } else if (
-            state.generationState === "thinking" &&
-            fullContent.includes("</reasoning>") &&
-            content.trim() !== "" &&
-            !content.includes("</reasoning>")
-          ) {
-            newState.generationState = "responding";
-            newState.generationLabel = "Responding";
-          }
+          const isReasoning = kind === "reasoning";
+          const now = Date.now();
+          const nextStart = { ...state.activeStreamThinkingStart };
+          const nextEnd = { ...state.activeStreamThinkingEnd };
+          if (isReasoning) nextStart[convId] ||= now;
+          else if (nextStart[convId] && !nextEnd[convId]) nextEnd[convId] = now;
 
           return {
-            ...newState,
-            activeStreamContent: {
-              ...state.activeStreamContent,
-              [convId]: fullContent,
-            },
+            generationState: isReasoning ? "thinking" : "responding",
+            generationLabel: isReasoning ? "Thinking" : "Responding",
+            activeStreamThinkingStart: nextStart,
+            activeStreamThinkingEnd: nextEnd,
+            ...(isReasoning
+              ? {
+                  activeStreamReasoning: {
+                    ...state.activeStreamReasoning,
+                    [convId]: (state.activeStreamReasoning[convId] || "") + content,
+                  },
+                }
+              : {
+                  activeStreamContent: {
+                    ...state.activeStreamContent,
+                    [convId]: (state.activeStreamContent[convId] || "") + content,
+                  },
+                }),
           };
         });
       },
       () => {
         useChatStore.setState((state) => {
           const streamContent = state.activeStreamContent[convId] || "";
+          const streamReasoning = state.activeStreamReasoning[convId] || "";
           const conversations = state.conversations.map((c) => {
             if (c.id !== convId) return c;
             const updated = [...c.messages];
@@ -808,6 +917,7 @@ export async function sendWithToolLoop(
               updated[idx] = {
                 ...last,
                 content: last.content + streamContent,
+                reasoningContent: (last.reasoningContent || "") + streamReasoning || undefined,
                 isStreaming: false,
               };
             }
@@ -815,6 +925,8 @@ export async function sendWithToolLoop(
           });
           const nextActiveStreamContent = { ...state.activeStreamContent };
           delete nextActiveStreamContent[convId];
+          const nextActiveStreamReasoning = { ...state.activeStreamReasoning };
+          delete nextActiveStreamReasoning[convId];
           const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
           delete nextActiveStreamThinkingStart[convId];
           const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
@@ -822,6 +934,7 @@ export async function sendWithToolLoop(
           return {
             conversations,
             activeStreamContent: nextActiveStreamContent,
+            activeStreamReasoning: nextActiveStreamReasoning,
             activeStreamThinkingStart: nextActiveStreamThinkingStart,
             activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
           };
@@ -941,6 +1054,7 @@ export async function sendWithToolLoop(
       name?: string;
       anthropic_content?: unknown[];
       reasoning_details?: unknown[];
+      reasoning?: string;
     }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     const maxToolSteps = useModelStore.getState().maxToolSteps;
@@ -1032,14 +1146,44 @@ export async function sendWithToolLoop(
       if (!choice) break;
 
       const msg = choice.message;
+      const hasToolCalls = Boolean(msg.tool_calls?.length);
+      assertUsableFinishReason(choice.finish_reason, hasToolCalls);
 
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
+      if (choice.finish_reason === "pause_turn") {
+        apiMessages.push({
+          role: "assistant",
+          content: msg.content,
+          ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+        });
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
+            const updated = [...msgs];
+            const lastAssistantIdx = [...updated].reverse().findIndex((message) => message.role === "assistant");
+            if (lastAssistantIdx >= 0) {
+              const index = updated.length - 1 - lastAssistantIdx;
+              updated[index] = {
+                ...updated[index],
+                content: updated[index].content || msg.content || "",
+                reasoningContent: updated[index].reasoningContent || msg.reasoning || undefined,
+                isStreaming: false,
+                thinkingDuration: updated[index].thinkingDuration ?? stepDuration,
+              };
+            }
+            return updated;
+          }),
+        }));
+        continue;
+      }
+
+      if (hasToolCalls && msg.tool_calls) {
         apiMessages.push({
           role: "assistant",
           content: msg.content,
           tool_calls: msg.tool_calls,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
           ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
+          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
         });
 
         const finalizedAssistantContent = typeof msg.content === "string" ? msg.content.trim() : "";
@@ -1057,6 +1201,7 @@ export async function sendWithToolLoop(
                 // fall back to the finalized response for providers that emitted no
                 // text chunks.
                 content: last.content.trim() ? last.content : finalizedAssistantContent,
+                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
                 isStreaming: false,
                 thinkingDuration: stepDuration,
               };
@@ -1069,13 +1214,7 @@ export async function sendWithToolLoop(
         const toolCallDataList = msg.tool_calls.map((toolCall) => {
           const rawName = toolCall.function.name;
           const fnName = toKnownToolName(rawName);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let fnArgs: Record<string, any>;
-          try {
-            fnArgs = JSON.parse(toolCall.function.arguments || "{}");
-          } catch {
-            fnArgs = {};
-          }
+          const fnArgs = parseToolArguments(toolCall, allTools);
           const toolCallMsgId = generateId();
           const isProjectTool = fnName.startsWith("project_");
 
@@ -1790,6 +1929,7 @@ export async function sendWithToolLoop(
               updated[idx] = {
                 ...last,
                 content: last.content || assistantContent,
+                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,

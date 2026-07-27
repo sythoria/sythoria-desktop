@@ -29,9 +29,17 @@ const debouncedCheckModelConnections = debounce((id: string) => {
   useModelStore.getState().checkModelConnections([id], true);
 }, 1000);
 
+export type StreamChunkKind = "content" | "reasoning";
+
+export interface StreamChunk {
+  kind: StreamChunkKind;
+  content: string;
+}
+
 interface StreamChunkPayload {
   streamId: string;
   content: string;
+  kind?: StreamChunkKind;
 }
 
 interface StreamDonePayload {
@@ -49,7 +57,7 @@ let lastCheckTime = 0;
 
 type StreamHandler = {
   convId: string;
-  onChunk: (content: string) => void;
+  onChunk: (chunk: StreamChunk) => void;
   onDone: () => void;
 };
 
@@ -57,7 +65,7 @@ const activeHandlers = new Set<StreamHandler>();
 
 async function ensureStreamListeners(
   convId: string,
-  onChunk: (content: string) => void,
+  onChunk: (chunk: StreamChunk) => void,
   onDone: () => void,
 ): Promise<() => void> {
   const handler: StreamHandler = { convId, onChunk, onDone };
@@ -66,7 +74,7 @@ async function ensureStreamListeners(
 
   if (!listenersPromise) {
     listenersPromise = (async () => {
-      let chunkBuffer: Record<string, string> = {};
+      let chunkBuffer: Record<string, Partial<Record<StreamChunkKind, string>>> = {};
       let rafId: number | null = null;
       let unlistenChunk: (() => void) | null = null;
       let unlistenDone: (() => void) | null = null;
@@ -76,15 +84,19 @@ async function ensureStreamListeners(
           const cId = activeStreams.get(event.payload.streamId);
           if (!cId) return;
 
-          if (!chunkBuffer[cId]) chunkBuffer[cId] = "";
-          chunkBuffer[cId] += event.payload.content;
+          const kind = event.payload.kind ?? "content";
+          if (!chunkBuffer[cId]) chunkBuffer[cId] = {};
+          chunkBuffer[cId][kind] = (chunkBuffer[cId][kind] ?? "") + event.payload.content;
 
           if (rafId === null) {
             rafId = requestAnimationFrame(() => {
-              Object.entries(chunkBuffer).forEach(([currentConvId, text]) => {
+              Object.entries(chunkBuffer).forEach(([currentConvId, chunks]) => {
                 for (const h of activeHandlers) {
                   if (h.convId === currentConvId) {
-                    h.onChunk(text);
+                    for (const kind of ["reasoning", "content"] as const) {
+                      const content = chunks[kind];
+                      if (content) h.onChunk({ kind, content });
+                    }
                   }
                 }
               });
@@ -101,7 +113,10 @@ async function ensureStreamListeners(
           if (chunkBuffer[cId]) {
             for (const h of activeHandlers) {
               if (h.convId === cId) {
-                h.onChunk(chunkBuffer[cId]);
+                for (const kind of ["reasoning", "content"] as const) {
+                  const content = chunkBuffer[cId][kind];
+                  if (content) h.onChunk({ kind, content });
+                }
               }
             }
             delete chunkBuffer[cId];
@@ -195,7 +210,7 @@ interface ModelState {
   removeActiveStreamId: (id: string) => void;
   ensureStreamListeners: (
     convId: string,
-    onChunk: (content: string) => void,
+    onChunk: (chunk: StreamChunk) => void,
     onDone: () => void,
   ) => Promise<() => void>;
   releaseStreamListeners: () => void;

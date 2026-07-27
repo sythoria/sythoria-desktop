@@ -30,6 +30,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
+  /** Provider-supplied reasoning, kept separate from user-visible assistant text. */
+  reasoningContent?: string;
   timestamp: Date;
   isStreaming?: boolean;
   isSystem?: boolean;

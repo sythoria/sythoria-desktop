@@ -1,7 +1,15 @@
-export function parseReasoning(content: string, role: string) {
-  const hasOpenReasoning =
-    role === "assistant" &&
-    (content.includes("<reasoning>") || content.includes("<thinking>") || content.includes("<thought>"));
+export function parseReasoning(content: string, role: string, explicitReasoning?: string) {
+  if (role === "assistant" && explicitReasoning !== undefined) {
+    return {
+      reasoningContent: explicitReasoning,
+      displayContent: content,
+      hasOpenReasoning: explicitReasoning.length > 0,
+    };
+  }
+
+  // Backward compatibility for messages persisted by older releases. New streams
+  // never interpret model text as a control protocol.
+  const hasOpenReasoning = role === "assistant" && /^\s*<(reasoning|thinking|thought)>/.test(content);
 
   let reasoningContent = "";
   let displayContent = content;

@@ -239,8 +239,12 @@ export default memo(function InputBar({
 
           const { listen } = await import("@tauri-apps/api/event");
 
-          const unlistenChunk = await listen<{ streamId: string; content: string }>("chat-stream-chunk", (event) => {
-            if (event.payload.streamId === streamId) {
+          const unlistenChunk = await listen<{
+            streamId: string;
+            content: string;
+            kind?: "content" | "reasoning";
+          }>("chat-stream-chunk", (event) => {
+            if (event.payload.streamId === streamId && (event.payload.kind ?? "content") === "content") {
               accumulated += event.payload.content;
               const combinedRefined = initialValueRef.current
                 ? `${initialValueRef.current} ${accumulated}`
@@ -1298,7 +1302,6 @@ export default memo(function InputBar({
           onChangeActiveIndex={(idx) => setPreviewImageIndex(idx)}
         />
       )}
-
     </div>
   );
 });

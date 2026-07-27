@@ -180,6 +180,8 @@ struct ChatMessage {
     anthropic_content: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_details: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<serde_json::Value>,
 }
 
 /// Serializes `None` as a missing field and otherwise emits the JSON value as-is.
@@ -231,6 +233,8 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<serde_json::Value>,
@@ -248,6 +252,8 @@ struct ChatRequestTools {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<String>,
@@ -260,6 +266,18 @@ struct ReasoningParams {
     reasoning_effort: Option<String>,
     reasoning: Option<serde_json::Value>,
     suppress_temperature: bool,
+}
+
+fn completion_token_params(
+    provider: Option<&str>,
+    limit: Option<u32>,
+) -> (Option<u32>, Option<u32>) {
+    let is_openai = provider.is_some_and(|value| value.eq_ignore_ascii_case("openai"));
+    if is_openai {
+        (None, limit)
+    } else {
+        (limit, None)
+    }
 }
 
 fn reasoning_params(
@@ -480,12 +498,15 @@ async fn chat_completion(
         .timeout(std::time::Duration::from_secs(60))
         .build()?;
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
+    let (max_tokens, max_completion_tokens) =
+        completion_token_params(provider.as_deref(), max_tokens);
     let body = ChatRequest {
         model,
         messages,
         temperature: (!reasoning.suppress_temperature).then_some(temperature),
         stream: false,
         max_tokens,
+        max_completion_tokens,
         reasoning_effort: reasoning.reasoning_effort,
         reasoning: reasoning.reasoning,
     };
@@ -560,12 +581,15 @@ async fn chat_stream(
         .timeout(std::time::Duration::from_secs(120))
         .build()?;
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
+    let (max_tokens, max_completion_tokens) =
+        completion_token_params(provider.as_deref(), max_tokens);
     let body = ChatRequest {
         model,
         messages,
         temperature: (!reasoning.suppress_temperature).then_some(temperature),
         stream: true,
         max_tokens,
+        max_completion_tokens,
         reasoning_effort: reasoning.reasoning_effort,
         reasoning: reasoning.reasoning,
     };
@@ -622,6 +646,14 @@ async fn chat_stream(
         }
     }
 
+    if matches!(
+        parser.terminal(),
+        stream_parser::SseStreamTerminal::Streaming
+    ) {
+        return Err(AppError::StreamError(
+            "Model stream ended before a completion event or finish reason.".to_string(),
+        ));
+    }
     Ok(parser.finalize())
 }
 
@@ -667,6 +699,8 @@ async fn chat_stream_tools(
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
+    let (max_tokens, max_completion_tokens) =
+        completion_token_params(provider.as_deref(), max_tokens);
     let body = ChatRequestTools {
         model,
         messages,
@@ -674,6 +708,7 @@ async fn chat_stream_tools(
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
+        max_completion_tokens,
         stream: Some(true),
         reasoning_effort: reasoning.reasoning_effort,
         reasoning: reasoning.reasoning,
@@ -735,6 +770,14 @@ async fn chat_stream_tools(
         }
     }
 
+    if matches!(
+        parser.terminal(),
+        stream_parser::SseStreamTerminal::Streaming
+    ) {
+        return Err(AppError::StreamError(
+            "Model tool stream ended before a completion event or finish reason.".to_string(),
+        ));
+    }
     Ok(parser.finalize_tools())
 }
 
@@ -774,6 +817,8 @@ async fn chat_completion_tools(
         .map_err(|e| AppError::ParseError(format!("Invalid tools JSON: {}", e)))?;
 
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
+    let (max_tokens, max_completion_tokens) =
+        completion_token_params(provider.as_deref(), max_tokens);
     let body = ChatRequestTools {
         model,
         messages,
@@ -781,6 +826,7 @@ async fn chat_completion_tools(
         tools: tools_parsed,
         tool_choice: Some(serde_json::Value::String("auto".to_string())),
         max_tokens,
+        max_completion_tokens,
         stream: None,
         reasoning_effort: reasoning.reasoning_effort,
         reasoning: reasoning.reasoning,
@@ -1099,6 +1145,7 @@ async fn generate_title(
                 name: None,
                 anthropic_content: None,
                 reasoning_details: None,
+                reasoning: None,
             },
             ChatMessage {
                 role: "user".to_string(),
@@ -1108,11 +1155,13 @@ async fn generate_title(
                 name: None,
                 anthropic_content: None,
                 reasoning_details: None,
+                reasoning: None,
             },
         ],
         temperature: Some(0.3),
         stream: false,
         max_tokens: None,
+        max_completion_tokens: None,
         reasoning_effort: None,
         reasoning: None,
     };
@@ -2082,7 +2131,22 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{truncate_error, EphemeralFileCleanup, FileTokenRegistry, NetworkConfig};
+    use super::{
+        completion_token_params, truncate_error, EphemeralFileCleanup, FileTokenRegistry,
+        NetworkConfig,
+    };
+
+    #[test]
+    fn openai_uses_max_completion_tokens_while_compatible_providers_keep_max_tokens() {
+        assert_eq!(
+            completion_token_params(Some("OpenAI"), Some(2048)),
+            (None, Some(2048))
+        );
+        assert_eq!(
+            completion_token_params(Some("OpenRouter"), Some(2048)),
+            (Some(2048), None)
+        );
+    }
 
     #[test]
     fn legacy_network_config_defaults_to_online_mode() {

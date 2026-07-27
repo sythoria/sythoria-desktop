@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { TOOL_DEFINITIONS, TOOL_SYSTEM_PROMPT, sendWithToolLoop, type ToolLoopSlice } from "./toolLoop";
+import {
+  TOOL_DEFINITIONS,
+  TOOL_SYSTEM_PROMPT,
+  assertUsableFinishReason,
+  parseToolArguments,
+  sendWithToolLoop,
+  type ToolLoopSlice,
+} from "./toolLoop";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -14,6 +21,7 @@ const mockAddTask = vi.fn();
 const mockCompleteTask = vi.fn();
 let mockMaxToolSteps = 25;
 let mockStreamContent = "Simulated content chunk";
+let mockStreamReasoning = "";
 
 vi.mock("../store/useUIStore", () => ({
   useUIStore: {
@@ -35,7 +43,10 @@ vi.mock("../store/useModelStore", () => ({
         // Trigger onChunk and onDone asynchronously to simulate completion
         setTimeout(() => {
           if (mockStreamContent) {
-            onChunk(mockStreamContent);
+            if (mockStreamReasoning) {
+              onChunk({ kind: "reasoning", content: mockStreamReasoning });
+            }
+            onChunk({ kind: "content", content: mockStreamContent });
           }
           onDone();
         }, 10);
@@ -48,6 +59,7 @@ vi.mock("../store/useModelStore", () => ({
 
 const mockConversations: any[] = [];
 const mockActiveStreamContent: Record<string, string> = {};
+const mockActiveStreamReasoning: Record<string, string> = {};
 const mockResumeConversation = vi.fn().mockResolvedValue(undefined);
 const mockSetState = vi.fn((fn: any) => {
   const next =
@@ -55,6 +67,9 @@ const mockSetState = vi.fn((fn: any) => {
       ? fn({
           conversations: mockConversations,
           activeStreamContent: mockActiveStreamContent,
+          activeStreamReasoning: mockActiveStreamReasoning,
+          activeStreamThinkingStart: {},
+          activeStreamThinkingEnd: {},
         })
       : fn;
   if (next.conversations) {
@@ -64,6 +79,9 @@ const mockSetState = vi.fn((fn: any) => {
   if (next.activeStreamContent) {
     Object.assign(mockActiveStreamContent, next.activeStreamContent);
   }
+  if (next.activeStreamReasoning) {
+    Object.assign(mockActiveStreamReasoning, next.activeStreamReasoning);
+  }
 });
 
 vi.mock("../store/useChatStore", () => ({
@@ -72,6 +90,7 @@ vi.mock("../store/useChatStore", () => ({
       persistConversations: vi.fn(),
       conversations: mockConversations,
       activeStreamContent: mockActiveStreamContent,
+      activeStreamReasoning: mockActiveStreamReasoning,
       resumeConversation: mockResumeConversation,
     }),
     setState: (fn: any) => mockSetState(fn),
@@ -84,9 +103,13 @@ beforeEach(() => {
   invokeMock.mockReset();
   mockMaxToolSteps = 25;
   mockStreamContent = "Simulated content chunk";
+  mockStreamReasoning = "";
   mockConversations.length = 0;
   for (const key of Object.keys(mockActiveStreamContent)) {
     delete mockActiveStreamContent[key];
+  }
+  for (const key of Object.keys(mockActiveStreamReasoning)) {
+    delete mockActiveStreamReasoning[key];
   }
   mockAddTask.mockClear();
   mockCompleteTask.mockClear();
@@ -122,6 +145,26 @@ describe("TOOL_DEFINITIONS", () => {
   });
 });
 
+describe("tool response validation", () => {
+  it("rejects tool calls from a truncated response", () => {
+    expect(() => assertUsableFinishReason("length", true)).toThrow("were not executed");
+    expect(() => assertUsableFinishReason(undefined, true)).toThrow("without a tool-call finish reason");
+  });
+
+  it("rejects malformed or schema-invalid arguments before execution", () => {
+    const tool = TOOL_DEFINITIONS.find((definition) => definition.function.name === "search_query")!;
+    expect(() =>
+      parseToolArguments({ id: "call-1", function: { name: "search_query", arguments: '{"query":' } }, [tool]),
+    ).toThrow("invalid JSON");
+    expect(() =>
+      parseToolArguments(
+        { id: "call-2", function: { name: "search_query", arguments: JSON.stringify({ query: 123 }) } },
+        [tool],
+      ),
+    ).toThrow("schema validation");
+  });
+});
+
 describe("TOOL_SYSTEM_PROMPT", () => {
   it("mentions both tools", () => {
     expect(TOOL_SYSTEM_PROMPT).toContain("search_query");
@@ -136,15 +179,16 @@ describe("TOOL_SYSTEM_PROMPT", () => {
 describe("sendWithToolLoop", () => {
   it("keeps assistant narration visible when the same response requests a tool call", async () => {
     mockMaxToolSteps = 1;
-    mockStreamContent =
-      "<reasoning>I should use the search tool.</reasoning>I’ll search for the latest information first.";
+    mockStreamReasoning = "I should use the search tool.";
+    mockStreamContent = "I’ll search for the latest information first.";
     invokeMock.mockResolvedValueOnce(
       JSON.stringify({
         choices: [
           {
+            finish_reason: "tool_calls",
             message: {
-              content:
-                "<reasoning>I should use the search tool.</reasoning></reasoning>I’ll search for the latest information first.",
+              content: "I’ll search for the latest information first.",
+              reasoning: "I should use the search tool.",
               tool_calls: [
                 {
                   id: "call-1",
@@ -227,10 +271,8 @@ describe("sendWithToolLoop", () => {
     expect(narration).toMatchObject({
       isStreaming: false,
     });
-    expect(narration?.content).toBe(
-      "<reasoning>I should use the search tool.</reasoning>I’ll search for the latest information first.",
-    );
-    expect(narration?.content).not.toContain("</reasoning></reasoning>");
+    expect(narration?.content).toBe("I’ll search for the latest information first.");
+    expect(narration?.reasoningContent).toBe("I should use the search tool.");
     expect(narrationIndex).toBeGreaterThan(-1);
     expect(toolCallIndex).toBeGreaterThan(narrationIndex);
     expect(mockAddTask).toHaveBeenCalledWith("call-1", "Tool: search_query", "conv-1");
