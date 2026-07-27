@@ -216,7 +216,6 @@ interface ChatState {
   addDraftFileFromToken: (token: string, name?: string, size?: number) => Promise<void>;
   setConversationProject: (id: string, projectId: string | undefined) => void;
   deleteProjectChats: (projectId: string) => Promise<void>;
-  invokeSubagentManual: (parentConvId: string, role: string, prompt: string) => Promise<void>;
 }
 
 let initInProgress = false;
@@ -744,110 +743,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     await get().persistConversations();
-  },
-
-  invokeSubagentManual: async (parentConvId, role, prompt) => {
-    const parentConv = get().conversations.find((c) => c.id === parentConvId);
-    if (!parentConv) return;
-
-    const subagentId = generateId();
-    const toolCallId = "call_" + generateId();
-
-    const newConv: Conversation = {
-      id: subagentId,
-      title: `Subagent: ${role}`,
-      timestamp: new Date(),
-      messages: [
-        {
-          id: generateId(),
-          role: "user",
-          content: prompt,
-          timestamp: new Date(),
-        },
-      ],
-      model: parentConv.model,
-      projectId: parentConv.projectId,
-      parentId: parentConvId,
-      role: role,
-      isSubagent: true,
-      status: "running",
-    };
-
-    const assistantToolCallMsg: Message = {
-      id: generateId(),
-      role: "assistant",
-      content: "",
-      timestamp: new Date(),
-      toolCall: {
-        id: toolCallId,
-        name: "invoke_subagent",
-        arguments: {
-          subagents: JSON.stringify([{ role, prompt }]),
-        },
-      },
-    };
-
-    const toolResultMsg: Message = {
-      id: generateId(),
-      role: "tool",
-      content: `Subagents invoked successfully with conversation IDs: ${subagentId}. Wait for their responses, or communicate with them using send_message.`,
-      timestamp: new Date(),
-      toolCall: {
-        id: toolCallId,
-        name: "invoke_subagent",
-        arguments: {},
-      },
-      toolResult: {
-        id: toolCallId,
-        name: "invoke_subagent",
-        content: `Subagents invoked successfully with conversation IDs: ${subagentId}. Wait for their responses, or communicate with them using send_message.`,
-      },
-    };
-
-    set((state) => ({
-      conversations: [
-        ...state.conversations.map((c) => {
-          if (c.id === parentConvId) {
-            return {
-              ...c,
-              messages: [...c.messages, assistantToolCallMsg, toolResultMsg],
-            };
-          }
-          return c;
-        }),
-        newConv,
-      ],
-    }));
-
-    const modelStore = useModelStore.getState();
-    const modelConfig =
-      modelStore.models.find((m) => m.id === parentConv.model) ||
-      modelStore.models.find((m) => m.id === modelStore.selectedModel) ||
-      modelStore.models[0];
-
-    const temperature = modelConfig?.temperature ?? 0.7;
-    const toolLoop = getEnabledToolLoopConfig();
-
-    const { isProjectsEnabled, projects } = useProjectStore.getState();
-
-    const activeProject = isProjectsEnabled ? projects.find((p) => p.id === parentConv.projectId) || null : null;
-
-    sendWithToolLoop(
-      subagentId,
-      modelConfig,
-      temperature,
-      toolLoop.searchConfig,
-      toolLoop.searchApiKey,
-      toolLoop.mcpTools,
-      toolLoop.mcpCallTool,
-      (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
-      get,
-      searchPerformSearch,
-      searchFetchUrlContent,
-      activeProject,
-    ).catch((e) => console.error("Subagent manual loop error:", e));
-
-    get().persistConversations();
   },
 
   renameChat: (id, newTitle) => {
