@@ -33,6 +33,8 @@ struct StreamToolCallDelta {
     id: Option<String>,
     #[serde(default)]
     function: Option<StreamToolCallFunction>,
+    #[serde(default)]
+    extra_content: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,12 +74,15 @@ pub(crate) struct SseParser {
     full_reasoning: String,
     buffer: Vec<u8>,
     in_reasoning: bool,
+    reasoning_from_separate_field: bool,
     tool_calls: Vec<serde_json::Value>,
     tool_call_ids: Vec<Option<String>>,
     tool_call_names: Vec<Option<String>>,
     tool_call_args: Vec<String>,
+    tool_call_extra_content: Vec<Option<serde_json::Value>>,
     reasoning_details: Vec<serde_json::Value>,
     total_tool_argument_bytes: usize,
+    total_tool_extra_content_bytes: usize,
     terminal: SseStreamTerminal,
 }
 
@@ -95,6 +100,7 @@ const MAX_CONTENT_BYTES: usize = 1_000_000;
 const MAX_TOOL_CALLS: usize = 64;
 const MAX_TOOL_ARGUMENT_BYTES: usize = 1_000_000;
 const MAX_TOOL_METADATA_BYTES: usize = 4_096;
+const MAX_TOOL_EXTRA_CONTENT_BYTES: usize = 256_000;
 
 fn limit_error(resource: &str, limit: usize) -> String {
     format!("SSE {resource} exceeded the {limit}-byte resource limit")
@@ -113,12 +119,15 @@ impl SseParser {
             full_reasoning: String::new(),
             buffer: Vec::new(),
             in_reasoning: false,
+            reasoning_from_separate_field: false,
             tool_calls: Vec::new(),
             tool_call_ids: Vec::new(),
             tool_call_names: Vec::new(),
             tool_call_args: Vec::new(),
+            tool_call_extra_content: Vec::new(),
             reasoning_details: Vec::new(),
             total_tool_argument_bytes: 0,
+            total_tool_extra_content_bytes: 0,
             terminal: SseStreamTerminal::Streaming,
         }
     }
@@ -176,6 +185,15 @@ impl SseParser {
         true
     }
 
+    fn close_reasoning_in_content(&mut self) -> bool {
+        if !self.reasoning_from_separate_field && !self.append_content("</reasoning>") {
+            return false;
+        }
+        self.in_reasoning = false;
+        self.reasoning_from_separate_field = false;
+        true
+    }
+
     fn ensure_tool_metadata(&mut self, value: &str) -> bool {
         if value.len() > MAX_TOOL_METADATA_BYTES {
             self.fail(limit_error("tool-call metadata", MAX_TOOL_METADATA_BYTES));
@@ -198,6 +216,7 @@ impl SseParser {
             self.tool_call_ids.push(None);
             self.tool_call_names.push(None);
             self.tool_call_args.push(String::new());
+            self.tool_call_extra_content.push(None);
         }
         if let Some(id) = tc.id {
             if !self.ensure_tool_metadata(&id) {
@@ -227,6 +246,29 @@ impl SseParser {
                 self.tool_call_args[idx].push_str(&args);
                 self.total_tool_argument_bytes += args.len();
             }
+        }
+        if let Some(extra_content) = tc.extra_content {
+            let new_len = match serde_json::to_vec(&extra_content) {
+                Ok(serialized) => serialized.len(),
+                Err(error) => {
+                    self.fail(format!("SSE tool-call extra content was invalid: {error}"));
+                    return false;
+                }
+            };
+            let old_len = self.tool_call_extra_content[idx]
+                .as_ref()
+                .and_then(|value| serde_json::to_vec(value).ok())
+                .map_or(0, |serialized| serialized.len());
+            let retained_total = self.total_tool_extra_content_bytes.saturating_sub(old_len);
+            if !checked_total(retained_total, new_len, MAX_TOOL_EXTRA_CONTENT_BYTES) {
+                self.fail(limit_error(
+                    "cumulative tool-call extra content",
+                    MAX_TOOL_EXTRA_CONTENT_BYTES,
+                ));
+                return false;
+            }
+            self.total_tool_extra_content_bytes = retained_total + new_len;
+            self.tool_call_extra_content[idx] = Some(extra_content);
         }
         true
     }
@@ -292,6 +334,7 @@ impl SseParser {
                                     }
                                     if !self.in_reasoning {
                                         self.in_reasoning = true;
+                                        self.reasoning_from_separate_field = true;
                                         emit_stream_chunk(app, stream_id, "<reasoning>");
                                         on_chunk("<reasoning>");
                                     }
@@ -318,6 +361,7 @@ impl SseParser {
                                     }
                                     if has_open && !self.in_reasoning {
                                         self.in_reasoning = true;
+                                        self.reasoning_from_separate_field = false;
                                     }
 
                                     emit_stream_chunk(app, stream_id, &normalized);
@@ -325,13 +369,13 @@ impl SseParser {
 
                                     if has_close && self.in_reasoning {
                                         self.in_reasoning = false;
+                                        self.reasoning_from_separate_field = false;
                                     }
                                 } else {
                                     if self.in_reasoning && !normalized.trim().is_empty() {
-                                        if !self.append_content("</reasoning>") {
+                                        if !self.close_reasoning_in_content() {
                                             break;
                                         }
-                                        self.in_reasoning = false;
                                         emit_stream_chunk(app, stream_id, "</reasoning>");
                                         on_chunk("</reasoning>");
                                     }
@@ -355,12 +399,11 @@ impl SseParser {
 
                             if choice.finish_reason.is_some() {
                                 if self.in_reasoning {
-                                    if !self.append_content("</reasoning>") {
+                                    if !self.close_reasoning_in_content() {
                                         break;
                                     }
                                     emit_stream_chunk(app, stream_id, "</reasoning>");
                                     on_chunk("</reasoning>");
-                                    self.in_reasoning = false;
                                 }
                                 self.terminal = SseStreamTerminal::Complete;
                             }
@@ -399,21 +442,21 @@ impl SseParser {
     pub(crate) fn finalize_tools(&mut self) -> String {
         let content = self.finalize();
 
-        let tool_calls: Vec<serde_json::Value> = self
-            .tool_call_ids
-            .iter()
-            .zip(self.tool_call_names.iter())
-            .zip(self.tool_call_args.iter())
-            .filter_map(|((id, name), args)| {
-                let name = name.as_deref()?;
-                Some(serde_json::json!({
-                    "id": id.as_deref().unwrap_or(""),
+        let tool_calls: Vec<serde_json::Value> = (0..self.tool_call_names.len())
+            .filter_map(|idx| {
+                let name = self.tool_call_names[idx].as_deref()?;
+                let mut tool_call = serde_json::json!({
+                    "id": self.tool_call_ids[idx].as_deref().unwrap_or(""),
                     "type": "function",
                     "function": {
                         "name": name,
-                        "arguments": args.clone()
+                        "arguments": self.tool_call_args[idx].clone()
                     }
-                }))
+                });
+                if let Some(extra_content) = self.tool_call_extra_content[idx].as_ref() {
+                    tool_call["extra_content"] = extra_content.clone();
+                }
+                Some(tool_call)
             })
             .collect();
 
@@ -454,6 +497,7 @@ mod tests {
         assert!(parser.full_reasoning.is_empty());
         assert!(parser.buffer.is_empty());
         assert!(!parser.in_reasoning);
+        assert!(!parser.reasoning_from_separate_field);
         assert_eq!(parser.terminal(), &SseStreamTerminal::Streaming);
     }
 
@@ -501,6 +545,7 @@ mod tests {
             index: Some(MAX_TOOL_CALLS),
             id: None,
             function: None,
+            extra_content: None,
         };
 
         assert!(!parser.apply_tool_call_delta(delta));
@@ -516,6 +561,7 @@ mod tests {
                 index: Some(index),
                 id: None,
                 function: None,
+                extra_content: None,
             })
             .collect();
 
@@ -535,6 +581,7 @@ mod tests {
                 name: None,
                 arguments: Some("ab".to_string()),
             }),
+            extra_content: None,
         };
 
         assert!(!parser.apply_tool_call_delta(delta));
@@ -562,6 +609,37 @@ mod tests {
         assert_eq!(
             result,
             "<reasoning>I need to think</reasoning>The answer is 42"
+        );
+    }
+
+    #[test]
+    fn separate_reasoning_transition_does_not_duplicate_closing_tag() {
+        let mut parser = SseParser::new();
+        parser.full_reasoning = "I need to think".to_string();
+        parser.in_reasoning = true;
+        parser.reasoning_from_separate_field = true;
+
+        assert!(parser.close_reasoning_in_content());
+        assert!(parser.append_content("I will fetch the weather."));
+
+        assert_eq!(
+            parser.finalize(),
+            "<reasoning>I need to think</reasoning>I will fetch the weather."
+        );
+    }
+
+    #[test]
+    fn explicit_reasoning_tag_transition_stores_its_closing_tag() {
+        let mut parser = SseParser::new();
+        parser.full_content = "<reasoning>I need to think".to_string();
+        parser.in_reasoning = true;
+
+        assert!(parser.close_reasoning_in_content());
+        assert!(parser.append_content("The answer is 42."));
+
+        assert_eq!(
+            parser.finalize(),
+            "<reasoning>I need to think</reasoning>The answer is 42."
         );
     }
 
@@ -616,6 +694,29 @@ mod tests {
         let func = deltas[0].function.as_ref().unwrap();
         assert_eq!(func.name.as_deref(), Some("get_weather"));
         assert_eq!(func.arguments.as_deref(), Some("{\"location\":\"NYC\"}"));
+    }
+
+    #[test]
+    fn test_tool_call_preserves_gemini_thought_signature() {
+        let data = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","extra_content":{"google":{"thought_signature":"signature-value"}},"function":{"name":"get_weather","arguments":"{\"location\":\"Toronto\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+        let chunk: StreamChunk = serde_json::from_str(data).unwrap();
+        let mut parser = SseParser::new();
+        let tool_calls = chunk
+            .choices
+            .into_iter()
+            .next()
+            .unwrap()
+            .delta
+            .tool_calls
+            .unwrap();
+        assert!(parser.apply_tool_call_deltas(tool_calls));
+
+        let response: serde_json::Value = serde_json::from_str(&parser.finalize_tools()).unwrap();
+        assert_eq!(
+            response["choices"][0]["message"]["tool_calls"][0]["extra_content"]["google"]
+                ["thought_signature"],
+            "signature-value"
+        );
     }
 }
 

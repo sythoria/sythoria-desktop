@@ -10,12 +10,18 @@ const mockToasts: any[] = [];
 const mockAddToast = vi.fn((msg, variant) => {
   mockToasts.push({ msg, variant });
 });
+const mockAddTask = vi.fn();
+const mockCompleteTask = vi.fn();
+let mockMaxToolSteps = 25;
+let mockStreamContent = "Simulated content chunk";
 
 vi.mock("../store/useUIStore", () => ({
   useUIStore: {
     getState: () => ({
       setLoading: vi.fn(),
       addToast: mockAddToast,
+      addTask: mockAddTask,
+      completeTask: mockCompleteTask,
     }),
   },
 }));
@@ -24,11 +30,13 @@ vi.mock("../store/useModelStore", () => ({
   useModelStore: {
     getState: () => ({
       systemPrompt: "",
-      maxToolSteps: 25,
+      maxToolSteps: mockMaxToolSteps,
       ensureStreamListeners: vi.fn().mockImplementation((_convId, onChunk, onDone) => {
         // Trigger onChunk and onDone asynchronously to simulate completion
         setTimeout(() => {
-          onChunk("Simulated content chunk");
+          if (mockStreamContent) {
+            onChunk(mockStreamContent);
+          }
           onDone();
         }, 10);
         return Promise.resolve(vi.fn());
@@ -74,6 +82,14 @@ const invokeMock = vi.mocked(invoke);
 
 beforeEach(() => {
   invokeMock.mockReset();
+  mockMaxToolSteps = 25;
+  mockStreamContent = "Simulated content chunk";
+  mockConversations.length = 0;
+  for (const key of Object.keys(mockActiveStreamContent)) {
+    delete mockActiveStreamContent[key];
+  }
+  mockAddTask.mockClear();
+  mockCompleteTask.mockClear();
 });
 
 describe("TOOL_DEFINITIONS", () => {
@@ -118,6 +134,108 @@ describe("TOOL_SYSTEM_PROMPT", () => {
 });
 
 describe("sendWithToolLoop", () => {
+  it("keeps assistant narration visible when the same response requests a tool call", async () => {
+    mockMaxToolSteps = 1;
+    mockStreamContent =
+      "<reasoning>I should use the search tool.</reasoning>I’ll search for the latest information first.";
+    invokeMock.mockResolvedValueOnce(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content:
+                "<reasoning>I should use the search tool.</reasoning></reasoning>I’ll search for the latest information first.",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  function: {
+                    name: "search_query",
+                    arguments: JSON.stringify({ query: "latest information" }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    mockConversations.push({
+      id: "conv-1",
+      title: "Test",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-1", role: "user", content: "Look this up", timestamp: new Date() }],
+    });
+
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "",
+      generationByConversation: {
+        "conv-1": { state: "loading", label: "Loading" },
+      },
+    };
+
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        const conversations = [...next.conversations];
+        mockConversations.length = 0;
+        mockConversations.push(...conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      "conv-1",
+      {
+        id: "model-1",
+        name: "Model",
+        apiBase: "https://example.com/v1/chat/completions",
+        apiKey: "",
+        modelId: "test-model",
+      },
+      0.7,
+      {
+        id: "search-1",
+        name: "Search",
+        provider: "google",
+        baseUrl: "https://www.googleapis.com/customsearch/v1",
+        maxResults: 5,
+        enabled: true,
+      },
+      "",
+      [],
+      undefined,
+      set,
+      () => state,
+      vi.fn().mockResolvedValue([]),
+      vi.fn(),
+      null,
+    );
+
+    const messages = state.conversations[0].messages;
+    const narrationIndex = messages.findIndex(
+      (message) => message.role === "assistant" && message.content.includes("I’ll search"),
+    );
+    const toolCallIndex = messages.findIndex((message) => message.toolCall?.id === "call-1");
+    const narration = messages[narrationIndex];
+
+    expect(narration).toMatchObject({
+      isStreaming: false,
+    });
+    expect(narration?.content).toBe(
+      "<reasoning>I should use the search tool.</reasoning>I’ll search for the latest information first.",
+    );
+    expect(narration?.content).not.toContain("</reasoning></reasoning>");
+    expect(narrationIndex).toBeGreaterThan(-1);
+    expect(toolCallIndex).toBeGreaterThan(narrationIndex);
+    expect(mockAddTask).toHaveBeenCalledWith("call-1", "Tool: search_query", "conv-1");
+  });
+
   it("appends an assistant error when the tool request fails before a placeholder exists", async () => {
     invokeMock.mockRejectedValueOnce(new Error("network failed"));
 

@@ -76,6 +76,31 @@ describe("InputBar", () => {
     expect(sendBtn).toBeDisabled();
   });
 
+  it("calls the stop callback without forwarding the React click event", async () => {
+    const user = userEvent.setup();
+    const onStop = vi.fn();
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        isStreaming
+        onStop={onStop}
+        {...defaultMcpProps}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Stop generating"));
+
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onStop).toHaveBeenCalledWith();
+  });
+
   it("disables input when disabled prop is true", () => {
     render(
       <InputBar
@@ -109,7 +134,7 @@ describe("InputBar", () => {
       />,
     );
 
-    expect(screen.getByText("GPT-4o")).toBeInTheDocument();
+    expect(screen.getAllByText("GPT-4o").length).toBeGreaterThan(0);
   });
 
   it("uses shared compare input without a contradictory model selector", () => {

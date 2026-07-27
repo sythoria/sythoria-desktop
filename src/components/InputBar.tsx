@@ -985,7 +985,7 @@ export default memo(function InputBar({
 
                   {/* Send / Stop button */}
                   <button
-                    onClick={isStreaming ? onStop : handleSubmit}
+                    onClick={isStreaming ? () => onStop?.() : handleSubmit}
                     disabled={!isStreaming && !canSend}
                     className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
                       isStreaming

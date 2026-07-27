@@ -1414,8 +1414,8 @@ function App() {
                     <InputBar
                       models={models}
                       onSend={sendMessage}
-                      selectedModel={selectedModel}
-                      onModelChange={setSelectedModel}
+                      selectedModel={activeConversation?.model || selectedModel}
+                      onModelChange={handlePrimaryModelChange}
                       disabled={isInputDisabled}
                       modelStatuses={modelStatuses}
                       isSearchEnabled={isSearchEnabled}

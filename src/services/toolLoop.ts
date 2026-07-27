@@ -592,6 +592,7 @@ function toKnownToolName(name: string): KnownToolName | "unknown" {
 interface ToolCallData {
   id: string;
   function: { name: string; arguments: string };
+  extra_content?: unknown;
 }
 
 interface ToolCallResponse {
@@ -1012,6 +1013,9 @@ export async function sendWithToolLoop(
       await streamDonePromise;
 
       if (!isConvStreaming(get, convId)) {
+        void rawPromise.catch(() => {
+          // Stream cancellation commonly rejects the pending Tauri invocation.
+        });
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
         setCancelledStatus(set, convId);
         await useChatStore.getState().persistConversations();
@@ -1038,24 +1042,28 @@ export async function sendWithToolLoop(
           ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
         });
 
-        if (typeof msg.content === "string" && msg.content.trim()) {
-          set((state) => ({
-            conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
-              const updated = [...msgs];
-              const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
-              if (lastAssistantIdx >= 0) {
-                const idx = updated.length - 1 - lastAssistantIdx;
-                const last = updated[idx];
-                updated[idx] = {
-                  ...last,
-                  content: `<thought>\n${(msg.content as string).trim()}\n</thought>`,
-                  thinkingDuration: stepDuration,
-                };
-              }
-              return updated;
-            }),
-          }));
-        }
+        const finalizedAssistantContent = typeof msg.content === "string" ? msg.content.trim() : "";
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
+            const updated = [...msgs];
+            const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+            if (lastAssistantIdx >= 0) {
+              const idx = updated.length - 1 - lastAssistantIdx;
+              const last = updated[idx];
+              updated[idx] = {
+                ...last,
+                // The stream listener already committed the exact user-visible sequence,
+                // including narration before a tool call. Keep that content and only
+                // fall back to the finalized response for providers that emitted no
+                // text chunks.
+                content: last.content.trim() ? last.content : finalizedAssistantContent,
+                isStreaming: false,
+                thinkingDuration: stepDuration,
+              };
+            }
+            return updated;
+          }),
+        }));
 
         // Prepare list of tool call metadata and initial messages
         const toolCallDataList = msg.tool_calls.map((toolCall) => {
@@ -1185,6 +1193,7 @@ export async function sendWithToolLoop(
               const approved = await new Promise<boolean>((resolve) => {
                 useUIStore.getState().addPendingToolConfirmation({
                   id: toolCall.id,
+                  conversationId: convId,
                   toolName: fnName,
                   arguments: fnArgs,
                   resolve,
@@ -1211,6 +1220,7 @@ export async function sendWithToolLoop(
                     const approved = await new Promise<boolean>((resolve) => {
                       useUIStore.getState().addPendingToolConfirmation({
                         id: toolCall.id,
+                        conversationId: convId,
                         toolName: mcpTool.name,
                         arguments: fnArgs,
                         resolve,

@@ -964,14 +964,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   stopStreaming: async (targetConvId) => {
-    if (targetConvId) {
-      useModelStore.getState().cancelConversationStream(targetConvId);
+    const requestedConvId = typeof targetConvId === "string" ? targetConvId : undefined;
+    const targetConvIds = requestedConvId
+      ? (() => {
+          const ids = new Set([requestedConvId]);
+          let foundDescendant = true;
+          while (foundDescendant) {
+            foundDescendant = false;
+            for (const conversation of get().conversations) {
+              if (conversation.parentId && ids.has(conversation.parentId) && !ids.has(conversation.id)) {
+                ids.add(conversation.id);
+                foundDescendant = true;
+              }
+            }
+          }
+          return ids;
+      })()
+      : null;
+
+    const uiStore = useUIStore.getState();
+    const pendingConfirmationIds = uiStore.pendingToolConfirmations
+      .filter((confirmation) => !targetConvIds || targetConvIds.has(confirmation.conversationId ?? ""))
+      .map((confirmation) => confirmation.id);
+    for (const confirmationId of pendingConfirmationIds) {
+      uiStore.respondToToolConfirmation(confirmationId, false);
+    }
+
+    if (targetConvIds) {
+      for (const convId of targetConvIds) {
+        useModelStore.getState().cancelConversationStream(convId);
+      }
     } else {
       modelCancelStream();
     }
     set((state) => {
       const convs = state.conversations.map((c) => {
-        if (targetConvId && c.id !== targetConvId) return c;
+        if (targetConvIds && !targetConvIds.has(c.id)) return c;
         const nextMessages = c.messages.map((m) => {
           if (m.isStreaming) {
             let thinkingDuration: number | undefined = undefined;
@@ -993,8 +1021,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       const nextGenByConv = { ...state.generationByConversation };
-      if (targetConvId) {
-        delete nextGenByConv[targetConvId];
+      if (targetConvIds) {
+        for (const convId of targetConvIds) {
+          delete nextGenByConv[convId];
+        }
       } else {
         Object.keys(nextGenByConv).forEach((id) => {
           nextGenByConv[id] = { state: "cancelled" as GenerationState, label: "Cancelled" };
@@ -1008,10 +1038,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
       const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
       const nextActiveStreamStartTime = { ...state.activeStreamStartTime };
-      if (targetConvId) {
-        delete nextActiveStreamThinkingStart[targetConvId];
-        delete nextActiveStreamThinkingEnd[targetConvId];
-        delete nextActiveStreamStartTime[targetConvId];
+      if (targetConvIds) {
+        for (const convId of targetConvIds) {
+          delete nextActiveStreamThinkingStart[convId];
+          delete nextActiveStreamThinkingEnd[convId];
+          delete nextActiveStreamStartTime[convId];
+        }
       } else {
         Object.keys(nextActiveStreamThinkingStart).forEach((k) => delete nextActiveStreamThinkingStart[k]);
         Object.keys(nextActiveStreamThinkingEnd).forEach((k) => delete nextActiveStreamThinkingEnd[k]);

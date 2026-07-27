@@ -44,6 +44,7 @@ export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfi
 
 export interface ToolConfirmation {
   id: string;
+  conversationId?: string;
   toolName: string;
   arguments: Record<string, any>;
   resolve: (approved: boolean) => void;

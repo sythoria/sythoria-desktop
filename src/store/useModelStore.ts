@@ -464,6 +464,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   ensureStreamListeners,
   releaseStreamListeners,
   cancelActiveStream: () => {
+    const cancelledConversationIds = new Set(activeStreams.values());
     for (const streamId of activeStreams.keys()) {
       void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
         logError("stream", "Failed to cancel stream", {
@@ -473,19 +474,27 @@ export const useModelStore = create<ModelState>((set, get) => ({
       });
     }
     activeStreams.clear();
-    releaseStreamListeners();
+    for (const handler of [...activeHandlers]) {
+      if (cancelledConversationIds.has(handler.convId)) {
+        handler.onDone();
+      }
+    }
   },
   cancelConversationStream: (convId) => {
+    let hadActiveStream = false;
     for (const [streamId, cId] of activeStreams.entries()) {
       if (cId === convId) {
+        hadActiveStream = true;
         void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
           logError("stream", "Failed to cancel stream for conversation", { error: err });
         });
         activeStreams.delete(streamId);
-        for (const h of activeHandlers) {
-          if (h.convId === convId) {
-            h.onDone();
-          }
+      }
+    }
+    if (hadActiveStream) {
+      for (const handler of [...activeHandlers]) {
+        if (handler.convId === convId) {
+          handler.onDone();
         }
       }
     }

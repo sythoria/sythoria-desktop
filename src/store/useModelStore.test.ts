@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const eventMocks = vi.hoisted(() => ({
   listen: vi.fn(),
+  invoke: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -9,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
+  invoke: eventMocks.invoke,
 }));
 
 import { useModelStore } from "./useModelStore";
@@ -17,6 +18,8 @@ import { useModelStore } from "./useModelStore";
 describe("useModelStore stream listeners", () => {
   beforeEach(() => {
     eventMocks.listen.mockReset();
+    eventMocks.invoke.mockReset();
+    eventMocks.invoke.mockResolvedValue(undefined);
   });
 
   it("waits for an in-flight listener initialization before resolving additional registrations", async () => {
@@ -68,5 +71,35 @@ describe("useModelStore stream listeners", () => {
 
     expect(retryChunkUnlisten).toHaveBeenCalledOnce();
     expect(retryDoneUnlisten).toHaveBeenCalledOnce();
+  });
+
+  it("resolves every active conversation handler when all streams are cancelled", async () => {
+    const unlistenChunk = vi.fn();
+    const unlistenDone = vi.fn();
+    eventMocks.listen.mockResolvedValueOnce(unlistenChunk).mockResolvedValueOnce(unlistenDone);
+
+    const firstDone = vi.fn();
+    const secondDone = vi.fn();
+    const cleanupFirst = await useModelStore
+      .getState()
+      .ensureStreamListeners("conversation-1", vi.fn(), firstDone);
+    const cleanupSecond = await useModelStore
+      .getState()
+      .ensureStreamListeners("conversation-2", vi.fn(), secondDone);
+
+    useModelStore.getState().setActiveStreamId("stream-1", "conversation-1");
+    useModelStore.getState().setActiveStreamId("stream-2", "conversation-2");
+    useModelStore.getState().cancelActiveStream();
+
+    expect(eventMocks.invoke).toHaveBeenCalledTimes(2);
+    expect(eventMocks.invoke).toHaveBeenCalledWith("cancel_chat_stream", { streamId: "stream-1" });
+    expect(eventMocks.invoke).toHaveBeenCalledWith("cancel_chat_stream", { streamId: "stream-2" });
+    expect(firstDone).toHaveBeenCalledOnce();
+    expect(secondDone).toHaveBeenCalledOnce();
+
+    cleanupFirst();
+    cleanupSecond();
+    expect(unlistenChunk).toHaveBeenCalledOnce();
+    expect(unlistenDone).toHaveBeenCalledOnce();
   });
 });
