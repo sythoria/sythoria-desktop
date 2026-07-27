@@ -556,9 +556,8 @@ async fn chat_stream(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
-    ensure_online()?;
-    clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
+    ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -608,7 +607,10 @@ async fn chat_stream(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = tokio::select! {
+            result = resp.text() => result.unwrap_or_default(),
+            _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize()),
+        };
         let err_msg = truncate_error(&body);
         log::error!("chat_stream API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
@@ -635,6 +637,9 @@ async fn chat_stream(
         };
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
+        if is_stream_cancelled(&stream_id) {
+            return Ok(parser.finalize());
+        }
         parser.push_bytes(&chunk);
         parser.process_lines(&app, &stream_id, |_| {});
         match parser.terminal() {
@@ -669,9 +674,8 @@ async fn chat_stream_tools(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
-    ensure_online()?;
-    clear_stream_cancelled(&stream_id);
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
+    ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
 
     if let Some(p) = provider.as_deref() {
@@ -732,7 +736,10 @@ async fn chat_stream_tools(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = tokio::select! {
+            result = resp.text() => result.unwrap_or_default(),
+            _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize_tools()),
+        };
         let err_msg = truncate_error(&body);
         log::error!("chat_stream_tools API error {}: {}", status, err_msg);
         return Err(AppError::ApiError {
@@ -759,6 +766,9 @@ async fn chat_stream_tools(
         };
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
+        if is_stream_cancelled(&stream_id) {
+            return Ok(parser.finalize_tools());
+        }
         parser.push_bytes(&chunk);
         parser.process_lines(&app, &stream_id, |_chunk_text| {});
         match parser.terminal() {

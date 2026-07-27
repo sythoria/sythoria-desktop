@@ -12,6 +12,7 @@ import type {
   McpToolResult,
   Attachment,
 } from "../types";
+import { isGenerationActive } from "../types";
 import {
   loadModelConfigs,
   loadConversations,
@@ -782,13 +783,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (activeId) {
       const activeGen = get().generationByConversation[activeId];
-      const isTargetGenerating = activeGen && activeGen.state !== "idle" && activeGen.state !== "cancelled";
+      const isTargetGenerating = isGenerationActive(activeGen?.state);
       if (isTargetGenerating) return;
 
       if (isCompareMode && compareIds.length > 0) {
         const isAnyCompareGenerating = compareIds.some((id) => {
           const gen = get().generationByConversation[id];
-          return gen && gen.state !== "idle" && gen.state !== "cancelled";
+          return isGenerationActive(gen?.state);
         });
         if (isAnyCompareGenerating) return;
       }
@@ -1035,9 +1036,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
       }
 
-      const stillStreaming = Object.values(nextGenByConv).some(
-        (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
-      );
+      const stillStreaming = Object.values(nextGenByConv).some((generation) => isGenerationActive(generation.state));
 
       const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
       const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
@@ -1074,8 +1073,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
 
-    const stillStreaming = Object.values(get().generationByConversation).some(
-      (g) => g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
+    const stillStreaming = Object.values(get().generationByConversation).some((generation) =>
+      isGenerationActive(generation.state),
     );
     if (!stillStreaming) {
       uiLoading("sendMessage", false);
@@ -1552,8 +1551,6 @@ async function sendNormal(
             }
             return { ...c, messages: updated };
           });
-          const stillStreaming = conversations.some((c) => c.messages.some((m) => m.isStreaming));
-
           const nextActiveStreamContent = { ...state.activeStreamContent };
           delete nextActiveStreamContent[convId];
           const nextActiveStreamReasoning = { ...state.activeStreamReasoning };
@@ -1573,10 +1570,6 @@ async function sendNormal(
             activeStreamThinkingStart: nextStart,
             activeStreamThinkingEnd: nextEnd,
             activeStreamStartTime: nextStreamStartTime,
-            isStreaming: stillStreaming,
-            generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
-            generationLabel: stillStreaming ? state.generationLabel : "",
-            generationByConversation: setConversationGeneration(state, convId, "idle" as GenerationState, ""),
           };
         });
       },
@@ -1611,15 +1604,7 @@ async function sendNormal(
       streamId,
     });
 
-    const convBeforeFinalize = get().conversations.find((c) => c.id === convId);
-    const lastAssistant = convBeforeFinalize?.messages
-      ? [...convBeforeFinalize.messages].reverse().find((m) => m.role === "assistant")
-      : undefined;
-    const streamStillActive = lastAssistant && lastAssistant.isStreaming;
-
-    if (streamStillActive) {
-      useModelStore.getState().removeActiveStreamId(streamId);
-    }
+    useModelStore.getState().removeActiveStreamId(streamId);
 
     const start = get().activeStreamThinkingStart?.[convId];
     let thinkingDuration: number | undefined = undefined;
@@ -1630,6 +1615,10 @@ async function sendNormal(
 
     set((state) => {
       const updatedConvs = finalizeAssistantMessage(state.conversations, convId, thinkingDuration);
+      const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
+      const stillStreaming = Object.values(generationByConversation).some((generation) =>
+        isGenerationActive(generation.state),
+      );
       const nextStart = { ...state.activeStreamThinkingStart };
       delete nextStart[convId];
       const nextEnd = { ...state.activeStreamThinkingEnd };
@@ -1642,11 +1631,10 @@ async function sendNormal(
         activeStreamThinkingStart: nextStart,
         activeStreamThinkingEnd: nextEnd,
         activeStreamStartTime: nextStreamStartTime,
-        ...(streamStillActive
-          ? {
-              isStreaming: updatedConvs.some((c) => c.messages.some((m) => m.isStreaming)),
-            }
-          : {}),
+        isStreaming: stillStreaming,
+        generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+        generationLabel: stillStreaming ? state.generationLabel : "",
+        generationByConversation,
       };
     });
 
@@ -1659,7 +1647,7 @@ async function sendNormal(
       return {
         conversations: setAssistantError(state.conversations, convId, err),
         isStreaming: Object.entries(state.generationByConversation).some(
-          ([id, g]) => id !== convId && g.state !== "idle" && g.state !== "cancelled" && g.state !== "error",
+          ([id, generation]) => id !== convId && isGenerationActive(generation.state),
         ),
         generationState: "error" as GenerationState,
         generationLabel,

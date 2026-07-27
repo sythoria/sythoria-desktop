@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatArea from "./ChatArea";
-import type { Message, GenerationState } from "../types";
+import type { Conversation, Message } from "../types";
+import { useChatStore } from "../store/useChatStore";
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -19,7 +20,6 @@ const defaultProps = {
   setIsAtBottom: vi.fn(),
   virtuosoRef: { current: null } as React.RefObject<null>,
   onRetry: vi.fn(),
-  generationState: "idle" as GenerationState,
 };
 
 describe("ChatArea", () => {
@@ -54,18 +54,62 @@ describe("ChatArea", () => {
 
   it("shows loading text when assistant is streaming with empty content", () => {
     const messages = [makeMessage({ role: "assistant", content: "", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} generationState="loading" />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByText(/Loading/)).toBeInTheDocument();
   });
 
   it("shows cursor when assistant is streaming with content", () => {
     const messages = [makeMessage({ role: "assistant", content: "Loading...", isStreaming: true })];
-    render(<ChatArea messages={messages} {...defaultProps} generationState="responding" />);
+    render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
     const cursor = document.querySelector(".cursor-blink");
     expect(cursor).toBeInTheDocument();
+  });
+
+  it("shows one cancellation message without a duplicate status label", () => {
+    const messages = [makeMessage({ role: "assistant", content: "Cancelled agent execution." })];
+    const conversation: Conversation = {
+      id: "cancelled-chat",
+      title: "Cancelled chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationState: "cancelled",
+      generationByConversation: {
+        [conversation.id]: { state: "cancelled", label: "Cancelled" },
+      },
+    });
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    expect(screen.getByText("Cancelled agent execution.")).toBeInTheDocument();
+    expect(screen.queryByText("Cancelled", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("keeps completed message actions available after an API error", () => {
+    const messages = [makeMessage({ role: "assistant", content: "**Error:** Rate limit exceeded" })];
+    const conversation: Conversation = {
+      id: "errored-chat",
+      title: "Errored chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      isStreaming: false,
+      generationState: "error",
+      generationByConversation: {
+        [conversation.id]: { state: "error", label: "Generation failed: Rate limit exceeded" },
+      },
+    });
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
   });
 
   it("renders MCP tool message and expandable arguments/result/images", async () => {

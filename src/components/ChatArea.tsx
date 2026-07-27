@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import type { Message, GenerationState, Attachment } from "../types";
+import { isGenerationActive, type Message, type Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { springs, motionTokens } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
@@ -56,41 +56,12 @@ interface ChatAreaProps {
   setIsAtBottom?: (v: boolean) => void;
   virtuosoRef?: React.RefObject<VirtuosoHandle | null>;
   onRetry?: () => void;
-  generationState: GenerationState;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
   pendingWorktree?: { path: string; branch: string };
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   autoExpandReasoning?: boolean;
   showEmptyState?: boolean;
-}
-
-function CancelledBar({ content, onRetry }: { content: string; onRetry?: () => void }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard not available */
-    }
-  }, [content]);
-
-  return (
-    <div className="flex items-center gap-2 py-1.5 select-none">
-      <span className="text-xs font-medium text-text-muted">Cancelled</span>
-      <ActionButton
-        icon={<Copy size={14} />}
-        activeIcon={<Check size={14} className="text-emerald-500" />}
-        active={copied}
-        label={copied ? "Copied" : "Copy"}
-        onClick={handleCopy}
-      />
-      {onRetry && <ActionButton icon={<RotateCw size={14} />} label="Regenerate" onClick={onRetry} />}
-    </div>
-  );
 }
 
 function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language: string; maxHeight?: string }) {
@@ -603,7 +574,6 @@ function useSubagentConversationIds(message: Message): string[] {
 }
 
 function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
-  const generationState = useChatStore((s) => s.generationByConversation[conversationId]);
   const conv = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   const isProjectsEnabled = useProjectStore((s) => s.isProjectsEnabled);
 
@@ -654,12 +624,7 @@ function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
         )}
       </div>
       <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
-        <ChatAreaBase
-          messages={conv.messages || []}
-          onRetry={() => {}}
-          generationState={generationState?.state || "idle"}
-          conversationId={conv.id}
-        />
+        <ChatAreaBase messages={conv.messages || []} onRetry={() => {}} conversationId={conv.id} />
       </div>
     </div>
   );
@@ -1350,11 +1315,8 @@ const MessageBubble = memo(function MessageBubble({
 
   const isGenerating = useChatStore((s) => {
     if (!conversationId) return false;
-    const gen = s.generationByConversation[conversationId];
-    return gen && gen.state !== "idle";
+    return isGenerationActive(s.generationByConversation[conversationId]?.state);
   });
-
-  const isCancelled = useChatStore((s) => s.generationState === "cancelled");
 
   const isLastInSequence = useMemo(() => {
     if (message.role !== "assistant") return false;
@@ -1539,21 +1501,17 @@ const MessageBubble = memo(function MessageBubble({
             </>
           );
         })()}
-        {!isStreaming &&
-          !isGenerating &&
-          !isAnySubagentRunning &&
-          isLastInSequence &&
-          (displayContent.length > 0 || isCancelled) && (
-            <MessageActions
-              content={displayContent}
-              sources={message.sources}
-              isUser={false}
-              onSourceClick={
-                message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
-              }
-              onRetry={onRetry}
-            />
-          )}
+        {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
+          <MessageActions
+            content={displayContent}
+            sources={message.sources}
+            isUser={false}
+            onSourceClick={
+              message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
+            }
+            onRetry={onRetry}
+          />
+        )}
         <AnimatePresence>
           {sourcesExpanded && message.sources && message.sources.length > 0 && (
             <SourcesList sources={message.sources} />
@@ -1571,7 +1529,6 @@ function ChatAreaBase({
   setIsAtBottom,
   virtuosoRef,
   onRetry,
-  generationState,
   onScroll,
   conversationId,
   pendingWorktree,
@@ -1670,14 +1627,6 @@ function ChatAreaBase({
               ),
             Footer: () => (
               <>
-                {generationState === "cancelled" && (
-                  <div className="max-w-3xl mx-auto w-full px-6">
-                    <CancelledBar
-                      content={messages.filter((m) => m.role === "assistant").pop()?.content ?? ""}
-                      onRetry={onRetry}
-                    />
-                  </div>
-                )}
                 {pendingWorktree && conversationId && (
                   <div className="py-6">
                     <PendingWorktreeCard
@@ -1702,7 +1651,6 @@ function ChatAreaBase({
       messages={messages}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
-      generationState={generationState}
       pendingWorktree={pendingWorktree}
       conversationId={conversationId}
       onApply={applyPendingWorktree}
@@ -1718,7 +1666,6 @@ function NonVirtualizedChatArea({
   messages,
   setIsAtBottom,
   onRetry,
-  generationState,
   pendingWorktree,
   conversationId,
   onApply,
@@ -1730,7 +1677,6 @@ function NonVirtualizedChatArea({
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
-  generationState: GenerationState;
   pendingWorktree?: { path: string; branch: string };
   conversationId?: string;
   onApply: (id: string) => Promise<void>;
@@ -1824,12 +1770,6 @@ function NonVirtualizedChatArea({
             autoExpandReasoning={autoExpandReasoning}
           />
         ))}
-        {generationState === "cancelled" && (
-          <CancelledBar
-            content={messages.filter((m) => m.role === "assistant").pop()?.content ?? ""}
-            onRetry={onRetry}
-          />
-        )}
         {pendingWorktree && conversationId && (
           <PendingWorktreeCard
             conversationId={conversationId}

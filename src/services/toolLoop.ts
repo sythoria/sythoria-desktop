@@ -12,6 +12,7 @@ import type {
   Project,
   McpServerConfig,
 } from "../types";
+import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
@@ -788,7 +789,7 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
 function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
   const gen = get().generationByConversation[convId];
   if (!gen) return false;
-  return get().isStreaming && gen.state !== "cancelled" && gen.state !== "error" && gen.state !== "idle";
+  return get().isStreaming && isGenerationActive(gen.state);
 }
 
 function triggerParentResume(parentId: string, parentMsg: Message) {
@@ -818,7 +819,7 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
   }
 
   const genState = chatStore.generationByConversation[parentId];
-  const parentIsGenerating = genState && genState.state !== "idle" && genState.state !== "cancelled";
+  const parentIsGenerating = isGenerationActive(genState?.state);
 
   if (parentIsGenerating) {
     if (!pendingSubagentMessages.has(parentId)) {
@@ -1941,7 +1942,9 @@ export async function sendWithToolLoop(
             c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c,
           );
           const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
-          const stillStreaming = Object.keys(generationByConversation).length > 0;
+          const stillStreaming = Object.values(generationByConversation).some((generation) =>
+            isGenerationActive(generation.state),
+          );
           return {
             conversations,
             isStreaming: stillStreaming,
@@ -1984,7 +1987,9 @@ export async function sendWithToolLoop(
       let conversations = updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]);
       conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c));
       const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
-      const stillStreaming = Object.keys(generationByConversation).length > 0;
+      const stillStreaming = Object.values(generationByConversation).some((generation) =>
+        isGenerationActive(generation.state),
+      );
       return {
         conversations,
         isStreaming: stillStreaming,
@@ -2005,7 +2010,9 @@ export async function sendWithToolLoop(
       conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "error" } : c));
       return {
         conversations,
-        isStreaming: Object.keys(state.generationByConversation).some((id) => id !== convId),
+        isStreaming: Object.entries(state.generationByConversation).some(
+          ([id, generation]) => id !== convId && isGenerationActive(generation.state),
+        ),
         generationState: "error" as GenerationState,
         generationLabel,
         generationByConversation: setConversationGeneration(state, convId, "error" as GenerationState, generationLabel),

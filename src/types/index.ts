@@ -137,6 +137,10 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "er
 export type GenerationState =
   "idle" | "loading" | "thinking" | "searching" | "fetching" | "responding" | "mcp_executing" | "error" | "cancelled";
 
+export function isGenerationActive(state: GenerationState | null | undefined): boolean {
+  return state !== undefined && state !== null && state !== "idle" && state !== "error" && state !== "cancelled";
+}
+
 export type McpTransport = "stdio" | "sse" | "streamable-http";
 
 /**

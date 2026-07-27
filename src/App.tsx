@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
-import { type Conversation } from "./types";
+import { isGenerationActive, type Conversation } from "./types";
 import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
@@ -111,7 +111,6 @@ function App() {
     conversations,
     activeId,
     isStreaming,
-    generationState,
     generationByConversation,
     navigationHistory,
     navigationIndex,
@@ -122,7 +121,6 @@ function App() {
       conversations: s.conversations,
       activeId: s.activeId,
       isStreaming: s.isStreaming,
-      generationState: s.generationState,
       generationByConversation: s.generationByConversation,
       navigationHistory: s.navigationHistory,
       navigationIndex: s.navigationIndex,
@@ -329,11 +327,7 @@ function App() {
   }, [conversations, activeConversation]);
   const messages = activeConversation?.messages ?? [];
   const primaryGeneration = activeId ? generationByConversation[activeId] : null;
-  const isPrimaryGenerating = !!(
-    primaryGeneration &&
-    primaryGeneration.state !== "idle" &&
-    primaryGeneration.state !== "cancelled"
-  );
+  const isPrimaryGenerating = isGenerationActive(primaryGeneration?.state);
   const isInputDisabled = isPrimaryGenerating || !!activeConversation?.isSubagent;
 
   const [syncScrolls, setSyncScrolls] = useState(true);
@@ -1356,7 +1350,6 @@ function App() {
                           label={t("chat.primary")}
                           models={models}
                           onModelChange={handlePrimaryModelChange}
-                          generationState={primaryGeneration?.state ?? generationState}
                           onRetry={handleRetry}
                           isStreaming={isStreaming}
                           onScroll={syncScrolls ? handlePrimaryScroll : undefined}
@@ -1365,7 +1358,6 @@ function App() {
 
                         {/* Comparison Columns */}
                         {compareConversations.map((c, index) => {
-                          const compGen = generationByConversation[c.id];
                           return (
                             <ComparisonColumn
                               key={c.id}
@@ -1374,7 +1366,6 @@ function App() {
                               models={models}
                               onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
                               onClose={() => handleCompareClose(c.id)}
-                              generationState={compGen?.state ?? "idle"}
                               onRetry={() => handleCompareRetry(c.id)}
                               isStreaming={isStreaming}
                               onScroll={syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined}
@@ -1391,7 +1382,6 @@ function App() {
                         setIsAtBottom={primarySetIsAtBottom}
                         virtuosoRef={primaryVirtuosoRef}
                         onRetry={handleRetry}
-                        generationState={primaryGeneration?.state ?? generationState}
                         conversationId={activeId || undefined}
                         pendingWorktree={activeConversation?.pendingWorktree}
                       />

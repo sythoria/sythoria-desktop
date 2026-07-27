@@ -4,7 +4,7 @@ import ChatArea from "./ChatArea";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
 import { useScrollButton } from "../hooks/useScrollPosition";
 import { useScrollTracking } from "../hooks/useScrollTracking";
-import type { Conversation, ModelConfig, GenerationState } from "../types";
+import type { Conversation, ModelConfig } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useTranslation } from "../utils/i18n";
 
@@ -15,7 +15,6 @@ interface ComparisonColumnProps {
   models: ModelConfig[];
   onModelChange: (modelId: string) => void;
   onClose?: () => void;
-  generationState: GenerationState;
   onRetry: () => void;
   isStreaming: boolean;
   onScroll?: (scrollTop: number, ratio: number) => void;
@@ -24,18 +23,7 @@ interface ComparisonColumnProps {
 export const ComparisonColumn = React.memo(
   React.forwardRef<any, ComparisonColumnProps>(
     (
-      {
-        conversation,
-        isPrimary = false,
-        label,
-        models,
-        onModelChange,
-        onClose,
-        generationState,
-        onRetry,
-        isStreaming,
-        onScroll,
-      },
+      { conversation, isPrimary = false, label, models, onModelChange, onClose, onRetry, isStreaming, onScroll },
       ref,
     ) => {
       const { t } = useTranslation();
@@ -115,7 +103,6 @@ export const ComparisonColumn = React.memo(
             setIsAtBottom={scroll.setIsAtBottom}
             virtuosoRef={scroll.virtuosoRef}
             onRetry={onRetry}
-            generationState={generationState}
             onScroll={onScroll}
             conversationId={conversation.id}
             pendingWorktree={conversation.pendingWorktree}

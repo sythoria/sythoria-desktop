@@ -486,7 +486,10 @@ pub async fn chat_stream_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body_str = resp.text().await.unwrap_or_default();
+        let body_str = tokio::select! {
+            result = resp.text() => result.unwrap_or_default(),
+            _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize()),
+        };
         log::error!("chat_stream API error {}: {}", status, body_str);
         return Err(AppError::ApiError {
             status,
@@ -513,6 +516,9 @@ pub async fn chat_stream_anthropic(
         };
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
+        if is_stream_cancelled(&stream_id) {
+            return Ok(parser.finalize());
+        }
         parser.push_bytes(&chunk);
         parser.process_lines(|content, is_reasoning| {
             if is_reasoning {
@@ -588,7 +594,10 @@ pub async fn chat_stream_tools_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body_str = resp.text().await.unwrap_or_default();
+        let body_str = tokio::select! {
+            result = resp.text() => result.unwrap_or_default(),
+            _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize_tools()),
+        };
         log::error!("chat_stream_tools API error {}: {}", status, body_str);
         return Err(AppError::ApiError {
             status,
@@ -615,6 +624,9 @@ pub async fn chat_stream_tools_anthropic(
         };
 
         let chunk = chunk_result.map_err(|e| AppError::StreamError(e.to_string()))?;
+        if is_stream_cancelled(&stream_id) {
+            return Ok(parser.finalize_tools());
+        }
         parser.push_bytes(&chunk);
         parser.process_lines(|content, is_reasoning| {
             if is_reasoning {
