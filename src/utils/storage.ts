@@ -177,6 +177,7 @@ const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
+const SELECTED_MODEL_KEY = "sythoria-selected-model";
 const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
 const DISABLE_BG_ACTIVITY_KEY = "sythoria-disable-bg-activity";
 const STRICT_SSL_KEY = "sythoria-strict-ssl";
@@ -971,6 +972,28 @@ export async function saveModelConfigs(configs: ModelConfig[]) {
       action: "Model configuration may not persist. Re-enter in Settings > Model Providers.",
     });
   }
+}
+
+export async function loadSelectedModel(): Promise<string> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(SELECTED_MODEL_KEY);
+    if (typeof raw === "string") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load selected model", { error: e });
+  }
+  return localStorage.getItem(SELECTED_MODEL_KEY) ?? "";
+}
+
+export async function saveSelectedModel(modelId: string): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(SELECTED_MODEL_KEY, modelId);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save selected model", { error: e });
+  }
+  localStorage.setItem(SELECTED_MODEL_KEY, modelId);
 }
 
 export async function loadAlwaysOnTop(): Promise<boolean> {

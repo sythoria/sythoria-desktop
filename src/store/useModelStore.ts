@@ -3,7 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { saveModelConfigs, saveApiKeys, saveTitleConfig, saveSystemPrompt, saveMaxToolSteps } from "../utils/storage";
+import {
+  saveModelConfigs,
+  saveApiKeys,
+  saveTitleConfig,
+  saveSystemPrompt,
+  saveMaxToolSteps,
+  saveSelectedModel,
+} from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
@@ -231,8 +238,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
     const target = models.find((m) => m.id === model);
-    if (target && target.enabled === false) return;
+    if (!target || target.enabled === false) return;
     set({ selectedModel: model });
+    void saveSelectedModel(model);
     if (!modelStatuses[model]) {
       get().checkModelConnections([model]);
     }
@@ -257,7 +265,16 @@ export const useModelStore = create<ModelState>((set, get) => ({
       useUIStore.getState().addToast(`Validation: ${errors[0]}`, "error");
       return;
     }
-    set({ models });
+    const { selectedModel } = get();
+    const nextSelectedModel =
+      models.find((model) => model.id === selectedModel && model.enabled !== false)?.id ??
+      models.find((model) => model.enabled !== false)?.id ??
+      models[0]?.id ??
+      "";
+    set({ models, selectedModel: nextSelectedModel });
+    if (nextSelectedModel !== selectedModel) {
+      void saveSelectedModel(nextSelectedModel);
+    }
     debouncedSaveModelConfigs.cancel();
     saveModelConfigs(models.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     const keys: Record<string, string> = {};
@@ -304,8 +321,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
     const enabledModels = updatedModels.filter((m) => m.enabled !== false);
     if (enabledModels.length > 0 && !enabledModels.find((m) => m.id === selectedModel)) {
       set({ selectedModel: enabledModels[0].id });
+      void saveSelectedModel(enabledModels[0].id);
     } else if (enabledModels.length === 0 && updatedModels.length > 0) {
       set({ selectedModel: updatedModels[0].id });
+      void saveSelectedModel(updatedModels[0].id);
     }
 
     const updatedModel = updatedModels.find((m) => m.id === id);
@@ -327,8 +346,11 @@ export const useModelStore = create<ModelState>((set, get) => ({
     debouncedSaveApiKeys.cancel();
     saveModelConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as ModelConfig));
     saveApiKeys(newKeys);
-    if (selectedModel === id && updated.length > 0) {
-      set({ selectedModel: updated[0].id });
+    if (selectedModel === id) {
+      const fallbackModel = updated.find((model) => model.enabled !== false) ?? updated[0];
+      const fallbackId = fallbackModel?.id ?? "";
+      set({ selectedModel: fallbackId });
+      void saveSelectedModel(fallbackId);
     }
     useUIStore.getState().addToast("Model deleted", "info");
     logInfo("model", `Model deleted`, { details: `Model ID: ${id}` });

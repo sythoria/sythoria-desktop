@@ -47,6 +47,8 @@ import {
   DEFAULT_BLOCKED_HOSTS,
   loadOfflineMode,
   loadLanguage,
+  loadSelectedModel,
+  saveSelectedModel,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -86,6 +88,13 @@ const processingTokens = new Set<string>();
 
 function truncateTitle(text: string): string {
   return text.length > TITLE_MAX_LENGTH ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026" : text;
+}
+
+function resolveModelConfig(models: ModelConfig[], preferredId?: string): ModelConfig | undefined {
+  return (
+    models.find((model) => model.id === preferredId && model.enabled !== false) ??
+    models.find((model) => model.enabled !== false)
+  );
 }
 
 function updateConversationMessages(
@@ -294,6 +303,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedBlockedHosts,
         loadedOfflineMode,
         loadedLanguage,
+        loadedSelectedModel,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -324,6 +334,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadBlockedHosts(),
         loadOfflineMode(),
         loadLanguage(),
+        loadSelectedModel(),
         useProjectStore.getState().init(),
       ]);
 
@@ -356,16 +367,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       const searchConfigs = loadedSearchConfigs || [];
       const fetchConfigs = loadedFetchConfigs || [];
+      const selectedModel =
+        modelsWithKeys.find((model) => model.id === loadedSelectedModel && model.enabled !== false)?.id ??
+        modelsWithKeys.find((model) => model.id === cleanedConvs[0]?.model && model.enabled !== false)?.id ??
+        modelsWithKeys.find((model) => model.enabled !== false)?.id ??
+        "";
 
       modelSetState({
         models: modelsWithKeys,
-        selectedModel: modelsWithKeys.length > 0 ? modelsWithKeys[0].id : "",
+        selectedModel,
         apiKeys: loadedKeys,
         modelStatuses: {},
         titleConfig: loadedTitleCfg,
         systemPrompt: loadedSystemPrompt,
         maxToolSteps: loadedMaxToolSteps,
       });
+      if (selectedModel !== loadedSelectedModel) {
+        void saveSelectedModel(selectedModel);
+      }
 
       searchSetState({
         searchConfigs,
@@ -800,7 +819,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const primaryConv = get().conversations.find((c) => c.id === convId);
     const primaryModel = primaryConv?.model || selectedModel;
-    let primaryModelConfig = models.find((m) => m.id === primaryModel) ?? models[0];
+    let primaryModelConfig = resolveModelConfig(models, primaryModel);
 
     const {
       activeProjectId: sendActiveProjectId,
@@ -954,7 +973,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const compareConv = get().conversations.find((c) => c.id === compId);
         if (!compareConv) continue;
         const compareModel = compareConv.model || selectedModel;
-        const compareModelConfig = models.find((m) => m.id === compareModel) ?? models[0];
+        const compareModelConfig = resolveModelConfig(models, compareModel);
         if (compareModelConfig) {
           promises.push(runForConversation(compId, compareModelConfig));
         }
@@ -1117,8 +1136,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const activeProject = retryProjectsEnabled
       ? retryProjects.find((p) => p.id === retryActiveProjectId) || null
       : null;
-    let modelConfig =
-      models.find((m) => m.id === conv.model) ?? models.find((m) => m.id === selectedModel) ?? models[0];
+    let modelConfig = resolveModelConfig(models, conv.model || selectedModel);
     if (activeProject && activeProject.modelOverride) {
       const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
       if (overrideModel && overrideModel.enabled !== false) {
@@ -1296,7 +1314,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const { selectedModel, models, temperature } = useModelStore.getState();
     const model = conv.model || selectedModel;
-    const modelConfig = models.find((m) => m.id === model) ?? models[0];
+    const modelConfig = resolveModelConfig(models, model);
+    if (!modelConfig) {
+      logError("model", "No enabled model configuration available to resume conversation", {
+        action: "Go to Settings > Model Providers and enable a model configuration.",
+      });
+      uiToast("No enabled model configured — enable one in settings/model-providers", "error");
+      return;
+    }
 
     const { activeProjectId, isProjectsEnabled, projects } = useProjectStore.getState();
     const project = isProjectsEnabled ? projects.find((p) => p.id === activeProjectId) || null : null;

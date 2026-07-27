@@ -1003,6 +1003,7 @@ function App() {
         useChatStore.setState((state) => ({
           conversations: state.conversations.map((c) => (c.id === activeId ? { ...c, model: newModelId } : c)),
         }));
+        void useChatStore.getState().persistConversations();
       }
     },
     [activeId, setSelectedModel],
@@ -1012,6 +1013,7 @@ function App() {
     useChatStore.setState((state) => ({
       conversations: state.conversations.map((conv) => (conv.id === cId ? { ...conv, model: newModelId } : conv)),
     }));
+    void useChatStore.getState().persistConversations();
   }, []);
 
   const handleCompareClose = useCallback(
