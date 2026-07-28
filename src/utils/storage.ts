@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
-import { Store } from "@tauri-apps/plugin-store";
 import type { Conversation, TitleGenerationConfig, ModelConfig, Project, ProjectPermission } from "../types";
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
@@ -21,72 +20,100 @@ const ProjectSchema = z.object({
 
 export const ProjectsArraySchema = z.array(ProjectSchema);
 
-const ToolCallSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  arguments: z.record(z.string(), z.unknown()),
-});
+const ToolCallSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    arguments: z.record(z.string(), z.unknown()),
+  })
+  .passthrough();
 
-const McpImageContentSchema = z.object({
-  mimeType: z.string(),
-  data: z.string(),
-});
+const McpImageContentSchema = z
+  .object({
+    mimeType: z.string(),
+    data: z.string(),
+  })
+  .passthrough();
 
-const ToolCallResultSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  content: z.string(),
-  images: z.array(McpImageContentSchema).optional(),
-});
+const ToolCallResultSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    content: z.string(),
+    images: z.array(McpImageContentSchema).optional(),
+    diffSummary: z
+      .object({
+        added: z.number(),
+        deleted: z.number(),
+        isNew: z.boolean().optional(),
+        filename: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    subagentIds: z.array(z.string()).optional(),
+  })
+  .passthrough();
 
-const SourceSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-});
+const SourceSchema = z
+  .object({
+    title: z.string(),
+    url: z.string(),
+  })
+  .passthrough();
 
-const AttachmentSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  mimeType: z.string(),
-  size: z.number(),
-  kind: z.enum(["image", "text"]),
-  dataUrl: z.string().optional(),
-  textContent: z.string().optional(),
-});
+const AttachmentSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    mimeType: z.string(),
+    size: z.number(),
+    kind: z.enum(["image", "text"]),
+    dataUrl: z.string().optional(),
+    textContent: z.string().optional(),
+  })
+  .passthrough();
 
-const MessageSchema = z.object({
-  id: z.string(),
-  role: z.enum(["user", "assistant", "tool"]),
-  content: z.string(),
-  timestamp: z.coerce.date(),
-  isStreaming: z.boolean().optional(),
-  isSystem: z.boolean().optional(),
-  toolCall: ToolCallSchema.optional(),
-  toolResult: ToolCallResultSchema.optional(),
-  sources: z.array(SourceSchema).optional(),
-  attachments: z.array(AttachmentSchema).optional(),
-});
+const MessageSchema = z
+  .object({
+    id: z.string(),
+    role: z.enum(["user", "assistant", "tool"]),
+    content: z.string(),
+    reasoningContent: z.string().optional(),
+    timestamp: z.coerce.date(),
+    isStreaming: z.boolean().optional(),
+    isSystem: z.boolean().optional(),
+    toolCall: ToolCallSchema.optional(),
+    toolResult: ToolCallResultSchema.optional(),
+    sources: z.array(SourceSchema).optional(),
+    attachments: z.array(AttachmentSchema).optional(),
+    thinkingDuration: z.number().nonnegative().optional(),
+  })
+  .passthrough();
 
-export const ConversationSchema = z.object({
-  id: z.string(),
-  title: z.string().default("Untitled"),
-  timestamp: z.coerce.date(),
-  messages: z.array(MessageSchema),
-  model: z.string().default(""),
-  projectId: z.string().optional(),
-  isPinned: z.boolean().optional(),
-  parentId: z.string().optional(),
-  role: z.string().optional(),
-  isSubagent: z.boolean().optional(),
-  status: z.enum(["running", "idle", "error", "completed", "stopped"]).optional(),
-  recursionDepth: z.number().int().nonnegative().optional(),
-  pendingWorktree: z
-    .object({
-      path: z.string(),
-      branch: z.string(),
-    })
-    .optional(),
-});
+export const ConversationSchema = z
+  .object({
+    id: z.string(),
+    title: z.string().default("Untitled"),
+    timestamp: z.coerce.date(),
+    messages: z.array(MessageSchema),
+    model: z.string().default(""),
+    projectId: z.string().optional(),
+    isPinned: z.boolean().optional(),
+    parentId: z.string().optional(),
+    role: z.string().optional(),
+    isSubagent: z.boolean().optional(),
+    status: z.enum(["running", "idle", "error", "completed", "stopped"]).optional(),
+    isTemporary: z.boolean().optional(),
+    recursionDepth: z.number().int().nonnegative().optional(),
+    pendingWorktree: z
+      .object({
+        path: z.string(),
+        branch: z.string(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 const CustomThemeConfigSchema = z.object({
   preset: z.string(),
@@ -112,6 +139,26 @@ export type DownloadedThemes = z.infer<typeof DownloadedThemesSchema>;
 const ThemeSchema = z.union([z.enum(["light", "dark", "system"]), ThemeConfigSchema]);
 
 const ApiKeysSchema = z.record(z.string(), z.string());
+
+const ModelConfigSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    apiBase: z.string(),
+    apiKey: z.string().default(""),
+    modelId: z.string(),
+    provider: z.string().optional(),
+    enabled: z.boolean().optional(),
+    supportsImages: z.boolean().optional(),
+    contextSize: z.number().positive().optional(),
+    maxOutputTokens: z.number().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    thinkingLevel: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
+    systemPromptOverride: z.string().optional(),
+  })
+  .passthrough();
+
+const ModelConfigsArraySchema = z.array(ModelConfigSchema);
 
 const SearchConfigSchema = z.object({
   id: z.string(),
@@ -180,87 +227,458 @@ const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
 const SELECTED_MODEL_KEY = "sythoria-selected-model";
 const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
 const DISABLE_BG_ACTIVITY_KEY = "sythoria-disable-bg-activity";
-const STRICT_SSL_KEY = "sythoria-strict-ssl";
-const BLOCKED_HOSTS_KEY = "sythoria-blocked-hosts";
-const OFFLINE_MODE_KEY = "sythoria-offline-mode";
 const LANGUAGE_KEY = "sythoria-language";
 const SKIP_LINK_WARNING_KEY = "sythoria-skip-link-warning";
-const STORE_FILE = "sythoria-store.json";
+const WHISPER_CONFIG_KEY = "sythoria-whisper-config";
+const SIDEBAR_WIDTH_KEY = "sythoria-sidebar-width";
+const AUX_PANEL_WIDTH_KEY = "sythoria-aux-panel-width";
+const AUX_SUMMARY_PINNED_KEY = "sythoria-aux-summary-pinned";
 
-let storeInstance: Store | null = null;
-
-async function getStore(): Promise<Store> {
-  if (!storeInstance) {
-    storeInstance = await Store.load(STORE_FILE);
-  }
-  return storeInstance;
+interface PreferenceMutation {
+  sets: Record<string, unknown>;
+  deletes: string[];
+  clear: boolean;
 }
+
+class EncryptedPreferenceStore {
+  private data: Record<string, unknown>;
+  private pendingSets = new Map<string, unknown>();
+  private pendingDeletes = new Set<string>();
+  private clearPending = false;
+  private savePromise: Promise<void> | null = null;
+  private suspended = false;
+
+  constructor(data: Record<string, unknown>) {
+    this.data = data;
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    return (this.data[key] as T | undefined) ?? null;
+  }
+
+  async set(key: string, value: unknown): Promise<void> {
+    if (this.suspended) return;
+    this.data[key] = value;
+    this.pendingDeletes.delete(key);
+    this.pendingSets.set(key, value);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    if (this.suspended) return false;
+    const existed = Object.prototype.hasOwnProperty.call(this.data, key);
+    delete this.data[key];
+    this.pendingSets.delete(key);
+    this.pendingDeletes.add(key);
+    return existed;
+  }
+
+  clear(): void {
+    if (this.suspended) return;
+    this.data = {};
+    this.pendingSets.clear();
+    this.pendingDeletes.clear();
+    this.clearPending = true;
+  }
+
+  async save(): Promise<void> {
+    if (this.suspended) return;
+    if (!this.savePromise) {
+      this.savePromise = Promise.resolve()
+        .then(async () => {
+          while (this.clearPending || this.pendingSets.size > 0 || this.pendingDeletes.size > 0) {
+            const mutation: PreferenceMutation = {
+              sets: Object.fromEntries(this.pendingSets),
+              deletes: [...this.pendingDeletes],
+              clear: this.clearPending,
+            };
+            this.pendingSets.clear();
+            this.pendingDeletes.clear();
+            this.clearPending = false;
+            try {
+              await invoke("mutate_encrypted_preferences", {
+                sets: mutation.sets,
+                deletes: mutation.deletes,
+                clear: mutation.clear,
+              });
+            } catch (error) {
+              if (mutation.clear) this.clearPending = true;
+              for (const key of mutation.deletes) {
+                if (!this.pendingSets.has(key)) this.pendingDeletes.add(key);
+              }
+              for (const [key, value] of Object.entries(mutation.sets)) {
+                if (!this.pendingSets.has(key) && !this.pendingDeletes.has(key)) {
+                  this.pendingSets.set(key, value);
+                }
+              }
+              throw error;
+            }
+          }
+        })
+        .finally(() => {
+          this.savePromise = null;
+        });
+    }
+    await this.savePromise;
+  }
+
+  async suspend(): Promise<void> {
+    this.suspended = true;
+    this.pendingSets.clear();
+    this.pendingDeletes.clear();
+    this.clearPending = false;
+    if (this.savePromise) await this.savePromise.catch(() => undefined);
+  }
+
+  resume(): void {
+    this.suspended = false;
+  }
+}
+
+let storeInstance: EncryptedPreferenceStore | null = null;
+let storePromise: Promise<EncryptedPreferenceStore> | null = null;
+
+const LEGACY_BOOLEAN_KEYS = new Set([
+  ALWAYS_ON_TOP_KEY,
+  CLOSE_TO_TRAY_KEY,
+  LAUNCH_ON_STARTUP_KEY,
+  CLEAR_INPUT_ON_ESCAPE_KEY,
+  AUTO_UPDATE_CHECKING_KEY,
+  SHOW_CONTEXT_WINDOW_KEY,
+  LOGGING_ENABLED_KEY,
+  DISABLE_BG_ACTIVITY_KEY,
+  SKIP_LINK_WARNING_KEY,
+  ANIMATIONS_DISABLED_KEY,
+  HAS_STARTED_KEY,
+  PROJECTS_ENABLED_KEY,
+  AUX_SUMMARY_PINNED_KEY,
+]);
+const LEGACY_NUMBER_KEYS = new Set([ZOOM_LEVEL_KEY, MAX_TOOL_STEPS_KEY, SIDEBAR_WIDTH_KEY, AUX_PANEL_WIDTH_KEY]);
+const LEGACY_JSON_KEYS = new Set([THEME_KEY, DOWNLOADED_THEMES_KEY, KEYBINDS_KEY]);
+const LEGACY_PREFERENCE_KEYS = [
+  THEME_KEY,
+  DOWNLOADED_THEMES_KEY,
+  KEYBINDS_KEY,
+  ZOOM_LEVEL_KEY,
+  ALWAYS_ON_TOP_KEY,
+  CLOSE_TO_TRAY_KEY,
+  LAUNCH_ON_STARTUP_KEY,
+  SEND_MESSAGE_SHORTCUT_KEY,
+  CLEAR_INPUT_ON_ESCAPE_KEY,
+  BASE_TEXT_SIZE_KEY,
+  AUTO_UPDATE_CHECKING_KEY,
+  SYSTEM_PROMPT_KEY,
+  SHOW_CONTEXT_WINDOW_KEY,
+  MAX_TOOL_STEPS_KEY,
+  SELECTED_MODEL_KEY,
+  LOGGING_ENABLED_KEY,
+  DISABLE_BG_ACTIVITY_KEY,
+  LANGUAGE_KEY,
+  SKIP_LINK_WARNING_KEY,
+  ANIMATIONS_DISABLED_KEY,
+  HAS_STARTED_KEY,
+  PROJECTS_ENABLED_KEY,
+  PROJECTS_DEFAULT_PERMISSION_KEY,
+  SIDEBAR_WIDTH_KEY,
+  AUX_PANEL_WIDTH_KEY,
+  AUX_SUMMARY_PINNED_KEY,
+];
+
+function parseLegacyPreference(key: string, raw: string): unknown {
+  if (LEGACY_BOOLEAN_KEYS.has(key)) return raw === "true";
+  if (LEGACY_NUMBER_KEYS.has(key)) {
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (LEGACY_JSON_KEYS.has(key) && (raw.startsWith("{") || raw.startsWith("["))) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+  }
+  return raw;
+}
+
+async function migrateLegacyLocalStorage(store: EncryptedPreferenceStore): Promise<void> {
+  if (typeof localStorage === "undefined") return;
+  const migrated: string[] = [];
+  for (const key of LEGACY_PREFERENCE_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (raw === null) continue;
+    if ((await store.get(key)) !== null) {
+      localStorage.removeItem(key);
+      continue;
+    }
+    const parsed = parseLegacyPreference(key, raw);
+    if (parsed === undefined) {
+      localStorage.removeItem(key);
+      logWarn("storage", `Removed invalid legacy browser preference '${key}'`);
+      continue;
+    }
+    await store.set(key, parsed);
+    migrated.push(key);
+  }
+  if (migrated.length === 0) return;
+  await store.save();
+  migrated.forEach((key) => localStorage.removeItem(key));
+  logInfo("storage", "Migrated legacy browser preferences to encrypted storage");
+}
+
+async function getStore(): Promise<EncryptedPreferenceStore> {
+  if (storeInstance) return storeInstance;
+  if (!storePromise) {
+    storePromise = invoke<Record<string, unknown>>("load_encrypted_preferences")
+      .then(async (data) => {
+        const store = new EncryptedPreferenceStore(data);
+        await migrateLegacyLocalStorage(store);
+        storeInstance = store;
+        return store;
+      })
+      .catch((error) => {
+        storePromise = null;
+        throw error;
+      });
+  }
+  return storePromise;
+}
+
+export async function suspendPreferencePersistenceForWipe(): Promise<void> {
+  if (storeInstance) await storeInstance.suspend();
+}
+
+export function resumePreferencePersistenceAfterFailedWipe(): void {
+  storeInstance?.resume();
+}
+
+export function resetPreferenceCacheAfterWipe(): void {
+  storeInstance = null;
+  storePromise = null;
+}
+
+export interface StoredWhisperConfig {
+  isVoiceEnabled: boolean;
+  selectedModelId: string;
+  customModelPath: string | null;
+  language: string;
+  sttProvider: "local" | "cloud";
+  cloudApiUrl: string;
+  cloudModel: string;
+  refinementModelId: string | null;
+}
+
+const StoredWhisperConfigSchema = z.object({
+  isVoiceEnabled: z.boolean().optional(),
+  selectedModelId: z.string().optional(),
+  customModelPath: z.string().nullable().optional(),
+  language: z.string().optional(),
+  sttProvider: z.enum(["local", "cloud"]).optional(),
+  cloudApiUrl: z.string().optional(),
+  cloudModel: z.string().optional(),
+  refinementModelId: z.string().nullable().optional(),
+});
+
+export async function loadWhisperConfig(): Promise<{
+  config: Partial<StoredWhisperConfig>;
+  legacyCloudApiKey: string;
+}> {
+  const store = await getStore();
+  const encrypted = StoredWhisperConfigSchema.safeParse(await store.get(WHISPER_CONFIG_KEY));
+  let legacyCloudApiKey = "";
+  let legacyConfig: Partial<StoredWhisperConfig> = {};
+
+  if (typeof localStorage !== "undefined") {
+    const localData = localStorage.getItem(WHISPER_CONFIG_KEY);
+    if (localData) {
+      try {
+        const parsed: unknown = JSON.parse(localData);
+        if (parsed && typeof parsed === "object" && "cloudApiKey" in parsed) {
+          const value = (parsed as { cloudApiKey?: unknown }).cloudApiKey;
+          if (typeof value === "string") legacyCloudApiKey = value;
+        }
+        const validated = StoredWhisperConfigSchema.safeParse(parsed);
+        if (validated.success) legacyConfig = validated.data;
+      } catch (error) {
+        logWarn("storage", "Legacy speech configuration could not be parsed", {
+          details: String(error),
+        });
+      }
+    }
+  }
+
+  return {
+    config: encrypted.success ? encrypted.data : legacyConfig,
+    legacyCloudApiKey,
+  };
+}
+
+export async function saveWhisperConfig(config: StoredWhisperConfig): Promise<void> {
+  const validated = StoredWhisperConfigSchema.parse(config);
+  const store = await getStore();
+  await store.set(WHISPER_CONFIG_KEY, validated);
+  await store.save();
+}
+
+export function removeLegacyWhisperConfig(): void {
+  if (typeof localStorage !== "undefined") localStorage.removeItem(WHISPER_CONFIG_KEY);
+}
+
+export interface UiLayoutSettings {
+  sidebarWidth: number;
+  auxPanelWidth: number;
+  isAuxSummaryPinned: boolean;
+}
+
+export async function loadUiLayoutSettings(): Promise<Partial<UiLayoutSettings>> {
+  const store = await getStore();
+  const [sidebarWidth, auxPanelWidth, isAuxSummaryPinned] = await Promise.all([
+    store.get(SIDEBAR_WIDTH_KEY),
+    store.get(AUX_PANEL_WIDTH_KEY),
+    store.get(AUX_SUMMARY_PINNED_KEY),
+  ]);
+  return {
+    ...(typeof sidebarWidth === "number" ? { sidebarWidth } : {}),
+    ...(typeof auxPanelWidth === "number" ? { auxPanelWidth } : {}),
+    ...(typeof isAuxSummaryPinned === "boolean" ? { isAuxSummaryPinned } : {}),
+  };
+}
+
+export async function saveUiLayoutSettings(settings: Partial<UiLayoutSettings>): Promise<void> {
+  const store = await getStore();
+  if (settings.sidebarWidth !== undefined) await store.set(SIDEBAR_WIDTH_KEY, settings.sidebarWidth);
+  if (settings.auxPanelWidth !== undefined) await store.set(AUX_PANEL_WIDTH_KEY, settings.auxPanelWidth);
+  if (settings.isAuxSummaryPinned !== undefined) {
+    await store.set(AUX_SUMMARY_PINNED_KEY, settings.isAuxSummaryPinned);
+  }
+  await store.save();
+}
+
+let preservedInvalidConversations: unknown[] = [];
 
 function parseConversations(raw: unknown): Conversation[] {
   if (!Array.isArray(raw)) {
-    logWarn("storage", "Stored conversations failed validation: expected array, resetting", {
-      action: "This is usually caused by corrupted data. Your conversations will start fresh.",
+    logWarn("storage", "Stored conversations failed validation: expected array", {
+      action: "The stored data was left untouched and will not be overwritten.",
     });
     return [];
   }
   const valid: Conversation[] = [];
+  const invalid: unknown[] = [];
   for (const item of raw) {
     const result = ConversationSchema.safeParse(item);
     if (result.success) {
       valid.push(result.data as Conversation);
     } else {
+      invalid.push(item);
       logWarn("storage", "Skipping invalid conversation", {
         details: result.error.message,
-        action: "One conversation had invalid data and was skipped. The rest are intact.",
+        action: "One conversation could not be displayed, but its encrypted record will be preserved.",
       });
     }
   }
+  preservedInvalidConversations = invalid;
   return valid;
 }
 
 export async function loadConversations(): Promise<Conversation[]> {
   try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(CONVERSATIONS_KEY);
-    if (raw) return parseConversations(raw);
-  } catch (e) {
-    logError("storage", "Failed to load conversations from secure store", {
-      error: e,
-      action: "Falling back to localStorage. If conversations are missing, try restarting the app.",
-    });
-    const fallback = localStorage.getItem(CONVERSATIONS_KEY);
-    if (fallback) {
+    const encrypted = await invoke<unknown>("load_encrypted_conversations");
+    if (encrypted !== null) {
+      const conversations = parseConversations(encrypted);
       try {
-        return parseConversations(JSON.parse(fallback));
-      } catch (e2) {
-        logError("storage", "Failed to parse conversations from localStorage", {
-          error: e2,
-          action: "Conversations data may be corrupted. Try clearing app data.",
+        const store = await getStore();
+        if (await store.delete(CONVERSATIONS_KEY)) await store.save();
+        localStorage.removeItem(CONVERSATIONS_KEY);
+      } catch (cleanupError) {
+        logWarn("storage", "Could not remove a legacy plaintext conversation copy", {
+          details: String(cleanupError),
         });
       }
+      return conversations;
     }
+
+    // One-time migration from the legacy plaintext plugin store.
+    const store = await getStore();
+    const raw = await store.get<unknown>(CONVERSATIONS_KEY);
+    if (Array.isArray(raw)) {
+      const conversations = parseConversations(raw);
+      await invoke("save_encrypted_conversations", { conversations: raw });
+      await store.delete(CONVERSATIONS_KEY);
+      await store.save();
+      localStorage.removeItem(CONVERSATIONS_KEY);
+      logInfo("storage", "Migrated conversations to encrypted storage");
+      return conversations;
+    }
+
+    const fallback = localStorage.getItem(CONVERSATIONS_KEY);
+    if (fallback) {
+      const parsed: unknown = JSON.parse(fallback);
+      if (!Array.isArray(parsed)) {
+        throw new Error("Legacy conversations must be an array");
+      }
+      const conversations = parseConversations(parsed);
+      await invoke("save_encrypted_conversations", { conversations: parsed });
+      localStorage.removeItem(CONVERSATIONS_KEY);
+      logInfo("storage", "Migrated localStorage conversations to encrypted storage");
+      return conversations;
+    }
+  } catch (e) {
+    logError("storage", "Failed to load or migrate encrypted conversations", {
+      error: e,
+      action: "The existing data was left untouched. Check OS keychain access, then restart the app.",
+    });
+    throw e;
   }
   return [];
 }
 
+let pendingConversationSave: unknown[] | null = null;
+let conversationSavePromise: Promise<void> | null = null;
+let conversationsAreBeingCleared = false;
+
+export async function suspendConversationPersistenceForWipe(): Promise<void> {
+  conversationsAreBeingCleared = true;
+  pendingConversationSave = null;
+  if (conversationSavePromise) {
+    await conversationSavePromise.catch(() => undefined);
+  }
+}
+
+export function resumeConversationPersistenceAfterFailedWipe(): void {
+  conversationsAreBeingCleared = false;
+}
+
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
-  try {
-    const store = await getStore();
-    await store.set(CONVERSATIONS_KEY, conversations);
-    await store.save();
-  } catch (e) {
-    logError("storage", "Failed to save conversations to secure store", {
-      error: e,
-      action: "Falling back to localStorage. Data may not persist across sessions.",
-    });
-    try {
-      localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations));
-    } catch (e2) {
-      logError("storage", "Failed to save conversations to localStorage", {
-        error: e2,
-        action: "Storage is full or unavailable. Try clearing old conversations.",
+  if (conversationsAreBeingCleared) return;
+  pendingConversationSave = [...conversations, ...preservedInvalidConversations];
+  if (!conversationSavePromise) {
+    conversationSavePromise = Promise.resolve()
+      .then(async () => {
+        while (pendingConversationSave) {
+          const payload = pendingConversationSave;
+          pendingConversationSave = null;
+          await invoke("save_encrypted_conversations", { conversations: payload });
+        }
+      })
+      .catch((error) => {
+        logError("storage", "Failed to save encrypted conversations", {
+          error,
+          action: "Check OS keychain access and available disk space. The previous snapshot remains intact.",
+        });
+        throw error;
+      })
+      .finally(() => {
+        conversationSavePromise = null;
       });
+  }
+
+  try {
+    await conversationSavePromise;
+  } catch (error) {
+    if (pendingConversationSave) {
+      // A later call will retry the newest complete snapshot.
+      conversationSavePromise = null;
     }
+    throw error;
   }
 }
 
@@ -269,8 +687,8 @@ export async function loadProjects(): Promise<Project[]> {
     return await invoke<Project[]>("load_projects");
   } catch (e) {
     logError("storage", "Failed to load projects", { error: e });
+    throw e;
   }
-  return [];
 }
 
 export async function saveProjects(projects: Project[]): Promise<void> {
@@ -278,6 +696,7 @@ export async function saveProjects(projects: Project[]): Promise<void> {
     await invoke("save_projects", { projects });
   } catch (e) {
     logError("storage", "Failed to save projects", { error: e });
+    throw e;
   }
 }
 
@@ -297,51 +716,24 @@ export async function loadTheme(): Promise<ThemeConfig> {
       return data;
     }
   } catch (e) {
-    logError("storage", "Failed to load theme from secure store", {
+    logError("storage", "Failed to load theme from encrypted storage", {
       error: e,
       action: "Using system theme preference as fallback.",
     });
-  }
-  const fallback = localStorage.getItem(THEME_KEY);
-  let parsedFallback: unknown = fallback;
-  if (fallback && (fallback.startsWith("{") || fallback.startsWith("["))) {
-    try {
-      parsedFallback = JSON.parse(fallback);
-    } catch {
-      // ignore
-    }
-  }
-  const result = ThemeSchema.safeParse(parsedFallback);
-  if (result.success) {
-    const data = result.data;
-    if (typeof data === "string") {
-      return {
-        ...DEFAULT_THEME_CONFIG,
-        mode: data as "light" | "dark" | "system",
-      };
-    }
-    return data;
   }
   return DEFAULT_THEME_CONFIG;
 }
 
 export async function saveTheme(theme: ThemeConfig): Promise<void> {
   try {
-    localStorage.setItem(THEME_KEY, theme.mode);
-  } catch (e) {
-    console.warn("Failed to save theme mode to localStorage:", e);
-  }
-
-  try {
     const store = await getStore();
     await store.set(THEME_KEY, theme);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save theme to secure store", {
+    logError("storage", "Failed to save theme to encrypted storage", {
       error: e,
       action: "Theme may not persist across sessions. Try restarting the app.",
     });
-    localStorage.setItem(THEME_KEY, JSON.stringify(theme));
   }
 }
 
@@ -352,17 +744,7 @@ export async function loadDownloadedThemes(): Promise<DownloadedThemes> {
     const result = DownloadedThemesSchema.safeParse(raw);
     if (result.success) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load downloaded themes from secure store", { error: e });
-  }
-  const fallback = localStorage.getItem(DOWNLOADED_THEMES_KEY);
-  if (fallback) {
-    try {
-      const parsed = JSON.parse(fallback);
-      const result = DownloadedThemesSchema.safeParse(parsed);
-      if (result.success) return result.data;
-    } catch {
-      // Ignore parsing errors and fall back to empty theme sets
-    }
+    logError("storage", "Failed to load downloaded themes from app store", { error: e });
   }
   return { light: {}, dark: {} };
 }
@@ -373,8 +755,7 @@ export async function saveDownloadedThemes(themes: DownloadedThemes): Promise<vo
     await store.set(DOWNLOADED_THEMES_KEY, themes);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save downloaded themes to secure store", { error: e });
-    localStorage.setItem(DOWNLOADED_THEMES_KEY, JSON.stringify(themes));
+    logError("storage", "Failed to save downloaded themes to app store", { error: e });
   }
 }
 
@@ -385,17 +766,7 @@ export async function loadKeybinds(): Promise<KeybindsData | null> {
     const result = KeybindsSchema.safeParse(raw);
     if (result.success) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load keybinds from secure store", { error: e });
-  }
-  const fallback = localStorage.getItem(KEYBINDS_KEY);
-  if (fallback) {
-    try {
-      const parsed = JSON.parse(fallback);
-      const result = KeybindsSchema.safeParse(parsed);
-      if (result.success) return result.data;
-    } catch {
-      // Ignore parsing errors and fall back
-    }
+    logError("storage", "Failed to load keybinds from app store", { error: e });
   }
   return null;
 }
@@ -406,8 +777,7 @@ export async function saveKeybinds(keybinds: KeybindsData): Promise<void> {
     await store.set(KEYBINDS_KEY, keybinds);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save keybinds to secure store", { error: e });
-    localStorage.setItem(KEYBINDS_KEY, JSON.stringify(keybinds));
+    logError("storage", "Failed to save keybinds to app store", { error: e });
   }
 }
 
@@ -417,12 +787,7 @@ export async function loadZoomLevel(): Promise<number> {
     const raw = await store.get<unknown>(ZOOM_LEVEL_KEY);
     if (typeof raw === "number") return raw;
   } catch (e) {
-    logError("storage", "Failed to load zoom level from secure store", { error: e });
-  }
-  const fallback = localStorage.getItem(ZOOM_LEVEL_KEY);
-  if (fallback) {
-    const num = parseFloat(fallback);
-    if (!isNaN(num)) return num;
+    logError("storage", "Failed to load zoom level from app store", { error: e });
   }
   return 1.0;
 }
@@ -433,8 +798,7 @@ export async function saveZoomLevel(level: number): Promise<void> {
     await store.set(ZOOM_LEVEL_KEY, level);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save zoom level to secure store", { error: e });
-    localStorage.setItem(ZOOM_LEVEL_KEY, level.toString());
+    logError("storage", "Failed to save zoom level to app store", { error: e });
   }
 }
 
@@ -461,8 +825,11 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
     const legacyRaw = await store.get<unknown>(API_KEYS_KEY);
     const legacy = ApiKeysSchema.safeParse(legacyRaw);
     if (legacy.success && Object.keys(legacy.data).length > 0) {
-      await saveApiKeys(legacy.data);
+      if (!(await saveApiKeys(legacy.data))) {
+        return legacy.data;
+      }
       await store.delete(API_KEYS_KEY);
+      await store.save();
       return legacy.data;
     }
     if (legacyRaw) {
@@ -482,14 +849,16 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
   return {};
 }
 
-export async function saveApiKeys(keys: Record<string, string>): Promise<void> {
+export async function saveApiKeys(keys: Record<string, string>): Promise<boolean> {
   try {
     await invoke("save_api_keys_cmd", { keys });
+    return true;
   } catch (e) {
     logError("storage", "Failed to save API keys to keychain", {
       error: e,
       action: "API keys may not persist. Try re-entering them in Settings > Model Providers.",
     });
+    return false;
   }
 }
 
@@ -506,7 +875,7 @@ export async function loadSearchConfigs(): Promise<import("../types").SearchApiC
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load search configs from secure store", {
+    logError("storage", "Failed to load search configs from app store", {
       error: e,
       action: "Search configuration could not be loaded. Re-configure in Settings > Web Search.",
     });
@@ -517,10 +886,11 @@ export async function loadSearchConfigs(): Promise<import("../types").SearchApiC
 export async function saveSearchConfigs(configs: import("../types").SearchApiConfig[]): Promise<void> {
   try {
     const store = await getStore();
-    await store.set(SEARCH_CONFIGS_KEY, configs);
+    const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
+    await store.set(SEARCH_CONFIGS_KEY, stripped);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save search configs to secure store", {
+    logError("storage", "Failed to save search configs to app store", {
       error: e,
       action: "Search configuration may not persist. Try re-entering in Settings > Web Search.",
     });
@@ -540,7 +910,7 @@ export async function loadFetchConfigs(): Promise<import("../types").FetchApiCon
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load fetch configs from secure store", {
+    logError("storage", "Failed to load fetch configs from app store", {
       error: e,
       action: "Fetch configuration could not be loaded. Re-configure in Settings > Web Search.",
     });
@@ -551,10 +921,11 @@ export async function loadFetchConfigs(): Promise<import("../types").FetchApiCon
 export async function saveFetchConfigs(configs: import("../types").FetchApiConfig[]): Promise<void> {
   try {
     const store = await getStore();
-    await store.set(FETCH_CONFIGS_KEY, configs);
+    const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
+    await store.set(FETCH_CONFIGS_KEY, stripped);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save fetch configs to secure store", {
+    logError("storage", "Failed to save fetch configs to app store", {
       error: e,
       action: "Fetch configuration may not persist. Try re-entering in Settings > Web Search.",
     });
@@ -562,14 +933,25 @@ export async function saveFetchConfigs(configs: import("../types").FetchApiConfi
 }
 
 export async function clearConversations(): Promise<void> {
+  conversationsAreBeingCleared = true;
   try {
+    pendingConversationSave = null;
+    if (conversationSavePromise) {
+      await conversationSavePromise.catch(() => undefined);
+    }
+    await invoke("clear_encrypted_conversations");
     const store = await getStore();
     await store.delete(CONVERSATIONS_KEY);
+    await store.save();
+    preservedInvalidConversations = [];
   } catch (e) {
-    logError("storage", "Failed to clear conversations from secure store", {
+    logError("storage", "Failed to clear encrypted conversations", {
       error: e,
-      action: "Conversations may still be stored. Try restarting and clearing again.",
+      action: "Some conversations may still be stored. Retry after checking keychain and disk access.",
     });
+    throw e;
+  } finally {
+    conversationsAreBeingCleared = false;
   }
   localStorage.removeItem(CONVERSATIONS_KEY);
 }
@@ -591,8 +973,11 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
     const legacyRaw = await store.get<unknown>(SEARCH_API_KEYS_KEY);
     const legacy = ApiKeysSchema.safeParse(legacyRaw);
     if (legacy.success && Object.keys(legacy.data).length > 0) {
-      await saveSearchApiKeys(legacy.data);
+      if (!(await saveSearchApiKeys(legacy.data))) {
+        return legacy.data;
+      }
       await store.delete(SEARCH_API_KEYS_KEY);
+      await store.save();
       return legacy.data;
     }
     if (legacyRaw) {
@@ -612,14 +997,16 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
   return {};
 }
 
-export async function saveSearchApiKeys(keys: Record<string, string>): Promise<void> {
+export async function saveSearchApiKeys(keys: Record<string, string>): Promise<boolean> {
   try {
     await invoke("save_search_api_keys_cmd", { keys });
+    return true;
   } catch (e) {
     logError("storage", "Failed to save search API keys to keychain", {
       error: e,
       action: "Search API keys may not persist. Re-enter them in Settings > Web Search.",
     });
+    return false;
   }
 }
 
@@ -648,7 +1035,7 @@ export async function loadTitleConfig(): Promise<TitleGenerationConfig> {
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load title config from secure store", {
+    logError("storage", "Failed to load title config from app store", {
       error: e,
       action: "Using default title generation settings.",
     });
@@ -662,7 +1049,7 @@ export async function saveTitleConfig(config: TitleGenerationConfig): Promise<vo
     await store.set(TITLE_CONFIG_KEY, config);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save title config to secure store", {
+    logError("storage", "Failed to save title config to app store", {
       error: e,
       action: "Title generation settings may not persist.",
     });
@@ -774,18 +1161,23 @@ const AppshotConfigSchema = z.object({
   saveToGallery: z.boolean().default(false),
 });
 
-const McpServerConfigSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  transport: z.enum(["stdio", "sse", "streamable-http"]),
-  command: z.string().optional(),
-  args: z.array(z.string()).optional(),
-  baseUrl: z.string().optional(),
-  apiKey: z.string().optional(),
-  enabled: z.boolean(),
-});
+export const McpServerConfigSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    transport: z.enum(["stdio", "sse", "streamable-http"]),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+    enabled: z.boolean(),
+    trustLevel: z.enum(["trusted", "untrusted"]).optional(),
+    allowLocalNetwork: z.boolean().optional(),
+  })
+  .passthrough();
 
 const McpConfigsArraySchema = z.array(McpServerConfigSchema);
+let mcpConfigWritesBlockedBySecretMigration = false;
 
 /**
  * Migrates legacy stdio MCP configs to the program-only `command` + `args[]`
@@ -847,7 +1239,11 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
           for (const c of configsWithApiKeys) {
             updatedKeys[c.id] = c.apiKey!;
           }
-          await saveMcpApiKeys(updatedKeys);
+          if (!(await saveMcpApiKeys(updatedKeys))) {
+            mcpConfigWritesBlockedBySecretMigration = true;
+            return migrated;
+          }
+          mcpConfigWritesBlockedBySecretMigration = false;
 
           // Strip apiKey from the stored configs
           migrated = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
@@ -872,7 +1268,7 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load MCP configs from secure store", {
+    logError("storage", "Failed to load MCP configs from app store", {
       error: e,
       action: "MCP server configuration could not be loaded. Re-configure in Settings > MCP Servers.",
     });
@@ -881,6 +1277,12 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
 }
 
 export async function saveMcpConfigs(configs: import("../types").McpServerConfig[]): Promise<void> {
+  if (mcpConfigWritesBlockedBySecretMigration) {
+    logWarn("storage", "MCP config save skipped because plaintext-key migration is incomplete", {
+      action: "Restore OS keychain access and restart before changing MCP server settings.",
+    });
+    return;
+  }
   try {
     const store = await getStore();
     // Strip apiKey from all configs before saving to disk
@@ -888,7 +1290,7 @@ export async function saveMcpConfigs(configs: import("../types").McpServerConfig
     await store.set(MCP_CONFIGS_KEY, stripped);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save MCP configs to secure store", {
+    logError("storage", "Failed to save MCP configs to app store", {
       error: e,
       action: "MCP server config may not persist. Re-configure in Settings > MCP Servers.",
     });
@@ -909,14 +1311,16 @@ export async function loadMcpApiKeys(): Promise<Record<string, string>> {
   return {};
 }
 
-export async function saveMcpApiKeys(keys: Record<string, string>): Promise<void> {
+export async function saveMcpApiKeys(keys: Record<string, string>): Promise<boolean> {
   try {
     await invoke("save_mcp_api_keys_cmd", { keys });
+    return true;
   } catch (e) {
     logError("storage", "Failed to save MCP API keys to keychain", {
       error: e,
       action: "MCP API keys may not persist. Re-enter them in Settings > MCP Servers.",
     });
+    return false;
   }
 }
 
@@ -950,8 +1354,16 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
     const raw = await invoke<string>("load_config");
     if (raw) {
       const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as ModelConfig[];
+      const result = ModelConfigsArraySchema.safeParse(parsed);
+      if (result.success && result.data.length > 0) {
+        return result.data as ModelConfig[];
+      }
+      if (!result.success) {
+        logWarn("storage", "Stored model configuration failed validation", {
+          details: result.error.message,
+          action: "The configuration file was preserved. Correct it or restore a known-good copy.",
+        });
+        throw result.error;
       }
     }
   } catch (e) {
@@ -959,13 +1371,15 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
       error: e,
       action: "Model configuration could not be loaded. Re-configure in Settings > Model Providers.",
     });
+    throw e;
   }
   return null;
 }
 
 export async function saveModelConfigs(configs: ModelConfig[]) {
   try {
-    await invoke("save_config", { config: JSON.stringify(configs) });
+    const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
+    await invoke("save_config", { config: JSON.stringify(stripped) });
   } catch (e) {
     logError("storage", "Failed to save config to system", {
       error: e,
@@ -982,7 +1396,7 @@ export async function loadSelectedModel(): Promise<string> {
   } catch (e) {
     logError("storage", "Failed to load selected model", { error: e });
   }
-  return localStorage.getItem(SELECTED_MODEL_KEY) ?? "";
+  return "";
 }
 
 export async function saveSelectedModel(modelId: string): Promise<void> {
@@ -993,7 +1407,6 @@ export async function saveSelectedModel(modelId: string): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save selected model", { error: e });
   }
-  localStorage.setItem(SELECTED_MODEL_KEY, modelId);
 }
 
 export async function loadAlwaysOnTop(): Promise<boolean> {
@@ -1004,8 +1417,6 @@ export async function loadAlwaysOnTop(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load always on top setting", { error: e });
   }
-  const fallback = localStorage.getItem(ALWAYS_ON_TOP_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1017,7 +1428,6 @@ export async function saveAlwaysOnTop(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save always on top setting", { error: e });
   }
-  localStorage.setItem(ALWAYS_ON_TOP_KEY, String(value));
 }
 
 export async function loadCloseToTray(): Promise<boolean> {
@@ -1028,8 +1438,6 @@ export async function loadCloseToTray(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load close to tray setting", { error: e });
   }
-  const fallback = localStorage.getItem(CLOSE_TO_TRAY_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1041,7 +1449,6 @@ export async function saveCloseToTray(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save close to tray setting", { error: e });
   }
-  localStorage.setItem(CLOSE_TO_TRAY_KEY, String(value));
 }
 
 export async function loadLaunchOnStartup(): Promise<boolean> {
@@ -1052,8 +1459,6 @@ export async function loadLaunchOnStartup(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load launch on startup setting", { error: e });
   }
-  const fallback = localStorage.getItem(LAUNCH_ON_STARTUP_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1065,7 +1470,6 @@ export async function saveLaunchOnStartup(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save launch on startup setting", { error: e });
   }
-  localStorage.setItem(LAUNCH_ON_STARTUP_KEY, String(value));
 }
 
 export async function loadSendMessageShortcut(): Promise<"enter" | "ctrl-enter"> {
@@ -1076,8 +1480,6 @@ export async function loadSendMessageShortcut(): Promise<"enter" | "ctrl-enter">
   } catch (e) {
     logError("storage", "Failed to load send message shortcut setting", { error: e });
   }
-  const fallback = localStorage.getItem(SEND_MESSAGE_SHORTCUT_KEY);
-  if (fallback === "enter" || fallback === "ctrl-enter") return fallback;
   return "enter";
 }
 
@@ -1089,7 +1491,6 @@ export async function saveSendMessageShortcut(value: "enter" | "ctrl-enter"): Pr
   } catch (e) {
     logError("storage", "Failed to save send message shortcut setting", { error: e });
   }
-  localStorage.setItem(SEND_MESSAGE_SHORTCUT_KEY, value);
 }
 
 export async function loadClearInputOnEscape(): Promise<boolean> {
@@ -1100,8 +1501,6 @@ export async function loadClearInputOnEscape(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load clear input on escape setting", { error: e });
   }
-  const fallback = localStorage.getItem(CLEAR_INPUT_ON_ESCAPE_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1113,7 +1512,6 @@ export async function saveClearInputOnEscape(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save clear input on escape setting", { error: e });
   }
-  localStorage.setItem(CLEAR_INPUT_ON_ESCAPE_KEY, String(value));
 }
 
 export async function loadBaseTextSize(): Promise<"small" | "medium" | "large" | "xlarge"> {
@@ -1124,8 +1522,6 @@ export async function loadBaseTextSize(): Promise<"small" | "medium" | "large" |
   } catch (e) {
     logError("storage", "Failed to load base text size setting", { error: e });
   }
-  const fallback = localStorage.getItem(BASE_TEXT_SIZE_KEY);
-  if (fallback === "small" || fallback === "medium" || fallback === "large" || fallback === "xlarge") return fallback;
   return "medium";
 }
 
@@ -1137,7 +1533,6 @@ export async function saveBaseTextSize(value: "small" | "medium" | "large" | "xl
   } catch (e) {
     logError("storage", "Failed to save base text size setting", { error: e });
   }
-  localStorage.setItem(BASE_TEXT_SIZE_KEY, value);
 }
 
 export async function loadLanguage(): Promise<string> {
@@ -1148,8 +1543,6 @@ export async function loadLanguage(): Promise<string> {
   } catch (e) {
     logError("storage", "Failed to load language setting", { error: e });
   }
-  const fallback = localStorage.getItem(LANGUAGE_KEY);
-  if (fallback !== null) return fallback;
   return "en";
 }
 
@@ -1161,7 +1554,6 @@ export async function saveLanguage(value: string): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save language setting", { error: e });
   }
-  localStorage.setItem(LANGUAGE_KEY, value);
 }
 
 export async function loadAutoUpdateChecking(): Promise<boolean> {
@@ -1172,8 +1564,6 @@ export async function loadAutoUpdateChecking(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load auto update checking setting", { error: e });
   }
-  const fallback = localStorage.getItem(AUTO_UPDATE_CHECKING_KEY);
-  if (fallback !== null) return fallback === "true";
   return true;
 }
 
@@ -1185,7 +1575,6 @@ export async function saveAutoUpdateChecking(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save auto update checking setting", { error: e });
   }
-  localStorage.setItem(AUTO_UPDATE_CHECKING_KEY, String(value));
 }
 
 export async function loadSystemPrompt(): Promise<string> {
@@ -1196,8 +1585,6 @@ export async function loadSystemPrompt(): Promise<string> {
   } catch (e) {
     logError("storage", "Failed to load system prompt", { error: e });
   }
-  const fallback = localStorage.getItem(SYSTEM_PROMPT_KEY);
-  if (fallback !== null) return fallback;
   return "";
 }
 
@@ -1209,7 +1596,6 @@ export async function saveSystemPrompt(value: string): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save system prompt", { error: e });
   }
-  localStorage.setItem(SYSTEM_PROMPT_KEY, value);
 }
 
 export async function loadShowContextWindow(): Promise<boolean> {
@@ -1220,8 +1606,6 @@ export async function loadShowContextWindow(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load show context window setting", { error: e });
   }
-  const fallback = localStorage.getItem(SHOW_CONTEXT_WINDOW_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1233,7 +1617,6 @@ export async function saveShowContextWindow(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save show context window setting", { error: e });
   }
-  localStorage.setItem(SHOW_CONTEXT_WINDOW_KEY, String(value));
 }
 
 export async function loadMaxToolSteps(): Promise<number> {
@@ -1243,11 +1626,6 @@ export async function loadMaxToolSteps(): Promise<number> {
     if (typeof raw === "number") return raw;
   } catch (e) {
     logError("storage", "Failed to load max tool steps setting", { error: e });
-  }
-  const fallback = localStorage.getItem(MAX_TOOL_STEPS_KEY);
-  if (fallback !== null) {
-    const num = parseInt(fallback, 10);
-    if (!isNaN(num)) return num;
   }
   return DEFAULT_MAX_TOOL_STEPS;
 }
@@ -1260,7 +1638,6 @@ export async function saveMaxToolSteps(value: number): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save max tool steps setting", { error: e });
   }
-  localStorage.setItem(MAX_TOOL_STEPS_KEY, String(value));
 }
 
 const DEFAULT_GIT_CONFIG: GitConfig = {
@@ -1286,7 +1663,7 @@ export async function loadGitConfig(): Promise<GitConfig> {
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load Git config from secure store", {
+    logError("storage", "Failed to load Git config from app store", {
       error: e,
       action: "Using default Git settings.",
     });
@@ -1300,7 +1677,7 @@ export async function saveGitConfig(config: GitConfig): Promise<void> {
     await store.set(GIT_CONFIG_KEY, config);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save Git config to secure store", {
+    logError("storage", "Failed to save Git config to app store", {
       error: e,
       action: "Git configuration settings may not persist.",
     });
@@ -1331,7 +1708,7 @@ export async function loadAppshotConfig(): Promise<AppshotConfig> {
       });
     }
   } catch (e) {
-    logError("storage", "Failed to load Appshots config from secure store", {
+    logError("storage", "Failed to load Appshots config from app store", {
       error: e,
       action: "Using default Appshots settings.",
     });
@@ -1345,21 +1722,11 @@ export async function saveAppshotConfig(config: AppshotConfig): Promise<void> {
     await store.set(APPSHOT_CONFIG_KEY, config);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save Appshots config to secure store", {
+    logError("storage", "Failed to save Appshots config to app store", {
       error: e,
       action: "Appshots configuration settings may not persist.",
     });
     throw e;
-  }
-}
-
-export async function clearStoreData(): Promise<void> {
-  try {
-    const store = await getStore();
-    await store.clear();
-    await store.save();
-  } catch (e) {
-    logError("storage", "Failed to clear store data", { error: e });
   }
 }
 
@@ -1415,7 +1782,7 @@ export async function loadEnabledMcpServers(): Promise<string[]> {
       return raw.filter((item): item is string => typeof item === "string");
     }
   } catch (e) {
-    logError("storage", "Failed to load enabled MCP servers from secure store", { error: e });
+    logError("storage", "Failed to load enabled MCP servers from app store", { error: e });
   }
   return [];
 }
@@ -1426,7 +1793,7 @@ export async function saveEnabledMcpServers(enabledIds: string[]): Promise<void>
     await store.set(MCP_ENABLED_SERVERS_KEY, enabledIds);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to save enabled MCP servers to secure store", { error: e });
+    logError("storage", "Failed to save enabled MCP servers to app store", { error: e });
   }
 }
 
@@ -1438,8 +1805,6 @@ export async function loadIsLoggingEnabled(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load logging enabled setting", { error: e });
   }
-  const fallback = localStorage.getItem(LOGGING_ENABLED_KEY);
-  if (fallback !== null) return fallback === "true";
   return true;
 }
 
@@ -1451,7 +1816,6 @@ export async function saveIsLoggingEnabled(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save logging enabled setting", { error: e });
   }
-  localStorage.setItem(LOGGING_ENABLED_KEY, String(value));
 }
 
 export async function loadDisableBgActivity(): Promise<boolean> {
@@ -1462,8 +1826,6 @@ export async function loadDisableBgActivity(): Promise<boolean> {
   } catch (e) {
     logError("storage", "Failed to load disable bg activity setting", { error: e });
   }
-  const fallback = localStorage.getItem(DISABLE_BG_ACTIVITY_KEY);
-  if (fallback !== null) return fallback === "true";
   return false;
 }
 
@@ -1475,31 +1837,6 @@ export async function saveDisableBgActivity(value: boolean): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to save disable bg activity setting", { error: e });
   }
-  localStorage.setItem(DISABLE_BG_ACTIVITY_KEY, String(value));
-}
-
-export async function loadStrictSsl(): Promise<boolean> {
-  try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(STRICT_SSL_KEY);
-    if (typeof raw === "boolean") return raw;
-  } catch (e) {
-    logError("storage", "Failed to load strict ssl setting", { error: e });
-  }
-  const fallback = localStorage.getItem(STRICT_SSL_KEY);
-  if (fallback !== null) return fallback === "true";
-  return true;
-}
-
-export async function saveStrictSsl(value: boolean): Promise<void> {
-  try {
-    const store = await getStore();
-    await store.set(STRICT_SSL_KEY, value);
-    await store.save();
-  } catch (e) {
-    logError("storage", "Failed to save strict ssl setting", { error: e });
-  }
-  localStorage.setItem(STRICT_SSL_KEY, String(value));
 }
 
 export const DEFAULT_BLOCKED_HOSTS = [
@@ -1520,58 +1857,101 @@ export const DEFAULT_BLOCKED_HOSTS = [
   "fe80::/10",
 ];
 
-export async function loadBlockedHosts(): Promise<string[]> {
+export interface NetworkSettings {
+  strictSsl: boolean;
+  blockedHosts: string[];
+  offlineMode: boolean;
+}
+
+const NetworkSettingsSchema = z.object({
+  strict_ssl: z.boolean(),
+  blocked_hosts: z.array(z.string()),
+  offline_mode: z.boolean().default(false),
+});
+
+export async function loadNetworkSettings(): Promise<NetworkSettings> {
   try {
+    const raw = await invoke<string>("load_network_config");
+    const legacyKeys = ["sythoria-strict-ssl", "sythoria-blocked-hosts", "sythoria-offline-mode"];
     const store = await getStore();
-    const raw = await store.get<unknown>(BLOCKED_HOSTS_KEY);
-    if (Array.isArray(raw)) return raw.map(String);
-  } catch (e) {
-    logError("storage", "Failed to load blocked hosts setting", { error: e });
-  }
-  const fallback = localStorage.getItem(BLOCKED_HOSTS_KEY);
-  if (fallback !== null) {
-    try {
-      return JSON.parse(fallback);
-    } catch {
-      return DEFAULT_BLOCKED_HOSTS;
+    let settings: NetworkSettings;
+
+    if (raw) {
+      const parsed = NetworkSettingsSchema.parse(JSON.parse(raw));
+      settings = {
+        strictSsl: parsed.strict_ssl,
+        blockedHosts: parsed.blocked_hosts,
+        offlineMode: parsed.offline_mode,
+      };
+    } else {
+      const legacyStrictSsl = await store.get<unknown>(legacyKeys[0]);
+      const legacyBlockedHosts = await store.get<unknown>(legacyKeys[1]);
+      const legacyOfflineMode = await store.get<unknown>(legacyKeys[2]);
+      let localBlockedHosts: unknown;
+      try {
+        const stored = localStorage.getItem(legacyKeys[1]);
+        localBlockedHosts = stored ? JSON.parse(stored) : undefined;
+      } catch {
+        localBlockedHosts = undefined;
+      }
+
+      settings = {
+        strictSsl:
+          typeof legacyStrictSsl === "boolean" ? legacyStrictSsl : localStorage.getItem(legacyKeys[0]) !== "false",
+        blockedHosts: Array.isArray(legacyBlockedHosts)
+          ? legacyBlockedHosts.filter((host): host is string => typeof host === "string")
+          : Array.isArray(localBlockedHosts)
+            ? localBlockedHosts.filter((host): host is string => typeof host === "string")
+            : DEFAULT_BLOCKED_HOSTS,
+        offlineMode:
+          typeof legacyOfflineMode === "boolean" ? legacyOfflineMode : localStorage.getItem(legacyKeys[2]) === "true",
+      };
+      await saveNetworkSettings(settings);
+      logInfo("storage", "Migrated network policy to encrypted storage");
     }
+
+    const removed = await Promise.all(legacyKeys.map((key) => store.delete(key)));
+    if (removed.some(Boolean)) await store.save();
+    legacyKeys.forEach((key) => localStorage.removeItem(key));
+    return settings;
+  } catch (error) {
+    logError("storage", "The encrypted network policy could not be authenticated; network access is disabled", {
+      error,
+      action: "Review and save Privacy settings to replace the damaged policy.",
+    });
+    return {
+      strictSsl: true,
+      blockedHosts: DEFAULT_BLOCKED_HOSTS,
+      offlineMode: true,
+    };
   }
-  return DEFAULT_BLOCKED_HOSTS;
 }
 
-export async function saveBlockedHosts(value: string[]): Promise<void> {
-  try {
-    const store = await getStore();
-    await store.set(BLOCKED_HOSTS_KEY, value);
-    await store.save();
-  } catch (e) {
-    logError("storage", "Failed to save blocked hosts setting", { error: e });
-  }
-  localStorage.setItem(BLOCKED_HOSTS_KEY, JSON.stringify(value));
-}
+let pendingNetworkSettings: NetworkSettings | null = null;
+let networkSettingsSavePromise: Promise<void> | null = null;
 
-export async function loadOfflineMode(): Promise<boolean> {
-  try {
-    const store = await getStore();
-    const raw = await store.get<unknown>(OFFLINE_MODE_KEY);
-    if (typeof raw === "boolean") return raw;
-  } catch (e) {
-    logError("storage", "Failed to load offline mode setting", { error: e });
+export async function saveNetworkSettings(settings: NetworkSettings): Promise<void> {
+  pendingNetworkSettings = settings;
+  if (!networkSettingsSavePromise) {
+    networkSettingsSavePromise = Promise.resolve()
+      .then(async () => {
+        while (pendingNetworkSettings) {
+          const next = pendingNetworkSettings;
+          pendingNetworkSettings = null;
+          await invoke("save_network_config", {
+            config: JSON.stringify({
+              strict_ssl: next.strictSsl,
+              blocked_hosts: next.blockedHosts,
+              offline_mode: next.offlineMode,
+            }),
+          });
+        }
+      })
+      .finally(() => {
+        networkSettingsSavePromise = null;
+      });
   }
-  const fallback = localStorage.getItem(OFFLINE_MODE_KEY);
-  if (fallback !== null) return fallback === "true";
-  return false;
-}
-
-export async function saveOfflineMode(value: boolean): Promise<void> {
-  try {
-    const store = await getStore();
-    await store.set(OFFLINE_MODE_KEY, value);
-    await store.save();
-  } catch (e) {
-    logError("storage", "Failed to save offline mode setting", { error: e });
-  }
-  localStorage.setItem(OFFLINE_MODE_KEY, String(value));
+  await networkSettingsSavePromise;
 }
 
 export async function loadLegacyProjects(): Promise<Project[] | null> {
@@ -1582,7 +1962,7 @@ export async function loadLegacyProjects(): Promise<Project[] | null> {
       return raw as Project[];
     }
   } catch (e) {
-    logError("storage", "Failed to load legacy projects from secure store", { error: e });
+    logError("storage", "Failed to load legacy projects from app store", { error: e });
   }
   return null;
 }
@@ -1593,6 +1973,6 @@ export async function clearLegacyProjects(): Promise<void> {
     await store.delete(PROJECTS_KEY);
     await store.save();
   } catch (e) {
-    logError("storage", "Failed to clear legacy projects from secure store", { error: e });
+    logError("storage", "Failed to clear legacy projects from app store", { error: e });
   }
 }

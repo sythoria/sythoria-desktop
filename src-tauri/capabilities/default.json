@@ -28,7 +28,6 @@
       "allow": []
     },
     "opener:default",
-    "store:default",
     "log:default",
     "autostart:default",
     "dialog:default",

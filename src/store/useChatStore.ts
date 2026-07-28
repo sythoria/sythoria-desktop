@@ -42,13 +42,11 @@ import {
   loadMaxToolSteps,
   loadIsLoggingEnabled,
   loadDisableBgActivity,
-  loadStrictSsl,
-  loadBlockedHosts,
-  DEFAULT_BLOCKED_HOSTS,
-  loadOfflineMode,
+  loadNetworkSettings,
   loadLanguage,
   loadSelectedModel,
   saveSelectedModel,
+  loadUiLayoutSettings,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -299,11 +297,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedMaxToolSteps,
         loadedIsLoggingEnabled,
         loadedDisableBgActivity,
-        loadedStrictSsl,
-        loadedBlockedHosts,
-        loadedOfflineMode,
+        loadedNetworkSettings,
         loadedLanguage,
         loadedSelectedModel,
+        loadedUiLayout,
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
@@ -330,11 +327,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadMaxToolSteps(),
         loadIsLoggingEnabled(),
         loadDisableBgActivity(),
-        loadStrictSsl(),
-        loadBlockedHosts(),
-        loadOfflineMode(),
+        loadNetworkSettings(),
         loadLanguage(),
         loadSelectedModel(),
+        loadUiLayoutSettings(),
         useProjectStore.getState().init(),
       ]);
 
@@ -433,22 +429,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoggingEnabled: hasOnboarded ? loadedIsLoggingEnabled : true,
         showContextWindow: hasOnboarded ? loadedShowContextWindow : false,
         disableBgActivity: hasOnboarded ? loadedDisableBgActivity : false,
-        strictSsl: hasOnboarded ? loadedStrictSsl : true,
-        blockedHosts: hasOnboarded ? loadedBlockedHosts : DEFAULT_BLOCKED_HOSTS,
-        offlineMode: hasOnboarded ? loadedOfflineMode : false,
+        strictSsl: loadedNetworkSettings.strictSsl,
+        blockedHosts: loadedNetworkSettings.blockedHosts,
+        offlineMode: loadedNetworkSettings.offlineMode,
         language: hasOnboarded ? loadedLanguage : "en",
+        sidebarWidth: Math.max(180, Math.min(480, loadedUiLayout.sidebarWidth ?? 260)),
+        auxPanelWidth: Math.max(360, Math.min(680, loadedUiLayout.auxPanelWidth ?? 520)),
+        isAuxSummaryPinned: loadedUiLayout.isAuxSummaryPinned ?? false,
       });
-      try {
-        await invoke("save_network_config", {
-          config: JSON.stringify({
-            strict_ssl: hasOnboarded ? loadedStrictSsl : true,
-            blocked_hosts: hasOnboarded ? loadedBlockedHosts : DEFAULT_BLOCKED_HOSTS,
-            offline_mode: hasOnboarded ? loadedOfflineMode : false,
-          }),
-        });
-      } catch (e) {
-        logWarn("general", "Could not synchronize network policy with the backend", { details: String(e) });
-      }
       if (typeof document !== "undefined") {
         document.documentElement.lang = hasOnboarded ? loadedLanguage : "en";
       }
@@ -1304,7 +1292,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().cleanupEmptyConversations();
     const { conversations } = get();
     const persistentConversations = conversations.filter((c) => !c.isTemporary);
-    await saveConversations(persistentConversations);
+    try {
+      await saveConversations(persistentConversations);
+    } catch {
+      uiToast("Chat history could not be saved. The previous encrypted snapshot is still intact.", "error");
+    }
   },
 
   resumeConversation: async (convId) => {
@@ -1345,9 +1337,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearAllChats: async () => {
+    const { conversations, activeId } = get();
+    get().stopStreaming();
     set({ conversations: [], activeId: null });
-    await clearConversations();
-    uiToast("All chats cleared", "info");
+    try {
+      await clearConversations();
+      uiToast("All chats cleared", "info");
+    } catch {
+      set({ conversations, activeId });
+      uiToast("Chat clearing was incomplete. Retry to ensure encrypted files and their key are both removed.", "error");
+    }
   },
 
   cleanup: () => {

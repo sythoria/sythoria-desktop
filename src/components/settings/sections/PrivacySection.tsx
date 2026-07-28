@@ -6,8 +6,16 @@ import { Select } from "../../ui/Select";
 import { ConfirmModal } from "../../ui/Modal";
 import { useUIStore } from "../../../store/useUIStore";
 import { useAppshotStore } from "../../../store/useAppshotStore";
+import { useChatStore } from "../../../store/useChatStore";
 import { clearLogs } from "../../../utils/logger";
-import { clearStoreData, DEFAULT_BLOCKED_HOSTS } from "../../../utils/storage";
+import {
+  DEFAULT_BLOCKED_HOSTS,
+  resumeConversationPersistenceAfterFailedWipe,
+  suspendConversationPersistenceForWipe,
+  suspendPreferencePersistenceForWipe,
+  resumePreferencePersistenceAfterFailedWipe,
+  resetPreferenceCacheAfterWipe,
+} from "../../../utils/storage";
 import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
@@ -141,53 +149,51 @@ export function PrivacySection() {
 
   const handleWipeData = async () => {
     setIsConfirmWipe2Open(false);
+    const failures: string[] = [];
+    let persistentWipeSucceeded = false;
+    useChatStore.getState().stopStreaming();
+    await suspendConversationPersistenceForWipe();
+    await suspendPreferencePersistenceForWipe();
 
+    // Appshots may include a user-selected folder, so they remain a separate
+    // operation. A failure here must not prevent credentials and chats from
+    // being wiped.
     try {
-      // 1. Remove persistent and temporary Appshots before clearing the folder configuration.
       await invoke("wipe_appshot_data", {
         customFolder: appshotConfig.captureFolder || null,
       });
-
-      // 2. Wipe keyring secrets first (depends on active store server list/indices)
-      try {
-        await invoke("save_api_keys_cmd", { keys: {} });
-      } catch (e) {
-        console.error("Failed to clear API keys keyring:", e);
-      }
-      try {
-        await invoke("save_search_api_keys_cmd", { keys: {} });
-      } catch (e) {
-        console.error("Failed to clear Search API keys keyring:", e);
-      }
-      try {
-        await invoke("save_mcp_env_secrets_cmd", { secrets: {} });
-      } catch (e) {
-        console.error("Failed to clear MCP env secrets keyring:", e);
-      }
-
-      // 3. Wipe the Tauri plugin store (conversations, theme, config keys, etc.)
-      try {
-        await clearStoreData();
-      } catch (e) {
-        console.error("Failed to clear Tauri store data:", e);
-      }
-
-      // 4. Delete config files in AppData (config.json, search_config.json, mcp_config.json, sythoria-store.json)
-      try {
-        await invoke("wipe_config_files");
-      } catch (e) {
-        console.error("Failed to wipe config files:", e);
-      }
-
-      // 5. Wipe localStorage
-      localStorage.clear();
-
-      useUIStore.getState().setHasStarted(false);
-      window.location.reload();
-    } catch (e) {
-      console.error(e);
-      addToast(t("settings.privacy.wipeDataFailed"), "error");
+    } catch (error) {
+      console.error("Failed to wipe Appshots:", error);
+      failures.push(error instanceof Error ? error.message : String(error));
     }
+
+    // Rust owns the ordered keychain -> encrypted chat -> store -> config wipe
+    // so secret indices cannot disappear before their credentials are removed.
+    try {
+      await invoke("wipe_config_files");
+      persistentWipeSucceeded = true;
+    } catch (error) {
+      console.error("Failed to wipe persistent app data:", error);
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+
+    if (persistentWipeSucceeded) {
+      resetPreferenceCacheAfterWipe();
+      localStorage.clear();
+      clearLogs();
+      useUIStore.setState({ hasStarted: false });
+      if (failures.length === 0) {
+        window.location.reload();
+      } else {
+        addToast(`${t("settings.privacy.wipeDataFailed")} ${failures.join("; ")}`, "error");
+        window.setTimeout(() => window.location.reload(), 1500);
+      }
+      return;
+    }
+
+    resumeConversationPersistenceAfterFailedWipe();
+    resumePreferencePersistenceAfterFailedWipe();
+    addToast(`${t("settings.privacy.wipeDataFailed")} ${failures.join("; ")}`, "error");
   };
 
   return (

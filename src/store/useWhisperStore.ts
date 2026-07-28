@@ -3,6 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WHISPER_PRESETS } from "../config/whisperPresets";
 import { logInfo, logError } from "../utils/logger";
+import {
+  loadWhisperConfig,
+  removeLegacyWhisperConfig,
+  saveWhisperConfig,
+  type StoredWhisperConfig,
+} from "../utils/storage";
 
 interface WhisperConfig {
   isVoiceEnabled: boolean;
@@ -61,22 +67,21 @@ let isListening = false;
 let cloudKeySaveTimer: ReturnType<typeof setTimeout> | undefined;
 let cloudKeyWriteQueue: Promise<void> = Promise.resolve();
 
+const toStoredConfig = (state: WhisperConfig): StoredWhisperConfig => ({
+  isVoiceEnabled: state.isVoiceEnabled,
+  selectedModelId: state.selectedModelId,
+  customModelPath: state.customModelPath,
+  language: state.language,
+  sttProvider: state.sttProvider,
+  cloudApiUrl: state.cloudApiUrl,
+  cloudModel: state.cloudModel,
+  refinementModelId: state.refinementModelId,
+});
+
 const saveConfig = (state: WhisperConfig) => {
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(
-      "sythoria-whisper-config",
-      JSON.stringify({
-        isVoiceEnabled: state.isVoiceEnabled,
-        selectedModelId: state.selectedModelId,
-        customModelPath: state.customModelPath,
-        language: state.language,
-        sttProvider: state.sttProvider,
-        cloudApiUrl: state.cloudApiUrl,
-        cloudModel: state.cloudModel,
-        refinementModelId: state.refinementModelId,
-      }),
-    );
-  }
+  void saveWhisperConfig(toStoredConfig(state)).catch((error) => {
+    logError("storage", `Failed to save encrypted speech settings: ${error}`);
+  });
 };
 
 export const useWhisperStore = create<WhisperState>((set, get) => {
@@ -114,19 +119,7 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
       }
 
       try {
-        let savedConfig: Partial<WhisperConfig> = {};
-        let legacyCloudApiKey = "";
-        const localData = typeof localStorage !== "undefined" ? localStorage.getItem("sythoria-whisper-config") : null;
-        if (localData) {
-          try {
-            const parsed = JSON.parse(localData) as Partial<WhisperConfig>;
-            legacyCloudApiKey = typeof parsed.cloudApiKey === "string" ? parsed.cloudApiKey : "";
-            delete parsed.cloudApiKey;
-            savedConfig = parsed;
-          } catch (e) {
-            logError("general", `Failed to parse saved Whisper config: ${e}`);
-          }
-        }
+        const { config: savedConfig, legacyCloudApiKey } = await loadWhisperConfig();
 
         let cloudApiKeyConfigured = false;
         let legacyKeyMigrated = !legacyCloudApiKey;
@@ -148,7 +141,8 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
           cloudApiKeyConfigured,
         });
         if (legacyKeyMigrated) {
-          saveConfig(get());
+          await saveWhisperConfig(toStoredConfig(get()));
+          removeLegacyWhisperConfig();
         }
       } catch (err) {
         logError("general", `Failed to initialize Whisper store: ${err}`);

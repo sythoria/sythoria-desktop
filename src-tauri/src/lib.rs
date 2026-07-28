@@ -1,11 +1,13 @@
 mod anthropic;
 mod appshots;
+mod atomic_file;
 pub mod commands;
 mod git;
 mod mcp;
 pub mod project;
 mod project_tools;
 mod search;
+mod secure_storage;
 mod skills;
 mod stream_parser;
 mod ws_handler;
@@ -47,6 +49,16 @@ impl Default for NetworkConfig {
     }
 }
 
+impl NetworkConfig {
+    fn fail_closed() -> Self {
+        Self {
+            strict_ssl: true,
+            offline_mode: true,
+            blocked_hosts: Self::default().blocked_hosts,
+        }
+    }
+}
+
 pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> =
     LazyLock::new(|| RwLock::new(NetworkConfig::default()));
 
@@ -78,10 +90,15 @@ pub fn ensure_online() -> Result<(), AppError> {
 }
 
 fn init_network_settings(app: &tauri::AppHandle) {
-    if let Ok(config) = commands::config::load_network_config_internal(app) {
-        if let Ok(mut lock) = NETWORK_CONFIG.write() {
-            *lock = config;
+    let config = match commands::config::load_network_config_internal(app) {
+        Ok(config) => config,
+        Err(error) => {
+            log::error!("Network policy could not be authenticated; failing closed: {error}");
+            NetworkConfig::fail_closed()
         }
+    };
+    if let Ok(mut lock) = NETWORK_CONFIG.write() {
+        *lock = config;
     }
 }
 
@@ -154,7 +171,6 @@ async fn check_for_updates() -> Result<UpdateCheckResult, AppError> {
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::sync::{LazyLock, Mutex};
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
@@ -1211,43 +1227,141 @@ async fn generate_title(
     Ok(trimmed)
 }
 
-const MCP_CONFIG_FILE: &str = "mcp_config.json";
-
 #[tauri::command]
 async fn load_mcp_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join(MCP_CONFIG_FILE);
-    if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
-    } else {
-        Ok("".to_string())
-    }
+    let config: Option<serde_json::Value> =
+        secure_storage::load_json(&app, secure_storage::StorageDomain::Mcp)?;
+    config
+        .map(|value| serde_json::to_string(&value).map_err(|e| AppError::ParseError(e.to_string())))
+        .transpose()
+        .map(|value| value.unwrap_or_default())
 }
 
 #[tauri::command]
 async fn save_mcp_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join(MCP_CONFIG_FILE);
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    Ok(())
+    let parsed = serde_json::from_str::<serde_json::Value>(&config)
+        .map_err(|error| AppError::ParseError(error.to_string()))?;
+    secure_storage::save_json(&app, secure_storage::StorageDomain::Mcp, &parsed)
 }
 
 fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
-    if let Ok(store) = tauri_plugin_store::StoreExt::store(app, commands::config::STORE_FILE) {
-        if let Some(val) = store.get("sythoria-close-to-tray") {
-            return val.as_bool().unwrap_or(false);
+    secure_storage::get_preference(app, "sythoria-close-to-tray")
+        .ok()
+        .flatten()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+const WINDOW_GEOMETRY_KEY: &str = "sythoria-window-geometry";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct WindowGeometry {
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    maximized: bool,
+}
+
+fn load_window_geometry(app: &tauri::AppHandle) -> Option<WindowGeometry> {
+    match secure_storage::get_preference(app, WINDOW_GEOMETRY_KEY) {
+        Ok(Some(value)) => {
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                let legacy_path = config_dir.join(".window-state.json");
+                if legacy_path.exists() {
+                    let _ = fs::remove_file(legacy_path);
+                }
+            }
+            serde_json::from_value(value).ok()
+        }
+        Ok(None) => {
+            let legacy_path = app.path().app_config_dir().ok()?.join(".window-state.json");
+            let content = fs::read(&legacy_path).ok()?;
+            let root: serde_json::Value = serde_json::from_slice(&content).ok()?;
+            let main = root.get("main")?;
+            let geometry = WindowGeometry {
+                width: main.get("width")?.as_u64()?.try_into().ok()?,
+                height: main.get("height")?.as_u64()?.try_into().ok()?,
+                x: main
+                    .get("prev_x")
+                    .or_else(|| main.get("x"))?
+                    .as_i64()?
+                    .try_into()
+                    .ok()?,
+                y: main
+                    .get("prev_y")
+                    .or_else(|| main.get("y"))?
+                    .as_i64()?
+                    .try_into()
+                    .ok()?,
+                maximized: main
+                    .get("maximized")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            };
+            if secure_storage::set_preference(
+                app,
+                WINDOW_GEOMETRY_KEY,
+                serde_json::to_value(&geometry).ok()?,
+            )
+            .is_ok()
+            {
+                let _ = fs::remove_file(legacy_path);
+            }
+            Some(geometry)
+        }
+        Err(error) => {
+            log::error!("Failed to load encrypted window geometry: {error}");
+            None
         }
     }
-    false
+}
+
+fn restore_window_geometry(window: &tauri::WebviewWindow) -> bool {
+    let Some(geometry) = load_window_geometry(window.app_handle()) else {
+        return false;
+    };
+    if !(640..=10_000).contains(&geometry.width) || !(480..=10_000).contains(&geometry.height) {
+        return false;
+    }
+    let _ = window.set_size(tauri::PhysicalSize::new(geometry.width, geometry.height));
+    let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
+    if geometry.maximized {
+        let _ = window.maximize();
+    }
+    true
+}
+
+fn save_window_geometry(window: &tauri::WebviewWindow) {
+    let mut geometry = match (
+        window.outer_size(),
+        window.outer_position(),
+        window.is_maximized(),
+    ) {
+        (Ok(size), Ok(position), Ok(maximized)) => WindowGeometry {
+            width: size.width,
+            height: size.height,
+            x: position.x,
+            y: position.y,
+            maximized,
+        },
+        _ => return,
+    };
+    if geometry.maximized {
+        if let Some(previous) = load_window_geometry(window.app_handle()) {
+            geometry.width = previous.width;
+            geometry.height = previous.height;
+            geometry.x = previous.x;
+            geometry.y = previous.y;
+        }
+    }
+    if let Ok(value) = serde_json::to_value(geometry) {
+        if let Err(error) =
+            secure_storage::set_preference(window.app_handle(), WINDOW_GEOMETRY_KEY, value)
+        {
+            log::error!("Failed to save encrypted window geometry: {error}");
+        }
+    }
 }
 
 static TRAY_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -1830,9 +1944,18 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            if let Ok(log_dir) = app.path().app_log_dir() {
+                if log_dir.exists() {
+                    if let Err(error) = fs::remove_dir_all(&log_dir) {
+                        eprintln!("Failed to remove legacy plaintext logs: {error}");
+                    }
+                }
+            }
             init_network_settings(app.app_handle());
             let registry = app.state::<project::ProjectRegistry>();
-            let _ = registry.load_from_disk(app.app_handle());
+            if let Err(error) = registry.load_from_disk(app.app_handle()) {
+                log::error!("Failed to load projects from disk: {error}");
+            }
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, Modifiers};
@@ -1853,7 +1976,9 @@ pub fn run() {
                     "Main window not found",
                 )) as Box<dyn std::error::Error>
             })?;
-            let _ = _window.center();
+            if !restore_window_geometry(&_window) {
+                let _ = _window.center();
+            }
 
             #[cfg(not(target_os = "macos"))]
             let _ = _window.set_decorations(false);
@@ -1943,6 +2068,9 @@ pub fn run() {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         if window.label() == "main" {
+                            if let Some(main_window) = app.get_webview_window("main") {
+                                save_window_geometry(&main_window);
+                            }
                             if should_close_to_tray(app) {
                                 api.prevent_close();
                                 let _ = window.hide();
@@ -1987,16 +2115,6 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-                )
-                .build(),
-        )
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::AppleScript,
             None,
@@ -2030,11 +2148,16 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Warn)
+                .targets([tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                )])
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
             commands::config::load_config,
             commands::config::save_config,
+            commands::config::load_encrypted_preferences,
+            commands::config::mutate_encrypted_preferences,
             commands::config::load_network_config,
             commands::config::save_network_config,
             commands::config::load_search_config,
@@ -2045,6 +2168,9 @@ pub fn run() {
             commands::config::save_cloud_stt_api_key,
             commands::config::load_search_api_keys,
             commands::config::save_search_api_keys_cmd,
+            commands::conversations::load_encrypted_conversations,
+            commands::conversations::save_encrypted_conversations,
+            commands::conversations::clear_encrypted_conversations,
             chat_completion,
             chat_stream,
             cancel_chat_stream,
@@ -2173,6 +2299,15 @@ mod tests {
             serde_json::from_str(r#"{"strict_ssl":true,"blocked_hosts":["localhost"]}"#).unwrap();
 
         assert!(!config.offline_mode);
+    }
+
+    #[test]
+    fn unauthenticated_network_policy_fails_closed() {
+        let config = NetworkConfig::fail_closed();
+
+        assert!(config.strict_ssl);
+        assert!(config.offline_mode);
+        assert!(!config.blocked_hosts.is_empty());
     }
 
     #[test]

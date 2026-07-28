@@ -1,13 +1,10 @@
 use crate::get_blocked_hosts;
+use crate::secure_storage::{self, StorageDomain};
 use crate::AppError;
 use crate::NetworkConfig;
 use crate::NETWORK_CONFIG;
-use serde::Deserialize;
-use std::fs;
-use std::io::Write;
-use tauri::Manager;
+use serde::{Deserialize, Serialize};
 
-pub const STORE_FILE: &str = "sythoria-store.json";
 pub const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
 pub const API_KEY_INDEX: &str = "sythoria-api-key-index";
 pub const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
@@ -15,6 +12,40 @@ pub const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
 pub const MCP_API_KEY_INDEX: &str = "sythoria-mcp-api-key-index";
 const CLOUD_STT_NAMESPACE: &str = "whisper";
 const CLOUD_STT_KEY_ID: &str = "cloud-stt";
+const NETWORK_POLICY_NAMESPACE: &str = "storage-state";
+const NETWORK_POLICY_KEY_ID: &str = "network-policy-v1";
+
+fn ensure_network_policy_marker() -> Result<(), AppError> {
+    match get_keychain_secret(NETWORK_POLICY_NAMESPACE, NETWORK_POLICY_KEY_ID) {
+        Ok(_) => Ok(()),
+        Err(AppError::KeyNotFound(_)) => set_keychain_secret(
+            NETWORK_POLICY_NAMESPACE,
+            NETWORK_POLICY_KEY_ID,
+            "initialized",
+        ),
+        Err(error) => Err(error),
+    }
+}
+
+fn validate_network_config(config: &NetworkConfig) -> Result<(), AppError> {
+    if config.blocked_hosts.len() > 2048 {
+        return Err(AppError::ParseError(
+            "Network policy contains too many blocked-host entries".to_string(),
+        ));
+    }
+    if config.blocked_hosts.iter().any(|host| {
+        host.is_empty()
+            || host.len() > 512
+            || host
+                .chars()
+                .any(|character| character.is_control() || character.is_whitespace())
+    }) {
+        return Err(AppError::ParseError(
+            "Network policy contains an invalid blocked-host entry".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 // --- Keyring Utilities ---
 
@@ -23,10 +54,7 @@ pub fn keychain_account(namespace: &str, id: &str) -> String {
 }
 
 pub fn load_secret_index(app: &tauri::AppHandle, index_key: &str) -> Result<Vec<String>, AppError> {
-    let store = tauri_plugin_store::StoreExt::store(app, STORE_FILE)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-
-    let index: Option<serde_json::Value> = store.get(index_key);
+    let index = secure_storage::get_preference(app, index_key)?;
     Ok(index
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default()
@@ -40,11 +68,7 @@ pub fn save_secret_index(
     index_key: &str,
     ids: &[String],
 ) -> Result<(), AppError> {
-    let store = tauri_plugin_store::StoreExt::store(app, STORE_FILE)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-
-    store.set(index_key, serde_json::json!(ids));
-    Ok(())
+    secure_storage::set_preference(app, index_key, serde_json::json!(ids))
 }
 
 pub fn set_keychain_secret(namespace: &str, id: &str, secret: &str) -> Result<(), AppError> {
@@ -129,22 +153,29 @@ pub async fn save_secret_map(
     let key_map = keys
         .as_object()
         .ok_or_else(|| AppError::ParseError("API keys payload must be an object".to_string()))?;
-
-    for id in existing_ids {
-        if !key_map.contains_key(&id) {
-            delete_keychain_secret(namespace, &id)?;
+    for (id, value) in key_map {
+        if !value.is_string() {
+            return Err(AppError::ParseError(format!(
+                "Secret value for '{id}' must be a string"
+            )));
         }
     }
 
     let mut ids = Vec::new();
     for (id, value) in key_map {
-        let secret = value.as_str().unwrap_or_default();
+        let secret = value.as_str().expect("secret map was validated");
         if secret.is_empty() {
-            delete_keychain_secret(namespace, id)?;
             continue;
         }
         set_keychain_secret(namespace, id, secret)?;
         ids.push(id.clone());
+    }
+
+    // Only remove old values after all replacement writes have succeeded.
+    for id in existing_ids {
+        if !ids.contains(&id) {
+            delete_keychain_secret(namespace, &id)?;
+        }
     }
 
     save_secret_index(app, index_key, &ids)
@@ -153,52 +184,70 @@ pub async fn save_secret_map(
 // --- Commands ---
 
 #[tauri::command]
+pub fn load_encrypted_preferences(
+    app: tauri::AppHandle,
+) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
+    secure_storage::load_preferences(&app)
+}
+
+#[tauri::command]
+pub fn mutate_encrypted_preferences(
+    app: tauri::AppHandle,
+    sets: serde_json::Map<String, serde_json::Value>,
+    deletes: Vec<String>,
+    clear: bool,
+) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
+    secure_storage::mutate_preferences(&app, sets, &deletes, clear)
+}
+
+#[tauri::command]
 pub async fn load_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
-    } else {
-        Ok("".to_string())
-    }
+    let config: Option<serde_json::Value> = secure_storage::load_json(&app, StorageDomain::Models)?;
+    config
+        .map(|value| serde_json::to_string(&value).map_err(|e| AppError::ParseError(e.to_string())))
+        .transpose()
+        .map(|value| value.unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn save_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    Ok(())
+    let parsed: serde_json::Value =
+        serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
+    if !parsed.is_array() {
+        return Err(AppError::ParseError(
+            "Model configuration must be an array".to_string(),
+        ));
+    }
+    secure_storage::save_json(&app, StorageDomain::Models, &parsed)
 }
 
 pub fn load_network_config_internal(app: &tauri::AppHandle) -> Result<NetworkConfig, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("network_config.json");
-    if config_path.exists() {
-        let content =
-            fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-        let config: NetworkConfig =
-            serde_json::from_str(&content).map_err(|e| AppError::ParseError(e.to_string()))?;
-        Ok(config)
-    } else {
-        Ok(NetworkConfig::default())
+    match secure_storage::load_json(app, StorageDomain::Network)? {
+        Some(config) => {
+            validate_network_config(&config)?;
+            ensure_network_policy_marker()?;
+            Ok(config)
+        }
+        None => match get_keychain_secret(NETWORK_POLICY_NAMESPACE, NETWORK_POLICY_KEY_ID) {
+            Ok(_) => Err(AppError::ConfigIo(
+                "The authenticated network policy is missing".to_string(),
+            )),
+            Err(AppError::KeyNotFound(_)) => Ok(NetworkConfig::default()),
+            Err(error) => Err(error),
+        },
     }
 }
 
 #[tauri::command]
 pub async fn load_network_config(app: tauri::AppHandle) -> Result<String, AppError> {
+    if !secure_storage::domain_file_exists(&app, StorageDomain::Network)?
+        && matches!(
+            get_keychain_secret(NETWORK_POLICY_NAMESPACE, NETWORK_POLICY_KEY_ID),
+            Err(AppError::KeyNotFound(_))
+        )
+    {
+        return Ok(String::new());
+    }
     let config = load_network_config_internal(&app)?;
     serde_json::to_string(&config).map_err(|e| AppError::ParseError(e.to_string()))
 }
@@ -207,15 +256,9 @@ pub async fn load_network_config(app: tauri::AppHandle) -> Result<String, AppErr
 pub async fn save_network_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
     let config_struct: NetworkConfig =
         serde_json::from_str(&config).map_err(|e| AppError::ParseError(e.to_string()))?;
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("network_config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
+    validate_network_config(&config_struct)?;
+    secure_storage::save_json(&app, StorageDomain::Network, &config_struct)?;
+    ensure_network_policy_marker()?;
 
     if let Ok(mut lock) = NETWORK_CONFIG.write() {
         *lock = config_struct;
@@ -225,30 +268,18 @@ pub async fn save_network_config(app: tauri::AppHandle, config: String) -> Resul
 
 #[tauri::command]
 pub async fn load_search_config(app: tauri::AppHandle) -> Result<String, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("search_config.json");
-    if config_path.exists() {
-        fs::read_to_string(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))
-    } else {
-        Ok("".to_string())
-    }
+    let config: Option<serde_json::Value> = secure_storage::load_json(&app, StorageDomain::Search)?;
+    config
+        .map(|value| serde_json::to_string(&value).map_err(|e| AppError::ParseError(e.to_string())))
+        .transpose()
+        .map(|value| value.unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn save_search_config(app: tauri::AppHandle, config: String) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    let config_path = app_data_dir.join("search_config.json");
-    let mut file = fs::File::create(config_path).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    file.write_all(config.as_bytes())
-        .map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    Ok(())
+    let parsed = serde_json::from_str::<serde_json::Value>(&config)
+        .map_err(|e| AppError::ParseError(e.to_string()))?;
+    secure_storage::save_json(&app, StorageDomain::Search, &parsed)
 }
 
 #[tauri::command]
@@ -296,18 +327,13 @@ pub async fn load_mcp_env_secrets(app: tauri::AppHandle) -> Result<serde_json::V
     let mut result = serde_json::Map::new();
 
     for server_id in index {
-        let server_keys = {
-            let server_index_key = format!("mcp-env:{}", server_id);
-            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-            let env_index: Option<serde_json::Value> = store.get(&server_index_key);
-            env_index
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|v| v.as_str().map(ToString::to_string))
-                .collect::<Vec<_>>()
-        };
+        let server_index_key = format!("mcp-env:{}", server_id);
+        let server_keys = secure_storage::get_preference(&app, &server_index_key)?
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(ToString::to_string))
+            .collect::<Vec<_>>();
 
         let mut server_map = serde_json::Map::new();
         for env_key in server_keys {
@@ -336,23 +362,39 @@ pub async fn save_mcp_env_secrets_cmd(
     let secrets_map = secrets.as_object().ok_or_else(|| {
         AppError::ParseError("MCP env secrets payload must be an object".to_string())
     })?;
+    for (server_id, server_value) in secrets_map {
+        let env_map = server_value.as_object().ok_or_else(|| {
+            AppError::ParseError(format!(
+                "MCP environment secrets for server '{server_id}' must be an object"
+            ))
+        })?;
+        for (env_key, env_value) in env_map {
+            if !env_value.is_string() {
+                return Err(AppError::ParseError(format!(
+                    "MCP environment secret '{env_key}' for server '{server_id}' must be a string"
+                )));
+            }
+        }
+    }
 
     let existing_server_ids = load_secret_index(&app, MCP_ENV_KEY_INDEX)?;
 
     for server_id in &existing_server_ids {
         if !secrets_map.contains_key(server_id) {
             let server_index_key = format!("mcp-env:{}", server_id);
-            let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-                .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-            if let Some(env_index) = store.get(&server_index_key) {
+            if let Some(env_index) = secure_storage::get_preference(&app, &server_index_key)? {
                 if let Some(arr) = env_index.as_array() {
                     for key in arr.iter().filter_map(|v| v.as_str()) {
-                        let _ =
-                            delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key));
+                        delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, key))?;
                     }
                 }
             }
-            let _ = store.delete(&server_index_key);
+            secure_storage::mutate_preferences(
+                &app,
+                serde_json::Map::new(),
+                &[server_index_key],
+                false,
+            )?;
         }
     }
 
@@ -360,24 +402,35 @@ pub async fn save_mcp_env_secrets_cmd(
     for (server_id, server_value) in secrets_map {
         let env_map = server_value
             .as_object()
-            .ok_or_else(|| AppError::ParseError("Server env must be an object".to_string()))?;
+            .expect("MCP environment map was validated");
 
         let server_index_key = format!("mcp-env:{}", server_id);
+        let existing_env_keys = secure_storage::get_preference(&app, &server_index_key)?
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(ToString::to_string))
+            .collect::<Vec<_>>();
         let mut env_keys = Vec::new();
 
         for (env_key, env_value) in env_map {
-            let secret = env_value.as_str().unwrap_or_default();
+            let secret = env_value
+                .as_str()
+                .expect("MCP environment secret was validated");
             if secret.is_empty() {
-                let _ = delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key));
+                delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key))?;
                 continue;
             }
             set_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key), secret)?;
             env_keys.push(env_key.clone());
         }
 
-        let store = tauri_plugin_store::StoreExt::store(&app, STORE_FILE)
-            .map_err(|e| AppError::ConfigIo(format!("Failed to open store: {}", e)))?;
-        store.set(&server_index_key, serde_json::json!(env_keys));
+        for old_key in existing_env_keys {
+            if !env_keys.contains(&old_key) {
+                delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, old_key))?;
+            }
+        }
+        secure_storage::set_preference(&app, &server_index_key, serde_json::json!(env_keys))?;
 
         if !env_keys.is_empty() {
             server_ids.push(server_id.clone());
@@ -389,71 +442,83 @@ pub async fn save_mcp_env_secrets_cmd(
 
 #[tauri::command]
 pub async fn wipe_config_files(app: tauri::AppHandle) -> Result<(), AppError> {
-    // 1. Delete model keys from OS Keychain
-    if let Ok(ids) = load_secret_index(&app, API_KEY_INDEX) {
-        for id in ids {
-            let _ = delete_keychain_secret("model", &id);
-        }
-    }
+    let mut failures = Vec::new();
 
-    // 2. Delete search keys from OS Keychain
-    if let Ok(ids) = load_secret_index(&app, SEARCH_API_KEY_INDEX) {
-        for id in ids {
-            let _ = delete_keychain_secret("search", &id);
-        }
-    }
-
-    // 3. Delete MCP API keys from OS Keychain
-    if let Ok(ids) = load_secret_index(&app, MCP_API_KEY_INDEX) {
-        for id in ids {
-            let _ = delete_keychain_secret("mcp", &id);
-        }
-    }
-
-    // 4. Delete MCP env secrets from OS Keychain
-    if let Ok(server_ids) = load_secret_index(&app, MCP_ENV_KEY_INDEX) {
-        if let Ok(store) = tauri_plugin_store::StoreExt::store(&app, STORE_FILE) {
-            for server_id in server_ids {
-                let server_index_key = format!("mcp-env:{}", server_id);
-                if let Some(env_index) = store.get(&server_index_key) {
-                    if let Some(arr) = env_index.as_array() {
-                        for key in arr.iter().filter_map(|v| v.as_str()) {
-                            let _ = delete_keychain_secret(
-                                "mcp-env",
-                                &format!("{}:{}", server_id, key),
-                            );
-                        }
+    // Secret indices must remain available until every referenced keychain
+    // credential has been deleted.
+    for (namespace, index_key) in [
+        ("model", API_KEY_INDEX),
+        ("search", SEARCH_API_KEY_INDEX),
+        ("mcp", MCP_API_KEY_INDEX),
+    ] {
+        match load_secret_index(&app, index_key) {
+            Ok(ids) => {
+                for id in ids {
+                    if let Err(error) = delete_keychain_secret(namespace, &id) {
+                        failures.push(error.to_string());
                     }
                 }
             }
+            Err(error) => failures.push(error.to_string()),
         }
     }
 
-    // 5. Delete the cloud speech-to-text credential.
-    let _ = delete_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID);
-
-    // 6. Delete the configuration and store files
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-
-    let files = vec![
-        "config.json",
-        "search_config.json",
-        "mcp_config.json",
-        "sythoria-store.json",
-    ];
-    for file_name in files {
-        let path = app_data_dir.join(file_name);
-        if path.exists() {
-            let _ = fs::remove_file(path);
+    match load_secret_index(&app, MCP_ENV_KEY_INDEX) {
+        Ok(server_ids) => {
+            for server_id in server_ids {
+                let server_index_key = format!("mcp-env:{server_id}");
+                match secure_storage::get_preference(&app, &server_index_key) {
+                    Ok(Some(env_index)) => {
+                        if let Some(keys) = env_index.as_array() {
+                            for key in keys.iter().filter_map(|value| value.as_str()) {
+                                if let Err(error) =
+                                    delete_keychain_secret("mcp-env", &format!("{server_id}:{key}"))
+                                {
+                                    failures.push(error.to_string());
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => failures.push(error.to_string()),
+                }
+            }
         }
+        Err(error) => failures.push(error.to_string()),
     }
-    Ok(())
+
+    if let Err(error) = delete_keychain_secret(CLOUD_STT_NAMESPACE, CLOUD_STT_KEY_ID) {
+        failures.push(error.to_string());
+    }
+    if let Err(error) = crate::commands::conversations::wipe_encrypted_conversations(&app) {
+        failures.push(error.to_string());
+    }
+
+    if !failures.is_empty() {
+        return Err(AppError::ConfigIo(format!(
+            "Credential wipe was incomplete; secret indices were preserved for retry: {}",
+            failures.join("; ")
+        )));
+    }
+
+    if let Err(error) = secure_storage::remove_all_settings_files(&app) {
+        failures.push(error.to_string());
+    }
+    if let Err(error) = delete_keychain_secret(NETWORK_POLICY_NAMESPACE, NETWORK_POLICY_KEY_ID) {
+        failures.push(error.to_string());
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::ConfigIo(format!(
+            "Data wipe was incomplete: {}",
+            failures.join("; ")
+        )))
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ModelConfig {
     pub id: String,
     #[serde(rename = "apiBase")]
@@ -467,19 +532,8 @@ pub async fn get_model_config_and_key(
     app: &tauri::AppHandle,
     config_id: &str,
 ) -> Result<(String, String, String, Option<String>), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let config_path = app_data_dir.join("config.json");
-    if !config_path.exists() {
-        return Err(AppError::ConfigIo(
-            "Configuration file not found".to_string(),
-        ));
-    }
-    let config_content = fs::read_to_string(config_path)?;
-    let configs: Vec<ModelConfig> = serde_json::from_str(&config_content)
-        .map_err(|e| AppError::ConfigIo(format!("Failed to parse config: {}", e)))?;
+    let configs: Vec<ModelConfig> = secure_storage::load_json(app, StorageDomain::Models)?
+        .ok_or_else(|| AppError::ConfigIo("Model configuration not found".to_string()))?;
 
     let config = configs
         .into_iter()

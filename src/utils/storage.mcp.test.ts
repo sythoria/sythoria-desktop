@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrateMcpConfigs } from "../utils/storage";
+import { McpServerConfigSchema, migrateMcpConfigs } from "../utils/storage";
 import type { McpServerConfig } from "../types";
 
 function stdio(id: string, command?: string, args?: string[]): McpServerConfig {
@@ -14,6 +14,17 @@ function stdio(id: string, command?: string, args?: string[]): McpServerConfig {
 }
 
 describe("migrateMcpConfigs", () => {
+  it("preserves trust and local-network policy fields", () => {
+    const result = McpServerConfigSchema.parse({
+      ...stdio("1", "npx"),
+      trustLevel: "trusted",
+      allowLocalNetwork: true,
+    });
+
+    expect(result.trustLevel).toBe("trusted");
+    expect(result.allowLocalNetwork).toBe(true);
+  });
+
   it("splits a legacy full command line into program + args", () => {
     const result = migrateMcpConfigs([
       stdio("1", "npx -y @modelcontextprotocol/server-filesystem", ["/Users/me/project"]),

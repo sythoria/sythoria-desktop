@@ -48,7 +48,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   init: async () => {
     let loaded = await loadProjects();
 
-    // Migration: If projects.json is empty, check for legacy projects in sythoria-store.json
+    // Migration: if the dedicated encrypted project registry is empty, check
+    // the encrypted preferences migrated from the legacy plugin store.
     if (loaded.length === 0) {
       try {
         const legacyProjects = await loadLegacyProjects();

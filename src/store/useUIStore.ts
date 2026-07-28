@@ -18,12 +18,11 @@ import {
   saveShowContextWindow,
   saveIsLoggingEnabled,
   saveDisableBgActivity,
-  saveStrictSsl,
-  saveBlockedHosts,
-  saveOfflineMode,
+  saveNetworkSettings,
   saveLanguage,
   loadSkipExternalLinkWarning,
   saveSkipExternalLinkWarning,
+  saveUiLayoutSettings,
 } from "../utils/storage";
 import React from "react";
 import type { Toast } from "../components/ui/Toast";
@@ -216,25 +215,9 @@ function isNewerVersion(current: string, latest: string): boolean {
   return false;
 }
 
-const safeLocalStorage =
-  typeof window !== "undefined" && window.localStorage && typeof window.localStorage.getItem === "function"
-    ? window.localStorage
-    : {
-        getItem: () => null,
-        setItem: () => {},
-        removeItem: () => {},
-        clear: () => {},
-      };
-
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 480;
-
-function normalizeSidebarWidth(value: string | null): number {
-  const width = Number(value);
-  if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH;
-  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
-}
 
 const DEFAULT_AUX_PANEL_WIDTH = 520;
 const MIN_AUX_PANEL_WIDTH = 360;
@@ -248,14 +231,18 @@ function normalizeAuxPanelWidth(value: string | number | null): number {
   return width;
 }
 
-const initialAuxPanelWidth = normalizeAuxPanelWidth(safeLocalStorage.getItem("sythoria-aux-panel-width"));
-safeLocalStorage.setItem("sythoria-aux-panel-width", String(initialAuxPanelWidth));
-const initialSidebarWidth = normalizeSidebarWidth(safeLocalStorage.getItem("sythoria-sidebar-width"));
-safeLocalStorage.setItem("sythoria-sidebar-width", String(initialSidebarWidth));
+const initialAuxPanelWidth = DEFAULT_AUX_PANEL_WIDTH;
+const initialSidebarWidth = DEFAULT_SIDEBAR_WIDTH;
+
+function persistUiLayout(settings: Parameters<typeof saveUiLayoutSettings>[0]): void {
+  void saveUiLayoutSettings(settings).catch((error) => {
+    console.error("Failed to save encrypted panel layout:", error);
+  });
+}
 
 let toastCounter = 0;
 
-export const useUIStore = create<UIState>((set) => ({
+export const useUIStore = create<UIState>((set, get) => ({
   view: "chat",
   theme: DEFAULT_THEME_CONFIG,
   sidebarOpen: false,
@@ -312,7 +299,7 @@ export const useUIStore = create<UIState>((set) => ({
   activeSubagentId: null,
   isAuxPanelOpen: false,
   isAuxPanelExpanded: false,
-  isAuxSummaryPinned: safeLocalStorage.getItem("sythoria-aux-summary-pinned") === "true",
+  isAuxSummaryPinned: false,
   activeAuxTab: "review",
   auxPanelWidth: initialAuxPanelWidth,
   backgroundTasks: [],
@@ -326,7 +313,7 @@ export const useUIStore = create<UIState>((set) => ({
   },
   setSidebarWidth: (sidebarWidth) => {
     const normalizedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, sidebarWidth));
-    safeLocalStorage.setItem("sythoria-sidebar-width", String(normalizedWidth));
+    persistUiLayout({ sidebarWidth: normalizedWidth });
     set({ sidebarWidth: normalizedWidth });
   },
   setActiveArtifact: (activeArtifact) => {
@@ -342,7 +329,7 @@ export const useUIStore = create<UIState>((set) => ({
         return { isAuxPanelOpen: false, isAuxPanelExpanded: false };
       }
       const auxPanelWidth = isAuxPanelOpen ? state.auxPanelWidth : normalizeAuxPanelWidth(state.auxPanelWidth);
-      if (!isAuxPanelOpen) safeLocalStorage.setItem("sythoria-aux-panel-width", String(auxPanelWidth));
+      if (!isAuxPanelOpen) persistUiLayout({ auxPanelWidth });
       return {
         isAuxPanelOpen,
         isAuxPanelExpanded: isAuxPanelOpen ? state.isAuxPanelExpanded : false,
@@ -352,17 +339,17 @@ export const useUIStore = create<UIState>((set) => ({
   setAuxPanelExpanded: (isAuxPanelExpanded) =>
     set((state) => {
       const auxPanelWidth = normalizeAuxPanelWidth(state.auxPanelWidth);
-      safeLocalStorage.setItem("sythoria-aux-panel-width", String(auxPanelWidth));
+      persistUiLayout({ auxPanelWidth });
       return { isAuxPanelExpanded, auxPanelWidth };
     }),
   setAuxSummaryPinned: (isAuxSummaryPinned) => {
-    safeLocalStorage.setItem("sythoria-aux-summary-pinned", String(isAuxSummaryPinned));
+    persistUiLayout({ isAuxSummaryPinned });
     set({ isAuxSummaryPinned });
   },
   setActiveAuxTab: (activeAuxTab) => set({ activeAuxTab }),
   setAuxPanelWidth: (auxPanelWidth) => {
     const width = Math.max(MIN_AUX_PANEL_WIDTH, Math.min(MAX_AUX_PANEL_WIDTH, auxPanelWidth));
-    safeLocalStorage.setItem("sythoria-aux-panel-width", String(width));
+    persistUiLayout({ auxPanelWidth: width });
     set({ auxPanelWidth: width });
   },
   addTask: (id, title, convId) =>
@@ -568,40 +555,29 @@ export const useUIStore = create<UIState>((set) => ({
     }
   },
   setStrictSsl: (value) => {
+    const previous = get().strictSsl;
+    const { blockedHosts, offlineMode } = get();
     set({ strictSsl: value });
-    saveStrictSsl(value);
-    import("@tauri-apps/api/core")
-      .then(({ invoke }) => {
-        const { blockedHosts, offlineMode } = useUIStore.getState();
-        invoke("save_network_config", {
-          config: JSON.stringify({
-            strict_ssl: value,
-            blocked_hosts: blockedHosts,
-            offline_mode: offlineMode,
-          }),
-        }).catch((e) => console.error("Failed to sync strict SSL to Rust:", e));
-      })
-      .catch(console.error);
+    void saveNetworkSettings({ strictSsl: value, blockedHosts, offlineMode }).catch((error) => {
+      if (get().strictSsl === value) set({ strictSsl: previous });
+      console.error("Failed to save Strict SSL setting:", error);
+      get().addToast("Strict SSL was not saved; the previous setting was restored.", "error");
+    });
   },
   setBlockedHosts: (value) => {
+    const previous = get().blockedHosts;
+    const { strictSsl, offlineMode } = get();
     set({ blockedHosts: value });
-    saveBlockedHosts(value);
-    import("@tauri-apps/api/core")
-      .then(({ invoke }) => {
-        const { strictSsl, offlineMode } = useUIStore.getState();
-        invoke("save_network_config", {
-          config: JSON.stringify({
-            strict_ssl: strictSsl,
-            blocked_hosts: value,
-            offline_mode: offlineMode,
-          }),
-        }).catch((e) => console.error("Failed to sync blocked hosts to Rust:", e));
-      })
-      .catch(console.error);
+    void saveNetworkSettings({ strictSsl, blockedHosts: value, offlineMode }).catch((error) => {
+      if (get().blockedHosts === value) set({ blockedHosts: previous });
+      console.error("Failed to save blocked hosts:", error);
+      get().addToast("Blocked hosts were not saved; the previous list was restored.", "error");
+    });
   },
   setOfflineMode: (value) => {
+    const previous = get().offlineMode;
+    const { strictSsl, blockedHosts } = get();
     set({ offlineMode: value });
-    saveOfflineMode(value);
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
@@ -618,18 +594,15 @@ export const useUIStore = create<UIState>((set) => ({
       useModelStore.getState().startHealthCheck();
       void useModelStore.getState().checkModelConnections();
     }
-    import("@tauri-apps/api/core")
-      .then(({ invoke }) => {
-        const { strictSsl, blockedHosts } = useUIStore.getState();
-        return invoke("save_network_config", {
-          config: JSON.stringify({
-            strict_ssl: strictSsl,
-            blocked_hosts: blockedHosts,
-            offline_mode: value,
-          }),
-        });
-      })
-      .catch((error) => console.error("Failed to sync Offline Mode to Rust:", error));
+    void saveNetworkSettings({ strictSsl, blockedHosts, offlineMode: value }).catch((error) => {
+      if (get().offlineMode === value) set({ offlineMode: previous });
+      console.error("Failed to save Offline Mode:", error);
+      get().addToast("Offline Mode was not saved; the previous setting was restored.", "error");
+      if (!previous && !get().disableBgActivity) {
+        useModelStore.getState().startHealthCheck();
+        void useModelStore.getState().checkModelConnections();
+      }
+    });
   },
   checkForUpdates: async (silent = false) => {
     const { addToast } = useUIStore.getState();

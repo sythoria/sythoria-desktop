@@ -233,7 +233,7 @@ export interface ModelConfig {
 
 | Command                                              | Purpose                                            |
 | ---------------------------------------------------- | -------------------------------------------------- |
-| `load_config` / `save_config`                        | Model configs (app data dir `config.json`)         |
+| `load_config` / `save_config`                        | Encrypted model configs (`models.enc`)             |
 | `load_network_config` / `save_network_config`        | Network settings (SSL, offline mode, proxy)        |
 | `load_search_config` / `save_search_config`          | Search configs (`search_config.json`)              |
 | `load_api_keys` / `save_api_keys_cmd`                | API keys → OS keychain (keyring)                   |
@@ -270,19 +270,18 @@ export interface ModelConfig {
 
 | Data            | Location                                                         |
 | --------------- | ---------------------------------------------------------------- |
-| Conversations   | Tauri plugin-store (`sythoria-conversations`)                    |
-| Model configs   | App data dir `config.json` (keys in OS keychain)                 |
+| Conversations   | Encrypted manifest + content-addressed blobs (`conversations/`)  |
+| Model configs   | Authenticated encrypted `models.enc` (keys in OS keychain)       |
 | API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
-| Projects        | Tauri plugin-store (`sythoria-projects`)                         |
-| Search configs  | Tauri plugin-store + app data dir `search_config.json`           |
-| MCP configs     | Tauri plugin-store (`sythoria-mcp-configs`)                      |
+| Projects        | Authenticated encrypted `projects.enc`                           |
+| Network policy  | Authenticated encrypted `network.enc` + keychain presence marker |
+| Search configs  | Authenticated encrypted preferences / `search.enc`               |
+| MCP configs     | Authenticated encrypted preferences / `mcp.enc`                  |
 | MCP API keys    | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
 | MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)                |
-| Theme           | Tauri plugin-store (`sythoria-theme`) + localStorage fallback    |
-| Keybinds        | Tauri plugin-store (`sythoria-keybinds`)                         |
-| Appshot Config  | Tauri plugin-store (`sythoria-appshots`)                         |
-| Whisper Config  | LocalStorage (`sythoria-whisper-config`)                         |
-| Language        | Tauri plugin-store (`sythoria-language`) + LocalStorage fallback |
+| Preferences     | Authenticated encrypted `preferences.enc`                        |
+| Whisper Config  | Authenticated encrypted preferences (cloud key in OS keychain)   |
+| Window layout   | Authenticated encrypted preferences                              |
 
 ## Notes
 

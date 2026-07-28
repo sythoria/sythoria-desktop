@@ -1,11 +1,11 @@
+use crate::secure_storage::{self, StorageDomain};
 use crate::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -188,14 +188,9 @@ impl ProjectRegistry {
     }
 
     pub(crate) fn load_from_disk(&self, app: &AppHandle) -> Result<(), AppError> {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| AppError::AppPath(e.to_string()))?;
-        let path = app_data_dir.join("projects.json");
-        if path.exists() {
-            let content = fs::read_to_string(path)?;
-            let projects: Vec<Project> = serde_json::from_str(&content).unwrap_or_default();
+        if let Some(projects) =
+            secure_storage::load_json::<Vec<Project>>(app, StorageDomain::Projects)?
+        {
             let mut projects_guard = self
                 .projects
                 .lock()
@@ -220,16 +215,8 @@ pub(crate) async fn load_projects(
     app: AppHandle,
     state: tauri::State<'_, ProjectRegistry>,
 ) -> Result<Vec<Project>, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let path = app_data_dir.join("projects.json");
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let content = fs::read_to_string(path)?;
-    let projects: Vec<Project> = serde_json::from_str(&content).unwrap_or_default();
+    let projects: Vec<Project> =
+        secure_storage::load_json(&app, StorageDomain::Projects)?.unwrap_or_default();
 
     let mut projects_guard = state
         .projects
@@ -248,15 +235,7 @@ pub(crate) async fn save_projects(
     state: tauri::State<'_, ProjectRegistry>,
     projects: Vec<Project>,
 ) -> Result<(), AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    fs::create_dir_all(&app_data_dir)?;
-    let path = app_data_dir.join("projects.json");
-    let content =
-        serde_json::to_string_pretty(&projects).map_err(|e| AppError::ConfigIo(e.to_string()))?;
-    fs::write(path, content)?;
+    secure_storage::save_json(&app, StorageDomain::Projects, &projects)?;
 
     let mut projects_guard = state
         .projects

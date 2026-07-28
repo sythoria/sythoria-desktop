@@ -35,4 +35,41 @@ describe("ConversationSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("preserves reasoning, tool metadata, and forward-compatible fields", () => {
+    const result = ConversationSchema.safeParse({
+      id: "conversation-1",
+      title: "Storage round trip",
+      timestamp: "2026-07-27T12:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Done",
+          reasoningContent: "Internal reasoning",
+          thinkingDuration: 4,
+          timestamp: "2026-07-27T12:00:01.000Z",
+          futureMessageField: "preserve me",
+          toolResult: {
+            id: "tool-1",
+            name: "project_edit",
+            content: "updated",
+            diffSummary: { added: 3, deleted: 1, filename: "src/App.tsx" },
+            subagentIds: ["subagent-1"],
+          },
+        },
+      ],
+      model: "model-1",
+      futureConversationField: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.messages[0].reasoningContent).toBe("Internal reasoning");
+    expect(result.data.messages[0].thinkingDuration).toBe(4);
+    expect(result.data.messages[0].toolResult?.diffSummary?.added).toBe(3);
+    expect(result.data.messages[0].toolResult?.subagentIds).toEqual(["subagent-1"]);
+    expect(result.data.messages[0].futureMessageField).toBe("preserve me");
+    expect(result.data.futureConversationField).toBe(true);
+  });
 });
