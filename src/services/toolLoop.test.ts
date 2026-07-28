@@ -5,6 +5,7 @@ import {
   TOOL_SYSTEM_PROMPT,
   assertUsableFinishReason,
   parseToolArguments,
+  requiresMcpConfirmation,
   sendWithToolLoop,
   type ToolLoopSlice,
 } from "./toolLoop";
@@ -162,6 +163,15 @@ describe("tool response validation", () => {
         [tool],
       ),
     ).toThrow("schema validation");
+  });
+});
+
+describe("MCP confirmation policy", () => {
+  it("requires confirmation unless the server is explicitly trusted", () => {
+    expect(requiresMcpConfirmation(undefined)).toBe(true);
+    expect(requiresMcpConfirmation({})).toBe(true);
+    expect(requiresMcpConfirmation({ trustLevel: "untrusted" })).toBe(true);
+    expect(requiresMcpConfirmation({ trustLevel: "trusted" })).toBe(false);
   });
 });
 

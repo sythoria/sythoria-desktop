@@ -151,6 +151,12 @@ interface ToolDefinition {
   };
 }
 
+export function requiresMcpConfirmation(
+  serverConfig: Pick<McpServerConfig, "trustLevel"> | undefined,
+): boolean {
+  return serverConfig?.trustLevel !== "trusted";
+}
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
@@ -1354,24 +1360,20 @@ export async function sendWithToolLoop(
               if (mcpTool && mcpCallTool) {
                 const mcpStore = useMcpStore.getState();
                 const serverConfig = mcpStore.mcpConfigs.find((s: McpServerConfig) => s.id === mcpTool.serverId);
-                const isTrusted = serverConfig?.trustLevel === "trusted";
-                if (!isTrusted) {
-                  if (!mcpStore.approvedTools.has(mcpTool.namespacedName)) {
-                    const approved = await new Promise<boolean>((resolve) => {
-                      useUIStore.getState().addPendingToolConfirmation({
-                        id: toolCall.id,
-                        conversationId: convId,
-                        toolName: mcpTool.name,
-                        arguments: fnArgs,
-                        resolve,
-                        schema: mcpTool.inputSchema,
-                        destination: `${mcpTool.serverName} (${serverConfig?.transport || "stdio"})`,
-                      });
+                if (requiresMcpConfirmation(serverConfig)) {
+                  const approved = await new Promise<boolean>((resolve) => {
+                    useUIStore.getState().addPendingToolConfirmation({
+                      id: toolCall.id,
+                      conversationId: convId,
+                      toolName: mcpTool.name,
+                      arguments: fnArgs,
+                      resolve,
+                      schema: mcpTool.inputSchema,
+                      destination: `${mcpTool.serverName} (${serverConfig?.transport || "stdio"})`,
                     });
-                    if (!approved) {
-                      throw new Error("Tool execution rejected by the user.");
-                    }
-                    mcpStore.approveTool(mcpTool.namespacedName);
+                  });
+                  if (!approved) {
+                    throw new Error("Tool execution rejected by the user.");
                   }
                 }
 

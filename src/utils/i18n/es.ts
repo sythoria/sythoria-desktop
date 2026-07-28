@@ -509,6 +509,12 @@ export const es = {
   "settings.mcp.addBtn": "Agregar Servidor",
   "settings.mcp.enabled": "Activo",
   "settings.mcp.enabledDesc": "Conectar automáticamente al iniciar",
+  "settings.mcp.trust": "Confiar en este servidor",
+  "settings.mcp.trustDesc": "Ejecutar todas las herramientas de este servidor MCP sin pedir confirmación.",
+  "settings.mcp.trustConfirm":
+    '¿Confiar en "{name}"? Sus herramientas pueden ejecutarse automáticamente con argumentos generados por IA y acceder a archivos, ejecutar comandos o realizar solicitudes de red. Continúa solo si controlas y confías en este servidor.',
+  "settings.mcp.trustedWarning":
+    "Servidor de confianza: todas sus herramientas pueden ejecutarse automáticamente hasta que desactives esta opción.",
   "settings.mcp.deleteTitle": "Eliminar Servidor MCP",
   "settings.mcp.deleteConfirm":
     '¿Estás seguro de que deseas eliminar el servidor MCP "{name}"? Esta acción no se puede deshacer.',

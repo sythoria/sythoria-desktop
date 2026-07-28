@@ -15,6 +15,7 @@ import {
   Plug,
   X,
   Plus,
+  ShieldAlert,
 } from "lucide-react";
 import {
   McpServerConfig,
@@ -115,6 +116,23 @@ export const McpServerCard = memo(function McpServerCard({
   };
 
   const commandHasSpace = commandValue.trim().includes(" ");
+  const isTrusted = config.trustLevel === "trusted";
+
+  const handleTrustChange = (trusted: boolean) => {
+    if (!trusted) {
+      onUpdate(config.id, { trustLevel: "untrusted" });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      t("settings.mcp.trustConfirm", {
+        name: config.name,
+      }),
+    );
+    if (confirmed) {
+      onUpdate(config.id, { trustLevel: "trusted" });
+    }
+  };
 
   return (
     <motion.div
@@ -145,6 +163,29 @@ export const McpServerCard = memo(function McpServerCard({
             <Trash2 size={16} />
           </motion.button>
         </div>
+      </div>
+
+      <div
+        className={`rounded-lg border p-3 ${
+          isTrusted ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-input/40"
+        }`}
+      >
+        <Switch
+          checked={isTrusted}
+          onChange={handleTrustChange}
+          label={t("settings.mcp.trust")}
+          description={t("settings.mcp.trustDesc")}
+          ariaLabel={t("settings.mcp.trust")}
+        />
+        {isTrusted && (
+          <div
+            className="mt-3 pt-3 border-t border-amber-500/20 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300"
+            role="status"
+          >
+            <ShieldAlert size={15} className="shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{t("settings.mcp.trustedWarning")}</span>
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">

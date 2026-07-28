@@ -478,6 +478,11 @@ export const zh = {
   "settings.mcp.addBtn": "添加服务器",
   "settings.mcp.enabled": "已启用",
   "settings.mcp.enabledDesc": "启动时自动连接",
+  "settings.mcp.trust": "信任此服务器",
+  "settings.mcp.trustDesc": "无需用户确认即可运行此 MCP 服务器的所有工具。",
+  "settings.mcp.trustConfirm":
+    '信任“{name}”吗？其工具可以使用 AI 生成的参数自动执行，并可能访问文件、运行命令或发起网络请求。仅当您控制并信任此服务器时才继续。',
+  "settings.mcp.trustedWarning": "已信任：在您关闭此选项之前，此服务器的所有工具都可以自动运行。",
   "settings.mcp.deleteTitle": "删除 MCP 服务器",
   "settings.mcp.deleteConfirm": '您确定要删除 MCP 服务器 "{name}" 吗？此操作无法撤销。',
   "settings.mcp.template": "模板",

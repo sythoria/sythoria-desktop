@@ -1171,7 +1171,7 @@ export const McpServerConfigSchema = z
     baseUrl: z.string().optional(),
     apiKey: z.string().optional(),
     enabled: z.boolean(),
-    trustLevel: z.enum(["trusted", "untrusted"]).optional(),
+    trustLevel: z.enum(["trusted", "untrusted"]).default("untrusted"),
     allowLocalNetwork: z.boolean().optional(),
   })
   .passthrough();

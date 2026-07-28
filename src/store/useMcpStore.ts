@@ -60,8 +60,6 @@ interface McpState {
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
   checkCommand: (command: string) => Promise<ExecutableCheck>;
-  approvedTools: Set<string>;
-  approveTool: (namespacedName: string) => void;
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
@@ -71,14 +69,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
   serverStatuses: {},
   availableTools: [],
   enabledServerIds: new Set(),
-  approvedTools: new Set(),
-  approveTool: (namespacedName) => {
-    set((state) => {
-      const next = new Set(state.approvedTools);
-      next.add(namespacedName);
-      return { approvedTools: next };
-    });
-  },
 
   addMcpConfig: () => {
     const newConfig: McpServerConfig = {
@@ -88,6 +78,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       command: "",
       args: [],
       enabled: true,
+      trustLevel: "untrusted",
     };
     const validation = validateMcpServerConfig(newConfig);
     if (!validation.success) {
@@ -120,6 +111,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       command: preset.command,
       args: [...preset.args],
       enabled: true,
+      trustLevel: "untrusted",
     };
     const validation = validateMcpServerConfig(newConfig);
     if (!validation.success) {
@@ -174,7 +166,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
       debouncedSaveMcpApiKeys(newKeys);
     }
 
-    debouncedSaveMcpConfigs(updatedConfigs);
+    if (updates.trustLevel !== undefined) {
+      // Trust revocation is a security boundary: persist it immediately so a
+      // quick shutdown cannot restore the previous trusted state on restart.
+      debouncedSaveMcpConfigs.cancel();
+      void saveMcpConfigs(updatedConfigs);
+    } else {
+      debouncedSaveMcpConfigs(updatedConfigs);
+    }
     const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
       debouncedLogConfigUpdate(updatedConfig.name, Object.keys(updates));

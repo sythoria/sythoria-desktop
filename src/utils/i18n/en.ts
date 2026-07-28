@@ -502,6 +502,12 @@ export const en = {
   "settings.mcp.addBtn": "Add Server",
   "settings.mcp.enabled": "Enabled",
   "settings.mcp.enabledDesc": "Auto-connect on startup",
+  "settings.mcp.trust": "Trust this server",
+  "settings.mcp.trustDesc": "Run all tools from this MCP server without asking for confirmation.",
+  "settings.mcp.trustConfirm":
+    'Trust "{name}"? Its tools can execute automatically with AI-generated arguments and may access files, run commands, or make network requests. Only continue if you control and trust this server.',
+  "settings.mcp.trustedWarning":
+    "Trusted: all tools from this server may run automatically until you turn this off.",
   "settings.mcp.deleteTitle": "Delete MCP Server",
   "settings.mcp.deleteConfirm":
     'Are you sure you want to delete the MCP server "{name}"? This action cannot be undone.',

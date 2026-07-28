@@ -14,6 +14,12 @@ function stdio(id: string, command?: string, args?: string[]): McpServerConfig {
 }
 
 describe("migrateMcpConfigs", () => {
+  it("migrates configs without a trust level to the secure default", () => {
+    const result = McpServerConfigSchema.parse(stdio("1", "npx"));
+
+    expect(result.trustLevel).toBe("untrusted");
+  });
+
   it("preserves trust and local-network policy fields", () => {
     const result = McpServerConfigSchema.parse({
       ...stdio("1", "npx"),

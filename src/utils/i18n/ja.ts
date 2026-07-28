@@ -501,6 +501,12 @@ export const ja = {
   "settings.mcp.addBtn": "サーバーを追加",
   "settings.mcp.enabled": "有効",
   "settings.mcp.enabledDesc": "起動時に自動接続する",
+  "settings.mcp.trust": "このサーバーを信頼する",
+  "settings.mcp.trustDesc": "この MCP サーバーのすべてのツールを確認なしで実行します。",
+  "settings.mcp.trustConfirm":
+    "「{name}」を信頼しますか？ツールは AI が生成した引数で自動実行され、ファイルへのアクセス、コマンドの実行、ネットワークリクエストを行う可能性があります。このサーバーを管理し、信頼している場合のみ続行してください。",
+  "settings.mcp.trustedWarning":
+    "信頼済み：この設定をオフにするまで、このサーバーのすべてのツールが自動実行される可能性があります。",
   "settings.mcp.deleteTitle": "MCPサーバー設定 of 削除",
   "settings.mcp.deleteConfirm": '本当にMCPサーバー "{name}" を削除しますか？この操作は元に戻せません。',
   "settings.mcp.template": "テンプレート",
