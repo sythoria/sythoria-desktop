@@ -33,7 +33,7 @@ src/
     useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
     useSearchStore.ts   # Search configs, search toggle
     useMcpStore.ts      # MCP server configs, available tools, env secrets keyring, server statuses
-    useUIStore.ts       # View, theme, sidebar, toasts, loading, logs, activeSection, tool confirmations
+    useUIStore.ts       # View, theme, encrypted panel layout, toasts, logs, tasks, tool confirmations
     useProjectStore.ts  # Project configuration, active project, and worktree overrides
     useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
     useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
@@ -58,7 +58,7 @@ src/
     useAttachments.ts   # File validation, MIME mapping, and size check utilities
     use-safe-motion.ts  # useSafeMotion, useSafeScale, useSafeSlideX (respects prefers-reduced-motion)
   utils/
-    storage.ts          # Tauri store + keychain + Zod validation + localStorage fallback + model/project configs
+    storage.ts          # Encrypted Rust storage bridge, keychain secrets, Zod validation, and legacy migrations
     i18n/                 # Modular BCP 47 locales: en.ts, es.ts, fr.ts, de.ts, zh.ts, ja.ts
     i18n.ts               # Consolidates locales and exports type-safe useTranslation() hook
     validation.ts       # Zod schemas, URL validation, API key validation, MCP config validation
@@ -82,7 +82,9 @@ src/
     ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
 src-tauri/src/
   main.rs               # sythoria_lib::run()
-  lib.rs                # Tauri commands (~50+), AppError, keychain storage, initialization, event hooks
+  lib.rs                # Tauri commands, AppError, initialization, network policy, window/tray event hooks
+  atomic_file.rs        # Crash-safe temporary-file writes with atomic replacement
+  secure_storage.rs     # AES-256-GCM domain storage, key derivation, migration, and preference mutation
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
   ws_handler.rs         # WebSocket: types, SessionManager, reconnect (1s–30s, max 5)
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
@@ -90,6 +92,9 @@ src-tauri/src/
   git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
   project.rs            # Workspace paths registration, permissions matching, active project mapping
   project_tools.rs      # Workspace native tools (read, write, grep, edit, bash, glob) with validation
+  commands/
+    config.rs           # Encrypted settings/config commands, keychain secret maps, and full data wipe
+    conversations.rs    # Encrypted content-addressed conversation snapshots
   mcp/
     mod.rs              # McpServerConfig, McpToolInfo, McpToolResult, McpServerStatus, McpServerHandle, McpToolRequest, McpServerManager
     client.rs           # MCP client: connect/disconnect servers (stdio/SSE/streamable-http), call tools, rmcp integration
@@ -104,7 +109,7 @@ src-tauri/src/
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, default 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), active stream listener Map (`activeStreamIds`).
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs`, `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
-- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), `pendingToolConfirmations` (confirmations for dangerous tool execution).
+- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, encrypted `sidebarWidth` / auxiliary-panel layout, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), background tasks, and `pendingToolConfirmations` (confirmations for dangerous tool execution).
 - **useProjectStore**: `projects`, `activeProjectId`, `isProjectsEnabled`, `defaultPermission`, `activeWorktreePath`, `activeWorktreeBranch`, `init()`, `addProject()`, `updateProject()`, `deleteProject()`, `setActiveProject()`, `setWorktree()`, `persistProjects()`.
 - **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
@@ -234,10 +239,13 @@ export interface ModelConfig {
 | Command                                              | Purpose                                            |
 | ---------------------------------------------------- | -------------------------------------------------- |
 | `load_config` / `save_config`                        | Encrypted model configs (`models.enc`)             |
-| `load_network_config` / `save_network_config`        | Network settings (SSL, offline mode, proxy)        |
-| `load_search_config` / `save_search_config`          | Search configs (`search_config.json`)              |
+| `load_encrypted_preferences` / `mutate_encrypted_preferences` | Read or atomically mutate encrypted preferences |
+| `load_network_config` / `save_network_config`        | Authenticated network policy (`network.enc`)       |
+| `load_search_config` / `save_search_config`          | Encrypted search configs (`search.enc`)            |
 | `load_api_keys` / `save_api_keys_cmd`                | API keys → OS keychain (keyring)                   |
 | `load_search_api_keys` / `save_search_api_keys_cmd`  | Search API keys → OS keychain                      |
+| `load_encrypted_conversations` / `save_encrypted_conversations` | Read/write encrypted chat snapshots      |
+| `clear_encrypted_conversations`                      | Delete chat ciphertext and its keychain key        |
 | `chat_completion` / `chat_stream`                    | Standard or streaming text generation              |
 | `cancel_chat_stream`                                 | Cancel active stream via `streamId`                |
 | `chat_completion_tools` / `chat_stream_tools`        | Completion/Streaming with tool calls enabled       |
@@ -245,7 +253,7 @@ export interface ModelConfig {
 | `check_api` / `check_ollama`                         | Health checks on AI backends                       |
 | `web_search` / `fetch_url_content`                   | Native search presets and web page readers         |
 | `ws_connect` / `ws_send` / `ws_disconnect`           | WebSocket connection commands                      |
-| `load_mcp_config` / `save_mcp_config`                | MCP server configs (`mcp_config.json`)             |
+| `load_mcp_config` / `save_mcp_config`                | Encrypted MCP server configs (`mcp.enc`)           |
 | `mcp_start_server` / `mcp_stop_server`               | Spawn stdio MCP client or connect to SSE/HTTP      |
 | `mcp_check_command`                                  | Probes command/args resolution on path             |
 | `mcp_list_tools` / `mcp_call_tool`                   | MCP tool discoverability and execution             |
@@ -265,13 +273,14 @@ export interface ModelConfig {
 | `project_bash`                                       | Execute system shells inside worktree directory    |
 | `capture_screen` / `list_appshots`                   | Take screenshots, query galleries                  |
 | `has_screen_capture_permission`                      | Check macOS screen recording permissions           |
+| `wipe_config_files`                                  | Ordered keychain, encrypted-chat, and settings wipe |
 
 ## Storage
 
 | Data            | Location                                                         |
 | --------------- | ---------------------------------------------------------------- |
-| Conversations   | Encrypted manifest + content-addressed blobs (`conversations/`)  |
-| Model configs   | Authenticated encrypted `models.enc` (keys in OS keychain)       |
+| Conversations   | AES-256-GCM manifest + content-addressed blobs (`conversations/`) |
+| Model configs   | AES-256-GCM authenticated `models.enc` (master in OS keychain)    |
 | API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
 | Projects        | Authenticated encrypted `projects.enc`                           |
 | Network policy  | Authenticated encrypted `network.enc` + keychain presence marker |
@@ -281,7 +290,7 @@ export interface ModelConfig {
 | MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)                |
 | Preferences     | Authenticated encrypted `preferences.enc`                        |
 | Whisper Config  | Authenticated encrypted preferences (cloud key in OS keychain)   |
-| Window layout   | Authenticated encrypted preferences                              |
+| UI/window layout | Authenticated encrypted preferences                             |
 
 ## Notes
 
@@ -291,6 +300,12 @@ export interface ModelConfig {
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
 - **Keychain**: `keyring-core` with platform backends (macOS Keychain, Windows Credential Manager, Linux keyutils).
+- **Encrypted storage**: Settings use per-domain AES-256-GCM keys derived from an OS-keychain master key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
+- **Conversation storage**: Each conversation is an authenticated content-addressed blob behind an encrypted manifest and a separate keychain-backed key; failed saves retain the previous snapshot.
+- **Network fail-closed**: If an existing authenticated network policy cannot be loaded, startup enables strict SSL and offline mode instead of silently reverting to permissive defaults.
+- **Window state**: Main-window size, position, and maximized state are restored from encrypted preferences. The default window is 1200×780 when no saved geometry exists.
+- **Privacy wipe**: The Rust backend deletes indexed keychain secrets before encrypted files, and frontend persistence is suspended during the wipe to prevent data recreation.
+- **Logging privacy**: Legacy plaintext log files are removed at startup; runtime Rust logs target stdout at warning level.
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
 - **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
