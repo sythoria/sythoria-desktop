@@ -737,9 +737,9 @@ export default memo(function InputBar({
                   <div ref={plusDropdownRef} className="relative shrink-0">
                     <button
                       onClick={() => setPlusOpen(!plusOpen)}
-                      className={`p-1.5 rounded-full transition-colors flex items-center justify-center ${
+                      className={`p-1.5 rounded-full bg-transparent transition-colors flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                         anyToolActive
-                          ? "text-text-primary bg-active"
+                          ? "text-accent hover:bg-hover"
                           : "text-text-muted hover:text-text-secondary hover:bg-hover"
                       }`}
                       aria-label={t("tooltip.attachOrSearch") || "Attach or search"}
@@ -971,10 +971,10 @@ export default memo(function InputBar({
                       type="button"
                       onClick={handleToggleVoice}
                       disabled={isTranscribing}
-                      className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer ${
+                      className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed ${
                         isRecording
                           ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                          : "bg-surface hover:bg-hover text-text-muted hover:text-text-primary border border-border"
+                          : "bg-transparent hover:bg-hover text-text-muted hover:text-text-primary disabled:opacity-40"
                       }`}
                       aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
                       title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
@@ -991,10 +991,10 @@ export default memo(function InputBar({
                   <button
                     onClick={isStreaming ? () => onStop?.() : handleSubmit}
                     disabled={!isStreaming && !canSend}
-                    className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center ${
+                    className={`shrink-0 p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                       isStreaming
                         ? "bg-red-500/90 hover:bg-red-600 text-white"
-                        : "bg-surface hover:bg-hover text-text-primary border border-border disabled:bg-transparent disabled:border-transparent disabled:text-text-muted"
+                        : "bg-accent hover:bg-accent-hover text-accent-foreground shadow-sm disabled:hover:bg-accent"
                     }`}
                     aria-label={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
                     title={isStreaming ? t("tooltip.stop") : t("tooltip.send")}
