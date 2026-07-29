@@ -218,6 +218,9 @@ function App() {
     activeArtifact,
     showUpdateModal,
     updateInfo,
+    isInstallingUpdate,
+    updateDownloadProgress,
+    updateError,
     autoUpdateChecking,
     isAuxPanelOpen,
     isAuxPanelExpanded,
@@ -242,6 +245,9 @@ function App() {
       activeArtifact: s.activeArtifact,
       showUpdateModal: s.showUpdateModal,
       updateInfo: s.updateInfo,
+      isInstallingUpdate: s.isInstallingUpdate,
+      updateDownloadProgress: s.updateDownloadProgress,
+      updateError: s.updateError,
       autoUpdateChecking: s.autoUpdateChecking,
       isAuxPanelOpen: s.isAuxPanelOpen,
       isAuxPanelExpanded: s.isAuxPanelExpanded,
@@ -267,6 +273,7 @@ function App() {
     setActiveArtifact,
     setShowUpdateModal,
     checkForUpdates,
+    installUpdate,
     toggleCommandPalette,
     setAuxPanelOpen,
     setAuxSummaryPinned,
@@ -285,6 +292,7 @@ function App() {
       setActiveArtifact: s.setActiveArtifact,
       setShowUpdateModal: s.setShowUpdateModal,
       checkForUpdates: s.checkForUpdates,
+      installUpdate: s.installUpdate,
       toggleCommandPalette: s.toggleCommandPalette,
       setAuxPanelOpen: s.setAuxPanelOpen,
       setAuxSummaryPinned: s.setAuxSummaryPinned,
@@ -1536,10 +1544,13 @@ function App() {
       <UpdateModal
         isOpen={showUpdateModal}
         onClose={() => setShowUpdateModal(false)}
+        onInstall={installUpdate}
         currentVersion={updateInfo?.currentVersion || ""}
         latestVersion={updateInfo?.latestVersion || ""}
-        releaseUrl={updateInfo?.releaseUrl || ""}
         releaseNotes={updateInfo?.releaseNotes}
+        isInstalling={isInstallingUpdate}
+        downloadProgress={updateDownloadProgress}
+        error={updateError}
       />
       <LinkWarningModal />
       <AnimatePresence>

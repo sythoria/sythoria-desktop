@@ -602,6 +602,7 @@ export const zh = {
   "updates.latest": "最新版本",
   "updates.releaseNotes": "更新日志",
   "updates.download": "下载并安装",
+  "updates.installing": "正在安装更新…",
   "updates.remindLater": "稍后提醒",
   "updates.error": "检查更新失败。",
   "general.latestVersion": "您已是 Sythoria 的最新版本",

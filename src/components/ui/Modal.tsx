@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, ArrowUpCircle, ExternalLink } from "lucide-react";
+import { X, ArrowUpCircle, Download, LoaderCircle } from "lucide-react";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { springs, motionTokens } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
 import { useTranslation } from "../../utils/i18n";
-import { openExternalUrl } from "../../utils/externalUrl";
 
 interface ModalProps {
   isOpen: boolean;
@@ -475,19 +474,25 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
 interface UpdateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onInstall: () => Promise<void>;
   currentVersion: string;
   latestVersion: string;
-  releaseUrl: string;
   releaseNotes?: string;
+  isInstalling: boolean;
+  downloadProgress: number | null;
+  error: string | null;
 }
 
 export function UpdateModal({
   isOpen,
   onClose,
+  onInstall,
   currentVersion,
   latestVersion,
-  releaseUrl,
   releaseNotes,
+  isInstalling,
+  downloadProgress,
+  error,
 }: UpdateModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -519,7 +524,7 @@ export function UpdateModal({
     if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !isInstalling) onClose();
     };
 
     document.addEventListener("keydown", handleEscape);
@@ -540,11 +545,7 @@ export function UpdateModal({
       unlockBodyScroll();
       previouslyFocused?.focus();
     };
-  }, [isOpen, onClose, handleTabTrap]);
-
-  const handleDownload = async () => {
-    await openExternalUrl(releaseUrl, { confirmInsecure: true });
-  };
+  }, [isOpen, isInstalling, onClose, handleTabTrap]);
 
   return (
     <AnimatePresence>
@@ -562,7 +563,7 @@ export function UpdateModal({
           <motion.div
             className="absolute inset-0 backdrop-blur-sm"
             style={{ backgroundColor: "var(--theme-overlay)" }}
-            onClick={onClose}
+            onClick={isInstalling ? undefined : onClose}
             aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -590,6 +591,7 @@ export function UpdateModal({
               </div>
               <button
                 onClick={onClose}
+                disabled={isInstalling}
                 className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
                 aria-label="Close dialog"
               >
@@ -628,22 +630,54 @@ export function UpdateModal({
                   </div>
                 </div>
               )}
+
+              {isInstalling && (
+                <div className="space-y-2" aria-live="polite">
+                  <div className="flex items-center justify-between text-xs text-text-secondary">
+                    <span>{t("updates.installing")}</span>
+                    {downloadProgress !== null && <span>{downloadProgress}%</span>}
+                  </div>
+                  <div
+                    className="h-2 overflow-hidden rounded-full bg-input"
+                    role="progressbar"
+                    aria-label={t("updates.installing")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={downloadProgress ?? undefined}
+                  >
+                    <motion.div
+                      className="h-full rounded-full bg-accent"
+                      initial={{ width: 0 }}
+                      animate={{ width: downloadProgress === null ? "35%" : `${downloadProgress}%` }}
+                      transition={{ duration: motionTokens.duration.normal }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-300">
+                  {error}
+                </div>
+              )}
             </div>
 
             {/* Actions Footer */}
             <div className="flex gap-3 p-6 pt-0">
               <button
                 onClick={onClose}
+                disabled={isInstalling}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-all duration-200 min-h-[44px]"
               >
                 {t("updates.remindLater")}
               </button>
               <button
-                onClick={handleDownload}
+                onClick={() => void onInstall()}
+                disabled={isInstalling}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-all duration-200 min-h-[44px] flex items-center justify-center gap-1.5 shadow-sm shadow-accent-soft"
               >
-                <span>{t("updates.download")}</span>
-                <ExternalLink size={14} />
+                <span>{isInstalling ? t("updates.installing") : t("updates.download")}</span>
+                {isInstalling ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
               </button>
             </div>
           </motion.div>

@@ -645,6 +645,7 @@ export const de = {
   "updates.latest": "Neueste Version",
   "updates.releaseNotes": "Versionshinweise",
   "updates.download": "Herunterladen & Installieren",
+  "updates.installing": "Update wird installiert…",
   "updates.remindLater": "Später erinnern",
   "updates.error": "Fehler bei der Update-Prüfung.",
   "general.latestVersion": "Sie nutzen bereits die neueste Version von Sythoria",

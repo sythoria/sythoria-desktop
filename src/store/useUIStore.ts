@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   loadHasStarted,
   saveHasStarted,
@@ -142,10 +144,14 @@ interface UIState {
   addPendingToolConfirmation: (conf: ToolConfirmation) => void;
   respondToToolConfirmation: (id: string, approved: boolean) => void;
   isCheckingUpdates: boolean;
-  updateInfo: { latestVersion: string; currentVersion: string; releaseUrl: string; releaseNotes?: string } | null;
+  isInstallingUpdate: boolean;
+  updateDownloadProgress: number | null;
+  updateError: string | null;
+  updateInfo: { latestVersion: string; currentVersion: string; releaseNotes?: string } | null;
   showUpdateModal: boolean;
   setShowUpdateModal: (show: boolean) => void;
   checkForUpdates: (silent?: boolean) => Promise<void>;
+  installUpdate: () => Promise<void>;
   setSkipExternalLinkWarning: (skip: boolean) => void;
   setShowCommandPalette: (show: boolean) => void;
   toggleCommandPalette: () => void;
@@ -175,46 +181,6 @@ interface UIState {
   clearTasks: () => void;
 }
 
-function isNewerVersion(current: string, latest: string): boolean {
-  const cleanCurrent = current.replace(/^v/, "").trim();
-  const cleanLatest = latest.replace(/^v/, "").trim();
-
-  if (cleanCurrent === cleanLatest) return false;
-
-  const currentParts = cleanCurrent.split(/[-.]/);
-  const latestParts = cleanLatest.split(/[-.]/);
-
-  const length = Math.max(currentParts.length, latestParts.length);
-  for (let i = 0; i < length; i++) {
-    const currPart = currentParts[i];
-    const latePart = latestParts[i];
-
-    if (latePart === undefined) {
-      return true;
-    }
-    if (currPart === undefined) {
-      return false;
-    }
-
-    const currNum = parseInt(currPart, 10);
-    const lateNum = parseInt(latePart, 10);
-
-    const isCurrNum = !isNaN(currNum);
-    const isLateNum = !isNaN(lateNum);
-
-    if (isCurrNum && isLateNum) {
-      if (lateNum > currNum) return true;
-      if (currNum > lateNum) return false;
-    } else {
-      if (currPart !== latePart) {
-        return latePart > currPart;
-      }
-    }
-  }
-
-  return false;
-}
-
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 480;
@@ -233,6 +199,7 @@ function normalizeAuxPanelWidth(value: string | number | null): number {
 
 const initialAuxPanelWidth = DEFAULT_AUX_PANEL_WIDTH;
 const initialSidebarWidth = DEFAULT_SIDEBAR_WIDTH;
+let pendingUpdate: Update | null = null;
 
 function persistUiLayout(settings: Parameters<typeof saveUiLayoutSettings>[0]): void {
   void saveUiLayoutSettings(settings).catch((error) => {
@@ -289,6 +256,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeArtifact: null,
   pendingToolConfirmations: [],
   isCheckingUpdates: false,
+  isInstallingUpdate: false,
+  updateDownloadProgress: null,
+  updateError: null,
   updateInfo: null,
   showUpdateModal: false,
   skipExternalLinkWarning: false,
@@ -605,35 +575,34 @@ export const useUIStore = create<UIState>((set, get) => ({
     });
   },
   checkForUpdates: async (silent = false) => {
-    const { addToast } = useUIStore.getState();
-    set({ isCheckingUpdates: true });
+    const { addToast, offlineMode } = useUIStore.getState();
+    if (get().isCheckingUpdates || get().isInstallingUpdate) return;
+    if (offlineMode) {
+      if (!silent) addToast("Updates are unavailable while Offline Mode is enabled.", "info");
+      return;
+    }
+
+    set({ isCheckingUpdates: true, updateError: null });
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const { getVersion } = await import("@tauri-apps/api/app");
+      if (pendingUpdate) {
+        await pendingUpdate.close();
+        pendingUpdate = null;
+      }
 
-      const currentVersion = await getVersion();
-      const result = await invoke<{
-        latestVersion: string;
-        releaseUrl: string;
-        releaseNotes?: string;
-      }>("check_for_updates");
-
-      const hasUpdate = isNewerVersion(currentVersion, result.latestVersion);
-
-      if (hasUpdate) {
+      const update = await check({ timeout: 10_000 });
+      if (update) {
+        pendingUpdate = update;
         set({
           updateInfo: {
-            currentVersion,
-            latestVersion: result.latestVersion,
-            releaseUrl: result.releaseUrl,
-            releaseNotes: result.releaseNotes,
+            currentVersion: update.currentVersion,
+            latestVersion: update.version,
+            releaseNotes: update.body,
           },
           showUpdateModal: true,
         });
       } else {
-        if (!silent) {
-          addToast("You are on the latest version of Sythoria", "success");
-        }
+        set({ updateInfo: null, showUpdateModal: false });
+        if (!silent) addToast("You are on the latest version of Sythoria", "success");
       }
     } catch (error) {
       console.error("Failed to check for updates:", error);
@@ -644,7 +613,58 @@ export const useUIStore = create<UIState>((set, get) => ({
       set({ isCheckingUpdates: false });
     }
   },
-  setShowUpdateModal: (show) => set({ showUpdateModal: show }),
+  installUpdate: async () => {
+    const { addToast } = useUIStore.getState();
+    if (get().isInstallingUpdate) return;
+    if (!pendingUpdate) {
+      addToast("The update is no longer available. Check for updates again.", "error");
+      set({ showUpdateModal: false, updateInfo: null });
+      return;
+    }
+
+    set({ isInstallingUpdate: true, updateDownloadProgress: 0, updateError: null });
+    let downloadedBytes = 0;
+    let totalBytes: number | undefined;
+
+    try {
+      await pendingUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          totalBytes = event.data.contentLength;
+          set({ updateDownloadProgress: totalBytes ? 0 : null });
+        } else if (event.event === "Progress") {
+          downloadedBytes += event.data.chunkLength;
+          if (totalBytes) {
+            set({ updateDownloadProgress: Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) });
+          }
+        } else {
+          set({ updateDownloadProgress: 100 });
+        }
+      });
+
+      await relaunch();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to install update:", error);
+      set({ updateError: message });
+      addToast(`Failed to install update: ${message}`, "error");
+    } finally {
+      set({ isInstallingUpdate: false });
+    }
+  },
+  setShowUpdateModal: (show) => {
+    if (!show && !get().isInstallingUpdate) {
+      if (pendingUpdate) void pendingUpdate.close();
+      pendingUpdate = null;
+      set({
+        showUpdateModal: false,
+        updateInfo: null,
+        updateDownloadProgress: null,
+        updateError: null,
+      });
+      return;
+    }
+    set({ showUpdateModal: show });
+  },
   setSkipExternalLinkWarning: (skip) => {
     saveSkipExternalLinkWarning(skip);
     set({ skipExternalLinkWarning: skip });

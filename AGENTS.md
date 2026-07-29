@@ -33,7 +33,7 @@ src/
     useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
     useSearchStore.ts   # Search configs, search toggle
     useMcpStore.ts      # MCP server configs, available tools, env secrets keyring, server statuses
-    useUIStore.ts       # View, theme, encrypted panel layout, toasts, logs, tasks, tool confirmations
+    useUIStore.ts       # View, theme, layout, toasts, logs, tasks, tool confirmations, native app updates
     useProjectStore.ts  # Project configuration, active project, and worktree overrides
     useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
     useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
@@ -80,6 +80,8 @@ src/
     StartScreen.tsx     # Onboarding with motion entrance animations
     ScrollToBottomButton.tsx
     ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
+docs/
+  updater-releases.md   # Updater signing, local-build, release, and test guide
 src-tauri/src/
   main.rs               # sythoria_lib::run()
   lib.rs                # Tauri commands, AppError, initialization, network policy, window/tray event hooks
@@ -109,7 +111,7 @@ src-tauri/src/
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, default 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), active stream listener Map (`activeStreamIds`).
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
-- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, encrypted `sidebarWidth` / auxiliary-panel layout, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), background tasks, and `pendingToolConfirmations` (confirmations for dangerous tool execution).
+- **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, encrypted `sidebarWidth` / auxiliary-panel layout, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), background tasks, `pendingToolConfirmations` (confirmations for dangerous tool execution), and the signed Tauri updater flow (`checkForUpdates()`, `installUpdate()`, download progress).
 - **useProjectStore**: `projects`, `activeProjectId`, `isProjectsEnabled`, `defaultPermission`, `activeWorktreePath`, `activeWorktreeBranch`, `init()`, `addProject()`, `updateProject()`, `deleteProject()`, `setActiveProject()`, `setWorktree()`, `persistProjects()`.
 - **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
@@ -153,6 +155,8 @@ src-tauri/src/
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
 **Whisper Transcription**: Toggle voice recording (`start_recording` / `stop_recording`) → temporary audio recorded → backend runs `transcribe_audio` against downloaded whisper model → output injected into input text.
+
+**App Updates**: `checkForUpdates()` uses the Tauri updater plugin against the signed `latest.json` in GitHub Releases → the update modal downloads and installs the verified platform artifact → the process plugin relaunches Sythoria. Release builds require the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; keep the corresponding private key backed up and never commit it. See `docs/updater-releases.md` for the signing, release, and test procedure.
 
 ## Key Types
 

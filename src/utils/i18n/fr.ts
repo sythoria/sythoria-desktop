@@ -623,6 +623,7 @@ export const fr = {
   "updates.latest": "Dernière version",
   "updates.releaseNotes": "Notes de version",
   "updates.download": "Télécharger & Installer",
+  "updates.installing": "Installation de la mise à jour…",
   "updates.remindLater": "Rappeler plus tard",
   "updates.error": "Échec de la vérification des mises à jour.",
   "general.latestVersion": "Vous utilisez déjà la dernière version de Sythoria",

@@ -628,6 +628,7 @@ export const ja = {
   "updates.latest": "最新バージョン",
   "updates.releaseNotes": "リリースノート",
   "updates.download": "ダウンロードとインストール",
+  "updates.installing": "アップデートをインストール中…",
   "updates.remindLater": "後で通知",
   "updates.error": "アップデートの確認に失敗しました。",
   "general.latestVersion": "最新バージョンのSythoriaを使用しています",
