@@ -288,7 +288,7 @@ fn load_snapshot(
     Ok(conversations)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_encrypted_conversations(
     app: tauri::AppHandle,
 ) -> Result<Option<Vec<serde_json::Value>>, AppError> {
@@ -302,7 +302,7 @@ pub fn load_encrypted_conversations(
     load_snapshot(&storage_dir, &keys).map(Some)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_encrypted_conversations(
     app: tauri::AppHandle,
     conversations: Vec<serde_json::Value>,
@@ -315,7 +315,7 @@ pub fn save_encrypted_conversations(
     save_snapshot(&storage_dir, &conversations, &keys)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_encrypted_conversations(app: tauri::AppHandle) -> Result<(), AppError> {
     let _guard = STORAGE_LOCK
         .lock()
