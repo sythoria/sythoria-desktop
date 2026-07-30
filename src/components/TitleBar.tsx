@@ -87,6 +87,39 @@ export function TitleBar() {
     };
   }, []);
 
+  useEffect(() => {
+    let fallbackTimer = 0;
+    const root = document.documentElement;
+
+    function finishWindowDrag() {
+      window.clearTimeout(fallbackTimer);
+      root.classList.remove("window-dragging");
+    }
+
+    function handleWindowDragStart(event: PointerEvent) {
+      if (event.button !== 0 || !(event.target instanceof Element)) return;
+      if (!event.target.closest("[data-tauri-drag-region]")) return;
+      if (event.target.closest("button, a, input, select, textarea, [role='menuitem']")) return;
+
+      root.classList.add("window-dragging");
+      window.clearTimeout(fallbackTimer);
+      fallbackTimer = window.setTimeout(finishWindowDrag, 10_000);
+    }
+
+    document.addEventListener("pointerdown", handleWindowDragStart, true);
+    window.addEventListener("pointerup", finishWindowDrag, true);
+    window.addEventListener("pointercancel", finishWindowDrag, true);
+    window.addEventListener("blur", finishWindowDrag);
+
+    return () => {
+      finishWindowDrag();
+      document.removeEventListener("pointerdown", handleWindowDragStart, true);
+      window.removeEventListener("pointerup", finishWindowDrag, true);
+      window.removeEventListener("pointercancel", finishWindowDrag, true);
+      window.removeEventListener("blur", finishWindowDrag);
+    };
+  }, []);
+
   const handleMenuClick = (menu: MenuType) => {
     setActiveMenu(activeMenu === menu ? null : menu);
   };
