@@ -16,10 +16,9 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
-import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
-import { SettingsSectionHeader } from "../components/SettingsPrimitives";
+import { SettingsDisclosure, SettingsSectionHeader, SettingsTogglePanel } from "../components/SettingsPrimitives";
 import { useModelStore } from "../../../store/useModelStore";
 
 export function WhisperSection() {
@@ -95,128 +94,122 @@ export function WhisperSection() {
     <div id="setting-whisper-voice" className="space-y-6">
       <SettingsSectionHeader title={t("settings.voice.title")} description={t("settings.voice.subtitle")} />
 
-      <div className="bg-surface-elevated border border-border/60 rounded-xl p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-sm font-medium text-text-primary block">{t("settings.voice.enable")}</span>
-            <span className="text-[11px] text-text-muted block">{t("settings.voice.enableDesc")}</span>
-          </div>
-          <Switch checked={isVoiceEnabled} onChange={toggleVoiceEnabled} />
+      <SettingsTogglePanel
+        checked={isVoiceEnabled}
+        onChange={toggleVoiceEnabled}
+        label={t("settings.voice.enable")}
+        description={t("settings.voice.enableDesc")}
+        contentClassName="space-y-4"
+      >
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+            <Globe size={13} />
+            <span>{t("settings.voice.language")}</span>
+          </label>
+          <Select
+            value={language}
+            onChange={setLanguage}
+            options={[
+              { value: "en", label: t("settings.voice.langEn", { defaultValue: "English (default)" }) },
+              { value: "es", label: t("settings.voice.langEs", { defaultValue: "Spanish" }) },
+              { value: "fr", label: t("settings.voice.langFr", { defaultValue: "French" }) },
+              { value: "de", label: t("settings.voice.langDe", { defaultValue: "German" }) },
+              { value: "it", label: t("settings.voice.langIt", { defaultValue: "Italian" }) },
+              { value: "ja", label: t("settings.voice.langJa", { defaultValue: "Japanese" }) },
+              { value: "zh", label: t("settings.voice.langZh", { defaultValue: "Chinese" }) },
+              { value: "auto", label: t("settings.voice.languageAuto") },
+            ]}
+            size="compact"
+            aria-label={t("settings.voice.language")}
+          />
         </div>
 
-        {isVoiceEnabled && (
-          <div className="border-t border-border/40 pt-4 space-y-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+            <Sparkles size={13} />
+            <span>Refinement Model (Instant LLM Polish)</span>
+          </label>
+          <Select
+            value={refinementModelId || ""}
+            onChange={(value) => setRefinementModelId(value || null)}
+            options={[
+              { value: "", label: "Same as Active Chat Model" },
+              ...models.map((model) => ({ value: model.id, label: model.name })),
+            ]}
+            size="compact"
+            aria-label="Refinement model"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+            <Settings2 size={13} />
+            <span>Speech-to-Text Engine</span>
+          </label>
+          <div className="flex bg-surface border border-border/85 rounded-lg p-1 gap-1">
+            <button
+              onClick={() => setSttProvider("cloud")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                sttProvider === "cloud"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+              }`}
+            >
+              <Cloud size={14} />
+              <span>Cloud API (Fast)</span>
+            </button>
+            <button
+              onClick={() => setSttProvider("local")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                sttProvider === "local"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-text-secondary hover:bg-hover hover:text-text-primary"
+              }`}
+            >
+              <Cpu size={14} />
+              <span>Local CPU</span>
+            </button>
+          </div>
+        </div>
+
+        {sttProvider === "cloud" && (
+          <div className="bg-surface border border-border/60 rounded-xl p-3 space-y-3 mt-2">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
-                <Globe size={13} />
-                <span>{t("settings.voice.language")}</span>
-              </label>
-              <Select
-                value={language}
-                onChange={setLanguage}
-                options={[
-                  { value: "en", label: t("settings.voice.langEn", { defaultValue: "English (default)" }) },
-                  { value: "es", label: t("settings.voice.langEs", { defaultValue: "Spanish" }) },
-                  { value: "fr", label: t("settings.voice.langFr", { defaultValue: "French" }) },
-                  { value: "de", label: t("settings.voice.langDe", { defaultValue: "German" }) },
-                  { value: "it", label: t("settings.voice.langIt", { defaultValue: "Italian" }) },
-                  { value: "ja", label: t("settings.voice.langJa", { defaultValue: "Japanese" }) },
-                  { value: "zh", label: t("settings.voice.langZh", { defaultValue: "Chinese" }) },
-                  { value: "auto", label: t("settings.voice.languageAuto") },
-                ]}
-                size="compact"
-                aria-label={t("settings.voice.language")}
+              <label className="text-xs font-semibold text-text-secondary">OpenAI-Compatible API URL</label>
+              <input
+                type="text"
+                value={cloudApiUrl}
+                onChange={(e) => setCloudApiUrl(e.target.value)}
+                placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
+                className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
               />
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
-                <Sparkles size={13} />
-                <span>Refinement Model (Instant LLM Polish)</span>
-              </label>
-              <Select
-                value={refinementModelId || ""}
-                onChange={(value) => setRefinementModelId(value || null)}
-                options={[
-                  { value: "", label: "Same as Active Chat Model" },
-                  ...models.map((model) => ({ value: model.id, label: model.name })),
-                ]}
-                size="compact"
-                aria-label="Refinement model"
+              <label className="text-xs font-semibold text-text-secondary">API Key</label>
+              <input
+                type="password"
+                value={cloudApiKey}
+                onChange={(e) => setCloudApiKey(e.target.value)}
+                placeholder={cloudApiKeyConfigured ? "Stored securely — enter a new key to replace" : "gsk_..."}
+                className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
               />
             </div>
-
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
-                <Settings2 size={13} />
-                <span>Speech-to-Text Engine</span>
-              </label>
-              <div className="flex bg-surface border border-border/85 rounded-lg p-1 gap-1">
-                <button
-                  onClick={() => setSttProvider("cloud")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-                    sttProvider === "cloud"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                  }`}
-                >
-                  <Cloud size={14} />
-                  <span>Cloud API (Fast)</span>
-                </button>
-                <button
-                  onClick={() => setSttProvider("local")}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
-                    sttProvider === "local"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                  }`}
-                >
-                  <Cpu size={14} />
-                  <span>Local CPU</span>
-                </button>
-              </div>
+              <label className="text-xs font-semibold text-text-secondary">STT Model ID</label>
+              <input
+                type="text"
+                value={cloudModel}
+                onChange={(e) => setCloudModel(e.target.value)}
+                placeholder="whisper-large-v3"
+                className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
+              />
             </div>
-
-            {sttProvider === "cloud" && (
-              <div className="bg-surface border border-border/60 rounded-xl p-3 space-y-3 mt-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-text-secondary">OpenAI-Compatible API URL</label>
-                  <input
-                    type="text"
-                    value={cloudApiUrl}
-                    onChange={(e) => setCloudApiUrl(e.target.value)}
-                    placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
-                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-text-secondary">API Key</label>
-                  <input
-                    type="password"
-                    value={cloudApiKey}
-                    onChange={(e) => setCloudApiKey(e.target.value)}
-                    placeholder={cloudApiKeyConfigured ? "Stored securely — enter a new key to replace" : "gsk_..."}
-                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-text-secondary">STT Model ID</label>
-                  <input
-                    type="text"
-                    value={cloudModel}
-                    onChange={(e) => setCloudModel(e.target.value)}
-                    placeholder="whisper-large-v3"
-                    className="w-full h-10 text-xs bg-input border border-input-border rounded-lg p-2 text-text-primary outline-none focus:border-accent"
-                  />
-                </div>
-              </div>
-            )}
           </div>
         )}
-      </div>
+      </SettingsTogglePanel>
 
-      {isVoiceEnabled && sttProvider === "local" && (
-        <>
+      <SettingsDisclosure open={isVoiceEnabled && sttProvider === "local"}>
+        <div className="space-y-6">
           {/* Active Model Status */}
           <div className="bg-surface-elevated border border-border/60 rounded-xl p-4">
             <h4 className="text-xs font-semibold text-text-secondary mb-2 uppercase tracking-wider">
@@ -367,8 +360,8 @@ export function WhisperSection() {
               })}
             </div>
           </div>
-        </>
-      )}
+        </div>
+      </SettingsDisclosure>
 
       {errorMsg && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-xs text-red-500 flex items-start gap-2">

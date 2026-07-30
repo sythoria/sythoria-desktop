@@ -541,7 +541,7 @@ export default memo(function Sidebar({
                 </div>
               )}
 
-              <nav className="flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
+              <nav className="mr-1 flex-1 overflow-y-auto p-3 space-y-4" aria-label="Settings sections">
                 {/* Individual Settings Results */}
                 {settingsSearchQuery.trim() && filteredIndividualSettings.length > 0 && (
                   <div className="mb-4 space-y-2 border-b border-border/10 pb-3">
@@ -860,7 +860,7 @@ export default memo(function Sidebar({
 
               {/* Global Conversation List */}
               <nav
-                className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0"
+                className="mr-1 flex-1 overflow-y-auto overflow-x-hidden px-2 py-1 min-h-0"
                 aria-label="Conversation list"
               >
                 <AnimatePresence mode="popLayout">
@@ -1058,7 +1058,7 @@ export default memo(function Sidebar({
             onLostPointerCapture={stopResize}
             onKeyDown={handleResizeKeyDown}
           >
-            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-focus-visible:opacity-60" />
+            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-40 group-active:opacity-70 group-focus-visible:opacity-60" />
           </div>
         )}
       </motion.aside>

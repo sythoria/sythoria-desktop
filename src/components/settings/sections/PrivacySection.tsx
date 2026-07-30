@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
@@ -19,7 +19,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
-import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
+import { SettingsPanel, SettingsSectionHeader, SettingsToggle } from "../components/SettingsPrimitives";
 
 export function PrivacySection() {
   const { t } = useTranslation();
@@ -304,60 +304,37 @@ export function PrivacySection() {
 
           <div className="h-px bg-border/50" />
 
-          <div>
-            <Switch
-              checked={appshotConfig.autoCleanEnabled}
-              onChange={(val) => updateAppshotConfig({ autoCleanEnabled: val })}
-              label={t("settings.privacy.pruneScreen")}
-              description={t("settings.privacy.pruneScreenDesc")}
-            />
-
-            <AnimatePresence initial={false}>
-              {appshotConfig.autoCleanEnabled && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{
-                    type: "tween",
-                    ease: motionTokens.easing.smooth,
-                    duration: motionTokens.duration.normal,
-                  }}
-                  className="overflow-hidden"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-4 border-l border-border/80 pt-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-text-muted">
-                        {t("settings.privacy.pruningRule")}
-                      </label>
-                      <Select
-                        value={appshotConfig.autoCleanType}
-                        onChange={(value) => updateAppshotConfig({ autoCleanType: value as "count" | "size" | "age" })}
-                        options={[
-                          { value: "count", label: t("settings.privacy.keepMaxCount") },
-                          { value: "size", label: t("settings.privacy.limitFolderSize") },
-                          { value: "age", label: t("settings.privacy.limitFileAge") },
-                        ]}
-                        aria-label={t("settings.privacy.pruningRule")}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-medium text-text-muted">
-                        {t("settings.privacy.limitValue")}
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={appshotConfig.autoCleanValue}
-                        onChange={(e) => updateAppshotConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
-                        className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <SettingsToggle
+            checked={appshotConfig.autoCleanEnabled}
+            onChange={(autoCleanEnabled) => updateAppshotConfig({ autoCleanEnabled })}
+            label={t("settings.privacy.pruneScreen")}
+            description={t("settings.privacy.pruneScreenDesc")}
+            contentClassName="grid grid-cols-1 gap-4 sm:grid-cols-2"
+          >
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-text-muted">{t("settings.privacy.pruningRule")}</label>
+              <Select
+                value={appshotConfig.autoCleanType}
+                onChange={(value) => updateAppshotConfig({ autoCleanType: value as "count" | "size" | "age" })}
+                options={[
+                  { value: "count", label: t("settings.privacy.keepMaxCount") },
+                  { value: "size", label: t("settings.privacy.limitFolderSize") },
+                  { value: "age", label: t("settings.privacy.limitFileAge") },
+                ]}
+                aria-label={t("settings.privacy.pruningRule")}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-text-muted">{t("settings.privacy.limitValue")}</label>
+              <input
+                type="number"
+                min="1"
+                value={appshotConfig.autoCleanValue}
+                onChange={(e) => updateAppshotConfig({ autoCleanValue: parseInt(e.target.value, 10) || 1 })}
+                className="w-full h-10 px-3 py-1.5 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+              />
+            </div>
+          </SettingsToggle>
 
           <div className="h-px bg-border/50" />
 

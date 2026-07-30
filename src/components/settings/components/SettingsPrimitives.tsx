@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { Switch } from "../../ui/Switch";
 
 interface SettingsSectionHeaderProps {
   title: ReactNode;
@@ -101,5 +102,98 @@ export function SettingsPanel({ children, id, className, spacing = "md" }: Setti
     >
       {children}
     </div>
+  );
+}
+
+interface SettingsDisclosureProps {
+  open: boolean;
+  children: ReactNode;
+  className?: string;
+}
+
+export function SettingsDisclosure({ open, children, className = "" }: SettingsDisclosureProps) {
+  const prefersReducedMotion = useReducedMotion();
+
+  return (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={
+            prefersReducedMotion
+              ? { duration: 0 }
+              : {
+                  type: "tween",
+                  ease: motionTokens.easing.smooth,
+                  duration: motionTokens.duration.normal,
+                }
+          }
+          className={`overflow-hidden${className ? ` ${className}` : ""}`}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+interface SettingsToggleProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  description?: string;
+  children?: ReactNode;
+  ariaLabel?: string;
+  disabled?: boolean;
+  id?: string;
+  className?: string;
+  contentClassName?: string;
+}
+
+export function SettingsToggle({
+  checked,
+  onChange,
+  label,
+  description,
+  children,
+  ariaLabel,
+  disabled,
+  id,
+  className = "",
+  contentClassName = "",
+}: SettingsToggleProps) {
+  return (
+    <div id={id} className={className}>
+      <Switch
+        checked={checked}
+        onChange={onChange}
+        label={label}
+        description={description}
+        ariaLabel={ariaLabel}
+        disabled={disabled}
+      />
+      {children != null && (
+        <SettingsDisclosure open={checked}>
+          <div className={`mt-4 border-t border-border/50 pt-4${contentClassName ? ` ${contentClassName}` : ""}`}>
+            {children}
+          </div>
+        </SettingsDisclosure>
+      )}
+    </div>
+  );
+}
+
+interface SettingsTogglePanelProps extends Omit<SettingsToggleProps, "id"> {
+  id?: string;
+  panelClassName?: string;
+}
+
+export function SettingsTogglePanel({ id, panelClassName, ...toggleProps }: SettingsTogglePanelProps) {
+  return (
+    <SettingsPanel id={id} className={panelClassName} spacing="none">
+      <SettingsToggle {...toggleProps} />
+    </SettingsPanel>
   );
 }
