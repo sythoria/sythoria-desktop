@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Search, Command, Settings } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { springs } from "../lib/motion-tokens";
+import { motionTransitions } from "../lib/motion-tokens";
 import { useUIStore } from "../store/useUIStore";
 
 interface SettingItem {
@@ -147,7 +147,8 @@ export function SpotlightArea() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          exit={{ opacity: 0, transition: motionTransitions.modalExit }}
+          transition={motionTransitions.modalEnter}
           className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[20vh] backdrop-blur-sm"
           onClick={handleClose}
           role="dialog"
@@ -157,8 +158,8 @@ export function SpotlightArea() {
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 50, scale: 0.95 }}
-            transition={springs.snappy}
+            exit={{ opacity: 0, y: 24, scale: 0.98, transition: motionTransitions.modalExit }}
+            transition={motionTransitions.modalEnter}
             className="popup-surface w-full max-w-2xl border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
