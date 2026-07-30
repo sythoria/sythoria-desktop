@@ -168,7 +168,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                 <button
                   type="button"
                   onClick={() => setCreationMode("documents")}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border text-center transition-all ${
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border text-center transition-[color,background-color,border-color,box-shadow,transform] ${
                     creationMode === "documents"
                       ? "border-accent bg-accent-soft/20 text-text-primary"
                       : "border-border bg-surface hover:bg-hover text-text-secondary"
@@ -181,7 +181,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                 <button
                   type="button"
                   onClick={() => setCreationMode("custom")}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border text-center transition-all ${
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border text-center transition-[color,background-color,border-color,box-shadow,transform] ${
                     creationMode === "custom"
                       ? "border-accent bg-accent-soft/20 text-text-primary"
                       : "border-border bg-surface hover:bg-hover text-text-secondary"
@@ -253,7 +253,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
               <button
                 type="button"
                 onClick={() => setPermissions("read")}
-                className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+                className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
                   permissions === "read"
                     ? "border-accent bg-accent-soft/20 text-accent font-medium"
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
@@ -265,7 +265,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
               <button
                 type="button"
                 onClick={() => setPermissions("write")}
-                className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+                className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
                   permissions === "write"
                     ? "border-amber-500 bg-amber-500/10 text-amber-500 font-medium"
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
@@ -282,7 +282,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                   );
                   if (confirmed) setPermissions("full");
                 }}
-                className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+                className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
                   permissions === "full"
                     ? "border-red-500 bg-red-500/10 text-red-500 font-medium"
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
