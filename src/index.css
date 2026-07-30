@@ -360,7 +360,8 @@
   cursor: col-resize !important;
   user-select: none !important;
 }
-/* WKWebView can alternate filtered/shadowed layers while their bounds change. */
+/* Keep the filter out of native move and sidebar-resize hot paths. */
+.window-dragging .glass-sidebar,
 .sidebar-resizing .glass-sidebar {
   background-image: none;
   backdrop-filter: none;
@@ -368,10 +369,6 @@
   box-shadow: none;
 }
 
-.glass-app-container {
-  backdrop-filter: blur(20px) saturate(120%);
-  -webkit-backdrop-filter: blur(20px) saturate(120%);
-}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
