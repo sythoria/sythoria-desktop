@@ -80,12 +80,8 @@ describe("useModelStore stream listeners", () => {
 
     const firstDone = vi.fn();
     const secondDone = vi.fn();
-    const cleanupFirst = await useModelStore
-      .getState()
-      .ensureStreamListeners("conversation-1", vi.fn(), firstDone);
-    const cleanupSecond = await useModelStore
-      .getState()
-      .ensureStreamListeners("conversation-2", vi.fn(), secondDone);
+    const cleanupFirst = await useModelStore.getState().ensureStreamListeners("conversation-1", vi.fn(), firstDone);
+    const cleanupSecond = await useModelStore.getState().ensureStreamListeners("conversation-2", vi.fn(), secondDone);
 
     useModelStore.getState().setActiveStreamId("stream-1", "conversation-1");
     useModelStore.getState().setActiveStreamId("stream-2", "conversation-2");
