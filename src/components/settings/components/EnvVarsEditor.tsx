@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Variable, Eye, EyeOff, X, Plus } from "lucide-react";
-import { motionTokens } from "../../../lib/motion-tokens";
+import { motionTransitions } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 
 interface EnvVarsEditorProps {
@@ -58,11 +58,7 @@ export const EnvVarsEditor = memo(function EnvVarsEditor({ envVars, onChange }: 
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{
-              type: "tween",
-              ease: motionTokens.easing.smooth,
-              duration: motionTokens.duration.normal,
-            }}
+            transition={motionTransitions.content}
             className="overflow-hidden"
           >
             <div className="mt-1.5 p-2.5 rounded-lg bg-input border border-input-border space-y-2">
