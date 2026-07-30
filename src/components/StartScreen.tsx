@@ -1,12 +1,15 @@
 import { motion } from "motion/react";
 import { Bot, Play } from "lucide-react";
-import { springs, motionTokens } from "../lib/motion-tokens";
+import { getMotionMode, motionTransitions, springs, motionTokens } from "../lib/motion-tokens";
 
 interface StartScreenProps {
   onStart: () => void;
 }
 
 export default function StartScreen({ onStart }: StartScreenProps) {
+  const sequenceMotion = getMotionMode() === "full";
+  const delay = (seconds: number) => (sequenceMotion ? seconds : 0);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-chat backdrop-blur-sm p-4">
       <motion.div
@@ -14,13 +17,13 @@ export default function StartScreen({ onStart }: StartScreenProps) {
         style={{ boxShadow: "var(--shadow-xl)" }}
         initial={{ opacity: 0, y: motionTokens.distance.lg, scale: motionTokens.scale.subtle }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ ...springs.gentle, duration: motionTokens.duration.slow }}
+        transition={motionTransitions.expressive}
       >
         <motion.div
           className="w-16 h-16 rounded-2xl bg-active border border-border flex items-center justify-center mx-auto mb-6"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ ...springs.bouncy, delay: 0.2 }}
+          transition={{ ...springs.bouncy, delay: delay(0.08) }}
         >
           <Bot size={32} className="text-text-primary" />
         </motion.div>
@@ -28,7 +31,7 @@ export default function StartScreen({ onStart }: StartScreenProps) {
           className="text-3xl font-semibold tracking-tight text-text-primary mb-3"
           initial={{ opacity: 0, y: motionTokens.distance.sm }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springs.gentle, delay: 0.3 }}
+          transition={{ ...springs.gentle, delay: delay(0.16) }}
         >
           Sythoria
         </motion.h1>
@@ -36,7 +39,7 @@ export default function StartScreen({ onStart }: StartScreenProps) {
           className="text-text-secondary mb-8"
           initial={{ opacity: 0, y: motionTokens.distance.sm }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springs.gentle, delay: 0.4 }}
+          transition={{ ...springs.gentle, delay: delay(0.22) }}
         >
           Welcome to Sythoria. Ready to get started?
         </motion.p>
@@ -47,7 +50,7 @@ export default function StartScreen({ onStart }: StartScreenProps) {
           style={{ boxShadow: "var(--shadow-md)" }}
           initial={{ opacity: 0, y: motionTokens.distance.sm }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springs.gentle, delay: 0.5 }}
+          transition={{ ...springs.gentle, delay: delay(0.28) }}
           whileHover={{ scale: motionTokens.scale.pop }}
           whileTap={{ scale: motionTokens.scale.press }}
         >
