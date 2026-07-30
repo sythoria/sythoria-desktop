@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { AnimatePresence, motion } from "motion/react";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { Switch } from "../../ui/Switch";
 
 interface SettingsSectionHeaderProps {
@@ -112,8 +112,6 @@ interface SettingsDisclosureProps {
 }
 
 export function SettingsDisclosure({ open, children, className = "" }: SettingsDisclosureProps) {
-  const prefersReducedMotion = useReducedMotion();
-
   return (
     <AnimatePresence initial={false}>
       {open && (
@@ -121,15 +119,7 @@ export function SettingsDisclosure({ open, children, className = "" }: SettingsD
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
           exit={{ opacity: 0, height: 0 }}
-          transition={
-            prefersReducedMotion
-              ? { duration: 0 }
-              : {
-                  type: "tween",
-                  ease: motionTokens.easing.smooth,
-                  duration: motionTokens.duration.normal,
-                }
-          }
+          transition={motionTransitions.content}
           className={`overflow-hidden${className ? ` ${className}` : ""}`}
         >
           {children}
