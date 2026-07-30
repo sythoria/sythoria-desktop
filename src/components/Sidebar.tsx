@@ -28,7 +28,7 @@ import { useUIStore } from "../store/useUIStore";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } from "./settings/types";
-import { springs, motionTokens } from "../lib/motion-tokens";
+import { motionTransitions, springs } from "../lib/motion-tokens";
 import { useTranslation } from "../utils/i18n";
 
 const categoryKeys: Record<string, string> = {
@@ -318,7 +318,7 @@ export default memo(function Sidebar({
           el.classList.add("setting-highlighted");
           setTimeout(() => {
             el.classList.remove("setting-highlighted");
-          }, 2000);
+          }, 2400);
         } else if (attempts < 8) {
           attempts++;
           setTimeout(findAndHighlight, 50);
@@ -417,18 +417,20 @@ export default memo(function Sidebar({
       x: 0,
       opacity: 1,
       borderRightWidth: 1,
+      ...(isMobile ? {} : { width: visualSidebarWidth }),
       transition: {
-        ...springs.release,
-        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+        ...(isResizing ? { type: "tween" as const, duration: 0 } : springs.release),
+        opacity: motionTransitions.popoverEnter,
       },
     },
     collapsed: {
       x: isMobile ? "-100%" : 0,
       opacity: isMobile ? 1 : 0,
       borderRightWidth: isMobile ? 1 : 0,
+      ...(isMobile ? {} : { width: COLLAPSED_SIDEBAR_WIDTH }),
       transition: {
-        ...springs.release,
-        opacity: { duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth },
+        ...(isResizing ? { type: "tween" as const, duration: 0 } : springs.release),
+        opacity: motionTransitions.popoverExit,
       },
     },
   };
@@ -446,7 +448,7 @@ export default memo(function Sidebar({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: motionTokens.duration.fast, ease: motionTokens.easing.smooth }}
+            transition={motionTransitions.popoverEnter}
             className="absolute inset-0 z-20 md:hidden backdrop-blur-sm"
             style={{ backgroundColor: "var(--theme-overlay)" }}
             onClick={onClose}
@@ -461,11 +463,7 @@ export default memo(function Sidebar({
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
         variants={sidebarVariants}
         style={{
-          width: isMobile
-            ? `min(${visualSidebarWidth}px, calc(100vw - 24px))`
-            : isSidebarCollapsed
-              ? COLLAPSED_SIDEBAR_WIDTH
-              : visualSidebarWidth,
+          width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth,
           pointerEvents: isSidebarCollapsed ? "none" : "auto",
         }}
         role="navigation"
@@ -553,7 +551,7 @@ export default memo(function Sidebar({
                         <button
                           key={setting.id}
                           onClick={() => handleSelectSetting(setting)}
-                          className="w-full flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg text-left text-text-secondary hover:bg-hover hover:text-text-primary transition-all duration-150 border border-transparent hover:border-border/30"
+                          className="w-full flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg text-left text-text-secondary hover:bg-hover hover:text-text-primary transition-[color,background-color,border-color,box-shadow,transform] border border-transparent hover:border-border/30"
                         >
                           <span className="text-xs font-semibold text-text-primary">{setting.label}</span>
                           {setting.description && (
@@ -741,6 +739,7 @@ export default memo(function Sidebar({
                                   initial={{ height: 0, opacity: 0 }}
                                   animate={{ height: "auto", opacity: 1 }}
                                   exit={{ height: 0, opacity: 0 }}
+                                  transition={motionTransitions.content}
                                   className="overflow-hidden pl-6 pr-1 space-y-0.5 mt-0.5"
                                 >
                                   {pChats.length === 0 ? (
@@ -752,7 +751,7 @@ export default memo(function Sidebar({
                                           onClick={() => onSelect(conv.id)}
                                           className={`
                                           w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
-                                          text-sm text-left transition-colors duration-100 pr-14
+                                          text-sm text-left transition-colors pr-14
                                           ${
                                             activeId === conv.id
                                               ? "bg-active text-text-primary"
@@ -871,7 +870,7 @@ export default memo(function Sidebar({
                       initial="collapsed"
                       animate="expanded"
                       exit="collapsed"
-                      transition={{ duration: motionTokens.duration.fast }}
+                      transition={motionTransitions.content}
                       className="mb-2"
                     >
                       <p className="px-2 py-1.5 text-[11px] font-medium text-text-muted">
@@ -886,7 +885,7 @@ export default memo(function Sidebar({
                               onClick={() => onSelect(conv.id)}
                               className={`
                               w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg
-                              text-sm text-left transition-colors duration-100 pr-14
+                              text-sm text-left transition-colors pr-14
                               ${
                                 activeId === conv.id
                                   ? "bg-active text-text-primary"
