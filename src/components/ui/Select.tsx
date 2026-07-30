@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useId, useCallback, type CSSProperties } f
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Check } from "lucide-react";
-import { springs } from "../../lib/motion-tokens";
+import { motionTransitions, springs } from "../../lib/motion-tokens";
 
 export interface SelectOption {
   value: string;
@@ -183,8 +183,8 @@ export function Select({
           onKeyDown={handleListboxKeyDown}
           initial={{ opacity: 0, scale: 0.95, y: -4 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -4 }}
-          transition={springs.snappy}
+          exit={{ opacity: 0, scale: 0.98, y: -4, transition: motionTransitions.popoverExit }}
+          transition={motionTransitions.popoverEnter}
           style={menuStyle}
           className="popup-surface fixed z-[100] max-h-60 min-w-[150px] overflow-auto rounded-xl border border-border p-1 shadow-lg focus:outline-none scrollbar-thin"
         >
@@ -246,9 +246,7 @@ export function Select({
         aria-label={ariaLabel}
         className={`w-full flex items-center justify-between gap-2 ${triggerSizeClass} rounded-lg border bg-input text-text-primary focus-visible:border-accent focus-visible:outline-none transition-[border-color,background-color,color] cursor-pointer ${
           isOpen ? "border-accent bg-hover/50" : "border-input-border"
-        } ${
-          disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
-        }`}
+        } ${disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""}`}
       >
         <span className="truncate">{selectedOption?.label ?? placeholder ?? value}</span>
         <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={springs.snappy}>
