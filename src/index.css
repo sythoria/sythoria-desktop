@@ -37,6 +37,23 @@
 @layer base {
   /* Light mode — warm neutral */
   :root {
+    --motion-duration-feedback: 160ms;
+    --motion-duration-hover: 200ms;
+    --motion-duration-popover: 280ms;
+    --motion-duration-content: 340ms;
+    --motion-duration-modal: 360ms;
+    --motion-duration-panel: 420ms;
+    --motion-duration-expressive: 550ms;
+    --motion-duration-ambient: 2200ms;
+    --motion-duration-breathe: 3000ms;
+    --motion-duration-cursor: 1200ms;
+    --motion-duration-dots: 1700ms;
+    --motion-duration-spinner: 1100ms;
+    --motion-duration-highlight: 2400ms;
+    --motion-delay-dot: 240ms;
+    --motion-ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+    --motion-ease-enter: cubic-bezier(0.2, 0.45, 0.25, 1);
+    --motion-ease-exit: cubic-bezier(0.4, 0, 0.8, 0.2);
     color-scheme: light;
     --theme-sidebar: rgba(255, 255, 255, 0.9);
     --theme-chat: #ffffff;
@@ -102,8 +119,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition:
-      background-color 0.4s ease,
-      color 0.4s ease;
+      background-color var(--motion-duration-panel) var(--motion-ease-standard),
+      color var(--motion-duration-panel) var(--motion-ease-standard);
   }
   option {
     background-color: var(--theme-input);
@@ -157,6 +174,31 @@
 }
 
 /*
+ * Tailwind transition utilities share the same timing language as Motion.
+ * Explicit duration utilities remain available for exceptional cases.
+ */
+.transition-colors,
+.transition-opacity {
+  transition-duration: var(--motion-duration-hover);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+.transition-transform {
+  transition-duration: var(--motion-duration-feedback);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+.transition-all {
+  transition-duration: var(--motion-duration-hover);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+:where([class*="transition-["]:not([class*="duration-["])) {
+  transition-duration: var(--motion-duration-hover);
+  transition-timing-function: var(--motion-ease-standard);
+}
+
+/*
  * Quiet focus language for dense UI.
  * Form controls use their existing border instead of a ring, while buttons
  * keep a thin keyboard-only outline. Chat retains its established treatment.
@@ -167,18 +209,9 @@
   box-shadow: none;
 }
 
-.minimal-focus
-  :where(
-    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
-    textarea,
-    select
-  ):focus,
+.minimal-focus :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select):focus,
 :where([role="dialog"], [role="alertdialog"])
-  :where(
-    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
-    textarea,
-    select
-  ):focus {
+  :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select):focus {
   border-color: var(--theme-focus-border);
   box-shadow: none;
   outline: none;
@@ -195,7 +228,7 @@
 }
 .cursor-blink::after {
   content: "▍";
-  animation: blink 1s step-end infinite;
+  animation: blink var(--motion-duration-cursor) step-end infinite;
   color: var(--color-text-secondary);
   font-weight: 400;
   margin-left: 1px;
@@ -213,7 +246,24 @@
   }
 }
 .animate-generating-pulse {
-  animation: generating-pulse 1.8s ease-in-out infinite;
+  animation: generating-pulse var(--motion-duration-ambient) ease-in-out infinite;
+}
+.animate-pulse {
+  animation-duration: var(--motion-duration-ambient);
+  animation-timing-function: var(--motion-ease-standard);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in var(--motion-duration-content) var(--motion-ease-enter) both;
 }
 @keyframes dot-bounce {
   0%,
@@ -236,13 +286,14 @@
   margin: 0 1.5px;
 }
 .generating-dots span:nth-child(1) {
-  animation: dot-bounce 1.4s ease-in-out infinite;
+  animation: dot-bounce var(--motion-duration-dots) ease-in-out infinite;
 }
 .generating-dots span:nth-child(2) {
-  animation: dot-bounce 1.4s ease-in-out infinite 0.2s;
+  animation: dot-bounce var(--motion-duration-dots) ease-in-out infinite var(--motion-delay-dot);
 }
 .generating-dots span:nth-child(3) {
-  animation: dot-bounce 1.4s ease-in-out infinite 0.4s;
+  animation: dot-bounce var(--motion-duration-dots) ease-in-out infinite
+    calc(var(--motion-delay-dot) + var(--motion-delay-dot));
 }
 /* Neutral streaming border brighten (replaces violet glow) */
 @keyframes border-breathe {
@@ -256,7 +307,7 @@
 }
 .animate-border-glow,
 .animate-border-glow-light {
-  animation: border-breathe 2.4s ease-in-out infinite;
+  animation: border-breathe var(--motion-duration-breathe) ease-in-out infinite;
 }
 @keyframes spin {
   to {
@@ -264,7 +315,7 @@
   }
 }
 .animate-spin {
-  animation: spin 1s linear infinite;
+  animation: spin var(--motion-duration-spinner) linear infinite;
 }
 /* Glass surfaces — subtle, neutral */
 
@@ -329,12 +380,6 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-  .motion-safe-transition {
-    transition: opacity 0.15s !important;
-  }
-  .motion-reduce-transform {
-    transform: none !important;
   }
 }
 /* Markdown */
@@ -591,7 +636,7 @@ pre,
   text-decoration: underline;
   text-decoration-color: var(--theme-text-muted);
   text-underline-offset: 2px;
-  transition: text-decoration-color 0.2s;
+  transition: text-decoration-color var(--motion-duration-hover) var(--motion-ease-standard);
 }
 .markdown-body a:hover {
   text-decoration-color: var(--color-text-primary);
@@ -749,6 +794,6 @@ pre,
 }
 
 .setting-highlighted {
-  animation: setting-highlight-pulse 2s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: setting-highlight-pulse var(--motion-duration-highlight) var(--motion-ease-standard);
   border-radius: 8px;
 }
