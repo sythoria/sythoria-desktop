@@ -4,7 +4,7 @@ import { X, ZoomIn, ZoomOut, Download, ChevronLeft, ChevronRight, RefreshCw } fr
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { useKeybindStore, matchKeybind } from "../../store/useKeybindStore";
 import { formatFileSize } from "../../utils/attachments";
-import { springs, motionTokens } from "../../lib/motion-tokens";
+import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
 
 interface ImagePreviewModalProps {
   isOpen: boolean;
@@ -186,8 +186,8 @@ export function ImagePreviewModal({
         style={{ backgroundColor: "var(--theme-overlay)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: motionTokens.duration.fast }}
+        exit={{ opacity: 0, transition: motionTransitions.modalExit }}
+        transition={motionTransitions.modalEnter}
       >
         {/* Header bar */}
         <div className="relative z-20 shrink-0 min-h-24 pt-10 px-4 sm:px-6 pb-3 flex items-start justify-between gap-4 bg-gradient-to-b from-surface/80 to-transparent pointer-events-none">
@@ -202,14 +202,14 @@ export function ImagePreviewModal({
           <div className="pointer-events-auto flex items-center gap-2">
             <button
               onClick={handleDownload}
-              className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-all"
+              className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-[color,background-color,border-color,box-shadow,transform]"
               title="Download image"
             >
               <Download size={20} />
             </button>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-all"
+              className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-[color,background-color,border-color,box-shadow,transform]"
               title="Close viewer (Esc)"
             >
               <X size={20} />
@@ -242,13 +242,13 @@ export function ImagePreviewModal({
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
               transition: isDragging
                 ? "none"
-                : `transform ${motionTokens.duration.fast}s cubic-bezier(0.16, 1, 0.3, 1)`,
+                : `transform ${motionTokens.duration.popover}s var(--motion-ease-standard)`,
             }}
             className="max-w-full max-h-full object-contain rounded shadow-2xl z-10"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={springs.snappy}
+            exit={{ opacity: 0, transition: motionTransitions.popoverExit }}
+            transition={motionTransitions.popoverEnter}
           />
 
           {/* Chevrons */}
@@ -258,7 +258,7 @@ export function ImagePreviewModal({
                 e.stopPropagation();
                 handlePrev();
               }}
-              className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
+              className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-[color,background-color,border-color,box-shadow,transform] active:scale-95"
               title="Previous image"
             >
               <ChevronLeft size={24} />
@@ -270,7 +270,7 @@ export function ImagePreviewModal({
                 e.stopPropagation();
                 handleNext();
               }}
-              className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-all duration-200 active:scale-95"
+              className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-[color,background-color,border-color,box-shadow,transform] active:scale-95"
               title="Next image"
             >
               <ChevronRight size={24} />
