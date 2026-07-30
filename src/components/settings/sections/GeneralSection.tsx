@@ -193,7 +193,7 @@ export function GeneralSection() {
                     key={size.value}
                     type="button"
                     onClick={() => setBaseTextSize(size.value)}
-                    className={`relative py-1.5 px-2 text-xs font-medium transition-colors duration-200 min-h-[36px] flex items-center justify-center rounded-lg ${
+                    className={`relative py-1.5 px-2 text-xs font-medium transition-colors min-h-[36px] flex items-center justify-center rounded-lg ${
                       isActive ? "text-accent-foreground font-semibold" : "text-text-secondary hover:text-text-primary"
                     }`}
                   >
