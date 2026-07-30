@@ -26,7 +26,7 @@ import {
   MCP_STATUS_LABELS,
 } from "../../../types";
 import { MCP_TRANSPORT_PRESETS, MCP_SERVER_PRESETS, McpServerPreset } from "../../../config/mcpPresets";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { EnvVarsEditor } from "./EnvVarsEditor";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
@@ -139,7 +139,7 @@ export const McpServerCard = memo(function McpServerCard({
       id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={springs.gentle}
+      transition={motionTransitions.content}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -526,11 +526,7 @@ export const McpServerCard = memo(function McpServerCard({
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                transition={{
-                  type: "tween",
-                  ease: motionTokens.easing.smooth,
-                  duration: motionTokens.duration.normal,
-                }}
+                transition={motionTransitions.content}
                 className="overflow-hidden"
               >
                 <div className="mt-3 p-2 rounded-lg bg-input border border-input-border max-h-48 overflow-y-auto">
