@@ -1055,7 +1055,7 @@ function App() {
   if (!isConfigLoaded || loading.init) {
     return (
       <div
-        className="flex h-screen w-screen items-center justify-center bg-chat"
+        className="glass-loading-screen flex h-screen w-screen items-center justify-center"
         role="status"
         aria-label="Loading application"
       >
