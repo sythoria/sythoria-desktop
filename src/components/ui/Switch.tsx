@@ -36,7 +36,7 @@ export function Switch({ checked, onChange, label, description, ariaLabel, disab
             onChange(!checked);
           }
         }}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent ${
           checked ? "bg-accent" : "bg-input-border"
         }`}
       >
