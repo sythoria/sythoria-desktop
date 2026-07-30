@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ArrowUpCircle, Download, LoaderCircle } from "lucide-react";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
-import { springs, motionTokens } from "../../lib/motion-tokens";
+import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
 import { useTranslation } from "../../utils/i18n";
 
@@ -77,8 +77,8 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
           aria-label={title}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: motionTokens.duration.fast }}
+          exit={{ opacity: 0, transition: motionTransitions.modalExit }}
+          transition={motionTransitions.modalEnter}
         >
           <motion.div
             className="absolute inset-0 backdrop-blur-sm"
@@ -88,6 +88,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={motionTransitions.modalEnter}
           />
           <motion.div
             ref={modalRef}
@@ -95,8 +96,13 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
             style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
-            transition={springs.gentle}
+            exit={{
+              opacity: 0,
+              scale: motionTokens.scale.subtle,
+              y: motionTokens.distance.sm,
+              transition: motionTransitions.modalExit,
+            }}
+            transition={motionTransitions.modalEnter}
           >
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
               <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
@@ -189,13 +195,13 @@ export function ConfirmModal({
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[40px] ${
+            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px] ${
               variant === "danger"
                 ? "bg-red-500 text-white hover:bg-red-600"
                 : "bg-accent text-accent-foreground hover:bg-accent-hover"
@@ -293,14 +299,14 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
         <div className="flex gap-2 p-4 pt-3">
           <button
             onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={isEmpty}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 min-h-[40px] bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-[color,background-color,border-color,box-shadow,opacity,transform] min-h-[40px] bg-accent text-accent-foreground hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Rename
           </button>
@@ -455,13 +461,13 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
         <div className="flex gap-2.5 p-6 pt-4">
           <button
             onClick={() => onRespond(id, false)}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-all duration-200 min-h-[40px] border border-border"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px] border border-border"
           >
             Reject
           </button>
           <button
             onClick={() => onRespond(id, true)}
-            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-accent text-accent-foreground hover:bg-accent-hover transition-all duration-200 min-h-[40px]"
+            className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-accent text-accent-foreground hover:bg-accent-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >
             Approve
           </button>
@@ -557,8 +563,8 @@ export function UpdateModal({
           aria-label={t("updates.title")}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: motionTokens.duration.fast }}
+          exit={{ opacity: 0, transition: motionTransitions.modalExit }}
+          transition={motionTransitions.modalEnter}
         >
           <motion.div
             className="absolute inset-0 backdrop-blur-sm"
@@ -568,6 +574,7 @@ export function UpdateModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={motionTransitions.modalEnter}
           />
           <motion.div
             ref={modalRef}
@@ -575,8 +582,13 @@ export function UpdateModal({
             style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
-            transition={springs.gentle}
+            exit={{
+              opacity: 0,
+              scale: motionTokens.scale.subtle,
+              y: motionTokens.distance.sm,
+              transition: motionTransitions.modalExit,
+            }}
+            transition={motionTransitions.modalEnter}
           >
             {/* Header Area */}
             <div className="flex items-start justify-between p-6 border-b border-border">
@@ -649,7 +661,7 @@ export function UpdateModal({
                       className="h-full rounded-full bg-accent"
                       initial={{ width: 0 }}
                       animate={{ width: downloadProgress === null ? "35%" : `${downloadProgress}%` }}
-                      transition={{ duration: motionTokens.duration.normal }}
+                      transition={motionTransitions.content}
                     />
                   </div>
                 </div>
@@ -667,14 +679,14 @@ export function UpdateModal({
               <button
                 onClick={onClose}
                 disabled={isInstalling}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-all duration-200 min-h-[44px]"
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-[color,background-color,border-color,box-shadow,transform] min-h-[44px]"
               >
                 {t("updates.remindLater")}
               </button>
               <button
                 onClick={() => void onInstall()}
                 disabled={isInstalling}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-all duration-200 min-h-[44px] flex items-center justify-center gap-1.5 shadow-sm shadow-accent-soft"
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[44px] flex items-center justify-center gap-1.5 shadow-sm shadow-accent-soft"
               >
                 <span>{isInstalling ? t("updates.installing") : t("updates.download")}</span>
                 {isInstalling ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
