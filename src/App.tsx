@@ -34,7 +34,8 @@ import { DragOverlay } from "./components/ui/DragOverlay";
 import { TitleBar } from "./components/TitleBar";
 import { useChatStore } from "./store/useChatStore";
 
-const Settings = lazy(() => import("./components/settings"));
+const loadSettings = () => import("./components/settings");
+const Settings = lazy(loadSettings);
 const AuxiliaryPanel = lazy(() =>
   import("./components/AuxiliaryPanel").then((module) => ({ default: module.AuxiliaryPanel })),
 );
@@ -55,7 +56,7 @@ import { useAppshotStore } from "./store/useAppshotStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
-import { springs, motionTokens } from "./lib/motion-tokens";
+import { motionTransitions } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 
 import "./index.css";
@@ -308,6 +309,10 @@ function App() {
     })),
   );
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
+
+  useEffect(() => {
+    if (hasStarted) void loadSettings();
+  }, [hasStarted]);
 
   useEffect(() => {
     if (!activeArtifact) {
@@ -1147,7 +1152,7 @@ function App() {
                     initial={{ opacity: 0, scale: 0.8, x: -10 }}
                     animate={{ opacity: 1, scale: 1, x: 0 }}
                     exit={{ opacity: 0, scale: 0.8, x: -10 }}
-                    transition={{ duration: motionTokens.duration.fast }}
+                    transition={motionTransitions.popoverEnter}
                     onClick={handleNewChat}
                     className="hidden md:flex p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
                     aria-label={t("common.newChat") || "Start new chat"}
@@ -1183,10 +1188,10 @@ function App() {
               <motion.div
                 key="settings"
                 className="flex-1 flex flex-col min-w-0 overflow-hidden"
-                initial={{ opacity: 0, y: 6, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -6, scale: 0.99 }}
-                transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: motionTransitions.panelExit }}
+                transition={motionTransitions.panelEnter}
               >
                 <Suspense
                   fallback={
@@ -1207,10 +1212,10 @@ function App() {
                 key="chat"
                 className="chat-focus-scope flex-1 flex flex-col min-w-0 min-h-0 relative"
                 aria-label="Chat area"
-                initial={{ opacity: 0, y: -6, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 6, scale: 0.99 }}
-                transition={{ type: "tween", ease: motionTokens.easing.smooth, duration: motionTokens.duration.fast }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: motionTransitions.panelExit }}
+                transition={motionTransitions.panelEnter}
               >
                 <header
                   className={`shrink-0 flex items-center justify-between px-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 ${
@@ -1237,7 +1242,7 @@ function App() {
                         key={activeConversation?.id ?? "empty"}
                         initial={{ opacity: 0, y: -4 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={springs.gentle}
+                        transition={motionTransitions.content}
                       >
                         {activeConversation
                           ? activeConversation.title === "Untitled" || !activeConversation.title
@@ -1345,11 +1350,7 @@ function App() {
                     style={{ flex: "0 0 auto" }}
                     initial={false}
                     animate={{ width: chatColumnWidth }}
-                    transition={{
-                      type: "tween",
-                      duration: isAuxPanelLayoutChange ? 0 : motionTokens.duration.normal,
-                      ease: motionTokens.easing.smooth,
-                    }}
+                    transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
                   >
                     {isCompareMode && compareConversations.length > 0 ? (
                       <div className="comparison-grid-container">
@@ -1404,7 +1405,7 @@ function App() {
                           initial={{ opacity: 0, y: 12, scale: 0.9 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 12, scale: 0.9 }}
-                          transition={{ duration: motionTokens.duration.fast }}
+                          transition={motionTransitions.popoverEnter}
                         >
                           <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
                         </motion.div>
@@ -1444,12 +1445,12 @@ function App() {
                         style={{ width: isAuxPanelExpanded ? "100%" : auxPanelWidth }}
                         initial={{ x: "100%", opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
-                        exit={{ x: "100%", opacity: 0 }}
-                        transition={{
-                          type: "tween",
-                          duration: isAuxPanelLayoutChange ? 0 : motionTokens.duration.normal,
-                          ease: motionTokens.easing.smooth,
+                        exit={{
+                          x: "100%",
+                          opacity: 0,
+                          transition: isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelExit,
                         }}
+                        transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
                       >
                         {!isAuxPanelExpanded && (
                           <div
@@ -1522,7 +1523,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: motionTokens.duration.fast }}
+            transition={motionTransitions.modalEnter}
           >
             <RenameChatModal
               isOpen={showRenameModal}
@@ -1561,7 +1562,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: motionTokens.duration.fast }}
+            transition={motionTransitions.modalEnter}
           >
             <button
               className="absolute inset-0 cursor-default"
@@ -1578,7 +1579,7 @@ function App() {
               initial={{ opacity: 0, scale: 0.98, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 8 }}
-              transition={springs.gentle}
+              transition={motionTransitions.modalEnter}
             >
               {renderArtifactContent()}
             </motion.div>
