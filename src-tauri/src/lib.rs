@@ -120,6 +120,16 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 const DEFAULT_APPSHOT_SHORTCUT: &str = "Alt+Shift+S";
 static APPSHOT_SHORTCUT: LazyLock<Mutex<Option<Shortcut>>> = LazyLock::new(|| Mutex::new(None));
 
+#[derive(Default)]
+struct TrayRuntimeState {
+    close_to_tray: std::sync::atomic::AtomicBool,
+}
+
+#[derive(Default)]
+struct LaunchRuntimeState {
+    frontend_ready: std::sync::atomic::AtomicBool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct ChatMessage {
     role: String,
@@ -1186,12 +1196,18 @@ async fn save_mcp_config(app: tauri::AppHandle, config: String) -> Result<(), Ap
     secure_storage::save_json(&app, secure_storage::StorageDomain::Mcp, &parsed)
 }
 
-fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
+fn load_close_to_tray_preference(app: &tauri::AppHandle) -> bool {
     secure_storage::get_preference(app, "sythoria-close-to-tray")
         .ok()
         .flatten()
         .and_then(|value| value.as_bool())
         .unwrap_or(false)
+}
+
+fn should_close_to_tray(app: &tauri::AppHandle) -> bool {
+    app.state::<TrayRuntimeState>()
+        .close_to_tray
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 const WINDOW_GEOMETRY_KEY: &str = "sythoria-window-geometry";
@@ -1308,17 +1324,19 @@ fn save_window_geometry(window: &tauri::WebviewWindow) {
 
 static TRAY_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
+fn tray_should_show(close_to_tray: bool, is_visible: bool, is_minimized: bool) -> bool {
+    close_to_tray && (!is_visible || is_minimized)
+}
+
 fn update_tray_visibility(app: &tauri::AppHandle) {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     if let Some(tray) = app.tray_by_id("main") {
-        let should_show = if should_close_to_tray(app) {
-            if let Some(window) = app.get_webview_window("main") {
-                let is_visible = window.is_visible().unwrap_or(true);
-                let is_minimized = window.is_minimized().unwrap_or(false);
-                !is_visible || is_minimized
-            } else {
-                false
-            }
+        let should_show = if let Some(window) = app.get_webview_window("main") {
+            tray_should_show(
+                should_close_to_tray(app),
+                window.is_visible().unwrap_or(true),
+                window.is_minimized().unwrap_or(false),
+            )
         } else {
             false
         };
@@ -1331,9 +1349,14 @@ fn update_tray_visibility(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn update_tray_icon(app: tauri::AppHandle) {
+fn set_close_to_tray_runtime(app: tauri::AppHandle, enabled: bool) {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    update_tray_visibility(&app);
+    {
+        app.state::<TrayRuntimeState>()
+            .close_to_tray
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+        update_tray_visibility(&app);
+    }
 }
 
 fn native_shortcut(combo: &str) -> String {
@@ -1392,6 +1415,20 @@ fn reveal_main_window(app: tauri::AppHandle) -> Result<(), AppError> {
         .ok_or_else(|| AppError::AppPath("Main window not found".into()))?;
     window.show()?;
     window.unminimize()?;
+    window.set_focus()?;
+    update_tray_visibility(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn frontend_ready(app: tauri::AppHandle) -> Result<(), AppError> {
+    app.state::<LaunchRuntimeState>()
+        .frontend_ready
+        .store(true, std::sync::atomic::Ordering::Release);
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::AppPath("Main window not found".into()))?;
+    window.show()?;
     window.set_focus()?;
     update_tray_visibility(&app);
     Ok(())
@@ -1850,6 +1887,8 @@ pub fn run() {
         .manage(project_registry)
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
+        .manage(TrayRuntimeState::default())
+        .manage(LaunchRuntimeState::default())
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check_updates" => {
                 let _ = app.emit("menu-check-updates", ());
@@ -1894,6 +1933,12 @@ pub fn run() {
                 }
             }
             init_network_settings(app.app_handle());
+            app.state::<TrayRuntimeState>()
+                .close_to_tray
+                .store(
+                    load_close_to_tray_preference(app.app_handle()),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
             let registry = app.state::<project::ProjectRegistry>();
             if let Err(error) = registry.load_from_disk(app.app_handle()) {
                 log::error!("Failed to load projects from disk: {error}");
@@ -1939,7 +1984,33 @@ pub fn run() {
             }
 
             #[cfg(target_os = "windows")]
-            let _ = window_vibrancy::apply_blur(&_window, Some((18, 18, 18, 125)));
+            if let Err(mica_error) = window_vibrancy::apply_mica(&_window, None) {
+                log::warn!(
+                    "Mica is unavailable; falling back to the legacy Windows blur effect: {mica_error}"
+                );
+                if let Err(blur_error) =
+                    window_vibrancy::apply_blur(&_window, Some((18, 18, 18, 125)))
+                {
+                    log::warn!("Could not apply a Windows backdrop effect: {blur_error}");
+                }
+            }
+
+            let launch_app = app.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                let launch_state = launch_app.state::<LaunchRuntimeState>();
+                if !launch_state
+                    .frontend_ready
+                    .swap(true, std::sync::atomic::Ordering::AcqRel)
+                {
+                    log::warn!("Frontend readiness timed out; revealing the main window");
+                    if let Some(window) = launch_app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        update_tray_visibility(&launch_app);
+                    }
+                }
+            });
 
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
@@ -2022,9 +2093,7 @@ pub fn run() {
                             }
                         }
                     }
-                    tauri::WindowEvent::Focused(_)
-                    | tauri::WindowEvent::Resized(_)
-                    | tauri::WindowEvent::Moved(_) => {
+                    tauri::WindowEvent::Focused(_) | tauri::WindowEvent::Resized(_) => {
                         update_tray_visibility(app);
                     }
                     _ => {}
@@ -2146,7 +2215,8 @@ pub fn run() {
             commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
-            update_tray_icon,
+            set_close_to_tray_runtime,
+            frontend_ready,
             register_appshot_shortcut,
             reveal_main_window,
             select_file_and_get_token,
@@ -2220,8 +2290,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        completion_token_params, truncate_error, EphemeralFileCleanup, FileTokenRegistry,
-        NetworkConfig,
+        completion_token_params, tray_should_show, truncate_error, EphemeralFileCleanup,
+        FileTokenRegistry, NetworkConfig,
     };
 
     #[test]
@@ -2266,6 +2336,14 @@ mod tests {
     #[test]
     fn short_error_preview_is_unchanged() {
         assert_eq!(truncate_error("provider error"), "provider error");
+    }
+
+    #[test]
+    fn tray_visibility_only_depends_on_cached_setting_and_window_state() {
+        assert!(!tray_should_show(false, false, true));
+        assert!(!tray_should_show(true, true, false));
+        assert!(tray_should_show(true, false, false));
+        assert!(tray_should_show(true, true, true));
     }
 
     #[test]
