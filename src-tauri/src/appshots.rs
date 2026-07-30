@@ -245,14 +245,18 @@ fn capture_frontmost_app_window(sythoria_pid: u32) -> Result<RgbaImage, AppError
         .find(|window| is_frontmost_app_candidate(window, sythoria_pid))
         .ok_or_else(|| config_error("No frontmost application window is available for capture"))?;
 
-    let mut image = window.capture_image().map_err(|error| {
+    let image = window.capture_image().map_err(|error| {
         config_error(format!(
             "Failed to capture the frontmost application: {error}"
         ))
     })?;
 
     #[cfg(target_os = "macos")]
-    normalize_macos_window_alpha(&mut image);
+    let image = {
+        let mut image = image;
+        normalize_macos_window_alpha(&mut image);
+        image
+    };
 
     Ok(image)
 }
