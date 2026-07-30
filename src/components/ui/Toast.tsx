@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
-import { springs, motionTokens } from "../../lib/motion-tokens";
+import { motionTokens, motionTransitions, springs } from "../../lib/motion-tokens";
 import { useUIStore } from "../../store/useUIStore";
 
 export interface Toast {
@@ -49,8 +49,13 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       layout
       initial={{ opacity: 0, x: motionTokens.distance.xl, scale: motionTokens.scale.subtle }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: motionTokens.distance.xl, scale: motionTokens.scale.subtle }}
-      transition={springs.snappy}
+      exit={{
+        opacity: 0,
+        x: motionTokens.distance.xl,
+        scale: motionTokens.scale.subtle,
+        transition: motionTransitions.modalExit,
+      }}
+      transition={motionTransitions.modalEnter}
     >
       <p className="flex-1 text-sm leading-relaxed">{toast.message}</p>
       <motion.button
