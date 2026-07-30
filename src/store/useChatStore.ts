@@ -59,6 +59,7 @@ import {
   uiLoading,
   uiConfigLoaded,
   uiHasStarted,
+  uiLaunchReady,
   uiTheme,
   uiSidebarOpen,
   uiView,
@@ -271,10 +272,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     initInProgress = true;
     uiLoading("init", true);
     try {
+      const startupVisualsPromise = Promise.all([loadTheme(), loadHasStarted()]).then(([theme, storedHasStarted]) => {
+        uiTheme(theme);
+        uiLaunchReady(true);
+        return { theme, storedHasStarted };
+      });
       const [
         loadedModels,
         loadedConvs,
-        loadedTheme,
+        loadedStartupVisuals,
         loadedKeys,
         loadedSearchConfigs,
         loadedFetchConfigs,
@@ -304,7 +310,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ] = await Promise.all([
         loadModelConfigs(),
         loadConversations(),
-        loadTheme(),
+        startupVisualsPromise,
         loadApiKeys(),
         loadSearchConfigs(),
         loadFetchConfigs(),
@@ -334,13 +340,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         useProjectStore.getState().init(),
       ]);
 
+      const { theme: loadedTheme, storedHasStarted } = loadedStartupVisuals;
       const models = loadedModels || [];
       const modelsWithKeys = models.map((m) => ({
         ...m,
         apiKey: loadedKeys[m.id] ?? m.apiKey,
       }));
 
-      const storedHasStarted = await loadHasStarted();
       const hasOnboarded = storedHasStarted || modelsWithKeys.length > 0;
 
       if (!hasOnboarded) {
@@ -361,6 +367,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
         return c;
       });
+      const conversationsNeedRepair = cleanedConvs.some((conversation, index) => conversation !== nonEmptyConvs[index]);
       const searchConfigs = loadedSearchConfigs || [];
       const fetchConfigs = loadedFetchConfigs || [];
       const selectedModel =
@@ -410,8 +417,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         navigationHistory: initialActiveId ? [initialActiveId] : [],
         navigationIndex: initialActiveId ? 0 : -1,
       });
-      // Save cleaned conversations so they don't remain stuck in the backend storage files
-      await get().persistConversations();
 
       uiHasStarted(hasOnboarded);
       uiConfigLoaded(true);
@@ -442,44 +447,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       document.documentElement.classList.toggle("animations-disabled", hasOnboarded ? loadedAnimationsDisabled : false);
 
-      // Apply always-on-top setting
-      try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        getCurrentWindow()
-          .setAlwaysOnTop(hasOnboarded ? loadedAlwaysOnTop : false)
-          .catch((e) => {
-            logWarn("general", "Could not apply always-on-top on startup (promise rejected)", { details: String(e) });
-          });
-      } catch (e) {
-        logWarn("general", "Could not apply always-on-top on startup", { details: String(e) });
+      if (hasOnboarded && conversationsNeedRepair) {
+        // Repair interrupted streaming markers after the app is interactive.
+        void get().persistConversations();
       }
 
-      // Synchronize launch on startup with the OS autostart setting
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const currentlyEnabled = await invoke<boolean>("is_autostart_enabled");
-        if (loadedLaunchOnStartup !== currentlyEnabled) {
-          await invoke("set_autostart_enabled", { enabled: loadedLaunchOnStartup });
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            await getCurrentWindow().setAlwaysOnTop(hasOnboarded ? loadedAlwaysOnTop : false);
+          } catch (e) {
+            logWarn("general", "Could not apply always-on-top on startup", { details: String(e) });
+          }
+
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const currentlyEnabled = await invoke<boolean>("is_autostart_enabled");
+            if (loadedLaunchOnStartup !== currentlyEnabled) {
+              await invoke("set_autostart_enabled", { enabled: loadedLaunchOnStartup });
+            }
+          } catch (e) {
+            logWarn("general", "Could not synchronize launch on startup with OS", { details: String(e) });
+          }
+        })();
+      }, 250);
+
+      window.setTimeout(() => {
+        if (!loadedDisableBgActivity) {
+          modelCheckConnections();
+          modelStartHealthCheck();
         }
-      } catch (e) {
-        logWarn("general", "Could not synchronize launch on startup with OS", { details: String(e) });
-      }
+        useMcpStore.getState().connectAllEnabled();
+      }, 500);
 
       logInfo("chat", "App state initialized", {
         details: `Loaded ${modelsWithKeys.length} models, ${nonEmptyConvs.length} conversations, ${searchConfigs.length} search configs, ${mcpConfigs.length} MCP servers`,
       });
-
-      if (!loadedDisableBgActivity) {
-        modelCheckConnections();
-        modelStartHealthCheck();
-      }
-
-      useMcpStore.getState().connectAllEnabled();
     } catch (err) {
       const parsed = parseApiError(err);
       logError("chat", "Failed to initialize app", { error: err, action: "Check your settings and restart the app." });
       uiToast(parsed.message, "error");
       uiConfigLoaded(true);
+      uiLaunchReady(true);
     } finally {
       uiLoading("init", false);
       initInProgress = false;
