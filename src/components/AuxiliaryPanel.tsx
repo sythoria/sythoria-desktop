@@ -37,7 +37,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
-import { motionTokens } from "../lib/motion-tokens";
+import { motionTransitions } from "../lib/motion-tokens";
 import { useChatStore } from "../store/useChatStore";
 import { GitStatus } from "../store/useGitStore";
 import { useProjectStore } from "../store/useProjectStore";
@@ -961,7 +961,7 @@ function PinnedSummary({
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: "auto" }}
       exit={{ opacity: 0, height: 0 }}
-      transition={{ duration: motionTokens.duration.fast }}
+      transition={motionTransitions.content}
       className="shrink-0 overflow-hidden border-b border-border/40 bg-chat/35"
       aria-label="Pinned workspace summary"
     >
@@ -1184,8 +1184,8 @@ export function AuxiliaryPanel() {
             className="absolute inset-0 flex flex-col"
             initial={{ opacity: 0, x: 5 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -5 }}
-            transition={{ duration: motionTokens.duration.fast }}
+            exit={{ opacity: 0, x: -5, transition: motionTransitions.popoverExit }}
+            transition={motionTransitions.popoverEnter}
           >
             {activeTab === "review" && (
               <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
