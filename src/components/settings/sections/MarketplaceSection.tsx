@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Download, Check, Palette, Trash2 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useUIStore } from "../../../store/useUIStore";
 import { MARKETPLACE_THEMES, MarketplaceTheme } from "../../../config/marketplaceThemes";
 import { getContrastColor } from "../../../config/themePresets";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 
 // Child card component to manage local hover state and separate animations
@@ -26,6 +26,8 @@ const ThemeCard = ({
   const { t } = useTranslation();
   const [isHovered, setIsHovered] = useState(false);
   const animationsDisabled = useUIStore((s) => s.animationsDisabled);
+  const prefersReducedMotion = useReducedMotion();
+  const motionEnabled = !animationsDisabled && !prefersReducedMotion;
 
   const handleCardClick = () => {
     if (isCurrentlyApplied) return;
@@ -51,15 +53,15 @@ const ThemeCard = ({
     <motion.div
       variants={{
         hidden: { opacity: 0, y: 12 },
-        show: { opacity: 1, y: 0, transition: springs.gentle },
+        show: { opacity: 1, y: 0, transition: motionTransitions.content },
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      whileHover={!animationsDisabled ? { scale: 1.008 } : undefined}
-      whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
+      whileHover={motionEnabled ? { scale: 1.008 } : undefined}
+      whileTap={motionEnabled ? { scale: motionTokens.scale.press } : undefined}
       transition={springs.snappy}
       onClick={handleCardClick}
-      className={`bg-surface border rounded-xl overflow-hidden flex flex-col sm:flex-row items-stretch shadow-sm transition-all duration-300 relative ${
+      className={`bg-surface border rounded-xl overflow-hidden flex flex-col sm:flex-row items-stretch shadow-sm transition-[border-color,box-shadow,transform] relative ${
         isCurrentlyApplied ? "cursor-default" : "cursor-pointer"
       }`}
       style={dynamicStyle}
@@ -165,7 +167,7 @@ const ThemeCard = ({
                 whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
                 whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
                 transition={springs.snappy}
-                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
+                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-[color,background-color,border-color,box-shadow,transform] shadow-sm"
                 title={t("settings.marketplace.deleteThemeTooltip")}
               >
                 <Trash2 size={12} />
@@ -181,7 +183,7 @@ const ThemeCard = ({
                 whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
                 whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
                 transition={springs.snappy}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all bg-surface hover:bg-hover text-text-primary border border-border shadow-sm"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-[color,background-color,border-color,box-shadow,transform] bg-surface hover:bg-hover text-text-primary border border-border shadow-sm"
               >
                 <Palette size={12} />
                 <span>{t("settings.marketplace.apply")}</span>
@@ -194,7 +196,7 @@ const ThemeCard = ({
                 whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
                 whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
                 transition={springs.snappy}
-                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-all shadow-sm"
+                className="p-1.5 rounded-lg border border-border bg-surface text-text-muted hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/5 transition-[color,background-color,border-color,box-shadow,transform] shadow-sm"
                 title={t("settings.marketplace.deleteThemeTooltip")}
               >
                 <Trash2 size={12} />
@@ -209,7 +211,7 @@ const ThemeCard = ({
               whileHover={!animationsDisabled ? { scale: motionTokens.scale.pop } : undefined}
               whileTap={!animationsDisabled ? { scale: motionTokens.scale.press } : undefined}
               transition={springs.snappy}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all shadow-sm hover:shadow-md"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-[color,background-color,border-color,box-shadow,transform] shadow-sm hover:shadow-md"
               style={{
                 backgroundColor: theme.config.accent,
                 color: getContrastColor(theme.config.accent),
@@ -234,6 +236,8 @@ export const MarketplaceSection = () => {
   const setTheme = useUIStore((s) => s.setTheme);
   const addToast = useUIStore((s) => s.addToast);
   const animationsDisabled = useUIStore((s) => s.animationsDisabled);
+  const prefersReducedMotion = useReducedMotion();
+  const motionEnabled = !animationsDisabled && !prefersReducedMotion;
 
   const [filter, setFilter] = useState<"all" | "light" | "dark">("all");
 
@@ -274,7 +278,7 @@ export const MarketplaceSection = () => {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all duration-200 ${
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-[color,background-color,box-shadow,transform] ${
               filter === f
                 ? "bg-text-primary text-surface shadow-sm"
                 : "text-text-muted hover:text-text-primary hover:bg-hover/50"
@@ -297,7 +301,8 @@ export const MarketplaceSection = () => {
           show: {
             opacity: 1,
             transition: {
-              staggerChildren: animationsDisabled ? 0 : 0.04,
+              ...motionTransitions.content,
+              staggerChildren: motionEnabled ? 0.055 : 0,
             },
           },
         }}
