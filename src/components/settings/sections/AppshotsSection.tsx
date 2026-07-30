@@ -11,7 +11,7 @@ import {
 } from "../components/SettingsPrimitives";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { useAppshotStore } from "../../../store/useAppshotStore";
 import { useKeybindStore } from "../../../store/useKeybindStore";
 import { useUIStore } from "../../../store/useUIStore";
@@ -149,6 +149,7 @@ export function AppshotsSection() {
             <motion.button
               whileHover={{ scale: motionTokens.scale.pop }}
               whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
               className="rounded-lg bg-amber-500 px-4 py-2 text-center font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
               onClick={handlePermissionAction}
               disabled={isRequestingPermission}
@@ -253,15 +254,7 @@ export function AppshotsSection() {
                   gridTemplateRows: config.imageFormat === "jpeg" ? "1fr" : "0fr",
                   opacity: config.imageFormat === "jpeg" ? 1 : 0,
                 }}
-                transition={
-                  prefersReducedMotion
-                    ? { duration: 0 }
-                    : {
-                        type: "tween",
-                        duration: motionTokens.duration.normal,
-                        ease: motionTokens.easing.smooth,
-                      }
-                }
+                transition={prefersReducedMotion ? { duration: 0 } : motionTransitions.content}
                 aria-hidden={config.imageFormat !== "jpeg"}
                 className="grid"
               >
@@ -310,6 +303,7 @@ export function AppshotsSection() {
                 <motion.button
                   whileHover={{ scale: motionTokens.scale.pop }}
                   whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
                   className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-accent-foreground shadow-sm transition-colors hover:bg-accent-hover"
                   onClick={async () => {
                     try {
@@ -335,6 +329,7 @@ export function AppshotsSection() {
                   <motion.button
                     whileHover={{ scale: motionTokens.scale.pop }}
                     whileTap={{ scale: motionTokens.scale.press }}
+                    transition={springs.snappy}
                     className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-500 shadow-sm transition-colors hover:bg-red-500/20"
                     onClick={async () => {
                       setInputFolder("");
@@ -402,6 +397,7 @@ export function AppshotsSection() {
                   <motion.button
                     whileHover={{ scale: motionTokens.scale.pop }}
                     whileTap={{ scale: motionTokens.scale.press }}
+                    transition={springs.snappy}
                     onClick={handleTestCapture}
                     disabled={isCapturing}
                     className="flex min-h-[32px] items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground shadow-sm disabled:opacity-60"
@@ -415,6 +411,7 @@ export function AppshotsSection() {
                     <motion.button
                       whileHover={{ scale: motionTokens.scale.pop }}
                       whileTap={{ scale: motionTokens.scale.press }}
+                      transition={springs.snappy}
                       onClick={() => clearAll()}
                       disabled={loading}
                       className="flex min-h-[32px] items-center gap-1 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/5"
