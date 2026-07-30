@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Trash2, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { SearchApiConfig, SearchProvider } from "../../../types";
 import { SEARCH_PROVIDER_PRESETS } from "../../../config/searchPresets";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { validateSearchApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
@@ -34,7 +34,7 @@ export const SearchApiCard = memo(function SearchApiCard({
       id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={springs.gentle}
+      transition={motionTransitions.content}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${config.enabled ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
