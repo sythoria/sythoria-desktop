@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Trash2, ChevronDown, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { ModelConfig } from "../../../types";
 import { PROVIDER_PRESETS } from "../../../config/providerPresets";
-import { springs, motionTokens } from "../../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
@@ -52,7 +52,7 @@ export const ModelCard = memo(function ModelCard({
       id={id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={springs.gentle}
+      transition={motionTransitions.content}
       className={`bg-surface border rounded-xl p-4 space-y-3 shadow-sm relative group ${model.enabled !== false ? "border-border" : "border-border opacity-60"}`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -240,10 +240,7 @@ export const ModelCard = memo(function ModelCard({
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-text-primary transition-colors cursor-pointer select-none"
           >
-            <ChevronDown
-              size={14}
-              className={`transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`}
-            />
+            <ChevronDown size={14} className={`transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
             <span>{t("settings.models.advanced")}</span>
           </button>
 
@@ -251,7 +248,7 @@ export const ModelCard = memo(function ModelCard({
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
-              transition={springs.gentle}
+              transition={motionTransitions.content}
               className="mt-3 space-y-4 border-t border-border/40 pt-3"
             >
               {/* Image Support Toggle */}
