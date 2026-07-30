@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Menu,
@@ -19,9 +19,7 @@ import {
   PanelRight,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
-import ChatArea from "./components/ChatArea";
 import { isGenerationActive, type Conversation } from "./types";
-import { ComparisonColumn } from "./components/ComparisonColumn";
 import InputBar from "./components/InputBar";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
@@ -36,6 +34,10 @@ import { useChatStore } from "./store/useChatStore";
 
 const loadSettings = () => import("./components/settings");
 const Settings = lazy(loadSettings);
+const ChatArea = lazy(() => import("./components/ChatArea"));
+const ComparisonColumn = lazy(() =>
+  import("./components/ComparisonColumn").then((module) => ({ default: module.ComparisonColumn })),
+);
 const AuxiliaryPanel = lazy(() =>
   import("./components/AuxiliaryPanel").then((module) => ({ default: module.AuxiliaryPanel })),
 );
@@ -46,6 +48,20 @@ const ProjectConfigModal = lazy(() => import("./components/ProjectConfigModal"))
 const SpotlightArea = lazy(() =>
   import("./components/SpotlightArea").then((module) => ({ default: module.SpotlightArea })),
 );
+
+function scheduleWhenIdle(task: () => void, timeout = 1500): () => void {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const id = idleWindow.requestIdleCallback(task, { timeout });
+    return () => idleWindow.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(task, 250);
+  return () => window.clearTimeout(id);
+}
+
 import { useModelStore } from "./store/useModelStore";
 import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
@@ -98,12 +114,6 @@ function App() {
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
-
-    // Show window after React has mounted to prevent white flash
-    // We delay it slightly to ensure the first frame is painted
-    setTimeout(() => {
-      getCurrentWindow().show();
-    }, 100);
 
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
@@ -207,6 +217,7 @@ function App() {
   const {
     sidebarOpen,
     sidebarCollapsed,
+    isLaunchReady,
     isConfigLoaded,
     view,
     showRenameModal,
@@ -234,6 +245,7 @@ function App() {
     useShallow((s) => ({
       sidebarOpen: s.sidebarOpen,
       sidebarCollapsed: s.sidebarCollapsed,
+      isLaunchReady: s.isLaunchReady,
       isConfigLoaded: s.isConfigLoaded,
       view: s.view,
       showRenameModal: s.showRenameModal,
@@ -311,8 +323,28 @@ function App() {
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
 
   useEffect(() => {
-    if (hasStarted) void loadSettings();
-  }, [hasStarted]);
+    if (!hasStarted || !isConfigLoaded) return;
+    return scheduleWhenIdle(() => {
+      void loadSettings();
+    }, 2000);
+  }, [hasStarted, isConfigLoaded]);
+
+  useEffect(() => {
+    if (!isLaunchReady) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        performance.mark("sythoria:shell-painted");
+        void invoke("frontend_ready").catch((error) => {
+          console.warn("Could not signal frontend readiness:", error);
+        });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [isLaunchReady]);
 
   useEffect(() => {
     if (!activeArtifact) {
@@ -588,25 +620,40 @@ function App() {
   }, [activeId, view, isCompareMode, primaryScrollToBottom, compareIds]);
 
   useEffect(() => {
-    init();
-    useUIStore.getState().initDownloadedThemes();
-    useKeybindStore.getState().initKeybinds();
-    useAppshotStore.getState().init();
-    useUIStore.getState().initSkipExternalLinkWarning();
+    performance.mark("sythoria:bootstrap-start");
+    void init();
   }, [init]);
 
   useEffect(() => {
-    import("@tauri-apps/api/core").then(({ invoke }) => {
+    if (!isConfigLoaded) return;
+    performance.mark("sythoria:config-ready");
+    try {
+      performance.measure("sythoria:bootstrap", "sythoria:bootstrap-start", "sythoria:config-ready");
+    } catch {
+      // Performance marks are diagnostic only and may be unavailable in test environments.
+    }
+    return scheduleWhenIdle(() => {
+      void useUIStore.getState().initDownloadedThemes();
+      void useKeybindStore.getState().initKeybinds();
+      void useAppshotStore.getState().init();
+      void useUIStore.getState().initSkipExternalLinkWarning();
+    });
+  }, [isConfigLoaded]);
+
+  useEffect(() => {
+    if (!isConfigLoaded) return;
+    return scheduleWhenIdle(() => {
       invoke("register_appshot_shortcut", { shortcut: captureAppshotCombo }).catch((error) => {
         useUIStore.getState().addToast(`Could not register the global Appshot shortcut: ${String(error)}`, "error");
       });
     });
-  }, [captureAppshotCombo]);
+  }, [captureAppshotCombo, isConfigLoaded]);
 
   useEffect(() => {
-    if (isConfigLoaded && autoUpdateChecking) {
-      checkForUpdates(true);
-    }
+    if (!isConfigLoaded || !autoUpdateChecking) return;
+    return scheduleWhenIdle(() => {
+      void checkForUpdates(true);
+    }, 2500);
   }, [isConfigLoaded, autoUpdateChecking, checkForUpdates]);
 
   useEffect(() => {
@@ -1059,14 +1106,17 @@ function App() {
 
   if (!isConfigLoaded || loading.init) {
     return (
-      <div
-        className="glass-loading-screen flex h-screen w-screen items-center justify-center"
-        role="status"
-        aria-label="Loading application"
-      >
-        <div className="flex flex-col items-center gap-3">
-          <Spinner size="lg" />
-          <p className="text-sm text-text-muted">Loading Sythoria...</p>
+      <div className="flex h-screen w-screen overflow-hidden flex-col bg-transparent">
+        <TitleBar />
+        <div
+          className="glass-loading-screen flex flex-1 items-center justify-center"
+          role="status"
+          aria-label="Loading application"
+        >
+          <div className="flex flex-col items-center gap-3">
+            <Spinner size="lg" />
+            <p className="text-sm text-text-muted">Loading Sythoria...</p>
+          </div>
         </div>
       </div>
     );
@@ -1352,51 +1402,65 @@ function App() {
                     animate={{ width: chatColumnWidth }}
                     transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
                   >
-                    {isCompareMode && compareConversations.length > 0 ? (
-                      <div className="comparison-grid-container">
-                        {/* Primary Column */}
-                        <ComparisonColumn
-                          conversation={activeConversation!}
-                          isPrimary={true}
-                          label={t("chat.primary")}
-                          models={models}
-                          onModelChange={handlePrimaryModelChange}
-                          onRetry={handleRetry}
-                          isStreaming={isStreaming}
-                          onScroll={syncScrolls ? handlePrimaryScroll : undefined}
-                          ref={primaryVirtuosoRef}
-                        />
+                    <Suspense
+                      fallback={
+                        <div
+                          className="flex flex-1 items-center justify-center"
+                          role="status"
+                          aria-label="Loading chat"
+                        >
+                          <Spinner size="lg" />
+                        </div>
+                      }
+                    >
+                      {isCompareMode && compareConversations.length > 0 ? (
+                        <div className="comparison-grid-container">
+                          {/* Primary Column */}
+                          <ComparisonColumn
+                            conversation={activeConversation!}
+                            isPrimary={true}
+                            label={t("chat.primary")}
+                            models={models}
+                            onModelChange={handlePrimaryModelChange}
+                            onRetry={handleRetry}
+                            isStreaming={isStreaming}
+                            onScroll={syncScrolls ? handlePrimaryScroll : undefined}
+                            ref={primaryVirtuosoRef}
+                          />
 
-                        {/* Comparison Columns */}
-                        {compareConversations.map((c, index) => {
-                          return (
-                            <ComparisonColumn
-                              key={c.id}
-                              conversation={c}
-                              label={`${t("chat.comparison")} ${index + 1}`}
-                              models={models}
-                              onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
-                              onClose={() => handleCompareClose(c.id)}
-                              onRetry={() => handleCompareRetry(c.id)}
-                              isStreaming={isStreaming}
-                              onScroll={syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined}
-                              ref={(el) => {
-                                compareRefsMap.current[c.id] = el;
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <ChatArea
-                        messages={messages}
-                        setIsAtBottom={primarySetIsAtBottom}
-                        virtuosoRef={primaryVirtuosoRef}
-                        onRetry={handleRetry}
-                        conversationId={activeId || undefined}
-                        pendingWorktree={activeConversation?.pendingWorktree}
-                      />
-                    )}
+                          {/* Comparison Columns */}
+                          {compareConversations.map((c, index) => {
+                            return (
+                              <ComparisonColumn
+                                key={c.id}
+                                conversation={c}
+                                label={`${t("chat.comparison")} ${index + 1}`}
+                                models={models}
+                                onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
+                                onClose={() => handleCompareClose(c.id)}
+                                onRetry={() => handleCompareRetry(c.id)}
+                                isStreaming={isStreaming}
+                                onScroll={
+                                  syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined
+                                }
+                                ref={(el) => {
+                                  compareRefsMap.current[c.id] = el;
+                                }}
+                              />
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <ChatArea
+                          messages={messages}
+                          setIsAtBottom={primarySetIsAtBottom}
+                          virtuosoRef={primaryVirtuosoRef}
+                          onRetry={handleRetry}
+                          conversationId={activeId || undefined}
+                          pendingWorktree={activeConversation?.pendingWorktree}
+                        />
+                      )}
+                    </Suspense>
 
                     <AnimatePresence>
                       {showScrollToBottom && messages.length > 0 && !isPrimaryGenerating && (
