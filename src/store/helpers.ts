@@ -3,6 +3,7 @@ import { useUIStore, ThemeConfig } from "./useUIStore";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
 import { useMcpStore } from "./useMcpStore";
+import { applyTheme } from "../config/themePresets";
 
 export function uiToast(message: React.ReactNode, variant: "info" | "success" | "error" = "info") {
   useUIStore.getState().addToast(message, variant);
@@ -23,8 +24,13 @@ export function uiHasStarted(started: boolean) {
   useUIStore.getState().setHasStarted(started);
 }
 
+export function uiLaunchReady(ready: boolean) {
+  useUIStore.getState().setLaunchReady(ready);
+}
+
 export function uiTheme(theme: ThemeConfig) {
-  useUIStore.getState().setTheme(theme);
+  useUIStore.setState({ theme });
+  applyTheme(theme);
 }
 
 export function uiSidebarOpen(open: boolean) {
