@@ -168,7 +168,7 @@ export const ConfigurationSection = ({
             <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TEMPERATURE.toFixed(1)}</span>
             <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
               <div
-                className="absolute h-full bg-accent rounded-full transition-all duration-150"
+                className="absolute h-full bg-accent rounded-full transition-[width]"
                 style={{ width: `${tempPercent}%` }}
               />
               <input
@@ -183,7 +183,7 @@ export const ConfigurationSection = ({
                 aria-label="Temperature"
               />
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-[left,transform,background-color,box-shadow] peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
                 style={{ left: `calc(${tempPercent}% - 6px)` }}
                 aria-hidden="true"
               />
@@ -211,7 +211,7 @@ export const ConfigurationSection = ({
             <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TOOL_STEPS}</span>
             <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
               <div
-                className="absolute h-full bg-accent rounded-full transition-all duration-150"
+                className="absolute h-full bg-accent rounded-full transition-[width]"
                 style={{ width: `${stepsPercent}%` }}
               />
               <input
@@ -226,7 +226,7 @@ export const ConfigurationSection = ({
                 aria-label="Maximum Tool Steps"
               />
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-all duration-150 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-accent rounded-full border-2 border-white shadow-sm pointer-events-none transition-[left,transform,background-color,box-shadow] peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent"
                 style={{ left: `calc(${stepsPercent}% - 6px)` }}
                 aria-hidden="true"
               />
