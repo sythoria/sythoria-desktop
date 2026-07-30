@@ -151,9 +151,7 @@ interface ToolDefinition {
   };
 }
 
-export function requiresMcpConfirmation(
-  serverConfig: Pick<McpServerConfig, "trustLevel"> | undefined,
-): boolean {
+export function requiresMcpConfirmation(serverConfig: Pick<McpServerConfig, "trustLevel"> | undefined): boolean {
   return serverConfig?.trustLevel !== "trusted";
 }
 
@@ -714,6 +712,7 @@ export function parseToolArguments(toolCall: ToolCallData, tools: unknown[]): Re
       `Tool "${toolCall.function.name}" returned invalid JSON arguments and was not executed: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      { cause: error },
     );
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
