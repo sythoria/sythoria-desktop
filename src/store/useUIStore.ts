@@ -61,6 +61,7 @@ interface UIState {
   sidebarOpen: boolean;
   sidebarCollapsed: boolean;
   hasStarted: boolean;
+  isLaunchReady: boolean;
   isConfigLoaded: boolean;
   loading: Record<LoadingKey, boolean>;
   toasts: Toast[];
@@ -106,6 +107,7 @@ interface UIState {
   toggleSidebarCollapsed: () => void;
   setHasStarted: (started: boolean) => void;
   initHasStarted: () => Promise<void>;
+  setLaunchReady: (ready: boolean) => void;
   setConfigLoaded: (loaded: boolean) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
   addToast: (message: React.ReactNode, variant?: Toast["variant"]) => void;
@@ -215,6 +217,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   sidebarOpen: false,
   sidebarCollapsed: false,
   hasStarted: false,
+  isLaunchReady: false,
   isConfigLoaded: false,
   loading: {
     init: true,
@@ -353,6 +356,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     const stored = await loadHasStarted();
     if (stored) set({ hasStarted: true });
   },
+  setLaunchReady: (ready) => set({ isLaunchReady: ready }),
   setConfigLoaded: (loaded) => set({ isConfigLoaded: loaded }),
   setLoading: (key, value) => set((s) => ({ loading: { ...s.loading, [key]: value } })),
   addToast: (message, variant = "info") => {
@@ -461,11 +465,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   setCloseToTray: (value) => {
     set({ closeToTray: value });
-    saveCloseToTray(value);
+    void saveCloseToTray(value);
     import("@tauri-apps/api/core")
       .then(({ invoke }) => {
-        invoke("update_tray_icon").catch((e) => {
-          console.warn("Could not update tray icon:", e);
+        invoke("set_close_to_tray_runtime", { enabled: value }).catch((e) => {
+          console.warn("Could not update close-to-tray runtime state:", e);
         });
       })
       .catch((e) => {
