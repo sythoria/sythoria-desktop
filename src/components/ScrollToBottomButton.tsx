@@ -24,7 +24,7 @@ const ScrollToBottomButton = forwardRef<HTMLButtonElement, ScrollToBottomButtonP
           w-9 h-9 rounded-full
           bg-surface border border-border text-text-secondary
           hover:text-text-primary hover:border-text-muted
-          transition-colors duration-200
+          transition-colors
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-text-muted/50 focus-visible:ring-offset-2 focus-visible:ring-offset-chat
           z-30
           ${className}
