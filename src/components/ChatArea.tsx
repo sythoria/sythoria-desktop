@@ -41,7 +41,7 @@ import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { isGenerationActive, type Message, type Attachment } from "../types";
 import { highlightCode } from "../utils/highlighter";
-import { springs, motionTokens } from "../lib/motion-tokens";
+import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
@@ -335,7 +335,7 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4 }}
-      transition={springs.gentle}
+      transition={motionTransitions.content}
     >
       <div className="flex flex-wrap gap-1.5">
         {sources.map((s, i) => (
@@ -698,10 +698,11 @@ function SubagentToolCard({
           onClick={() => setExpanded(!expanded)}
           className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
           aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
-          whileHover={{ scale: 1.15 }}
-          whileTap={{ scale: 0.9 }}
+          whileHover={{ scale: motionTokens.scale.pop }}
+          whileTap={{ scale: motionTokens.scale.press }}
+          transition={springs.snappy}
         >
-          <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+          <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         </motion.button>
       </div>
 
@@ -712,11 +713,7 @@ function SubagentToolCard({
             initial={{ height: 0, opacity: 0, marginTop: 0 }}
             animate={{ height: "auto", opacity: 1, marginTop: 6 }}
             exit={{ height: 0, opacity: 0, marginTop: 0 }}
-            transition={{
-              type: "tween",
-              ease: motionTokens.easing.smooth,
-              duration: motionTokens.duration.normal,
-            }}
+            transition={motionTransitions.content}
             className="w-full overflow-hidden pl-5"
           >
             <SubagentEmbeddedChat conversationId={conversationId} />
@@ -864,10 +861,11 @@ function ToolCallDisplay({ message }: { message: Message }) {
               onClick={() => setExpanded(!expanded)}
               className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
               aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
-              whileHover={{ scale: 1.15 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: motionTokens.scale.pop }}
+              whileTap={{ scale: motionTokens.scale.press }}
+              transition={springs.snappy}
             >
-              <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+              <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
             </motion.button>
           )}
         </div>
@@ -880,11 +878,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
               initial={{ height: 0, opacity: 0, marginTop: 0 }}
               animate={{ height: "auto", opacity: 1, marginTop: 6 }}
               exit={{ height: 0, opacity: 0, marginTop: 0 }}
-              transition={{
-                type: "tween",
-                ease: motionTokens.easing.smooth,
-                duration: motionTokens.duration.normal,
-              }}
+              transition={motionTransitions.content}
               className="w-full overflow-hidden pl-5"
             >
               {isWaitSubagents ? (
@@ -1095,7 +1089,7 @@ function ReasoningBubble({
       variants={messageVariants}
       initial="hidden"
       animate="visible"
-      transition={springs.gentle}
+      transition={motionTransitions.content}
     >
       <Sparkles size={14} className="mt-1 shrink-0" aria-hidden="true" />
       <div className="flex-1 min-w-0">
@@ -1127,11 +1121,7 @@ function ReasoningBubble({
               initial={{ opacity: 0, height: 0, marginTop: 0 }}
               animate={{ opacity: 1, height: "auto", marginTop: 6 }}
               exit={{ opacity: 0, height: 0, marginTop: 0 }}
-              transition={{
-                type: "tween",
-                ease: motionTokens.easing.smooth,
-                duration: motionTokens.duration.normal,
-              }}
+              transition={motionTransitions.content}
             >
               <div className="p-3 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
                 <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
@@ -1302,11 +1292,13 @@ const MessageBubble = memo(function MessageBubble({
   onRetry,
   conversationId,
   autoExpandReasoning,
+  animateEntrance = false,
 }: {
   message: Message;
   onRetry?: () => void;
   conversationId?: string;
   autoExpandReasoning?: boolean;
+  animateEntrance?: boolean;
 }) {
   const allConversations = useChatStore((s) => s.conversations);
   const isAnySubagentRunning = useMemo(() => {
@@ -1378,9 +1370,9 @@ const MessageBubble = memo(function MessageBubble({
       <motion.div
         className="flex justify-start group"
         variants={messageVariants}
-        initial="hidden"
+        initial={animateEntrance ? "hidden" : false}
         animate="visible"
-        transition={springs.gentle}
+        transition={motionTransitions.content}
       >
         <div className="min-w-0">
           <ToolCallBubble message={message} />
@@ -1400,9 +1392,9 @@ const MessageBubble = memo(function MessageBubble({
         role="article"
         aria-label={`User message: ${message.content.slice(0, 80)}`}
         variants={messageVariants}
-        initial="hidden"
+        initial={animateEntrance ? "hidden" : false}
         animate="visible"
-        transition={springs.gentle}
+        transition={motionTransitions.content}
       >
         <div className="max-w-[75%] flex flex-col items-end min-w-0">
           {hasAttachments && (
@@ -1440,9 +1432,9 @@ const MessageBubble = memo(function MessageBubble({
       role="article"
       aria-label={`Assistant message${isStreaming ? " (generating)" : ""}: ${message.content.slice(0, 80)}`}
       variants={messageVariants}
-      initial="hidden"
+      initial={animateEntrance ? "hidden" : false}
       animate="visible"
-      transition={springs.gentle}
+      transition={motionTransitions.content}
     >
       <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
         {hasOpenReasoning && (
@@ -1460,7 +1452,7 @@ const MessageBubble = memo(function MessageBubble({
             className="flex items-center gap-2 py-1"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={springs.gentle}
+            transition={motionTransitions.content}
           >
             <LoadingText />
           </motion.div>
@@ -1539,6 +1531,54 @@ function ChatAreaBase({
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  const messageIdsSignature = messages.map((message) => message.id).join("\u0000");
+  const [messageAnimationState, setMessageAnimationState] = useState(() => ({
+    conversationId,
+    signature: messageIdsSignature,
+    seen: new Set(messages.map((message) => message.id)),
+    entering: new Set<string>(),
+  }));
+  let currentAnimationState = messageAnimationState;
+
+  if (messageAnimationState.conversationId !== conversationId) {
+    currentAnimationState = {
+      conversationId,
+      signature: messageIdsSignature,
+      seen: new Set(messages.map((message) => message.id)),
+      entering: new Set<string>(),
+    };
+    setMessageAnimationState(currentAnimationState);
+  } else if (messageAnimationState.signature !== messageIdsSignature) {
+    const nextEnteringIds = new Set<string>();
+    const nextSeenIds = new Set(messageAnimationState.seen);
+    for (const message of messages) {
+      if (!nextSeenIds.has(message.id)) {
+        nextSeenIds.add(message.id);
+        nextEnteringIds.add(message.id);
+      }
+    }
+    currentAnimationState = {
+      conversationId,
+      signature: messageIdsSignature,
+      seen: nextSeenIds,
+      entering: nextEnteringIds,
+    };
+    setMessageAnimationState(currentAnimationState);
+  }
+
+  useEffect(() => {
+    if (messageAnimationState.entering.size === 0) return;
+    const timer = window.setTimeout(
+      () => {
+        setMessageAnimationState((current) =>
+          current.signature === messageAnimationState.signature ? { ...current, entering: new Set() } : current,
+        );
+      },
+      motionTokens.duration.content * 1000 + 50,
+    );
+    return () => window.clearTimeout(timer);
+  }, [messageAnimationState]);
+
   if (messages.length === 0) {
     if (!showEmptyState) {
       return (
@@ -1553,14 +1593,14 @@ function ChatAreaBase({
         aria-label="Empty chat — type a message to begin"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: motionTokens.duration.slow }}
+        transition={motionTransitions.panelEnter}
       >
         <div className="flex flex-col items-center gap-4 px-4">
           <motion.div
             className="text-center"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ ...springs.gentle, delay: 0.2 }}
+            transition={motionTransitions.content}
           >
             {isTemporary ? (
               <div className="flex flex-col items-center gap-2 text-center">
@@ -1606,6 +1646,7 @@ function ChatAreaBase({
                 onRetry={onRetry}
                 conversationId={conversationId}
                 autoExpandReasoning={autoExpandReasoning}
+                animateEntrance={currentAnimationState.entering.has(msg.id)}
               />
             </div>
           )}
@@ -1658,6 +1699,7 @@ function ChatAreaBase({
       scrollContainerRef={scrollContainerRef}
       onScroll={onScroll}
       autoExpandReasoning={autoExpandReasoning}
+      animateMessageIds={currentAnimationState.entering}
     />
   );
 }
@@ -1673,6 +1715,7 @@ function NonVirtualizedChatArea({
   scrollContainerRef,
   onScroll,
   autoExpandReasoning,
+  animateMessageIds,
 }: {
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
@@ -1684,6 +1727,7 @@ function NonVirtualizedChatArea({
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
   autoExpandReasoning?: boolean;
+  animateMessageIds: ReadonlySet<string>;
 }) {
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
   const fallbackRef = useRef<HTMLDivElement | null>(null);
@@ -1768,6 +1812,7 @@ function NonVirtualizedChatArea({
             onRetry={onRetry}
             conversationId={conversationId}
             autoExpandReasoning={autoExpandReasoning}
+            animateEntrance={animateMessageIds.has(msg.id)}
           />
         ))}
         {pendingWorktree && conversationId && (
@@ -1823,6 +1868,7 @@ function PendingWorktreeCard({
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 10, scale: 0.98 }}
+      transition={motionTransitions.content}
       className="p-4 rounded-xl border border-border bg-surface/60 backdrop-blur-md flex flex-col gap-3 shadow-md mx-auto max-w-3xl w-full"
     >
       <div className="flex items-center justify-between border-b border-border/50 pb-2">
@@ -1865,7 +1911,7 @@ function PendingWorktreeCard({
             setLoading(false);
           }}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-foreground bg-accent hover:bg-accent-active border border-accent rounded-lg transition-all shadow-sm cursor-pointer hover:shadow"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-foreground bg-accent hover:bg-accent-active border border-accent rounded-lg transition-[color,background-color,border-color,box-shadow,transform] shadow-sm cursor-pointer hover:shadow"
         >
           <Check size={12} className="shrink-0" />
           <span>Apply to Workspace</span>
