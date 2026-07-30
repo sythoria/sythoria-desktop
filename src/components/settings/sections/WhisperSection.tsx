@@ -273,7 +273,7 @@ export function WhisperSection() {
                 return (
                   <div
                     key={model.id}
-                    className={`flex items-center justify-between p-3.5 bg-surface border rounded-xl transition-all ${
+                    className={`flex items-center justify-between p-3.5 bg-surface border rounded-xl transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                       isSelected ? "border-accent/40 bg-accent-soft/10" : "border-border/60 hover:bg-hover/30"
                     }`}
                   >
@@ -312,7 +312,7 @@ export function WhisperSection() {
                           <button
                             onClick={() => selectModel(model.id)}
                             disabled={isSelected}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-[color,background-color,border-color,box-shadow,opacity,transform] ${
                               isSelected
                                 ? "bg-active text-text-primary border border-accent/30"
                                 : "bg-surface border border-border hover:bg-hover hover:text-text-primary cursor-pointer"
