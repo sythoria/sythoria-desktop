@@ -8,7 +8,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { useChatStore } from "../../store/useChatStore";
 import { McpServerConfig } from "../../types";
 import { McpServerPreset } from "../../config/mcpPresets";
-import { springs, motionTokens } from "../../lib/motion-tokens";
+import { springs, motionTokens, motionTransitions } from "../../lib/motion-tokens";
 
 import { GeneralSection } from "./sections/GeneralSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
@@ -173,7 +173,7 @@ export default function Settings() {
             className="max-w-2xl mx-auto px-4 md:px-8 py-8 space-y-6"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={springs.gentle}
+            transition={motionTransitions.content}
           >
             {activeSection === "general" && <GeneralSection />}
 
