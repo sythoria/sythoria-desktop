@@ -42,7 +42,7 @@ export function ProjectsSection() {
           <button
             type="button"
             onClick={() => handleToggleDefaultPermission("read")}
-            className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+            className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
               defaultPermission === "read"
                 ? "border-accent bg-accent-soft/20 text-accent font-medium"
                 : "border-border bg-surface text-text-secondary hover:bg-hover"
@@ -54,7 +54,7 @@ export function ProjectsSection() {
           <button
             type="button"
             onClick={() => handleToggleDefaultPermission("write")}
-            className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+            className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
               defaultPermission === "write"
                 ? "border-amber-500 bg-amber-500/10 text-amber-500 font-medium"
                 : "border-border bg-surface text-text-secondary hover:bg-hover"
@@ -66,7 +66,7 @@ export function ProjectsSection() {
           <button
             type="button"
             onClick={() => handleToggleDefaultPermission("full")}
-            className={`py-2 px-3 rounded-lg border text-center transition-all flex flex-col items-center gap-1 ${
+            className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
               defaultPermission === "full"
                 ? "border-red-500 bg-red-500/10 text-red-500 font-medium"
                 : "border-border bg-surface text-text-secondary hover:bg-hover"
