@@ -30,7 +30,7 @@ import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
 
 import { formatFileSize } from "../utils/attachments";
-import { springs, motionTokens } from "../lib/motion-tokens";
+import { motionTokens, motionTransitions } from "../lib/motion-tokens";
 import { useAttachments } from "../hooks/useAttachments";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
@@ -585,7 +585,7 @@ export default memo(function InputBar({
 
   return (
     <div
-      className={`transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`transition-[transform,padding] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-standard)] ${
         centered
           ? "flex-1 flex flex-col items-center translate-y-[-7vh] pt-4"
           : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
@@ -616,7 +616,7 @@ export default memo(function InputBar({
                 e.preventDefault();
                 setIsDragging(false);
               }}
-              className={`group/input-bar relative flex flex-col items-stretch transition-all ${
+              className={`group/input-bar relative flex flex-col items-stretch transition-[transform,border-color,background-color,box-shadow] ${
                 isProjectsEnabled
                   ? ""
                   : `rounded-3xl border border-input-border bg-input px-4 py-2.5 focus-within:border-accent/60 ${composerVisualStateClasses}`
@@ -636,7 +636,7 @@ export default memo(function InputBar({
               <div
                 className={
                   isProjectsEnabled
-                    ? `relative z-10 flex flex-col items-stretch rounded-3xl border border-input-border bg-input px-4 py-2.5 transition-all after:pointer-events-none after:absolute after:-bottom-px after:left-6 after:right-6 after:h-[2px] ${
+                    ? `relative z-10 flex flex-col items-stretch rounded-3xl border border-input-border bg-input px-4 py-2.5 transition-[transform,border-color,background-color,box-shadow] after:pointer-events-none after:absolute after:-bottom-px after:left-6 after:right-6 after:h-[2px] ${
                         conversation?.isTemporary ? "after:bg-accent/[0.03]" : "after:bg-input"
                       } group-focus-within/input-bar:border-accent/60 ${composerVisualStateClasses}`
                     : "contents"
@@ -650,7 +650,7 @@ export default memo(function InputBar({
                       initial={{ opacity: 0, height: 0, marginBottom: 0 }}
                       animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
                       exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                      transition={springs.gentle}
+                      transition={motionTransitions.content}
                       className="w-full overflow-hidden"
                     >
                       <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
@@ -664,7 +664,7 @@ export default memo(function InputBar({
                                 initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                                transition={springs.gentle}
+                                transition={motionTransitions.content}
                                 onClick={() => {
                                   const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
                                   if (imgIdx !== -1) {
@@ -677,16 +677,16 @@ export default memo(function InputBar({
                                 <img
                                   src={a.dataUrl}
                                   alt={a.name}
-                                  className="w-full h-full object-cover select-none transition-transform duration-300 group-hover:scale-105"
+                                  className="w-full h-full object-cover select-none transition-transform duration-[var(--motion-duration-content)] group-hover:scale-[1.035]"
                                 />
                                 <span className="sr-only">{a.name}</span>
-                                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setAttachments((prev) => prev.filter((item) => item.id !== a.id));
                                   }}
-                                  className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-all duration-200 image-close-btn z-10"
+                                  className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-[color,background-color,border-color,opacity,transform] image-close-btn z-10"
                                   title={t("chat.removeAttachment") || "Remove attachment"}
                                 >
                                   <X size={12} />
@@ -702,7 +702,7 @@ export default memo(function InputBar({
                               initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
                               animate={{ opacity: 1, scale: 1 }}
                               exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                              transition={springs.gentle}
+                              transition={motionTransitions.content}
                               className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                             >
                               {a.kind === "image" ? (
@@ -719,7 +719,7 @@ export default memo(function InputBar({
                                   e.stopPropagation();
                                   setAttachments((prev) => prev.filter((item) => item.id !== a.id));
                                 }}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100"
                                 title={t("chat.removeAttachment") || "Remove attachment"}
                               >
                                 <X size={12} />
@@ -759,8 +759,13 @@ export default memo(function InputBar({
                           aria-label="Attachment and search options"
                           initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                          transition={springs.gentle}
+                          exit={{
+                            opacity: 0,
+                            y: 8,
+                            scale: motionTokens.scale.subtle,
+                            transition: motionTransitions.popoverExit,
+                          }}
+                          transition={motionTransitions.popoverEnter}
                         >
                           <button
                             onClick={() => {
@@ -891,7 +896,7 @@ export default memo(function InputBar({
                       </button>
 
                       {/* Hover Details Card */}
-                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-95 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-all duration-200 origin-bottom-right z-50">
+                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-[0.98] translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-[opacity,transform] duration-[var(--motion-duration-popover)] ease-[var(--motion-ease-enter)] origin-bottom-right z-50">
                         <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
                           <span>Context Window</span>
                           <span
@@ -1062,7 +1067,7 @@ export default memo(function InputBar({
                         )}
                         <ChevronDown
                           size={12}
-                          className={`shrink-0 ml-0.5 transition-transform duration-200 ${projectDropdownOpen ? "rotate-180" : ""}`}
+                          className={`shrink-0 ml-0.5 transition-transform ${projectDropdownOpen ? "rotate-180" : ""}`}
                         />
                       </button>
 
@@ -1074,8 +1079,13 @@ export default memo(function InputBar({
                             role="menu"
                             initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
-                            transition={springs.gentle}
+                            exit={{
+                              opacity: 0,
+                              y: 8,
+                              scale: motionTokens.scale.subtle,
+                              transition: motionTransitions.popoverExit,
+                            }}
+                            transition={motionTransitions.popoverEnter}
                           >
                             {!activeProject ? (
                               <>
@@ -1214,7 +1224,7 @@ export default memo(function InputBar({
                       initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      transition={springs.gentle}
+                      transition={motionTransitions.content}
                       className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
                     >
                       <Search size={12} className="shrink-0" />
@@ -1237,7 +1247,7 @@ export default memo(function InputBar({
                         initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                        transition={springs.gentle}
+                        transition={motionTransitions.content}
                         className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
                       >
                         <Cpu size={13} className="text-text-muted shrink-0" />
@@ -1246,7 +1256,7 @@ export default memo(function InputBar({
                         </span>
                         <button
                           onClick={() => onToggleMcpServer(server.id)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-all duration-200 md:opacity-0 md:group-hover:opacity-100"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100"
                           title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
                         >
                           <X size={12} />
