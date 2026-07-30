@@ -216,11 +216,8 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
             }
         }
 
-        let content_json = if native_anthropic_content.is_some() {
-            serde_json::Value::Array(anthropic_content)
-        } else if anthropic_content.is_empty()
-            && msg.role == "assistant"
-            && msg.tool_calls.is_some()
+        let content_json = if native_anthropic_content.is_some()
+            || (anthropic_content.is_empty() && msg.role == "assistant" && msg.tool_calls.is_some())
         {
             serde_json::Value::Array(anthropic_content)
         } else if anthropic_content.len() == 1
@@ -331,7 +328,7 @@ pub async fn chat_completion_anthropic(
     for c in anthropic_resp.content {
         if c.get("type").and_then(|value| value.as_str()) == Some("text") {
             if let Some(t) = c.get("text").and_then(|value| value.as_str()) {
-                full_text.push_str(&t);
+                full_text.push_str(t);
             }
         }
     }
@@ -402,7 +399,7 @@ pub async fn chat_completion_tools_anthropic(
         let content_type = c.get("type").and_then(|value| value.as_str());
         if content_type == Some("text") {
             if let Some(t) = c.get("text").and_then(|value| value.as_str()) {
-                full_text.push_str(&t);
+                full_text.push_str(t);
             }
         } else if content_type == Some("thinking") {
             if let Some(thinking) = c.get("thinking").and_then(|value| value.as_str()) {
