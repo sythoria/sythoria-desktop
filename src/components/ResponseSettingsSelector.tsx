@@ -5,7 +5,7 @@ import type { ModelConfig, ModelStatuses } from "../types";
 import { STATUS_COLORS } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useUIStore } from "../store/useUIStore";
-import { motionTokens, springs } from "../lib/motion-tokens";
+import { motionTokens, motionTransitions } from "../lib/motion-tokens";
 import { getThinkingLabel, getThinkingLevel, supportsThinkingControl, THINKING_LEVELS } from "../utils/thinking";
 import { useTranslation } from "../utils/i18n";
 
@@ -125,11 +125,7 @@ export function ResponseSettingsSelector({
         }}
         initial={false}
         animate={{ width: isOpen ? "11.5rem" : (collapsedWidth ?? "auto") }}
-        transition={{
-          type: "tween",
-          duration: motionTokens.duration.fast,
-          ease: motionTokens.easing.sharp,
-        }}
+        transition={motionTransitions.popoverEnter}
         className={`flex min-h-8 items-center justify-center gap-1.5 overflow-hidden rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary ${triggerClassName}`}
         aria-label={`Response settings: ${currentModel?.name ?? "no model"}, thinking ${thinkingLabel}`}
         aria-expanded={isOpen}
@@ -148,7 +144,7 @@ export function ResponseSettingsSelector({
         </span>
         <ChevronDown
           size={14}
-          className={`shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
           aria-hidden="true"
         />
       </motion.button>
@@ -175,18 +171,14 @@ export function ResponseSettingsSelector({
             role="dialog"
             aria-label="Model and thinking settings"
             initial={{ opacity: 0, y: opensAbove ? 8 : -8, scale: motionTokens.scale.subtle }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: 1,
-              transition: { ...springs.gentle, delay: motionTokens.duration.instant },
-            }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{
               opacity: 0,
               y: opensAbove ? 8 : -8,
               scale: motionTokens.scale.subtle,
-              transition: springs.gentle,
+              transition: motionTransitions.popoverExit,
             }}
+            transition={motionTransitions.popoverEnter}
             onMouseLeave={() => setPanel("root")}
             onKeyDown={(event) => {
               if (event.key !== "Escape") return;
@@ -276,8 +268,9 @@ export function ResponseSettingsSelector({
                     opacity: 0,
                     x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
                     scale: motionTokens.scale.subtle,
+                    transition: motionTransitions.popoverExit,
                   }}
-                  transition={springs.snappy}
+                  transition={motionTransitions.popoverEnter}
                 >
                   <div className="max-h-72 overflow-y-auto overscroll-contain pr-0.5">
                     {enabledModels.length === 0 ? (
@@ -346,8 +339,9 @@ export function ResponseSettingsSelector({
                     opacity: 0,
                     x: submenuSide === "right" ? -motionTokens.distance.sm : motionTokens.distance.sm,
                     scale: motionTokens.scale.subtle,
+                    transition: motionTransitions.popoverExit,
                   }}
-                  transition={springs.snappy}
+                  transition={motionTransitions.popoverEnter}
                 >
                   <div className="space-y-0.5">
                     {THINKING_LEVELS.map((option) => {
