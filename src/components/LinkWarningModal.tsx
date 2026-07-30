@@ -67,14 +67,14 @@ export function LinkWarningModal() {
         <div className="flex gap-3 mt-2">
           <button
             onClick={handleClose}
-            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-all min-h-[40px]"
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium border border-border text-text-secondary hover:bg-hover hover:text-text-primary transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >
             Cancel
           </button>
           <button
             onClick={handleContinue}
             disabled={!pendingUrl || !normalizeExternalUrl(pendingUrl)}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-all min-h-[40px]"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-accent-foreground hover:bg-accent-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >
             <span>Continue</span>
             <ExternalLink size={14} />
