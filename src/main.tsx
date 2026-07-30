@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { MotionConfig } from "motion/react";
 import App from "./App";
+import { AppMotionConfig } from "./components/AppMotionConfig";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -14,10 +14,10 @@ if (prefersDark) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <MotionConfig reducedMotion="user">
+    <AppMotionConfig>
       <ErrorBoundary>
         <App />
       </ErrorBoundary>
-    </MotionConfig>
+    </AppMotionConfig>
   </React.StrictMode>,
 );
