@@ -183,14 +183,14 @@ pub async fn save_secret_map(
 
 // --- Commands ---
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn load_encrypted_preferences(
     app: tauri::AppHandle,
 ) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
     secure_storage::load_preferences(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mutate_encrypted_preferences(
     app: tauri::AppHandle,
     sets: serde_json::Map<String, serde_json::Value>,
