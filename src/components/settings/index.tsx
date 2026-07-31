@@ -92,6 +92,7 @@ export default function Settings() {
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
   const [showFetchKeys, setShowFetchKeys] = useState<Record<string, boolean>>({});
   const [showMcpKeys, setShowMcpKeys] = useState<Record<string, boolean>>({});
+  const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
 
   const toggleKeyVisibility = (id: string) => {
     setShowKeys((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -167,7 +168,7 @@ export default function Settings() {
       </header>
 
       <div className="flex-1 flex min-w-0 overflow-hidden">
-        <div className="flex-1 overflow-y-scroll">
+        <div ref={setScrollParent} className="flex-1 min-h-0 overflow-y-scroll">
           <motion.div
             key={activeSection}
             className="max-w-2xl mx-auto px-4 md:px-8 py-8 space-y-6"
@@ -285,7 +286,7 @@ export default function Settings() {
 
             {activeSection === "whisper" && <WhisperSection />}
 
-            {activeSection === "skills" && <SkillsSection />}
+            {activeSection === "skills" && <SkillsSection scrollParent={scrollParent} />}
           </motion.div>
         </div>
       </div>
