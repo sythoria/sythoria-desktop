@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Pencil, Save, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Trash2, Pencil, Save, X, LoaderCircle } from "lucide-react";
+import { Virtuoso } from "react-virtuoso";
 import { ConfirmModal } from "../../ui/Modal";
 import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { useSkillStore } from "../../../store/useSkillStore";
@@ -8,10 +9,91 @@ import { useTranslation } from "../../../utils/i18n";
 import { motion } from "motion/react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 
-export function SkillsSection() {
+const VIRTUALIZED_SKILL_THRESHOLD = 100;
+
+interface SkillsSectionProps {
+  scrollParent: HTMLDivElement | null;
+}
+
+interface SkillListItemProps {
+  skill: SkillInfo;
+  index: number;
+  total: number;
+  loadingSkillId: string | null;
+  editLabel: string;
+  deleteLabel: string;
+  virtualized?: boolean;
+  onEdit: (skill: SkillInfo) => void;
+  onDelete: (id: string) => void;
+}
+
+function stripFrontmatter(content: string): string {
+  return content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
+}
+
+function SkillListItem({
+  skill,
+  index,
+  total,
+  loadingSkillId,
+  editLabel,
+  deleteLabel,
+  virtualized = false,
+  onEdit,
+  onDelete,
+}: SkillListItemProps) {
+  return (
+    <div role="listitem" aria-posinset={index + 1} aria-setsize={total} className={virtualized ? "pb-4" : undefined}>
+      <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-card/50 hover:bg-hover transition-colors group">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-text-primary">{skill.name}</span>
+            <span className="text-xs text-text-muted font-mono px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5">
+              {skill.id}
+            </span>
+          </div>
+          <span className="text-sm text-text-muted truncate mt-0.5">{skill.description}</span>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
+          <motion.button
+            onClick={() => onEdit(skill)}
+            disabled={loadingSkillId !== null}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
+            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center disabled:opacity-50"
+            title={editLabel}
+            aria-label={`${editLabel}: ${skill.name}`}
+          >
+            {loadingSkillId === skill.id ? (
+              <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <Pencil size={15} aria-hidden="true" />
+            )}
+          </motion.button>
+          <motion.button
+            onClick={() => onDelete(skill.id)}
+            disabled={loadingSkillId !== null}
+            whileHover={{ scale: motionTokens.scale.pop }}
+            whileTap={{ scale: motionTokens.scale.press }}
+            transition={springs.snappy}
+            className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center disabled:opacity-50"
+            title={deleteLabel}
+            aria-label={`${deleteLabel}: ${skill.name}`}
+          >
+            <Trash2 size={15} aria-hidden="true" />
+          </motion.button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SkillsSection({ scrollParent }: SkillsSectionProps) {
   const { t } = useTranslation();
   const skills = useSkillStore((s) => s.skills);
   const loadSkills = useSkillStore((s) => s.loadSkills);
+  const readSkill = useSkillStore((s) => s.readSkill);
   const createSkill = useSkillStore((s) => s.createSkill);
   const updateSkill = useSkillStore((s) => s.updateSkill);
   const deleteSkill = useSkillStore((s) => s.deleteSkill);
@@ -27,28 +109,50 @@ export function SkillsSection() {
   const [formContent, setFormContent] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [skillToDelete, setSkillToDelete] = useState<string | null>(null);
+  const [loadingSkillId, setLoadingSkillId] = useState<string | null>(null);
+  const listScrollTopRef = useRef(0);
+  const editRequestRef = useRef(0);
 
   useEffect(() => {
     loadSkills();
   }, [loadSkills]);
 
-  const handleEdit = (skill: SkillInfo) => {
-    setEditingSkill(skill);
-    setIsCreating(false);
-    setFormId(skill.id);
-    setFormName(skill.name);
-    setFormDesc(skill.description);
+  const scrollSettingsTo = (top: number) => {
+    requestAnimationFrame(() => scrollParent?.scrollTo({ top }));
+  };
 
-    // Remove frontmatter from the editor if possible for cleaner editing,
-    // but the backend `update_skill` requires the body. Our backend `build_frontmatter`
-    // will re-attach frontmatter. So we should pass the raw body.
-    // A simple regex to strip frontmatter for editing:
-    const contentWithoutFrontmatter = skill.content.replace(/^---\n[\s\S]*?\n---\n/, "");
-    setFormContent(contentWithoutFrontmatter);
+  const handleEdit = async (skill: SkillInfo) => {
+    const requestId = ++editRequestRef.current;
+    setLoadingSkillId(skill.id);
     setErrorMsg("");
+
+    try {
+      const content = await readSkill(skill.id);
+      if (editRequestRef.current !== requestId) return;
+
+      listScrollTopRef.current = scrollParent?.scrollTop ?? 0;
+      setEditingSkill(skill);
+      setIsCreating(false);
+      setFormId(skill.id);
+      setFormName(skill.name);
+      setFormDesc(skill.description);
+      setFormContent(stripFrontmatter(content));
+      scrollSettingsTo(0);
+    } catch (e) {
+      if (editRequestRef.current === requestId) {
+        setErrorMsg(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      if (editRequestRef.current === requestId) {
+        setLoadingSkillId(null);
+      }
+    }
   };
 
   const handleCreateNew = () => {
+    editRequestRef.current += 1;
+    listScrollTopRef.current = scrollParent?.scrollTop ?? 0;
+    setLoadingSkillId(null);
     setIsCreating(true);
     setEditingSkill(null);
     setFormId("");
@@ -56,12 +160,16 @@ export function SkillsSection() {
     setFormDesc("");
     setFormContent("");
     setErrorMsg("");
+    scrollSettingsTo(0);
   };
 
   const handleCancel = () => {
+    editRequestRef.current += 1;
     setIsCreating(false);
     setEditingSkill(null);
+    setLoadingSkillId(null);
     setErrorMsg("");
+    scrollSettingsTo(listScrollTopRef.current);
   };
 
   const handleSave = async () => {
@@ -83,8 +191,8 @@ export function SkillsSection() {
         await updateSkill(formId, formName, formDesc, formContent);
       }
       handleCancel();
-    } catch (e: any) {
-      setErrorMsg(e.toString());
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -94,8 +202,8 @@ export function SkillsSection() {
       if (editingSkill?.id === id) {
         handleCancel();
       }
-    } catch (e: any) {
-      console.error(e);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setSkillToDelete(null);
     }
@@ -122,10 +230,11 @@ export function SkillsSection() {
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-text-secondary">
+            <label htmlFor="skill-id" className="text-sm font-medium text-text-secondary">
               {t("settings.skills.idLabel") || "Folder Name (ID)"}
             </label>
             <input
+              id="skill-id"
               type="text"
               value={formId}
               onChange={(e) => setFormId(e.target.value)}
@@ -141,10 +250,11 @@ export function SkillsSection() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-text-secondary">
+            <label htmlFor="skill-name" className="text-sm font-medium text-text-secondary">
               {t("settings.skills.nameLabel") || "Skill Name"}
             </label>
             <input
+              id="skill-name"
               type="text"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
@@ -154,10 +264,11 @@ export function SkillsSection() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-text-secondary">
+            <label htmlFor="skill-description" className="text-sm font-medium text-text-secondary">
               {t("settings.skills.descLabel") || "Description"}
             </label>
             <input
+              id="skill-description"
               type="text"
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
@@ -167,10 +278,11 @@ export function SkillsSection() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-text-secondary">
+            <label htmlFor="skill-content" className="text-sm font-medium text-text-secondary">
               {t("settings.skills.contentLabel") || "Markdown Content"}
             </label>
             <textarea
+              id="skill-content"
               value={formContent}
               onChange={(e) => setFormContent(e.target.value)}
               placeholder={t("settings.skills.contentPlaceholder") || "Write the instructions here..."}
@@ -223,6 +335,10 @@ export function SkillsSection() {
       />
 
       <div className="space-y-4">
+        {errorMsg && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-sm">{errorMsg}</div>
+        )}
+
         {loading && skills.length === 0 ? (
           <div className="text-sm text-text-muted">{t("settings.skills.loading") || "Loading skills..."}</div>
         ) : skills.length === 0 ? (
@@ -233,45 +349,47 @@ export function SkillsSection() {
               "Create a skill to provide specialized instructions, examples, and knowledge to your AI agents."
             }
           />
+        ) : skills.length >= VIRTUALIZED_SKILL_THRESHOLD && !scrollParent ? (
+          <div className="text-sm text-text-muted">{t("settings.skills.loading") || "Loading skills..."}</div>
+        ) : skills.length >= VIRTUALIZED_SKILL_THRESHOLD && scrollParent ? (
+          <Virtuoso
+            customScrollParent={scrollParent}
+            data={skills}
+            computeItemKey={(_, skill) => skill.id}
+            defaultItemHeight={92}
+            increaseViewportBy={{ top: 200, bottom: 300 }}
+            role="list"
+            aria-label={t("settings.skills.title") || "Agent Skills"}
+            itemContent={(index, skill) => (
+              <SkillListItem
+                skill={skill}
+                index={index}
+                total={skills.length}
+                loadingSkillId={loadingSkillId}
+                editLabel={t("settings.skills.edit") || "Edit Skill"}
+                deleteLabel={t("common.delete") || "Delete"}
+                virtualized
+                onEdit={(selectedSkill) => void handleEdit(selectedSkill)}
+                onDelete={setSkillToDelete}
+              />
+            )}
+          />
         ) : (
-          skills.map((skill) => (
-            <div
-              key={skill.id}
-              className="flex items-center justify-between p-4 rounded-xl border border-border bg-card/50 hover:bg-hover transition-colors group"
-            >
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-text-primary">{skill.name}</span>
-                  <span className="text-xs text-text-muted font-mono px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5">
-                    {skill.id}
-                  </span>
-                </div>
-                <span className="text-sm text-text-muted truncate mt-0.5">{skill.description}</span>
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                <motion.button
-                  onClick={() => handleEdit(skill)}
-                  whileHover={{ scale: motionTokens.scale.pop }}
-                  whileTap={{ scale: motionTokens.scale.press }}
-                  transition={springs.snappy}
-                  className="p-1.5 text-text-muted hover:text-text-primary hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
-                  title={t("settings.skills.edit") || "Edit Skill"}
-                >
-                  <Pencil size={15} />
-                </motion.button>
-                <motion.button
-                  onClick={() => setSkillToDelete(skill.id)}
-                  whileHover={{ scale: motionTokens.scale.pop }}
-                  whileTap={{ scale: motionTokens.scale.press }}
-                  transition={springs.snappy}
-                  className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
-                  title={t("common.delete") || "Delete"}
-                >
-                  <Trash2 size={15} />
-                </motion.button>
-              </div>
-            </div>
-          ))
+          <div className="space-y-4" role="list" aria-label={t("settings.skills.title") || "Agent Skills"}>
+            {skills.map((skill, index) => (
+              <SkillListItem
+                key={skill.id}
+                skill={skill}
+                index={index}
+                total={skills.length}
+                loadingSkillId={loadingSkillId}
+                editLabel={t("settings.skills.edit") || "Edit Skill"}
+                deleteLabel={t("common.delete") || "Delete"}
+                onEdit={(selectedSkill) => void handleEdit(selectedSkill)}
+                onDelete={setSkillToDelete}
+              />
+            ))}
+          </div>
         )}
       </div>
 
