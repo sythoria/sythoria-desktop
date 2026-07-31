@@ -129,6 +129,7 @@ jobs:
             libegl-dev \
             libxcb1-dev \
             libxcb-randr0-dev \
+            libasound2-dev \
             libxrandr-dev \
             libdbus-1-dev \
             patchelf
