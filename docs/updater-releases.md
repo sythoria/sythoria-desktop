@@ -32,10 +32,10 @@ If the key is generated without a password, omit the password steps below; GitHu
 
 The release workflow reads these repository Actions secrets:
 
-| Secret | Value |
-| --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | Full contents of `.tauri/sythoria-updater.key` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Key password, only when one was set |
+| Secret                               | Value                                          |
+| ------------------------------------ | ---------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Full contents of `.tauri/sythoria-updater.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Key password, only when one was set            |
 
 With the GitHub CLI installed and authenticated, set them from the repository root:
 
@@ -61,11 +61,13 @@ If the key has no password, leave out the password export. Avoid placing a real 
 
 `createUpdaterArtifacts: true` produces the signed artifacts alongside platform bundles:
 
-| Platform | Updater artifact |
-| --- | --- |
-| macOS | `src-tauri/target/release/bundle/macos/*.app.tar.gz` and `.sig` |
-| Windows | `src-tauri/target/release/bundle/nsis/*.exe` and `.sig` |
-| Linux | `src-tauri/target/release/bundle/appimage/*.AppImage` and `.sig` |
+| Platform | Updater artifact                                                 |
+| -------- | ---------------------------------------------------------------- |
+| macOS    | `src-tauri/target/release/bundle/macos/*.app.tar.gz` and `.sig`  |
+| Windows  | `src-tauri/target/release/bundle/nsis/*.exe` and `.sig`          |
+| Linux    | `src-tauri/target/release/bundle/appimage/*.AppImage` and `.sig` |
+
+On macOS, the `app` target must remain in `bundle.targets`. A DMG by itself is not an updater artifact; Tauri packages the `.app` bundle as `.app.tar.gz` for updates.
 
 Tauri verifies the `.sig` content before installing. Native updater signing does not replace platform code signing: use Apple signing/notarization for macOS and a Windows signing certificate for production distribution.
 
@@ -104,10 +106,11 @@ The JSON must include the new semantic version and a platform entry with both a 
 
 ## Troubleshooting
 
-| Symptom | Likely cause and fix |
-| --- | --- |
-| Release workflow cannot create update artifacts | `TAURI_SIGNING_PRIVATE_KEY` is absent, malformed, or its password secret is missing. |
-| No update is found | The release is still a draft, `latest.json` is missing, the app version was not increased, or the endpoint is inaccessible. |
-| Signature verification fails | The artifact was signed by a different key than the public key in `tauri.conf.json`. Rebuild with the original private key. |
-| App opens GitHub instead of installing | It is an older build without the native updater. Manually install the first updater-enabled release. |
-| macOS says the app is damaged or Windows shows a warning | Configure platform code signing; updater signatures verify update integrity but do not replace OS publisher signing. |
+| Symptom                                                  | Likely cause and fix                                                                                                                                                                                   |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Release workflow cannot create update artifacts          | `TAURI_SIGNING_PRIVATE_KEY` is absent, malformed, or its password secret is missing.                                                                                                                   |
+| No update is found                                       | The release is still a draft, `latest.json` is missing, the app version was not increased, or the endpoint is inaccessible.                                                                            |
+| Signature verification fails                             | The artifact was signed by a different key than the public key in `tauri.conf.json`. Rebuild with the original private key.                                                                            |
+| `darwin-aarch64-app` / `darwin-aarch64` is missing       | The macOS `.app.tar.gz` updater artifact was not built. Keep `app` in `bundle.targets`, rebuild the release, and verify that both `.app.tar.gz` and `.app.tar.gz.sig` were uploaded before publishing. |
+| App opens GitHub instead of installing                   | It is an older build without the native updater. Manually install the first updater-enabled release.                                                                                                   |
+| macOS says the app is damaged or Windows shows a warning | Configure platform code signing; updater signatures verify update integrity but do not replace OS publisher signing.                                                                                   |

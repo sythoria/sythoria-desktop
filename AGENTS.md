@@ -19,6 +19,12 @@ Sythoria — Desktop AI chat app. Tauri v2 (Rust) + React 19 (TypeScript). Conne
 
 Pre-commit: Husky + lint-staged (`eslint --fix` + `prettier --write`).
 
+## Release Workflow
+
+- Use `npm run release:patch`, `npm run release:minor`, or `npm run release:major` to bump every application version together.
+- Keep the version bump and release-specific fixes in one dedicated commit named `chore(release): Release <version>`.
+- Create an annotated `v<version>` tag on that release commit so the release history stays linear and easy to audit.
+
 ## Directory Structure
 
 ```
@@ -156,7 +162,7 @@ src-tauri/src/
 
 **Whisper Transcription**: Toggle voice recording (`start_recording` / `stop_recording`) → temporary audio recorded → backend runs `transcribe_audio` against downloaded whisper model → output injected into input text.
 
-**App Updates**: `checkForUpdates()` uses the Tauri updater plugin against the signed `latest.json` in GitHub Releases → the update modal downloads and installs the verified platform artifact → the process plugin relaunches Sythoria. Release builds require the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; keep the corresponding private key backed up and never commit it. See `docs/updater-releases.md` for the signing, release, and test procedure.
+**App Updates**: `checkForUpdates()` uses the Tauri updater plugin against the signed `latest.json` in GitHub Releases → the update modal downloads and installs the verified platform artifact → the process plugin relaunches Sythoria. Release builds require the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; keep the corresponding private key backed up and never commit it. The macOS `app` bundle target must remain enabled so Tauri creates the `.app.tar.gz` updater artifact in addition to the DMG. See `docs/updater-releases.md` for the signing, release, and test procedure.
 
 ## Key Types
 
@@ -240,61 +246,61 @@ export interface ModelConfig {
 
 ## Tauri Commands
 
-| Command                                              | Purpose                                            |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `load_config` / `save_config`                        | Encrypted model configs (`models.enc`)             |
-| `load_encrypted_preferences` / `mutate_encrypted_preferences` | Read or atomically mutate encrypted preferences |
-| `load_network_config` / `save_network_config`        | Authenticated network policy (`network.enc`)       |
-| `load_search_config` / `save_search_config`          | Encrypted search configs (`search.enc`)            |
-| `load_api_keys` / `save_api_keys_cmd`                | API keys → OS keychain (keyring)                   |
-| `load_search_api_keys` / `save_search_api_keys_cmd`  | Search API keys → OS keychain                      |
-| `load_encrypted_conversations` / `save_encrypted_conversations` | Read/write encrypted chat snapshots      |
-| `clear_encrypted_conversations`                      | Delete chat ciphertext and its keychain key        |
-| `chat_completion` / `chat_stream`                    | Standard or streaming text generation              |
-| `cancel_chat_stream`                                 | Cancel active stream via `streamId`                |
-| `chat_completion_tools` / `chat_stream_tools`        | Completion/Streaming with tool calls enabled       |
-| `generate_title`                                     | Auto-generate conversation title                   |
-| `check_api` / `check_ollama`                         | Health checks on AI backends                       |
-| `web_search` / `fetch_url_content`                   | Native search presets and web page readers         |
-| `ws_connect` / `ws_send` / `ws_disconnect`           | WebSocket connection commands                      |
-| `load_mcp_config` / `save_mcp_config`                | Encrypted MCP server configs (`mcp.enc`)           |
-| `mcp_start_server` / `mcp_stop_server`               | Spawn stdio MCP client or connect to SSE/HTTP      |
-| `mcp_check_command`                                  | Probes command/args resolution on path             |
-| `mcp_list_tools` / `mcp_call_tool`                   | MCP tool discoverability and execution             |
-| `select_file_and_get_token`                          | Open dialog to import file, returns secure token   |
-| `read_file_from_token`                               | Read local file contents via secure token payload  |
-| `download_whisper_model` / `cancel_whisper_download` | Handle Whisper GGUF asset downloading              |
-| `check_downloaded_whisper_models`                    | Lists cached local Whisper files                   |
-| `transcribe_audio`                                   | Transcribes recorded audio buffer via whisper.cpp  |
-| `load_projects` / `save_projects`                    | Workspace configs storage                          |
-| `set_active_project` / `set_project_path_override`   | Maps workspace and branch context overrides        |
-| `git_detect_repo` / `git_get_status`                 | Identifies local repositories and dirty tracking   |
-| `git_create_commit` / `git_undo_last_commit`         | Creates commits, commits with AI msgs, soft-resets |
-| `git_worktree_create` / `git_worktree_apply`         | Create isolated workspace paths or apply changes   |
-| `git_worktree_discard`                               | Prunes isolated branches and deletes worktree dirs |
-| `project_read` / `project_write` / `project_edit`    | Workspace-scoped file tools                        |
-| `project_list_dir` / `project_grep` / `project_glob` | Workspace directory traversal and search tools     |
-| `project_bash`                                       | Execute system shells inside worktree directory    |
-| `capture_screen` / `list_appshots`                   | Take screenshots, query galleries                  |
-| `has_screen_capture_permission`                      | Check macOS screen recording permissions           |
-| `wipe_config_files`                                  | Ordered keychain, encrypted-chat, and settings wipe |
+| Command                                                         | Purpose                                             |
+| --------------------------------------------------------------- | --------------------------------------------------- |
+| `load_config` / `save_config`                                   | Encrypted model configs (`models.enc`)              |
+| `load_encrypted_preferences` / `mutate_encrypted_preferences`   | Read or atomically mutate encrypted preferences     |
+| `load_network_config` / `save_network_config`                   | Authenticated network policy (`network.enc`)        |
+| `load_search_config` / `save_search_config`                     | Encrypted search configs (`search.enc`)             |
+| `load_api_keys` / `save_api_keys_cmd`                           | API keys → OS keychain (keyring)                    |
+| `load_search_api_keys` / `save_search_api_keys_cmd`             | Search API keys → OS keychain                       |
+| `load_encrypted_conversations` / `save_encrypted_conversations` | Read/write encrypted chat snapshots                 |
+| `clear_encrypted_conversations`                                 | Delete chat ciphertext and its keychain key         |
+| `chat_completion` / `chat_stream`                               | Standard or streaming text generation               |
+| `cancel_chat_stream`                                            | Cancel active stream via `streamId`                 |
+| `chat_completion_tools` / `chat_stream_tools`                   | Completion/Streaming with tool calls enabled        |
+| `generate_title`                                                | Auto-generate conversation title                    |
+| `check_api` / `check_ollama`                                    | Health checks on AI backends                        |
+| `web_search` / `fetch_url_content`                              | Native search presets and web page readers          |
+| `ws_connect` / `ws_send` / `ws_disconnect`                      | WebSocket connection commands                       |
+| `load_mcp_config` / `save_mcp_config`                           | Encrypted MCP server configs (`mcp.enc`)            |
+| `mcp_start_server` / `mcp_stop_server`                          | Spawn stdio MCP client or connect to SSE/HTTP       |
+| `mcp_check_command`                                             | Probes command/args resolution on path              |
+| `mcp_list_tools` / `mcp_call_tool`                              | MCP tool discoverability and execution              |
+| `select_file_and_get_token`                                     | Open dialog to import file, returns secure token    |
+| `read_file_from_token`                                          | Read local file contents via secure token payload   |
+| `download_whisper_model` / `cancel_whisper_download`            | Handle Whisper GGUF asset downloading               |
+| `check_downloaded_whisper_models`                               | Lists cached local Whisper files                    |
+| `transcribe_audio`                                              | Transcribes recorded audio buffer via whisper.cpp   |
+| `load_projects` / `save_projects`                               | Workspace configs storage                           |
+| `set_active_project` / `set_project_path_override`              | Maps workspace and branch context overrides         |
+| `git_detect_repo` / `git_get_status`                            | Identifies local repositories and dirty tracking    |
+| `git_create_commit` / `git_undo_last_commit`                    | Creates commits, commits with AI msgs, soft-resets  |
+| `git_worktree_create` / `git_worktree_apply`                    | Create isolated workspace paths or apply changes    |
+| `git_worktree_discard`                                          | Prunes isolated branches and deletes worktree dirs  |
+| `project_read` / `project_write` / `project_edit`               | Workspace-scoped file tools                         |
+| `project_list_dir` / `project_grep` / `project_glob`            | Workspace directory traversal and search tools      |
+| `project_bash`                                                  | Execute system shells inside worktree directory     |
+| `capture_screen` / `list_appshots`                              | Take screenshots, query galleries                   |
+| `has_screen_capture_permission`                                 | Check macOS screen recording permissions            |
+| `wipe_config_files`                                             | Ordered keychain, encrypted-chat, and settings wipe |
 
 ## Storage
 
-| Data            | Location                                                         |
-| --------------- | ---------------------------------------------------------------- |
-| Conversations   | AES-256-GCM manifest + content-addressed blobs (`conversations/`) |
-| Model configs   | AES-256-GCM authenticated `models.enc` (master in OS keychain)    |
-| API keys        | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
-| Projects        | Authenticated encrypted `projects.enc`                           |
-| Network policy  | Authenticated encrypted `network.enc` + keychain presence marker |
-| Search configs  | Authenticated encrypted preferences / `search.enc`               |
-| MCP configs     | Authenticated encrypted preferences / `mcp.enc`                  |
-| MCP API keys    | OS keychain (service: `com.sythoria.sythoria-desktop`)           |
-| MCP env secrets | OS keychain (service: `mcp-env`, per-server keys)                |
-| Preferences     | Authenticated encrypted `preferences.enc`                        |
-| Whisper Config  | Authenticated encrypted preferences (cloud key in OS keychain)   |
-| UI/window layout | Authenticated encrypted preferences                             |
+| Data             | Location                                                          |
+| ---------------- | ----------------------------------------------------------------- |
+| Conversations    | AES-256-GCM manifest + content-addressed blobs (`conversations/`) |
+| Model configs    | AES-256-GCM authenticated `models.enc` (master in OS keychain)    |
+| API keys         | OS keychain (service: `com.sythoria.sythoria-desktop`)            |
+| Projects         | Authenticated encrypted `projects.enc`                            |
+| Network policy   | Authenticated encrypted `network.enc` + keychain presence marker  |
+| Search configs   | Authenticated encrypted preferences / `search.enc`                |
+| MCP configs      | Authenticated encrypted preferences / `mcp.enc`                   |
+| MCP API keys     | OS keychain (service: `com.sythoria.sythoria-desktop`)            |
+| MCP env secrets  | OS keychain (service: `mcp-env`, per-server keys)                 |
+| Preferences      | Authenticated encrypted `preferences.enc`                         |
+| Whisper Config   | Authenticated encrypted preferences (cloud key in OS keychain)    |
+| UI/window layout | Authenticated encrypted preferences                               |
 
 ## Notes
 

@@ -90,6 +90,12 @@ jobs:
           args: ""
           uploadPlainBinary: false
 
+      - name: Verify macOS updater artifacts
+        shell: bash
+        run: |
+          test -f src-tauri/target/release/bundle/macos/Sythoria.app.tar.gz
+          test -f src-tauri/target/release/bundle/macos/Sythoria.app.tar.gz.sig
+
   build-linux:
     runs-on: ubuntu-24.04
     permissions:
