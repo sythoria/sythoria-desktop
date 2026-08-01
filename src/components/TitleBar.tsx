@@ -5,7 +5,7 @@ import { useKeybindStore } from "../store/useKeybindStore";
 import { useChatStore } from "../store/useChatStore";
 import { useUIStore } from "../store/useUIStore";
 import { generateId } from "../utils/generateId";
-import { uiToast } from "../store/helpers";
+import { useAppVersion } from "../hooks/useAppVersion";
 
 type MenuId = "sythoria" | "file" | "view" | "window";
 type MenuType = MenuId | null;
@@ -65,6 +65,7 @@ export function TitleBar() {
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
 
   const appWindow = getCurrentWindow();
+  const appVersion = useAppVersion();
   const [activeMenu, setActiveMenu] = useState<MenuType>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -156,10 +157,13 @@ export function TitleBar() {
             role="menu"
             aria-label="Sythoria"
           >
-            <DropdownItem label="Version 0.3.0" setActiveMenu={setActiveMenu} />
+            <DropdownItem
+              label={appVersion ? `Version ${appVersion}` : "Version unavailable"}
+              setActiveMenu={setActiveMenu}
+            />
             <DropdownItem
               label="Check for Updates"
-              onClick={() => uiToast("You are on the latest version", "success")}
+              onClick={() => void useUIStore.getState().checkForUpdates(false)}
               setActiveMenu={setActiveMenu}
             />
           </div>
