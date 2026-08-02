@@ -1,7 +1,4 @@
-use crate::{
-    client_builder, is_stream_cancelled, stream_parser, wait_for_stream_cancelled, AppError,
-    ChatMessage,
-};
+use crate::{is_stream_cancelled, stream_parser, wait_for_stream_cancelled, AppError, ChatMessage};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -273,18 +270,25 @@ pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<Anth
     (system_opt, merged)
 }
 
+pub struct AnthropicEndpoint {
+    pub api_url: String,
+    pub api_key: String,
+    pub client: reqwest::Client,
+}
+
 pub async fn chat_completion_anthropic(
-    api_url: String,
-    api_key: String,
+    endpoint: AnthropicEndpoint,
     model: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
+    let AnthropicEndpoint {
+        api_url,
+        api_key,
+        client,
+    } = endpoint;
     let (system, anthropic_messages) = convert_messages(messages);
 
     let max_tokens = max_tokens.unwrap_or(4096);
@@ -311,7 +315,9 @@ pub async fn chat_completion_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("chat_completion API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
@@ -340,6 +346,7 @@ pub async fn chat_completion_anthropic(
 pub async fn chat_completion_tools_anthropic(
     api_url: String,
     api_key: String,
+    client: reqwest::Client,
     model: String,
     messages: Vec<ChatMessage>,
     tools_str: String,
@@ -347,9 +354,6 @@ pub async fn chat_completion_tools_anthropic(
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -377,7 +381,9 @@ pub async fn chat_completion_tools_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body_str = resp.text().await.unwrap_or_default();
+        let body_str = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("chat_completion_tools API error {}: {}", status, body_str);
         return Err(AppError::ApiError {
             status,
@@ -442,6 +448,7 @@ pub async fn chat_completion_tools_anthropic(
 pub async fn chat_stream_anthropic(
     api_url: String,
     api_key: String,
+    client: reqwest::Client,
     model: String,
     messages: Vec<ChatMessage>,
     temperature: f64,
@@ -450,9 +457,6 @@ pub async fn chat_stream_anthropic(
     thinking_level: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
 
     let max_tokens = max_tokens.unwrap_or(4096);
@@ -487,6 +491,7 @@ pub async fn chat_stream_anthropic(
             result = resp.text() => result.unwrap_or_default(),
             _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize()),
         };
+        let body_str = crate::endpoint_security::sanitize_provider_error(&body_str);
         log::error!("chat_stream API error {}: {}", status, body_str);
         return Err(AppError::ApiError {
             status,
@@ -548,6 +553,7 @@ pub async fn chat_stream_anthropic(
 pub async fn chat_stream_tools_anthropic(
     api_url: String,
     api_key: String,
+    client: reqwest::Client,
     model: String,
     messages: Vec<ChatMessage>,
     tools_str: String,
@@ -557,9 +563,6 @@ pub async fn chat_stream_tools_anthropic(
     thinking_level: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<String, AppError> {
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
     let (system, anthropic_messages) = convert_messages(messages);
     let tools = convert_tools(&tools_str);
 
@@ -595,6 +598,7 @@ pub async fn chat_stream_tools_anthropic(
             result = resp.text() => result.unwrap_or_default(),
             _ = wait_for_stream_cancelled(&stream_id) => return Ok(parser.finalize_tools()),
         };
+        let body_str = crate::endpoint_security::sanitize_provider_error(&body_str);
         log::error!("chat_stream_tools API error {}: {}", status, body_str);
         return Err(AppError::ApiError {
             status,
@@ -652,10 +656,11 @@ pub async fn chat_stream_tools_anthropic(
     Ok(parser.finalize_tools())
 }
 
-pub async fn check_api_anthropic(api_url: String, api_key: String) -> Result<bool, AppError> {
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+pub async fn check_api_anthropic(
+    api_url: String,
+    api_key: String,
+    client: reqwest::Client,
+) -> Result<bool, AppError> {
     let body = AnthropicRequest {
         model: "claude-3-haiku-20240307".to_string(),
         messages: vec![AnthropicMessage {
