@@ -3,10 +3,10 @@
  * have elapsed since the last time the debounced function was invoked.
  * Provides a `.cancel()` method to cancel any pending invocations.
  */
-export function debounce<T extends (...args: any[]) => any>(fn: T, delay: number) {
+export function debounce<TArgs extends unknown[], TResult>(fn: (...args: TArgs) => TResult, delay: number) {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const debounced = function (...args: Parameters<T>) {
+  const debounced = function (...args: TArgs) {
     if (timer) {
       clearTimeout(timer);
     }
