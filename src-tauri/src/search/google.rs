@@ -23,17 +23,17 @@ pub async fn search(
         .get("baseUrl")
         .and_then(|v| v.as_str())
         .unwrap_or("https://www.googleapis.com/customsearch/v1");
-
-    let client = crate::client_builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| {
-            log::error!("Failed to build HTTP client: {}", e);
-            SearchError::RequestFailed(e.to_string())
-        })?;
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        base_url,
+        crate::search::allows_local_network(config),
+        true,
+        std::time::Duration::from_secs(15),
+    )
+    .await
+    .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
 
     let url = reqwest::Url::parse_with_params(
-        base_url,
+        endpoint.url.as_str(),
         &[
             ("key", api_key),
             ("cx", cx),
@@ -43,7 +43,7 @@ pub async fn search(
     )
     .map_err(|e| SearchError::ConfigError(format!("Invalid base URL: {}", e)))?;
 
-    let resp = client.get(url).send().await.map_err(|e| {
+    let resp = endpoint.client.get(url).send().await.map_err(|e| {
         let sanitized = e.without_url().to_string();
         log::error!("Google search request failed: {}", sanitized);
         SearchError::RequestFailed(sanitized)
@@ -51,7 +51,9 @@ pub async fn search(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("Google API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
             "Google API error {}: {}",
