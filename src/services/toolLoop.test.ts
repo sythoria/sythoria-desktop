@@ -9,13 +9,14 @@ import {
   sendWithToolLoop,
   type ToolLoopSlice,
 } from "./toolLoop";
+import type { Conversation } from "../types";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-const mockToasts: any[] = [];
-const mockAddToast = vi.fn((msg, variant) => {
+const mockToasts: { msg: unknown; variant: unknown }[] = [];
+const mockAddToast = vi.fn((msg: unknown, variant: unknown) => {
   mockToasts.push({ msg, variant });
 });
 const mockAddTask = vi.fn();
@@ -58,45 +59,8 @@ vi.mock("../store/useModelStore", () => ({
   },
 }));
 
-const mockConversations: any[] = [];
-const mockActiveStreamContent: Record<string, string> = {};
-const mockActiveStreamReasoning: Record<string, string> = {};
+const mockConversations: Conversation[] = [];
 const mockResumeConversation = vi.fn().mockResolvedValue(undefined);
-const mockSetState = vi.fn((fn: any) => {
-  const next =
-    typeof fn === "function"
-      ? fn({
-          conversations: mockConversations,
-          activeStreamContent: mockActiveStreamContent,
-          activeStreamReasoning: mockActiveStreamReasoning,
-          activeStreamThinkingStart: {},
-          activeStreamThinkingEnd: {},
-        })
-      : fn;
-  if (next.conversations) {
-    mockConversations.length = 0;
-    mockConversations.push(...next.conversations);
-  }
-  if (next.activeStreamContent) {
-    Object.assign(mockActiveStreamContent, next.activeStreamContent);
-  }
-  if (next.activeStreamReasoning) {
-    Object.assign(mockActiveStreamReasoning, next.activeStreamReasoning);
-  }
-});
-
-vi.mock("../store/useChatStore", () => ({
-  useChatStore: {
-    getState: () => ({
-      persistConversations: vi.fn(),
-      conversations: mockConversations,
-      activeStreamContent: mockActiveStreamContent,
-      activeStreamReasoning: mockActiveStreamReasoning,
-      resumeConversation: mockResumeConversation,
-    }),
-    setState: (fn: any) => mockSetState(fn),
-  },
-}));
 
 const invokeMock = vi.mocked(invoke);
 
@@ -106,12 +70,6 @@ beforeEach(() => {
   mockStreamContent = "Simulated content chunk";
   mockStreamReasoning = "";
   mockConversations.length = 0;
-  for (const key of Object.keys(mockActiveStreamContent)) {
-    delete mockActiveStreamContent[key];
-  }
-  for (const key of Object.keys(mockActiveStreamReasoning)) {
-    delete mockActiveStreamReasoning[key];
-  }
   mockAddTask.mockClear();
   mockCompleteTask.mockClear();
 });
@@ -346,6 +304,7 @@ describe("sendWithToolLoop", () => {
   });
 
   it("stops execution if the conversation-specific stream is cancelled (cancellation isolation)", async () => {
+    mockStreamContent = "";
     // Mock the invoke call to return immediately (simulating stream complete)
     invokeMock.mockResolvedValueOnce(JSON.stringify({ choices: [{ message: { content: "Subagent content" } }] }));
 
@@ -444,6 +403,7 @@ describe("sendWithToolLoop", () => {
       generationByConversation: {
         "sub-1": { state: "loading", label: "Loading" },
       },
+      resumeConversation: mockResumeConversation,
     };
 
     const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
