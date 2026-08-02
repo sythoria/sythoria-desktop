@@ -2,6 +2,7 @@ mod anthropic;
 mod appshots;
 mod atomic_file;
 pub mod commands;
+mod endpoint_security;
 mod git;
 mod mcp;
 pub mod project;
@@ -422,13 +423,7 @@ async fn get_search_api_key(app: &tauri::AppHandle, config_id: &str) -> Result<S
 use commands::config::get_model_config_and_key;
 
 fn truncate_error(body: &str) -> String {
-    let mut chars = body.chars();
-    let preview: String = chars.by_ref().take(200).collect();
-    if chars.next().is_some() {
-        format!("{preview}...")
-    } else {
-        preview
-    }
+    endpoint_security::sanitize_provider_error(body)
 }
 
 #[tauri::command]
@@ -446,13 +441,26 @@ async fn chat_completion(
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider, allow_local_network) =
+        get_model_config_and_key(&app, &config_id).await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &api_url,
+        allow_local_network,
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(60),
+    )
+    .await?;
+    let api_url = endpoint.url.to_string();
+    let client = endpoint.client;
 
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_completion_anthropic(
-                api_url,
-                api_key,
+                anthropic::AnthropicEndpoint {
+                    api_url,
+                    api_key,
+                    client,
+                },
                 model,
                 messages,
                 temperature,
@@ -462,9 +470,6 @@ async fn chat_completion(
             .await;
         }
     }
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let (max_tokens, max_completion_tokens) =
         completion_token_params(provider.as_deref(), max_tokens);
@@ -526,13 +531,24 @@ async fn chat_stream(
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
-    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider, allow_local_network) =
+        get_model_config_and_key(&app, &config_id).await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &api_url,
+        allow_local_network,
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(120),
+    )
+    .await?;
+    let api_url = endpoint.url.to_string();
+    let client = endpoint.client;
 
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_stream_anthropic(
                 api_url,
                 api_key,
+                client,
                 model,
                 messages,
                 temperature,
@@ -544,9 +560,6 @@ async fn chat_stream(
             .await;
         }
     }
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let (max_tokens, max_completion_tokens) =
         completion_token_params(provider.as_deref(), max_tokens);
@@ -644,7 +657,17 @@ async fn chat_stream_tools(
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
-    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider, allow_local_network) =
+        get_model_config_and_key(&app, &config_id).await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &api_url,
+        allow_local_network,
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(120),
+    )
+    .await?;
+    let api_url = endpoint.url.to_string();
+    let client = endpoint.client;
 
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
@@ -655,6 +678,7 @@ async fn chat_stream_tools(
             return anthropic::chat_stream_tools_anthropic(
                 api_url,
                 api_key,
+                client,
                 model,
                 parsed_messages,
                 tools,
@@ -685,10 +709,6 @@ async fn chat_stream_tools(
         reasoning_effort: reasoning.reasoning_effort,
         reasoning: reasoning.reasoning,
     };
-
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
 
     let mut request = client.post(&api_url).json(&body);
     request = request.header("Content-Type", "application/json");
@@ -770,7 +790,17 @@ async fn chat_completion_tools(
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider, allow_local_network) =
+        get_model_config_and_key(&app, &config_id).await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &api_url,
+        allow_local_network,
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(60),
+    )
+    .await?;
+    let api_url = endpoint.url.to_string();
+    let client = endpoint.client;
 
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
@@ -781,6 +811,7 @@ async fn chat_completion_tools(
             return anthropic::chat_completion_tools_anthropic(
                 api_url,
                 api_key,
+                client,
                 model,
                 parsed_messages,
                 tools,
@@ -810,10 +841,6 @@ async fn chat_completion_tools(
         reasoning: reasoning.reasoning,
     };
 
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()?;
-
     let mut request = client.post(&api_url).json(&body);
     request = request.header("Content-Type", "application/json");
     if !api_key.is_empty() {
@@ -840,14 +867,23 @@ async fn chat_completion_tools(
 #[tauri::command]
 async fn check_api(app: tauri::AppHandle, config_id: String) -> Result<bool, AppError> {
     ensure_online()?;
-    let (api_url, api_key, _, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, _, provider, allow_local_network) =
+        get_model_config_and_key(&app, &config_id).await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &api_url,
+        allow_local_network,
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
+    let api_url = endpoint.url.to_string();
+    let client = endpoint.client;
 
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase() == "anthropic" {
-            return anthropic::check_api_anthropic(api_url, api_key).await;
+            return anthropic::check_api_anthropic(api_url, api_key, client).await;
         }
     }
-    let client = client_builder().build()?;
 
     let base_url = api_url
         .trim_end_matches('/')
@@ -883,12 +919,14 @@ struct OllamaModel {
 #[tauri::command]
 async fn check_ollama() -> Result<Vec<String>, AppError> {
     ensure_online()?;
-    let client = client_builder().build()?;
-    let resp = client
-        .get("http://127.0.0.1:11434/api/tags")
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        "http://127.0.0.1:11434/api/tags",
+        true,
+        false,
+        std::time::Duration::from_secs(5),
+    )
+    .await?;
+    let resp = endpoint.client.get(endpoint.url).send().await?;
 
     if resp.status().is_success() {
         let ollama_res: OllamaResponse = resp.json().await?;
@@ -1003,6 +1041,7 @@ async fn ws_chat(
     url: String,
     api_key: Option<String>,
     model: String,
+    allow_local_network: Option<bool>,
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<String, AppError> {
@@ -1013,6 +1052,7 @@ async fn ws_chat(
         model,
         reconnect: true,
         max_reconnect_attempts: 5,
+        allow_local_network: allow_local_network.unwrap_or(false),
     };
     ws_handler::ws_connect(config, app, &session)
         .await
@@ -1025,6 +1065,7 @@ async fn ws_connect(
     url: String,
     api_key: Option<String>,
     model: String,
+    allow_local_network: Option<bool>,
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<(), AppError> {
@@ -1035,6 +1076,7 @@ async fn ws_connect(
         model,
         reconnect: true,
         max_reconnect_attempts: 5,
+        allow_local_network: allow_local_network.unwrap_or(false),
     };
     ws_handler::ws_connect(config, app, &session)
         .await
@@ -1067,21 +1109,34 @@ async fn ws_authenticate(
     username: String,
     api_key: String,
     server_url: String,
+    allow_local_network: Option<bool>,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let client = client_builder().build()?;
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &auth_url,
+        allow_local_network.unwrap_or(false),
+        true,
+        std::time::Duration::from_secs(15),
+    )
+    .await?;
 
     let body = serde_json::json!({
         "username": username,
         "api_key": api_key,
     });
 
-    let resp = client.post(&auth_url).json(&body).send().await?;
+    let resp = endpoint
+        .client
+        .post(endpoint.url)
+        .json(&body)
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body =
+            endpoint_security::sanitize_provider_error(&resp.text().await.unwrap_or_default());
         log::error!("ws_authenticate API error {}: {}", status, body);
         return Err(AppError::ApiError {
             status,
@@ -1102,81 +1157,39 @@ async fn ws_authenticate(
 
 #[tauri::command]
 async fn generate_title(
-    api_url: String,
-    api_key: String,
-    model: String,
+    app: tauri::AppHandle,
+    config_id: String,
     user_message: String,
     system_prompt: String,
 ) -> Result<String, AppError> {
-    ensure_online()?;
-    let client = client_builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
-    let body = ChatRequest {
-        model,
-        messages: vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: Some(serde_json::Value::String(system_prompt)),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-                anthropic_content: None,
-                reasoning_details: None,
-                reasoning: None,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: Some(serde_json::Value::String(user_message)),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-                anthropic_content: None,
-                reasoning_details: None,
-                reasoning: None,
-            },
-        ],
-        temperature: Some(0.3),
-        stream: false,
-        max_tokens: None,
-        max_completion_tokens: None,
-        reasoning_effort: None,
-        reasoning: None,
-    };
-
-    let mut request = client.post(&api_url).json(&body);
-    request = request.header("Content-Type", "application/json");
-    if !api_key.is_empty() {
-        request = request.header("Authorization", format!("Bearer {}", api_key));
-    }
-
-    let resp = request.send().await?;
-
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        log::error!("generate_title API error {}: {}", status, body);
-        return Err(AppError::ApiError {
-            status,
-            message: format!("Title generation failed: {}", body),
-        });
-    }
-
-    let chat_resp: ChatResponse = resp
-        .json()
-        .await
-        .map_err(|e| AppError::ParseError(e.to_string()))?;
-
-    let content = chat_resp
-        .choices
-        .into_iter()
-        .next()
-        .and_then(|c| c.message)
-        .and_then(|m| m.content)
-        .unwrap_or_default();
-
-    let trimmed = content.trim().to_string();
-    Ok(trimmed)
+    let messages = vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: Some(serde_json::Value::String(system_prompt)),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            anthropic_content: None,
+            reasoning_details: None,
+            reasoning: None,
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: Some(serde_json::Value::String(user_message)),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            anthropic_content: None,
+            reasoning_details: None,
+            reasoning: None,
+        },
+    ];
+    Ok(
+        chat_completion(app, config_id, messages, 0.3, Some(64), None)
+            .await?
+            .trim()
+            .to_string(),
+    )
 }
 
 #[tauri::command]
@@ -2236,7 +2249,8 @@ pub fn run() {
             project::load_projects,
             project::save_projects,
             project::set_active_project,
-            project::set_project_path_override,
+            project::project_run_begin,
+            project::project_run_end,
             git::git_detect_repo,
             git::git_get_status,
             git::git_create_commit,
@@ -2325,10 +2339,10 @@ mod tests {
 
     #[test]
     fn error_preview_truncates_on_a_character_boundary() {
-        let body = format!("{}🦀suffix", "a".repeat(199));
+        let body = format!("{}🦀suffix", "a".repeat(511));
         let preview = truncate_error(&body);
 
-        assert!(preview.starts_with(&"a".repeat(199)));
+        assert!(preview.starts_with(&"a".repeat(511)));
         assert!(preview.contains('🦀'));
         assert!(preview.ends_with("..."));
     }
