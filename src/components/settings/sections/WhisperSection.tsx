@@ -102,11 +102,15 @@ export function WhisperSection() {
         contentClassName="space-y-4"
       >
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+          <label
+            htmlFor="voice-language-trigger"
+            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+          >
             <Globe size={13} />
             <span>{t("settings.voice.language")}</span>
           </label>
           <Select
+            id="voice-language"
             value={language}
             onChange={setLanguage}
             options={[
@@ -125,11 +129,15 @@ export function WhisperSection() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+          <label
+            htmlFor="voice-refinement-model-trigger"
+            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+          >
             <Sparkles size={13} />
             <span>Refinement Model (Instant LLM Polish)</span>
           </label>
           <Select
+            id="voice-refinement-model"
             value={refinementModelId || ""}
             onChange={(value) => setRefinementModelId(value || null)}
             options={[
@@ -142,11 +150,18 @@ export function WhisperSection() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+          <div
+            id="voice-stt-engine-label"
+            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+          >
             <Settings2 size={13} />
             <span>Speech-to-Text Engine</span>
-          </label>
-          <div className="flex bg-surface border border-border/85 rounded-lg p-1 gap-1">
+          </div>
+          <div
+            className="flex bg-surface border border-border/85 rounded-lg p-1 gap-1"
+            role="group"
+            aria-labelledby="voice-stt-engine-label"
+          >
             <button
               onClick={() => setSttProvider("cloud")}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
@@ -175,8 +190,11 @@ export function WhisperSection() {
         {sttProvider === "cloud" && (
           <div className="bg-surface border border-border/60 rounded-xl p-3 space-y-3 mt-2">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary">OpenAI-Compatible API URL</label>
+              <label htmlFor="voice-cloud-api-url" className="text-xs font-semibold text-text-secondary">
+                OpenAI-Compatible API URL
+              </label>
               <input
+                id="voice-cloud-api-url"
                 type="text"
                 value={cloudApiUrl}
                 onChange={(e) => setCloudApiUrl(e.target.value)}
@@ -185,8 +203,11 @@ export function WhisperSection() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary">API Key</label>
+              <label htmlFor="voice-cloud-api-key" className="text-xs font-semibold text-text-secondary">
+                API Key
+              </label>
               <input
+                id="voice-cloud-api-key"
                 type="password"
                 value={cloudApiKey}
                 onChange={(e) => setCloudApiKey(e.target.value)}
@@ -195,8 +216,11 @@ export function WhisperSection() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-text-secondary">STT Model ID</label>
+              <label htmlFor="voice-cloud-model" className="text-xs font-semibold text-text-secondary">
+                STT Model ID
+              </label>
               <input
+                id="voice-cloud-model"
                 type="text"
                 value={cloudModel}
                 onChange={(e) => setCloudModel(e.target.value)}
