@@ -106,6 +106,7 @@ export interface ModelConfig {
   /** Per-model reasoning preference. "auto" omits provider-specific controls. */
   thinkingLevel?: ThinkingLevel;
   systemPromptOverride?: string;
+  allowLocalNetwork?: boolean;
 }
 
 export type SearchProvider = "google" | "searxng" | "firecrawl" | "custom";
@@ -119,6 +120,7 @@ export interface SearchApiConfig {
   cx?: string;
   maxResults: number;
   enabled: boolean;
+  allowLocalNetwork?: boolean;
 }
 
 export type FetchProvider = "firecrawl" | "jina";
@@ -130,6 +132,7 @@ export interface FetchApiConfig {
   baseUrl?: string;
   apiKey?: string;
   enabled: boolean;
+  allowLocalNetwork?: boolean;
 }
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
