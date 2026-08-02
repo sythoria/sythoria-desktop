@@ -4,7 +4,6 @@ import { Minus, Square, X } from "lucide-react";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useChatStore } from "../store/useChatStore";
 import { useUIStore } from "../store/useUIStore";
-import { generateId } from "../utils/generateId";
 import { useAppVersion } from "../hooks/useAppVersion";
 
 type MenuId = "sythoria" | "file" | "view" | "window";
@@ -28,6 +27,7 @@ const MenuButton = ({
     aria-haspopup="menu"
     aria-expanded={activeMenu === id}
     aria-controls={activeMenu === id ? `titlebar-menu-${id}` : undefined}
+    data-menu-trigger={id}
     className={`menu-trigger px-2 py-1 rounded-md transition-colors ${
       activeMenu === id ? "bg-hover text-text-primary" : "hover:bg-hover hover:text-text-primary"
     }`}
@@ -126,10 +126,48 @@ export function TitleBar() {
   };
 
   const handleCreateChat = () => {
-    const id = generateId();
-    useChatStore.getState().setActiveId(id);
-    useUIStore.getState().setView("chat");
+    useChatStore.getState().newChat();
     setActiveMenu(null);
+  };
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const menuIds: MenuId[] = ["sythoria", "file", "view", "window"];
+    const triggers = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[data-menu-trigger]") ?? []);
+    const activeTriggerIndex = triggers.findIndex((trigger) => trigger === document.activeElement);
+    const currentIndex =
+      activeTriggerIndex >= 0 ? activeTriggerIndex : Math.max(0, menuIds.indexOf(activeMenu ?? "sythoria"));
+    const dropdown = menuRef.current?.querySelector<HTMLElement>("[role='menu']");
+    const items = Array.from(dropdown?.querySelectorAll<HTMLButtonElement>("button[role='menuitem']") ?? []);
+    const itemIndex = items.findIndex((item) => item === document.activeElement);
+
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const delta = event.key === "ArrowRight" ? 1 : -1;
+      const nextIndex = (currentIndex + delta + triggers.length) % triggers.length;
+      triggers[nextIndex]?.focus();
+      if (activeMenu) setActiveMenu(menuIds[nextIndex]);
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      triggers[event.key === "Home" ? 0 : triggers.length - 1]?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (activeTriggerIndex >= 0) {
+        setActiveMenu(menuIds[activeTriggerIndex]);
+        requestAnimationFrame(() => {
+          const nextItems = menuRef.current?.querySelectorAll<HTMLButtonElement>(
+            "[role='menu'] button[role='menuitem']",
+          );
+          nextItems?.[event.key === "ArrowDown" ? 0 : nextItems.length - 1]?.focus();
+        });
+      } else if (items.length > 0) {
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        items[(itemIndex + delta + items.length) % items.length]?.focus();
+      }
+    }
   };
 
   if (isMac) return null;
@@ -143,7 +181,9 @@ export function TitleBar() {
         ref={menuRef}
         className="flex items-center h-full px-2 text-xs font-medium text-text-muted relative"
         role="menubar"
+        tabIndex={-1}
         aria-label="Application menu"
+        onKeyDown={handleMenuKeyDown}
       >
         <MenuButton id="sythoria" label="Sythoria" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
         <MenuButton id="file" label="File" activeMenu={activeMenu} handleMenuClick={handleMenuClick} />
@@ -157,10 +197,9 @@ export function TitleBar() {
             role="menu"
             aria-label="Sythoria"
           >
-            <DropdownItem
-              label={appVersion ? `Version ${appVersion}` : "Version unavailable"}
-              setActiveMenu={setActiveMenu}
-            />
+            <div role="presentation" className="px-3 py-1.5 text-sm text-text-muted">
+              {appVersion ? `Version ${appVersion}` : "Version unavailable"}
+            </div>
             <DropdownItem
               label="Check for Updates"
               onClick={() => void useUIStore.getState().checkForUpdates(false)}
