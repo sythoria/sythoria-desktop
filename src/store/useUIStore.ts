@@ -47,9 +47,9 @@ export interface ToolConfirmation {
   id: string;
   conversationId?: string;
   toolName: string;
-  arguments: Record<string, any>;
+  arguments: Record<string, unknown>;
   resolve: (approved: boolean) => void;
-  schema?: any;
+  schema?: Record<string, unknown>;
   destination?: string;
 }
 
