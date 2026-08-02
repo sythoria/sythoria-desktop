@@ -25,9 +25,28 @@ fn get_and_validate_git_project(
     write_required: bool,
     worktree_path: Option<&str>,
     allow_worktree_override: bool,
+    run_token: Option<&str>,
 ) -> Result<PathBuf, AppError> {
-    // 1. Validate active project ID
+    let capability_root = if let Some(token) = run_token {
+        crate::project::validate_project_run(state, token, project_id, worktree_path)
+            .map_err(|e| AppError::GitError(e.to_string()))?
+    } else if let Some(path) = worktree_path.filter(|_| !write_required && allow_worktree_override)
     {
+        let project = state
+            .projects
+            .lock()
+            .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
+            .get(project_id)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::GitError("Access denied: Project not found in registry".to_string())
+            })?;
+        Some(
+            crate::project::validate_owned_worktree(&project, path, None)
+                .map_err(|e| AppError::GitError(e.to_string()))?
+                .path,
+        )
+    } else {
         let active_guard = state
             .active_project_id
             .lock()
@@ -40,7 +59,8 @@ fn get_and_validate_git_project(
                 ))
             }
         }
-    }
+        None
+    };
 
     // 2. Retrieve project config
     let projects_guard = state
@@ -62,7 +82,9 @@ fn get_and_validate_git_project(
         ));
     }
 
-    let repo_path = if allow_worktree_override {
+    let repo_path = if let Some(path) = capability_root {
+        path
+    } else if allow_worktree_override {
         crate::project::resolve_project_root(state, &project, project_id, worktree_path)
             .map_err(|e| AppError::GitError(e.to_string()))?
     } else {
@@ -289,9 +311,16 @@ pub async fn git_get_status(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
     worktree_path: Option<String>,
+    run_token: Option<String>,
 ) -> Result<GitStatus, AppError> {
-    let repo_path =
-        get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref(), true)?;
+    let repo_path = get_and_validate_git_project(
+        &state,
+        &project_id,
+        false,
+        worktree_path.as_deref(),
+        true,
+        run_token.as_deref(),
+    )?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     if !repo_path.exists() {
@@ -419,9 +448,16 @@ pub async fn git_create_commit(
     author_email: Option<String>,
     bypass_hooks: bool,
     worktree_path: Option<String>,
+    run_token: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path =
-        get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref(), true)?;
+    let repo_path = get_and_validate_git_project(
+        &state,
+        &project_id,
+        true,
+        worktree_path.as_deref(),
+        true,
+        run_token.as_deref(),
+    )?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Stage files
@@ -504,7 +540,7 @@ pub async fn git_undo_last_commit(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // Require native confirmation dialog for destructive action
@@ -551,7 +587,7 @@ pub async fn git_checkout_branch(
     project_id: String,
     branch: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false, None)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -578,9 +614,16 @@ pub async fn git_diff_changes(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
     worktree_path: Option<String>,
+    run_token: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path =
-        get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref(), true)?;
+    let repo_path = get_and_validate_git_project(
+        &state,
+        &project_id,
+        false,
+        worktree_path.as_deref(),
+        true,
+        run_token.as_deref(),
+    )?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     let output = Command::new("git")
@@ -625,8 +668,25 @@ pub async fn git_diff_changes(
 pub async fn git_worktree_create(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
-) -> Result<(String, String), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
+    conversation_id: String,
+) -> Result<(String, String, String), AppError> {
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
+        .get(&project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::GitError("Access denied: Project not found in registry".to_string())
+        })?;
+    if project.permissions == crate::project::ProjectPermission::Read {
+        return Err(AppError::GitError(
+            "Permission denied: write access not allowed".to_string(),
+        ));
+    }
+    let repo_path = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize project root: {e}")))?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // 1. Generate unique branch name and worktree path
@@ -668,7 +728,16 @@ pub async fn git_worktree_create(
     crate::project::validate_owned_worktree(project, &worktree_path_str, Some(&branch_name))
         .map_err(|e| AppError::GitError(e.to_string()))?;
 
-    Ok((worktree_path_str, branch_name))
+    let run_token = crate::project::register_project_run(
+        &state,
+        &project_id,
+        &conversation_id,
+        Some(&worktree_path_str),
+        Some(&branch_name),
+    )
+    .map_err(|e| AppError::GitError(e.to_string()))?;
+
+    Ok((worktree_path_str, branch_name, run_token))
 }
 
 #[tauri::command]
@@ -678,9 +747,6 @@ pub async fn git_worktree_apply(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
-    let repo_path_str = repo_path.to_string_lossy().into_owned();
-
     let project = state
         .projects
         .lock()
@@ -690,6 +756,15 @@ pub async fn git_worktree_apply(
         .ok_or_else(|| {
             AppError::GitError("Access denied: Project not found in registry".to_string())
         })?;
+    if project.permissions == crate::project::ProjectPermission::Read {
+        return Err(AppError::GitError(
+            "Permission denied: write access not allowed".to_string(),
+        ));
+    }
+    let repo_path = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize project root: {e}")))?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
     let verified =
         crate::project::validate_owned_worktree(&project, &worktree_path, Some(&branch_name))
             .map_err(|e| AppError::GitError(e.to_string()))?;
@@ -710,8 +785,6 @@ pub async fn git_worktree_discard(
     worktree_path: String,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
-    let repo_path_str = repo_path.to_string_lossy().into_owned();
     let project = state
         .projects
         .lock()
@@ -721,6 +794,15 @@ pub async fn git_worktree_discard(
         .ok_or_else(|| {
             AppError::GitError("Access denied: Project not found in registry".to_string())
         })?;
+    if project.permissions == crate::project::ProjectPermission::Read {
+        return Err(AppError::GitError(
+            "Permission denied: write access not allowed".to_string(),
+        ));
+    }
+    let repo_path = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize project root: {e}")))?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
 
     // Clean up worktree and delete temp branch
     cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
