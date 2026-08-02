@@ -40,6 +40,7 @@ describe("ModelCard", () => {
       apiBase: "https://api.openai.com/v1/chat/completions",
       modelId: "gpt-4o",
       name: "OpenAI",
+      allowLocalNetwork: false,
     });
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
   });
