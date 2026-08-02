@@ -365,6 +365,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       modelId: "gpt-4o",
       provider: "OpenAI",
       enabled: true,
+      allowLocalNetwork: false,
     };
     const { models } = get();
     const updated = [...models, newModel];
