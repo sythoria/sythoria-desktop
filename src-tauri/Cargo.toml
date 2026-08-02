@@ -1,6 +1,6 @@
 [package]
 name = "sythoria"
-version = "0.4.1"
+version = "0.4.2"
 description = "Desktop UI for LLMs"
 authors = ["xNOTHINGx", "DenysHandziichuk"]
 edition = "2021"
