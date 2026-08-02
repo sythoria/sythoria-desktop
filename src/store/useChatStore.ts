@@ -52,7 +52,6 @@ import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
-import { sendWithToolLoop } from "../services/toolLoop";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
   uiToast,
@@ -796,7 +795,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (text, attachments) => {
     const { activeId, isCompareMode, compareIds } = get();
-    const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
+    const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
 
     if (activeId) {
       const activeGen = get().generationByConversation[activeId];
@@ -928,17 +927,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
 
       if (isFirstForThis && !isTemporary && titleConfig.enabled) {
-        generateConversationTitle(cId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
+        generateConversationTitle(cId, text || fallbackTitle, modelConfig, titleConfig, set, get);
       }
 
       const toolLoop = getEnabledToolLoopConfig();
       if (toolLoop.shouldUseTools) {
-        const {
-          activeProjectId: runActiveProjectId,
-          isProjectsEnabled: runProjectsEnabled,
-          projects: runProjects,
-        } = useProjectStore.getState();
-        const activeProject = runProjectsEnabled ? runProjects.find((p) => p.id === runActiveProjectId) || null : null;
+        const { isProjectsEnabled: runProjectsEnabled, projects: runProjects } = useProjectStore.getState();
+        const conversationProjectId = get().conversations.find((candidate) => candidate.id === cId)?.projectId;
+        const activeProject = runProjectsEnabled
+          ? runProjects.find((project) => project.id === conversationProjectId) || null
+          : null;
+        const { sendWithToolLoop } = await import("../services/toolLoop");
         await sendWithToolLoop(
           cId,
           modelConfig,
@@ -1169,14 +1168,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const toolLoop = getEnabledToolLoopConfig();
     if (toolLoop.shouldUseTools) {
-      const {
-        activeProjectId: retryToolActiveProjectId,
-        isProjectsEnabled: retryToolProjectsEnabled,
-        projects: retryToolProjects,
-      } = useProjectStore.getState();
+      const { isProjectsEnabled: retryToolProjectsEnabled, projects: retryToolProjects } = useProjectStore.getState();
       const activeProject = retryToolProjectsEnabled
-        ? retryToolProjects.find((p) => p.id === retryToolActiveProjectId) || null
+        ? retryToolProjects.find((project) => project.id === conv.projectId) || null
         : null;
+      const { sendWithToolLoop } = await import("../services/toolLoop");
       await sendWithToolLoop(
         convId,
         modelConfig,
@@ -1325,10 +1321,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    const { activeProjectId, isProjectsEnabled, projects } = useProjectStore.getState();
-    const project = isProjectsEnabled ? projects.find((p) => p.id === activeProjectId) || null : null;
+    const { isProjectsEnabled, projects } = useProjectStore.getState();
+    const project = isProjectsEnabled ? projects.find((candidate) => candidate.id === conv.projectId) || null : null;
 
     const toolLoop = getEnabledToolLoopConfig();
+    const { sendWithToolLoop } = await import("../services/toolLoop");
 
     await sendWithToolLoop(
       convId,
@@ -1704,7 +1701,6 @@ function generateConversationTitle(
   convId: string,
   userText: string,
   chatModelConfig: ModelConfig,
-  apiKeys: Record<string, string>,
   titleConfig: TitleGenerationConfig,
   set: (fn: (state: ChatState) => Partial<ChatState>) => void,
   get: () => ChatState,
@@ -1726,16 +1722,10 @@ function generateConversationTitle(
     }
   }
 
-  const apiUrl = titleModelConfig.apiBase;
-  const apiKey = apiKeys[titleModelConfig.id] ?? titleModelConfig.apiKey ?? "";
-  const model = titleModelConfig.modelId;
   const systemPrompt = titleConfig.systemPrompt.replace(/\{\{userMessage\}\}/g, userText);
 
   invoke<string>("generate_title", {
-    apiUrl,
-    apiKey,
-    model,
-    provider: titleModelConfig.provider,
+    configId: titleModelConfig.id,
     userMessage: userText,
     systemPrompt,
   })
