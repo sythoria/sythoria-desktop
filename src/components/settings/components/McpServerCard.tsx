@@ -453,6 +453,25 @@ export const McpServerCard = memo(function McpServerCard({
               </div>
             </div>
 
+            <Switch
+              checked={config.allowLocalNetwork ?? false}
+              onChange={(checked) => {
+                if (
+                  checked &&
+                  !window.confirm(
+                    "Allow this MCP server to connect to local or private network addresses? Only enable this for a server you trust.",
+                  )
+                ) {
+                  return;
+                }
+                onUpdate(config.id, { allowLocalNetwork: checked });
+              }}
+              label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+              description={t("settings.network.allowLocalMcpDesc", {
+                defaultValue: "Required for trusted local MCP HTTP servers. Plaintext stays limited to loopback.",
+              })}
+            />
+
             <EnvVarsEditor envVars={envVars} onChange={(vars) => onSetEnvVars(config.id, vars)} />
           </>
         )}
