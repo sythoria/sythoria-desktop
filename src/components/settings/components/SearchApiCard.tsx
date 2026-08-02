@@ -95,6 +95,7 @@ export const SearchApiCard = memo(function SearchApiCard({
                     baseUrl: preset.baseUrl || config.baseUrl,
                     name: config.name === "New Search API" ? preset.label : config.name,
                     maxResults: preset.defaultMaxResults,
+                    allowLocalNetwork: false,
                   });
                 } else {
                   onUpdate(config.id, { provider });
@@ -133,6 +134,25 @@ export const SearchApiCard = memo(function SearchApiCard({
             className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
           />
         </div>
+
+        <Switch
+          checked={config.allowLocalNetwork ?? false}
+          onChange={(checked) => {
+            if (
+              checked &&
+              !window.confirm(
+                "Allow this search provider to connect to local or private network addresses? Only enable this for an endpoint you trust.",
+              )
+            ) {
+              return;
+            }
+            onUpdate(config.id, { allowLocalNetwork: checked });
+          }}
+          label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+          description={t("settings.network.allowLocalSearchDesc", {
+            defaultValue: "Required for a trusted local SearXNG server. Plaintext stays limited to loopback.",
+          })}
+        />
 
         {(config.provider === "google" || config.provider === "firecrawl" || config.provider === "custom") && (
           <div className="space-y-1">
