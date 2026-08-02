@@ -8,7 +8,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::client_builder;
 use crate::AppError;
 
 fn convert_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
@@ -430,15 +429,19 @@ pub async fn download_whisper_model(
     let (partial_path, backup_path) = whisper_download_staging_paths(&models_dir, operation_id);
 
     let result = async {
-        let client = client_builder()
-            .build()
-            .map_err(|e| AppError::RequestFailed(e.to_string()))?;
+        let endpoint = crate::endpoint_security::validate_http_endpoint(
+            &url,
+            false,
+            false,
+            std::time::Duration::from_secs(300),
+        )
+        .await?;
 
         let res = tokio::select! {
             _ = &mut cancel_rx => {
                 return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
             }
-            res_result = client.get(&url).send() => {
+            res_result = endpoint.client.get(endpoint.url).send() => {
                 res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
             }
         };
@@ -932,59 +935,13 @@ pub async fn transcribe_audio_cloud(
         return Ok(String::new());
     }
 
-    let parsed_url = url::Url::parse(&api_url)
-        .map_err(|e| AppError::ConfigIo(format!("Invalid api_url: {}", e)))?;
-    if parsed_url.scheme() != "https" {
-        return Err(AppError::ConfigIo(
-            "Cloud speech-to-text endpoints must use HTTPS".to_string(),
-        ));
-    }
-
-    let endpoint_host = parsed_url
-        .host_str()
-        .ok_or_else(|| {
-            AppError::ConfigIo("Cloud speech-to-text endpoint must include a hostname".to_string())
-        })?
-        .to_string();
-    let host_lower = endpoint_host.to_lowercase();
-    let blocked_hosts = crate::get_blocked_hosts();
-    let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-        let blocked_lower = blocked.to_lowercase();
-        if blocked.contains('*') {
-            crate::search::matches_wildcard(&host_lower, &blocked_lower)
-        } else {
-            host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-        }
-    });
-    if is_blocked_host {
-        return Err(AppError::ConfigIo(format!(
-            "Access denied: Endpoint '{}' is blocked in network settings.",
-            endpoint_host
-        )));
-    }
-
-    let endpoint_port = parsed_url.port_or_known_default().unwrap_or(443);
-    let resolved_addresses: Vec<_> =
-        tokio::net::lookup_host((endpoint_host.as_str(), endpoint_port))
-            .await
-            .map_err(|e| {
-                AppError::ConfigIo(format!(
-                    "Failed to resolve cloud speech-to-text endpoint: {}",
-                    e
-                ))
-            })?
-            .collect();
-    if resolved_addresses.is_empty()
-        || resolved_addresses
-            .iter()
-            .any(|address| crate::search::is_ip_blocked(&address.ip(), &blocked_hosts))
-    {
-        return Err(AppError::ConfigIo(format!(
-            "Access denied: Endpoint '{}' resolves to a blocked or unavailable address.",
-            endpoint_host
-        )));
-    }
-    let endpoint_address = resolved_addresses[0];
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        &api_url,
+        false,
+        true,
+        std::time::Duration::from_secs(120),
+    )
+    .await?;
 
     let host = cpal::default_host();
     let device = host
@@ -997,13 +954,6 @@ pub async fn transcribe_audio_cloud(
 
     let resampled = resample(&samples, sample_rate, 16000);
     let wav_bytes = encode_wav_f32(&resampled, 16000);
-
-    let client = client_builder()
-        .resolve(&endpoint_host, endpoint_address)
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
     let part = reqwest::multipart::Part::bytes(wav_bytes)
         .file_name("audio.wav")
@@ -1020,8 +970,9 @@ pub async fn transcribe_audio_cloud(
         }
     }
 
-    let res = client
-        .post(&api_url)
+    let res = endpoint
+        .client
+        .post(endpoint.url)
         .header("Authorization", format!("Bearer {}", api_key))
         .multipart(form)
         .send()
