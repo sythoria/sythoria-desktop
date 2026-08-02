@@ -15,21 +15,24 @@ pub async fn search(
         .unwrap_or(10)
         .min(20) as usize;
 
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        base,
+        crate::search::allows_local_network(config),
+        config
+            .get("apiKey")
+            .and_then(|value| value.as_str())
+            .is_some_and(|key| !key.is_empty()),
+        std::time::Duration::from_secs(15),
+    )
+    .await
+    .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
     let url = format!(
         "{}/search?q={}&format=json",
-        base.trim_end_matches('/'),
+        endpoint.url.as_str().trim_end_matches('/'),
         urlencoding::encode(query)
     );
 
-    let client = crate::client_builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| {
-            log::error!("Failed to build HTTP client: {}", e);
-            SearchError::RequestFailed(e.to_string())
-        })?;
-
-    let mut request = client.get(&url);
+    let mut request = endpoint.client.get(&url);
 
     if let Some(api_key) = config.get("apiKey").and_then(|v| v.as_str()) {
         if !api_key.is_empty() {
@@ -49,7 +52,9 @@ pub async fn search(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("SearXNG API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
             "SearXNG API error {}: {}",
