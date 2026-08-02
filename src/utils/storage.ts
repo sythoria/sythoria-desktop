@@ -155,6 +155,7 @@ const ModelConfigSchema = z
     temperature: z.number().min(0).max(2).optional(),
     thinkingLevel: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
     systemPromptOverride: z.string().optional(),
+    allowLocalNetwork: z.boolean().optional(),
   })
   .passthrough();
 
@@ -169,6 +170,7 @@ const SearchConfigSchema = z.object({
   cx: z.string().optional(),
   maxResults: z.number(),
   enabled: z.boolean(),
+  allowLocalNetwork: z.boolean().optional(),
 });
 
 const SearchConfigsArraySchema = z.array(SearchConfigSchema);
@@ -180,6 +182,7 @@ const FetchConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   enabled: z.boolean(),
+  allowLocalNetwork: z.boolean().optional(),
 });
 
 const FetchConfigsArraySchema = z.array(FetchConfigSchema);
@@ -691,12 +694,40 @@ export async function loadProjects(): Promise<Project[]> {
   }
 }
 
+let pendingProjectSave: Project[] | null = null;
+let projectSavePromise: Promise<void> | null = null;
+
+function startProjectSaveDrain(): Promise<void> {
+  const drain = Promise.resolve()
+    .then(async () => {
+      while (pendingProjectSave) {
+        const payload = pendingProjectSave;
+        pendingProjectSave = null;
+        await invoke("save_projects", { projects: payload });
+      }
+    })
+    .catch((error) => {
+      logError("storage", "Failed to save projects", { error });
+      throw error;
+    })
+    .finally(() => {
+      if (projectSavePromise === drain) projectSavePromise = null;
+    });
+  projectSavePromise = drain;
+  return drain;
+}
+
 export async function saveProjects(projects: Project[]): Promise<void> {
-  try {
-    await invoke("save_projects", { projects });
-  } catch (e) {
-    logError("storage", "Failed to save projects", { error: e });
-    throw e;
+  pendingProjectSave = projects.map((project) => ({
+    ...project,
+    excludePatterns: project.excludePatterns ? [...project.excludePatterns] : undefined,
+  }));
+
+  // Re-check after each drain. A save can arrive after the drain observes an
+  // empty queue but before its finally handler clears projectSavePromise.
+  while (pendingProjectSave || projectSavePromise) {
+    const activeSave = projectSavePromise ?? startProjectSaveDrain();
+    await activeSave;
   }
 }
 
