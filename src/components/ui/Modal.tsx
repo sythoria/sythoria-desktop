@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ArrowUpCircle, Download, LoaderCircle } from "lucide-react";
-import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
 import { useTranslation } from "../../utils/i18n";
+import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 
 interface ModalProps {
   isOpen: boolean;
@@ -16,56 +17,7 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
-
-  const handleTabTrap = useCallback((e: KeyboardEvent) => {
-    if (e.key !== "Tab" || !modalRef.current) return;
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable.length === 0) return;
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (e.shiftKey) {
-      if (document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else {
-      if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    document.addEventListener("keydown", handleTabTrap);
-    lockBodyScroll();
-
-    const previouslyFocused = document.activeElement as HTMLElement;
-    requestAnimationFrame(() => {
-      const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      firstFocusable?.focus();
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.removeEventListener("keydown", handleTabTrap);
-      unlockBodyScroll();
-      previouslyFocused?.focus();
-    };
-  }, [isOpen, onClose, handleTabTrap]);
+  useDialogFocus({ isOpen, onClose, containerRef: modalRef });
 
   return (
     <AnimatePresence>
@@ -144,29 +96,7 @@ export function ConfirmModal({
   variant = "default",
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    lockBodyScroll();
-
-    const previouslyFocused = document.activeElement as HTMLElement;
-    requestAnimationFrame(() => {
-      const firstBtn = modalRef.current?.querySelector<HTMLElement>("button");
-      firstBtn?.focus();
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      unlockBodyScroll();
-      previouslyFocused?.focus();
-    };
-  }, [isOpen, onCancel]);
+  useDialogFocus({ isOpen, onClose: onCancel, containerRef: modalRef });
 
   if (!isOpen) return null;
 
@@ -350,6 +280,13 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
   if (!confirmation) return null;
 
   const { id, toolName, arguments: args } = confirmation;
+  const stringArg = (key: string) => {
+    const value = args[key];
+    return typeof value === "string" ? value : value == null ? "" : JSON.stringify(value);
+  };
+  const fileArgs = Array.isArray(args.files)
+    ? args.files.filter((file): file is string => typeof file === "string")
+    : [];
 
   // Formatting content based on the tool
   let detailsContent: React.ReactNode;
@@ -360,11 +297,11 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       <div className="mt-2 text-left">
         <div className="text-xs font-semibold text-text-secondary mb-1">Target File:</div>
         <div className="bg-hover border border-border px-3 py-1.5 rounded font-mono text-xs text-text-primary break-all">
-          {args.file_path}
+          {stringArg("file_path")}
         </div>
         <div className="text-xs font-semibold text-text-secondary mt-3 mb-1">Content:</div>
         <pre className="bg-hover border border-border p-3 rounded font-mono text-[11px] text-text-primary overflow-x-auto max-h-48 whitespace-pre-wrap break-all">
-          {args.content}
+          {stringArg("content")}
         </pre>
       </div>
     );
@@ -374,7 +311,7 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       <div className="mt-2 text-left">
         <div className="text-xs font-semibold text-text-secondary mb-1">Command to Execute:</div>
         <pre className="bg-hover border border-border p-3 rounded font-mono text-xs text-text-primary overflow-x-auto whitespace-pre-wrap break-all">
-          {args.command}
+          {stringArg("command")}
         </pre>
       </div>
     );
@@ -384,13 +321,13 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       <div className="mt-2 text-left">
         <div className="text-xs font-semibold text-text-secondary mb-1">Commit Message:</div>
         <div className="bg-hover border border-border px-3 py-2 rounded font-medium text-xs text-text-primary">
-          {args.message}
+          {stringArg("message")}
         </div>
-        {args.files && args.files.length > 0 && (
+        {fileArgs.length > 0 && (
           <>
             <div className="text-xs font-semibold text-text-secondary mt-3 mb-1">Files:</div>
             <ul className="bg-hover border border-border p-2.5 rounded font-mono text-[11px] text-text-primary max-h-24 overflow-y-auto list-disc list-inside">
-              {args.files.map((f: string, i: number) => (
+              {fileArgs.map((f, i) => (
                 <li key={i}>{f}</li>
               ))}
             </ul>
