@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useKeybindStore } from "../store/useKeybindStore";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 interface CommandItem {
   id: string;
@@ -18,6 +19,18 @@ export function CommandPalette() {
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => {
+    setSearch("");
+    setSelectedIndex(0);
+    setShowCommandPalette(false);
+  }, [setShowCommandPalette]);
+  useDialogFocus({
+    isOpen: showCommandPalette,
+    onClose: close,
+    containerRef: dialogRef,
+    initialFocusRef: inputRef,
+  });
 
   const commands: CommandItem[] = [
     {
@@ -70,43 +83,36 @@ export function CommandPalette() {
     setSelectedIndex(0);
   }, [search]);
 
-  useEffect(() => {
-    if (showCommandPalette && inputRef.current) {
-      inputRef.current.focus();
-      setSearch("");
-    }
-  }, [showCommandPalette]);
-
   if (!showCommandPalette) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" && filteredCommands.length > 0) {
       e.preventDefault();
       setSelectedIndex((prev) => (prev + 1) % filteredCommands.length);
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === "ArrowUp" && filteredCommands.length > 0) {
       e.preventDefault();
       setSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length);
     } else if (e.key === "Enter" && filteredCommands.length > 0) {
       e.preventDefault();
       filteredCommands[selectedIndex].action();
-      setShowCommandPalette(false);
+      close();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      setShowCommandPalette(false);
+      close();
     }
   };
 
   return (
     <div
       className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[15vh] backdrop-blur-sm"
-      onClick={() => setShowCommandPalette(false)}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
+      <button type="button" className="absolute inset-0" onClick={close} aria-label="Close command palette" />
       <div
-        className="popup-surface w-full max-w-lg border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
+        className="popup-surface relative w-full max-w-lg border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
       >
         <div className="flex items-center px-4 py-3 border-b border-border/30">
           <Search size={18} className="text-text-muted mr-3" />
@@ -130,7 +136,7 @@ export function CommandPalette() {
                 key={cmd.id}
                 onClick={() => {
                   cmd.action();
-                  setShowCommandPalette(false);
+                  close();
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   idx === selectedIndex ? "bg-hover text-text-primary" : "text-text-secondary hover:bg-hover/50"
