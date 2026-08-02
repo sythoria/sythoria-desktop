@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 const mocks = vi.hoisted(() => ({
   checkForUpdates: vi.fn().mockResolvedValue(undefined),
   getVersion: vi.fn().mockResolvedValue("0.4.1"),
-  setActiveId: vi.fn(),
+  newChat: vi.fn(),
   setView: vi.fn(),
   setActiveSection: vi.fn(),
   toggleCommandPalette: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock("../store/useKeybindStore", () => ({
 
 vi.mock("../store/useChatStore", () => ({
   useChatStore: {
-    getState: () => ({ setActiveId: mocks.setActiveId }),
+    getState: () => ({ newChat: mocks.newChat }),
   },
 }));
 
@@ -62,11 +62,32 @@ describe("TitleBar application menu", () => {
 
     await user.click(screen.getByRole("menuitem", { name: "Sythoria" }));
 
-    expect(await screen.findByRole("menuitem", { name: "Version 0.4.1" })).toBeInTheDocument();
+    expect(await screen.findByText("Version 0.4.1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: "Check for Updates" }));
 
     expect(mocks.getVersion).toHaveBeenCalledOnce();
     expect(mocks.checkForUpdates).toHaveBeenCalledWith(false);
+  });
+
+  it("creates a real conversation from the File menu", async () => {
+    const user = userEvent.setup();
+    render(<TitleBar />);
+
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    await user.click(screen.getByRole("menuitem", { name: /^New Conversation/ }));
+
+    expect(mocks.newChat).toHaveBeenCalledOnce();
+  });
+
+  it("supports arrow-key navigation between top-level menus", async () => {
+    const user = userEvent.setup();
+    render(<TitleBar />);
+
+    const sythoria = screen.getByRole("menuitem", { name: "Sythoria" });
+    sythoria.focus();
+    await user.keyboard("{ArrowRight}");
+
+    expect(screen.getByRole("menuitem", { name: "File" })).toHaveFocus();
   });
 });
