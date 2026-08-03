@@ -14,7 +14,7 @@ import type {
 } from "../types";
 import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
-import { logError, logInfo, logWarn } from "../utils/logger";
+import { logError, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
@@ -953,47 +953,44 @@ export async function sendWithToolLoop(
     );
 
     if (project) {
-      try {
+      if (project.permissions === "read") {
+        await invoke("project_run_begin", {
+          projectId: project.id,
+          worktreePath: null,
+          branchName: null,
+        });
+        if (useProjectStore.getState().activeProjectId === project.id) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+      } else {
         const isGit = await invoke<string | null>("git_detect_repo", { startPath: project.path });
-        if (isGit) {
-          if (conv?.pendingWorktree) {
-            await useProjectStore.getState().setWorktree(conv.pendingWorktree.path, conv.pendingWorktree.branch);
-          } else {
-            const [wPath, wBranch] = await invoke<[string, string]>("git_worktree_create", {
-              projectId: project.id,
-            });
-            await useProjectStore.getState().setWorktree(wPath, wBranch);
-
-            set((state) => ({
-              conversations: state.conversations.map((c) =>
-                c.id === convId
-                  ? {
-                      ...c,
-                      pendingWorktree: {
-                        path: wPath,
-                        branch: wBranch,
-                      },
-                    }
-                  : c,
-              ),
-            }));
-          }
-        } else if (project.permissions !== "read") {
+        if (!isGit) {
           throw new Error("Write-capable project tools require a Git repository for worktree isolation.");
         }
-      } catch (e) {
-        const details = e instanceof Error ? e.message : String(e);
-        if (project.permissions === "read") {
-          logWarn("chat", "Git worktree isolation was unavailable; continuing with read-only project tools", {
-            details,
+
+        let worktree = conv?.pendingWorktree;
+        if (!worktree) {
+          const [path, branch] = await invoke<[string, string]>("git_worktree_create", {
+            projectId: project.id,
           });
-        } else {
-          throw new Error(
-            `Git worktree isolation could not be established. Mutating project tools were disabled: ${details}`,
-            {
-              cause: e,
-            },
-          );
+          worktree = { path, branch };
+          set((state) => ({
+            conversations: state.conversations.map((conversation) =>
+              conversation.id === convId ? { ...conversation, pendingWorktree: worktree } : conversation,
+            ),
+          }));
+        }
+
+        await invoke("project_run_begin", {
+          projectId: project.id,
+          worktreePath: worktree.path,
+          branchName: worktree.branch,
+        });
+        if (useProjectStore.getState().activeProjectId === project.id) {
+          useProjectStore.setState({
+            activeWorktreePath: worktree.path,
+            activeWorktreeBranch: worktree.branch,
+          });
         }
       }
     }

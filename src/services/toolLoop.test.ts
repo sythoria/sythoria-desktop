@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { useProjectStore } from "../store/useProjectStore";
 import {
   TOOL_DEFINITIONS,
   TOOL_SYSTEM_PROMPT,
@@ -23,6 +24,7 @@ const mockCompleteTask = vi.fn();
 let mockMaxToolSteps = 25;
 let mockStreamContent = "Simulated content chunk";
 let mockStreamReasoning = "";
+let mockStreamDone: (() => void) | null = null;
 
 vi.mock("../store/useUIStore", () => ({
   useUIStore: {
@@ -41,6 +43,7 @@ vi.mock("../store/useModelStore", () => ({
       systemPrompt: "",
       maxToolSteps: mockMaxToolSteps,
       ensureStreamListeners: vi.fn().mockImplementation((_convId, onChunk, onDone) => {
+        mockStreamDone = onDone;
         // Trigger onChunk and onDone asynchronously to simulate completion
         setTimeout(() => {
           if (mockStreamContent) {
@@ -105,6 +108,7 @@ beforeEach(() => {
   mockMaxToolSteps = 25;
   mockStreamContent = "Simulated content chunk";
   mockStreamReasoning = "";
+  mockStreamDone = null;
   mockConversations.length = 0;
   for (const key of Object.keys(mockActiveStreamContent)) {
     delete mockActiveStreamContent[key];
@@ -114,6 +118,13 @@ beforeEach(() => {
   }
   mockAddTask.mockClear();
   mockCompleteTask.mockClear();
+  useProjectStore.setState({
+    projects: [],
+    activeProjectId: null,
+    isProjectsEnabled: false,
+    activeWorktreePath: null,
+    activeWorktreeBranch: null,
+  });
 });
 
 describe("TOOL_DEFINITIONS", () => {
@@ -187,6 +198,121 @@ describe("TOOL_SYSTEM_PROMPT", () => {
 });
 
 describe("sendWithToolLoop", () => {
+  it("runs project tools for the default read-only project without creating a Git worktree", async () => {
+    mockMaxToolSteps = 2;
+    mockStreamContent = "";
+    const project = {
+      id: "project-1",
+      name: "Default project",
+      path: "/workspace/project",
+      permissions: "read" as const,
+    };
+    useProjectStore.setState({
+      projects: [project],
+      activeProjectId: project.id,
+      isProjectsEnabled: true,
+    });
+
+    let modelCall = 0;
+    invokeMock.mockImplementation(async (command, args) => {
+      const invokeArgs = args as Record<string, unknown> | undefined;
+      if (command === "project_run_begin") return undefined;
+      if (command === "project_read") {
+        return invokeArgs?.path === "AGENTS.md" ? "" : "read-only content";
+      }
+      if (command === "chat_stream_tools") {
+        modelCall += 1;
+        if (modelCall === 1) {
+          return JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: "I’ll inspect the project.",
+                  tool_calls: [
+                    {
+                      id: "read-call",
+                      function: {
+                        name: "project_read",
+                        arguments: JSON.stringify({ file_path: "README.md" }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        setTimeout(() => mockStreamDone?.(), 0);
+        return JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "Read complete." } }],
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockConversations.push({
+      id: "conv-read",
+      title: "Read project",
+      timestamp: new Date(),
+      model: "model-1",
+      projectId: project.id,
+      messages: [{ id: "msg-read", role: "user", content: "Read the README", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "",
+      generationByConversation: { "conv-read": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        const conversations = [...next.conversations];
+        mockConversations.length = 0;
+        mockConversations.push(...conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      "conv-read",
+      {
+        id: "model-1",
+        name: "Model",
+        apiBase: "https://example.com/v1/chat/completions",
+        apiKey: "",
+        modelId: "test-model",
+      },
+      0.7,
+      undefined,
+      "",
+      [],
+      undefined,
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+      project,
+    );
+
+    expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
+      projectId: project.id,
+      worktreePath: null,
+      branchName: null,
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith("git_worktree_create", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("project_read", {
+      projectId: project.id,
+      path: "README.md",
+      offset: null,
+      limit: null,
+      worktreePath: null,
+    });
+  });
+
   it("keeps assistant narration visible when the same response requests a tool call", async () => {
     mockMaxToolSteps = 1;
     mockStreamReasoning = "I should use the search tool.";

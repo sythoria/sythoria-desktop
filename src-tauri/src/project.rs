@@ -297,6 +297,74 @@ pub(crate) fn set_project_path_override(
     Ok(())
 }
 
+fn configure_project_run(
+    state: &ProjectRegistry,
+    project_id: &str,
+    worktree_path: Option<&str>,
+    branch_name: Option<&str>,
+) -> Result<(), AppError> {
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+        .get(project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::AppPath("Access denied: Project not found in registry".to_string())
+        })?;
+
+    let canonical_override = match (worktree_path, branch_name) {
+        (None, None) if project.permissions == ProjectPermission::Read => None,
+        (None, None) => {
+            return Err(AppError::AppPath(
+                "Write-capable project runs require an isolated worktree".to_string(),
+            ));
+        }
+        (Some(_), _) if project.permissions == ProjectPermission::Read => {
+            return Err(AppError::AppPath(
+                "Read-only project runs cannot use a writable worktree".to_string(),
+            ));
+        }
+        (Some(path), Some(branch)) => Some(
+            validate_owned_worktree(&project, path, Some(branch))?
+                .path
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        _ => {
+            return Err(AppError::AppPath(
+                "Worktree path and branch must be provided together".to_string(),
+            ));
+        }
+    };
+
+    let mut overrides_guard = state
+        .project_path_overrides
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    if let Some(path) = canonical_override {
+        overrides_guard.insert(project_id.to_string(), path);
+    } else {
+        overrides_guard.remove(project_id);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn project_run_begin(
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
+    worktree_path: Option<String>,
+    branch_name: Option<String>,
+) -> Result<(), AppError> {
+    configure_project_run(
+        &state,
+        &project_id,
+        worktree_path.as_deref(),
+        branch_name.as_deref(),
+    )
+}
+
 /// Helper function to validate if a path is within the project root and is allowed
 pub(crate) fn validate_project_path(
     project: &Project,
@@ -409,8 +477,8 @@ pub(crate) fn validate_project_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_sythoria_agent_branch, parse_git_worktrees, validate_owned_worktree, Project,
-        ProjectPermission,
+        configure_project_run, is_sythoria_agent_branch, parse_git_worktrees,
+        validate_owned_worktree, Project, ProjectPermission, ProjectRegistry,
     };
     use std::path::PathBuf;
 
@@ -487,5 +555,43 @@ mod tests {
         let current = std::env::current_dir().expect("current directory");
         let project = test_project(current.clone());
         assert!(validate_owned_worktree(&project, &current.to_string_lossy(), None).is_err());
+    }
+
+    #[test]
+    fn read_only_project_run_uses_the_project_root_without_a_worktree() {
+        let registry = ProjectRegistry::new();
+        let mut project = test_project(PathBuf::from("C:/workspace"));
+        project.permissions = ProjectPermission::Read;
+        registry
+            .projects
+            .lock()
+            .expect("projects lock")
+            .insert(project.id.clone(), project);
+        registry
+            .project_path_overrides
+            .lock()
+            .expect("overrides lock")
+            .insert("project".to_string(), "stale-worktree".to_string());
+
+        configure_project_run(&registry, "project", None, None).expect("begin read-only run");
+
+        assert!(!registry
+            .project_path_overrides
+            .lock()
+            .expect("overrides lock")
+            .contains_key("project"));
+    }
+
+    #[test]
+    fn write_project_run_rejects_a_missing_worktree() {
+        let registry = ProjectRegistry::new();
+        let project = test_project(PathBuf::from("C:/workspace"));
+        registry
+            .projects
+            .lock()
+            .expect("projects lock")
+            .insert(project.id.clone(), project);
+
+        assert!(configure_project_run(&registry, "project", None, None).is_err());
     }
 }
