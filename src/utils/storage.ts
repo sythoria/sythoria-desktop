@@ -109,6 +109,13 @@ export const ConversationSchema = z
       .object({
         path: z.string(),
         branch: z.string(),
+        commitScope: z
+          .object({
+            projectId: z.string(),
+            projectRoot: z.string(),
+            modelId: z.string(),
+          })
+          .optional(),
       })
       .passthrough()
       .optional(),

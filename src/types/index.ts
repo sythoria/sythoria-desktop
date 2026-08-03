@@ -64,6 +64,11 @@ export interface Conversation {
   pendingWorktree?: {
     path: string;
     branch: string;
+    commitScope?: {
+      projectId: string;
+      projectRoot: string;
+      modelId: string;
+    };
   };
   isPinned?: boolean;
   // Subagent fields

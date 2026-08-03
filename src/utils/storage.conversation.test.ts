@@ -72,4 +72,32 @@ describe("ConversationSchema", () => {
     expect(result.data.messages[0].futureMessageField).toBe("preserve me");
     expect(result.data.futureConversationField).toBe(true);
   });
+
+  it("preserves the captured commit scope for a pending worktree", () => {
+    const result = ConversationSchema.safeParse({
+      id: "conversation-1",
+      title: "Pending changes",
+      timestamp: new Date(),
+      messages: [],
+      model: "model-a",
+      projectId: "project-a",
+      pendingWorktree: {
+        path: "/worktrees/run-a",
+        branch: "sythoria-agent-a",
+        commitScope: {
+          projectId: "project-a",
+          projectRoot: "/projects/a",
+          modelId: "model-a",
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.pendingWorktree?.commitScope).toEqual({
+      projectId: "project-a",
+      projectRoot: "/projects/a",
+      modelId: "model-a",
+    });
+  });
 });

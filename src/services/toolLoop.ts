@@ -976,14 +976,21 @@ export async function sendWithToolLoop(
             projectId: project.id,
           });
           worktree = { path, branch };
-          const worktreeSnapshot = worktree;
-          set((state) => ({
-            conversations: state.conversations.map((conversation) =>
-              conversation.id === convId ? { ...conversation, pendingWorktree: worktreeSnapshot } : conversation,
-            ),
-          }));
-          runContext = continueConversationRunContext(runContext, convId, worktree);
         }
+        runContext = continueConversationRunContext(runContext, convId, worktree);
+        const pendingWorktree = {
+          ...worktree,
+          commitScope: {
+            projectId: project.id,
+            projectRoot: project.path,
+            modelId: modelConfig.id,
+          },
+        };
+        set((state) => ({
+          conversations: state.conversations.map((conversation) =>
+            conversation.id === convId ? { ...conversation, pendingWorktree } : conversation,
+          ),
+        }));
 
         await invoke("project_run_begin", {
           projectId: project.id,
@@ -1469,7 +1476,17 @@ export async function sendWithToolLoop(
                   ],
                   model: modelConfig.id,
                   projectId: project?.id,
-                  pendingWorktree: worktree ?? undefined,
+                  pendingWorktree:
+                    worktree && project
+                      ? {
+                          ...worktree,
+                          commitScope: {
+                            projectId: project.id,
+                            projectRoot: project.path,
+                            modelId: modelConfig.id,
+                          },
+                        }
+                      : undefined,
                   parentId: convId,
                   role: subagentRole,
                   isSubagent: true,

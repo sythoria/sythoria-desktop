@@ -14,6 +14,29 @@ export interface GitStatus {
   behind: number;
 }
 
+export interface AutoCommitScope {
+  projectId: string;
+  projectRoot: string;
+  modelId: string;
+  files: string[];
+}
+
+const repositoryCommitQueues = new Map<string, Promise<void>>();
+
+function serializeRepositoryCommit(repositoryPath: string, operation: () => Promise<void>): Promise<void> {
+  const previous = repositoryCommitQueues.get(repositoryPath) ?? Promise.resolve();
+  const queued = previous
+    .catch(() => undefined)
+    .then(operation)
+    .finally(() => {
+      if (repositoryCommitQueues.get(repositoryPath) === queued) {
+        repositoryCommitQueues.delete(repositoryPath);
+      }
+    });
+  repositoryCommitQueues.set(repositoryPath, queued);
+  return queued;
+}
+
 interface GitStore {
   config: GitConfig;
   status: GitStatus | null;
@@ -27,7 +50,7 @@ interface GitStore {
   undoLastCommit: () => Promise<void>;
   checkoutBranch: (branch: string) => Promise<void>;
   getDiff: () => Promise<string>;
-  autoCommitIfNeeded: () => Promise<void>;
+  autoCommitIfNeeded: (scope: AutoCommitScope) => Promise<void>;
 }
 
 export const useGitStore = create<GitStore>((set, get) => ({
@@ -127,6 +150,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
         authorName: overrideIdentity ? gitName : null,
         authorEmail: overrideIdentity ? gitEmail : null,
         bypassHooks: !isPreCommitEnabled,
+        worktreePath: null,
       });
       logInfo("git", `Created Git commit for project: ${projectId}`, { details: result });
       await get().verifyPath(repoPath);
@@ -175,76 +199,82 @@ export const useGitStore = create<GitStore>((set, get) => ({
     const projectId = useProjectStore.getState().activeProjectId;
     if (!projectId) return "";
     try {
-      return await invoke<string>("git_diff_changes", { projectId });
+      return await invoke<string>("git_diff_changes", { projectId, worktreePath: null, files: null });
     } catch (e: any) {
       logError("git", "Failed to retrieve diff from repository", { error: e });
       return "";
     }
   },
 
-  autoCommitIfNeeded: async () => {
-    const state = get();
-    const { useProjectStore } = await import("./useProjectStore");
-    const projectState = useProjectStore.getState();
-    const activeProject = projectState.projects.find((p) => p.id === projectState.activeProjectId);
-
-    const isAutoCommitEnabled = activeProject
-      ? activeProject.isAutoCommitEnabled !== undefined
-        ? activeProject.isAutoCommitEnabled
-        : state.config.isAutoCommitEnabled
-      : state.config.isAutoCommitEnabled;
-
-    const repoPath = activeProject ? activeProject.path : state.config.repoPath;
-    if (!isAutoCommitEnabled || !repoPath) return;
-
-    // Check if there are changes
-    await state.verifyPath(repoPath);
-    const { status } = get();
-    if (!status || (!status.isDirty && status.stagedFiles.length === 0 && status.unstagedFiles.length === 0)) return;
-
-    let message = "Auto-commit by Sythoria AI";
-
-    if (state.config.isAiCommitMsgEnabled) {
-      const diff = await state.getDiff();
-      if (diff) {
-        const { useModelStore } = await import("./useModelStore");
-        const modelState = useModelStore.getState();
-
-        const selectedModelId = activeProject?.modelOverride || modelState.selectedModel;
-        const modelConfig =
-          modelState.models.find((m) => m.id === selectedModelId) ||
-          modelState.models.find((m) => m.id === modelState.selectedModel);
-
-        if (modelConfig) {
-          const systemPrompt =
-            activeProject?.autoCommitMsgTemplate && activeProject.autoCommitMsgTemplate.trim()
-              ? activeProject.autoCommitMsgTemplate
-              : "You are a git commit message generator. Based on the following diff, write a concise, conventional commit message. Do not include any other text or explanation, just the commit message itself.";
-
-          try {
-            message = await invoke<string>("chat_completion", {
-              configId: modelConfig.id,
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: diff.slice(0, 5000) },
-              ],
-              temperature: 0.3,
-              maxTokens: 100,
-            });
-            message = message.trim();
-          } catch (e) {
-            logError("git", "Failed to generate AI commit message, falling back to default", { error: e });
-          }
-        }
-      }
-    }
+  autoCommitIfNeeded: async (scope) => {
+    const files = [...new Set(scope.files.filter(Boolean))].sort();
+    if (files.length === 0) return;
 
     try {
-      await state.commitChanges(message);
-      const { useUIStore } = await import("./useUIStore");
-      useUIStore.getState().addToast(`Auto-committed: ${message}`, "success");
-    } catch {
-      // Error handled in commitChanges
+      await serializeRepositoryCommit(scope.projectRoot, async () => {
+        const state = get();
+        const { useProjectStore } = await import("./useProjectStore");
+        const project = useProjectStore.getState().projects.find((candidate) => candidate.id === scope.projectId);
+        if (!project || project.path !== scope.projectRoot) {
+          logError("git", `Skipped auto-commit because project scope changed: ${scope.projectId}`);
+          return;
+        }
+
+        const isAutoCommitEnabled = project.isAutoCommitEnabled ?? state.config.isAutoCommitEnabled;
+        if (!isAutoCommitEnabled) return;
+
+        const diff = await invoke<string>("git_diff_changes", {
+          projectId: scope.projectId,
+          worktreePath: null,
+          files,
+        });
+        if (!diff.trim()) return;
+
+        let message = "Auto-commit by Sythoria AI";
+        if (state.config.isAiCommitMsgEnabled) {
+          const { useModelStore } = await import("./useModelStore");
+          const modelConfig = useModelStore.getState().models.find((model) => model.id === scope.modelId);
+          if (modelConfig) {
+            const systemPrompt =
+              project.autoCommitMsgTemplate?.trim() ||
+              "You are a git commit message generator. Based on the following diff, write a concise, conventional commit message. Do not include any other text or explanation, just the commit message itself.";
+            try {
+              message = (
+                await invoke<string>("chat_completion", {
+                  configId: modelConfig.id,
+                  messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: diff.slice(0, 5000) },
+                  ],
+                  temperature: 0.3,
+                  maxTokens: 100,
+                })
+              ).trim();
+            } catch (error) {
+              logError("git", "Failed to generate AI commit message, falling back to default", { error });
+            }
+          }
+        }
+
+        try {
+          await invoke<string>("git_create_commit", {
+            projectId: scope.projectId,
+            message,
+            files,
+            authorName: state.config.overrideIdentity ? state.config.gitName : null,
+            authorEmail: state.config.overrideIdentity ? state.config.gitEmail : null,
+            bypassHooks: !state.config.isPreCommitEnabled,
+            worktreePath: null,
+          });
+          logInfo("git", `Auto-committed AI paths for project: ${scope.projectId}`, { details: files.join(", ") });
+          const { useUIStore } = await import("./useUIStore");
+          useUIStore.getState().addToast(`Auto-committed: ${message}`, "success");
+        } catch (error) {
+          logError("git", `Failed to auto-commit AI paths for project: ${scope.projectId}`, { error });
+        }
+      });
+    } catch (error) {
+      logError("git", `Failed to prepare auto-commit for project: ${scope.projectId}`, { error });
     }
   },
 }));

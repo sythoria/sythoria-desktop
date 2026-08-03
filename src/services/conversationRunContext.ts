@@ -20,6 +20,7 @@ export interface ConversationRunContext {
   readonly commitScope: Readonly<{
     projectId: string | null;
     projectRoot: string | null;
+    modelId: string;
     worktreePath: string | null;
     worktreeBranch: string | null;
   }>;
@@ -85,6 +86,7 @@ export function buildConversationRunContext(
   const commitScope = Object.freeze({
     projectId: project?.id ?? null,
     projectRoot: project?.path ?? null,
+    modelId: modelConfig.id,
     worktreePath: worktree?.path ?? null,
     worktreeBranch: worktree?.branch ?? null,
   });

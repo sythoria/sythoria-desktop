@@ -130,6 +130,7 @@ function makeRunContext(
     commitScope: {
       projectId: project?.id ?? null,
       projectRoot: project?.path ?? null,
+      modelId: "model-1",
       worktreePath: worktree?.path ?? null,
       worktreeBranch: worktree?.branch ?? null,
     },

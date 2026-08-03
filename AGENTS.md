@@ -124,7 +124,7 @@ src-tauri/src/
 - **useProjectStore**: `projects`, `activeProjectId`, `isProjectsEnabled`, `defaultPermission`, `activeWorktreePath`, `activeWorktreeBranch`, `init()`, `addProject()`, `updateProject()`, `deleteProject()`, `setActiveProject()`, `setWorktree()`, `persistProjects()`.
 - **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
-- **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded()`.
+- **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded(scope)`. Automatic commits require an explicit captured project/model/path scope and are serialized per repository.
 - **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath`, `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
 
 ## Tool Loop (MCP + Search + Project Workspaces)
@@ -158,8 +158,8 @@ src-tauri/src/
 
 1. Tool loop triggers workspace write → backend creates isolated worktree (`git_worktree_create`).
 2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
-3. Conversation gains `pendingWorktree` details → ChatArea renders a `PendingWorktreeCard` showing diff summaries.
-4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete.
+3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea renders a `PendingWorktreeCard` showing diff summaries.
+4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete. Apply returns the authoritative AI-changed path list; optional auto-commit runs only afterward and commits only those paths.
 
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
@@ -213,6 +213,11 @@ export interface Conversation {
   pendingWorktree?: {
     path: string;
     branch: string;
+    commitScope?: {
+      projectId: string;
+      projectRoot: string;
+      modelId: string;
+    };
   };
   isPinned?: boolean;
 }

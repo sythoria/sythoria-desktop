@@ -973,8 +973,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     await Promise.all(runContexts.map(runForConversation));
-
-    useGitStore.getState().autoCommitIfNeeded();
   },
 
   stopStreaming: async (targetConvId) => {
@@ -1157,9 +1155,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       await sendNormal(convId, runContext.modelConfig, runContext.temperature, set, get);
     }
-
-    // Auto-commit if enabled and changes exist
-    useGitStore.getState().autoCommitIfNeeded();
   },
 
   applyPendingWorktree: async (convId) => {
@@ -1169,7 +1164,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiLoading("toolExecution", true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("git_worktree_apply", {
+      const changedPaths = await invoke<string[]>("git_worktree_apply", {
         projectId: conv.projectId,
         worktreePath: conv.pendingWorktree.path,
         branchName: conv.pendingWorktree.branch,
@@ -1182,6 +1177,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
       get().persistConversations();
       uiToast("Changes applied successfully to workspace!", "success");
+
+      const commitScope = conv.pendingWorktree.commitScope;
+      if (commitScope && commitScope.projectId === conv.projectId) {
+        await useGitStore.getState().autoCommitIfNeeded({
+          ...commitScope,
+          files: changedPaths,
+        });
+      } else if (changedPaths.length > 0) {
+        logWarn("git", "Skipped auto-commit because the applied worktree had no captured run scope");
+      }
     } catch (err) {
       logError("chat", "Failed to apply worktree changes", { error: err });
       uiToast("Failed to apply changes: " + parseApiError(err).message, "error");

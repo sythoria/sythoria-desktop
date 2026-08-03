@@ -185,7 +185,10 @@ async fn run_git_apply(
 /// working tree. Git validates and applies one binary patch atomically; a reverse
 /// dry-run then verifies that the complete patch is present before callers may
 /// remove the source worktree.
-async fn apply_worktree_changes(repo_path: &Path, worktree_dir: &Path) -> Result<(), AppError> {
+async fn apply_worktree_changes(
+    repo_path: &Path,
+    worktree_dir: &Path,
+) -> Result<Vec<String>, AppError> {
     let add_output = Command::new("git")
         .arg("-C")
         .arg(worktree_dir)
@@ -232,7 +235,7 @@ async fn apply_worktree_changes(repo_path: &Path, worktree_dir: &Path) -> Result
     }
 
     if changed_paths.is_empty() {
-        return Ok(());
+        return Ok(changed_paths);
     }
 
     let patch_output = Command::new("git")
@@ -266,7 +269,7 @@ async fn apply_worktree_changes(repo_path: &Path, worktree_dir: &Path) -> Result
     )
     .await?;
 
-    Ok(())
+    Ok(changed_paths)
 }
 
 #[tauri::command]
@@ -408,39 +411,37 @@ pub async fn git_get_status(
     })
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn git_create_commit(
-    state: tauri::State<'_, crate::project::ProjectRegistry>,
-    project_id: String,
-    message: String,
-    files: Option<Vec<String>>,
-    author_name: Option<String>,
-    author_email: Option<String>,
+async fn create_commit_in_repository(
+    repo_path: &Path,
+    message: &str,
+    files: Option<&[String]>,
+    author_name: Option<&str>,
+    author_email: Option<&str>,
     bypass_hooks: bool,
-    worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let repo_path =
-        get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref(), true)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
+    if files.is_some_and(<[String]>::is_empty) {
+        return Err(AppError::GitError(
+            "A scoped commit requires at least one file".to_string(),
+        ));
+    }
 
-    // 1. Stage files
+    // 1. Stage the requested scope. A later `git commit --only` prevents
+    // unrelated paths that the user already staged from entering this commit.
     if let Some(file_list) = files {
-        if !file_list.is_empty() {
-            let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(&repo_path_str).arg("add").arg("--");
-            for f in file_list {
-                cmd.arg(f);
-            }
-            let add_output = cmd
-                .output()
-                .await
-                .map_err(|e| AppError::GitError(format!("Failed to stage files: {}", e)))?;
-            if !add_output.status.success() {
-                return Err(AppError::GitError(
-                    String::from_utf8_lossy(&add_output.stderr).to_string(),
-                ));
-            }
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(&repo_path_str).arg("add").arg("--");
+        for file in file_list {
+            cmd.arg(file);
+        }
+        let add_output = cmd
+            .output()
+            .await
+            .map_err(|e| AppError::GitError(format!("Failed to stage files: {}", e)))?;
+        if !add_output.status.success() {
+            return Err(AppError::GitError(
+                String::from_utf8_lossy(&add_output.stderr).to_string(),
+            ));
         }
     } else {
         // Stage all changes
@@ -466,20 +467,26 @@ pub async fn git_create_commit(
         .arg(&repo_path_str)
         .arg("commit")
         .arg("-m")
-        .arg(&message);
+        .arg(message);
 
     if bypass_hooks {
         commit_cmd.arg("--no-verify");
     }
+    if let Some(file_list) = files {
+        commit_cmd.arg("--only").arg("--");
+        for file in file_list {
+            commit_cmd.arg(file);
+        }
+    }
 
     // Apply identity overrides
     if let Some(name) = author_name {
-        commit_cmd.env("GIT_AUTHOR_NAME", &name);
-        commit_cmd.env("GIT_COMMITTER_NAME", &name);
+        commit_cmd.env("GIT_AUTHOR_NAME", name);
+        commit_cmd.env("GIT_COMMITTER_NAME", name);
     }
     if let Some(email) = author_email {
-        commit_cmd.env("GIT_AUTHOR_EMAIL", &email);
-        commit_cmd.env("GIT_COMMITTER_EMAIL", &email);
+        commit_cmd.env("GIT_AUTHOR_EMAIL", email);
+        commit_cmd.env("GIT_COMMITTER_EMAIL", email);
     }
 
     let commit_output = commit_cmd
@@ -496,6 +503,31 @@ pub async fn git_create_commit(
     Ok(String::from_utf8_lossy(&commit_output.stdout)
         .trim()
         .to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn git_create_commit(
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    message: String,
+    files: Option<Vec<String>>,
+    author_name: Option<String>,
+    author_email: Option<String>,
+    bypass_hooks: bool,
+    worktree_path: Option<String>,
+) -> Result<String, AppError> {
+    let repo_path =
+        get_and_validate_git_project(&state, &project_id, true, worktree_path.as_deref(), true)?;
+    create_commit_in_repository(
+        &repo_path,
+        &message,
+        files.as_deref(),
+        author_name.as_deref(),
+        author_email.as_deref(),
+        bypass_hooks,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -578,15 +610,18 @@ pub async fn git_diff_changes(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
     worktree_path: Option<String>,
+    files: Option<Vec<String>>,
 ) -> Result<String, AppError> {
     let repo_path =
         get_and_validate_git_project(&state, &project_id, false, worktree_path.as_deref(), true)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(&repo_path_str)
-        .arg("diff")
+    let mut diff_cmd = Command::new("git");
+    diff_cmd.arg("-C").arg(&repo_path_str).arg("diff").arg("--");
+    if let Some(file_list) = files.as_ref() {
+        diff_cmd.args(file_list);
+    }
+    let output = diff_cmd
         .output()
         .await
         .map_err(|e| AppError::GitError(format!("Failed to run git diff: {}", e)))?;
@@ -594,11 +629,17 @@ pub async fn git_diff_changes(
     let stdout_str = String::from_utf8_lossy(&output.stdout);
 
     // Also include cached diff (staged)
-    let cached_output = Command::new("git")
+    let mut cached_diff_cmd = Command::new("git");
+    cached_diff_cmd
         .arg("-C")
         .arg(&repo_path_str)
         .arg("diff")
         .arg("--cached")
+        .arg("--");
+    if let Some(file_list) = files.as_ref() {
+        cached_diff_cmd.args(file_list);
+    }
+    let cached_output = cached_diff_cmd
         .output()
         .await
         .map_err(|e| AppError::GitError(format!("Failed to run git diff --cached: {}", e)))?;
@@ -677,7 +718,7 @@ pub async fn git_worktree_apply(
     project_id: String,
     worktree_path: String,
     branch_name: String,
-) -> Result<(), AppError> {
+) -> Result<Vec<String>, AppError> {
     let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
 
@@ -697,10 +738,10 @@ pub async fn git_worktree_apply(
 
     // Cleanup is intentionally unreachable until the complete patch has been
     // applied and independently verified by Git.
-    apply_worktree_changes(&repo_path, &worktree_dir).await?;
+    let changed_paths = apply_worktree_changes(&repo_path, &worktree_dir).await?;
     cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
 
-    Ok(())
+    Ok(changed_paths)
 }
 
 #[tauri::command]
@@ -790,7 +831,10 @@ async fn cleanup_worktree_internal(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_worktree_changes, parse_changed_paths, resolve_git_relative_path};
+    use super::{
+        apply_worktree_changes, create_commit_in_repository, parse_changed_paths,
+        resolve_git_relative_path,
+    };
     use std::path::Path;
     use std::process::Command as StdCommand;
 
@@ -812,9 +856,11 @@ mod tests {
             run_git(&repo, &["init"]);
             run_git(&repo, &["config", "user.email", "tests@sythoria.invalid"]);
             run_git(&repo, &["config", "user.name", "Sythoria Tests"]);
+            run_git(&repo, &["config", "commit.gpgsign", "false"]);
             run_git(&repo, &["config", "core.autocrlf", "false"]);
             std::fs::write(repo.join("modified.txt"), b"original\n").expect("write fixture");
             std::fs::write(repo.join("deleted.txt"), b"delete me\n").expect("write fixture");
+            std::fs::write(repo.join("user.txt"), b"user original\n").expect("write fixture");
             run_git(&repo, &["add", "."]);
             run_git(&repo, &["commit", "-m", "initial"]);
             run_git(
@@ -887,9 +933,18 @@ mod tests {
         std::fs::create_dir_all(&nested).expect("create nested fixture");
         std::fs::write(nested.join("payload.bin"), [0, 1, 2, 0xff]).expect("write binary fixture");
 
-        apply_worktree_changes(&fixture.repo, &fixture.worktree)
+        let changed_paths = apply_worktree_changes(&fixture.repo, &fixture.worktree)
             .await
             .expect("apply complete worktree");
+
+        assert_eq!(
+            changed_paths,
+            [
+                "deleted.txt".to_string(),
+                "modified.txt".to_string(),
+                "new/deep/tree/payload.bin".to_string(),
+            ]
+        );
 
         assert_eq!(
             std::fs::read(fixture.repo.join("modified.txt")).expect("read modified result"),
@@ -930,5 +985,44 @@ mod tests {
             std::fs::read(fixture.repo.join("modified.txt")).expect("read primary conflict"),
             b"conflicting primary version\n"
         );
+    }
+
+    #[tokio::test]
+    async fn scoped_commit_preserves_unrelated_staged_changes() {
+        let fixture = TestRepository::new();
+        std::fs::write(fixture.repo.join("modified.txt"), b"AI change\n").expect("write AI change");
+        std::fs::write(fixture.repo.join("user.txt"), b"user staged change\n")
+            .expect("write user change");
+        run_git(&fixture.repo, &["add", "--", "user.txt"]);
+
+        create_commit_in_repository(
+            &fixture.repo,
+            "fix: scoped change",
+            Some(&["modified.txt".to_string()]),
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect("create scoped commit");
+
+        let committed = StdCommand::new("git")
+            .arg("-C")
+            .arg(&fixture.repo)
+            .args(["show", "--pretty=format:", "--name-only", "HEAD"])
+            .output()
+            .expect("inspect commit");
+        assert_eq!(
+            String::from_utf8_lossy(&committed.stdout).trim(),
+            "modified.txt"
+        );
+
+        let staged = StdCommand::new("git")
+            .arg("-C")
+            .arg(&fixture.repo)
+            .args(["diff", "--cached", "--name-only"])
+            .output()
+            .expect("inspect staged paths");
+        assert_eq!(String::from_utf8_lossy(&staged.stdout).trim(), "user.txt");
     }
 }

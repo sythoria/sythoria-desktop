@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
 import type { Conversation } from "../types";
 import { useChatStore } from "./useChatStore";
+import { useGitStore } from "./useGitStore";
 import { useModelStore } from "./useModelStore";
+import { useProjectStore } from "./useProjectStore";
 import { useUIStore } from "./useUIStore";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
 
 const primaryConversation: Conversation = {
   id: "primary-chat",
@@ -142,6 +149,67 @@ describe("subagent cancellation", () => {
     } finally {
       useModelStore.setState({ cancelConversationStream: originalCancelConversationStream });
       useUIStore.setState({ pendingToolConfirmations: [] });
+    }
+  });
+});
+
+describe("worktree approval", () => {
+  it("auto-commits only returned worktree paths after apply succeeds", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const autoCommitIfNeeded = vi.fn().mockResolvedValue(undefined);
+    const originalAutoCommit = useGitStore.getState().autoCommitIfNeeded;
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_worktree_apply") return ["src/ai.ts", "src/new.ts"];
+      if (command === "set_project_path_override") return undefined;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    useGitStore.setState({ autoCommitIfNeeded });
+    useProjectStore.setState({
+      projects: [
+        {
+          id: "project-a",
+          name: "Project A",
+          path: "/projects/a",
+          permissions: "write",
+        },
+      ],
+      activeProjectId: "project-a",
+      activeWorktreePath: "/worktrees/run-a",
+      activeWorktreeBranch: "sythoria-agent-a",
+    });
+    useUIStore.setState({ hasStarted: false });
+    useChatStore.setState({
+      conversations: [
+        {
+          ...primaryConversation,
+          projectId: "project-a",
+          pendingWorktree: {
+            path: "/worktrees/run-a",
+            branch: "sythoria-agent-a",
+            commitScope: {
+              projectId: "project-a",
+              projectRoot: "/projects/a",
+              modelId: "model-a",
+            },
+          },
+        },
+      ],
+      activeId: primaryConversation.id,
+    });
+
+    try {
+      await useChatStore.getState().applyPendingWorktree(primaryConversation.id);
+
+      expect(autoCommitIfNeeded).toHaveBeenCalledWith({
+        projectId: "project-a",
+        projectRoot: "/projects/a",
+        modelId: "model-a",
+        files: ["src/ai.ts", "src/new.ts"],
+      });
+      expect(useChatStore.getState().conversations[0].pendingWorktree).toBeUndefined();
+    } finally {
+      useGitStore.setState({ autoCommitIfNeeded: originalAutoCommit });
+      invokeMock.mockReset();
     }
   });
 });
