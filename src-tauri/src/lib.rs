@@ -2212,6 +2212,7 @@ pub fn run() {
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_list_resources,
             commands::mcp::mcp_list_prompts,
+            commands::mcp::mcp_request_tool_approval,
             commands::mcp::mcp_call_tool,
             commands::mcp::mcp_cancel_tool_call,
             commands::config::wipe_config_files,

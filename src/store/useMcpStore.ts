@@ -182,8 +182,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
   updateMcpConfig: async (id, updates) => {
     const { mcpConfigs, mcpApiKeys } = get();
+    const previousConfig = mcpConfigs.find((config) => config.id === id);
     const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     const isBeingDisabled = updates.enabled === false;
+    const trustChanged = updates.trustLevel !== undefined && previousConfig?.trustLevel !== updates.trustLevel;
 
     if (isBeingDisabled) {
       const nextEnabled = new Set(get().enabledServerIds);
@@ -216,6 +218,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
       // quick shutdown cannot restore the previous trusted state on restart.
       debouncedSaveMcpConfigs.cancel();
       await saveMcpConfigs(updatedConfigs);
+      if (trustChanged && !isBeingDisabled && get().serverStatuses[id] === "connected") {
+        await get().disconnectServer(id);
+      }
     } else if (!isBeingDisabled) {
       debouncedSaveMcpConfigs(updatedConfigs);
     }
@@ -386,10 +391,19 @@ export const useMcpStore = create<McpState>((set, get) => ({
       logInfo("mcp", `Calling MCP tool: ${toolName}`, {
         details: `Server: "${config?.name ?? serverId}", Args: ${JSON.stringify(args).slice(0, 200)}`,
       });
+      const serializedArguments = JSON.stringify(args);
+      const approvalCapability = await invoke<string | null>("mcp_request_tool_approval", {
+        serverId,
+        toolName,
+        arguments: serializedArguments,
+        conversationId: conversationId ?? null,
+      });
       const raw = await invoke<string>("mcp_call_tool", {
         serverId,
         toolName,
-        arguments: JSON.stringify(args),
+        arguments: serializedArguments,
+        conversationId: conversationId ?? null,
+        approvalCapability,
         ...(requestId ? { requestId } : {}),
       });
       const result = JSON.parse(raw) as McpToolResult;

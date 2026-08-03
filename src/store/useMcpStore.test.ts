@@ -99,10 +99,55 @@ describe("useMcpStore capability revocation", () => {
     expect(useMcpStore.getState().serverStatuses[config.id]).toBeUndefined();
   });
 
+  it("passes the native single-use approval capability into the tool call", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_request_tool_approval") {
+        return Promise.resolve("approval-capability");
+      }
+      if (command === "mcp_call_tool") {
+        return Promise.resolve(JSON.stringify({ content: "ok", isError: false }));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await expect(
+      useMcpStore.getState().callTool(config.id, tool.name, { path: "notes.txt" }, "conversation-a"),
+    ).resolves.toEqual({ content: "ok", isError: false });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_request_tool_approval", {
+      serverId: config.id,
+      toolName: tool.name,
+      arguments: JSON.stringify({ path: "notes.txt" }),
+      conversationId: "conversation-a",
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      "mcp_call_tool",
+      expect.objectContaining({
+        serverId: config.id,
+        toolName: tool.name,
+        conversationId: "conversation-a",
+        approvalCapability: "approval-capability",
+      }),
+    );
+  });
+
+  it("disconnects an active server when its trust level changes", async () => {
+    await useMcpStore.getState().updateMcpConfig(config.id, { trustLevel: "trusted" });
+
+    expect(mocks.saveMcpConfigs).toHaveBeenCalledWith([
+      expect.objectContaining({ id: config.id, trustLevel: "trusted" }),
+    ]);
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_stop_server", { serverId: config.id });
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("disconnected");
+  });
+
   it("cancels only tool calls tracked for the deleted conversation", async () => {
     let rejectToolCall: ((reason: Error) => void) | undefined;
     let trackedRequestId = "";
     mocks.invoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "mcp_request_tool_approval") {
+        return Promise.resolve("approval-delete");
+      }
       if (command === "mcp_call_tool") {
         trackedRequestId = String(args?.requestId);
         return new Promise<string>((_resolve, reject) => {

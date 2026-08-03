@@ -131,7 +131,7 @@ src-tauri/src/
 
 - **`buildToolDefinitions(mcpTools, includeSearch)`**: Merges native search tools (`search_query`, `fetch_url`) and workspace tools (`project_read`, `project_grep`, `project_glob`, etc.) with MCP tools. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
 - **`buildToolSystemPrompt(mcpTools)`**: Injects MCP and project-specific tool descriptions into the system prompt.
-- **`sendWithToolLoop()`**: If search, MCP, or project workspaces are enabled, runs iterative tool execution. Loop step limit is user-configurable (`maxToolSteps`, defaults to 25). Untrusted MCP servers require confirmation for every tool call; a server explicitly marked trusted in Settings can execute its tools without confirmation. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
+- **`sendWithToolLoop()`**: If search, MCP, or project workspaces are enabled, runs iterative tool execution. Loop step limit is user-configurable (`maxToolSteps`, defaults to 25). Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
 - **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`). Subsequent file writes, edits, and commands execute in the context of this isolated path (`worktreePath`) without polluting the main directory. The changes are displayed as a pending worktree in the UI for user review.
 
 ## Logging System
@@ -279,7 +279,7 @@ export interface ModelConfig {
 | `load_mcp_config` / `save_mcp_config`                             | Encrypted MCP server configs (`mcp.enc`)            |
 | `mcp_start_server` / `mcp_stop_server` / `mcp_set_server_enabled` | Spawn, stop, or revoke MCP server execution         |
 | `mcp_check_command`                                               | Probes command/args resolution on path              |
-| `mcp_list_tools` / `mcp_call_tool`                                | MCP tool discoverability and execution              |
+| `mcp_list_tools` / `mcp_request_tool_approval` / `mcp_call_tool`  | MCP discovery, native approval, and execution       |
 | `mcp_cancel_tool_call`                                            | Cancel one request-scoped MCP tool invocation       |
 | `select_file_and_get_token`                                       | Open dialog to import file, returns secure token    |
 | `read_file_from_token`                                            | Read local file contents via secure token payload   |

@@ -74,6 +74,13 @@ pub struct McpServerManager {
     explicitly_enabled: HashSet<String>,
 }
 
+pub struct McpToolAuthorization {
+    pub requires_approval: bool,
+    pub server_name: String,
+    pub transport: String,
+    pub connection_generation: u64,
+}
+
 impl McpServerManager {
     pub fn new() -> Self {
         Self {
@@ -199,6 +206,31 @@ impl McpServerManager {
             .map(|h| h.tools.clone())
             .unwrap_or_default()
     }
+
+    pub fn tool_authorization(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+    ) -> Result<McpToolAuthorization, String> {
+        let _request_tx = self.executable_request_tx(server_id)?;
+        let handle = self
+            .servers
+            .get(server_id)
+            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?;
+        if !handle.tools.iter().any(|tool| tool.name == tool_name) {
+            return Err(format!(
+                "MCP tool '{}' is not advertised by server '{}'",
+                tool_name, server_id
+            ));
+        }
+
+        Ok(McpToolAuthorization {
+            requires_approval: handle.config.trustLevel.as_deref() != Some("trusted"),
+            server_name: handle.config.name.clone(),
+            transport: handle.config.transport.clone(),
+            connection_generation: handle.connection_generation,
+        })
+    }
 }
 
 pub static MCP_SERVERS: LazyLock<Mutex<McpServerManager>> =
@@ -226,7 +258,11 @@ mod tests {
     fn handle(id: &str, enabled: bool, generation: u64) -> McpServerHandle {
         let (request_tx, _request_rx) = tokio::sync::mpsc::channel(1);
         McpServerHandle {
-            tools: Vec::new(),
+            tools: vec![McpToolInfo {
+                name: "test_tool".to_string(),
+                description: "Test tool".to_string(),
+                inputSchema: serde_json::json!({ "type": "object" }),
+            }],
             cancel_token: tokio_util::sync::CancellationToken::new(),
             request_tx: Some(request_tx),
             config: config(id, enabled),
@@ -266,5 +302,39 @@ mod tests {
 
         manager.set_explicitly_enabled("server", false);
         assert!(manager.executable_request_tx("server").is_err());
+    }
+
+    #[test]
+    fn tool_authorization_defaults_to_untrusted_and_validates_tool() {
+        let mut manager = McpServerManager::new();
+        manager.set_explicitly_enabled("server", true);
+        let generation = manager.begin_connection("server");
+        assert!(manager.complete_connection(
+            "server".to_string(),
+            generation,
+            handle("server", true, generation),
+        ));
+
+        let authorization = manager
+            .tool_authorization("server", "test_tool")
+            .expect("authorize advertised tool");
+        assert!(authorization.requires_approval);
+        assert_eq!(authorization.connection_generation, generation);
+        assert!(manager
+            .tool_authorization("server", "missing_tool")
+            .is_err());
+
+        manager
+            .servers
+            .get_mut("server")
+            .expect("connected server")
+            .config
+            .trustLevel = Some("trusted".to_string());
+        assert!(
+            !manager
+                .tool_authorization("server", "test_tool")
+                .expect("authorize trusted tool")
+                .requires_approval
+        );
     }
 }

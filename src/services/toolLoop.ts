@@ -8,7 +8,6 @@ import type {
   GenerationState,
   McpTool,
   Project,
-  McpServerConfig,
 } from "../types";
 import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
@@ -18,7 +17,6 @@ import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
-import { useMcpStore } from "../store/useMcpStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
@@ -148,10 +146,6 @@ interface ToolDefinition {
       required?: string[];
     };
   };
-}
-
-export function requiresMcpConfirmation(serverConfig: Pick<McpServerConfig, "trustLevel"> | undefined): boolean {
-  return serverConfig?.trustLevel !== "trusted";
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1365,25 +1359,6 @@ async function runWithToolLoop(
             if (fnName === "unknown" && rawName.includes("__") && useMcp) {
               const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
               if (mcpTool && mcpCallTool) {
-                const mcpStore = useMcpStore.getState();
-                const serverConfig = mcpStore.mcpConfigs.find((s: McpServerConfig) => s.id === mcpTool.serverId);
-                if (requiresMcpConfirmation(serverConfig)) {
-                  const approved = await new Promise<boolean>((resolve) => {
-                    useUIStore.getState().addPendingToolConfirmation({
-                      id: toolCall.id,
-                      conversationId: convId,
-                      toolName: mcpTool.name,
-                      arguments: fnArgs,
-                      resolve,
-                      schema: mcpTool.inputSchema,
-                      destination: `${mcpTool.serverName} (${serverConfig?.transport || "stdio"})`,
-                    });
-                  });
-                  if (!approved) {
-                    throw new Error("Tool execution rejected by the user.");
-                  }
-                }
-
                 logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
                   details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
                 });
