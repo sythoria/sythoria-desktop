@@ -43,6 +43,14 @@ If a project contains `AGENTS.md`, its instructions are added to the project con
 
 ## Getting started
 
+### Install on Linux (Universal)
+
+You can install Sythoria on almost any Linux distribution (Debian, Ubuntu, Fedora, Arch, etc.) using our universal installer script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sythoria/sythoria-desktop/main/install.sh | bash
+```
+
 ### Requirements
 
 - Node.js 20 or newer and npm
