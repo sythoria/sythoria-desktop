@@ -100,8 +100,8 @@ src-tauri/src/
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
   appshots.rs           # Screen capture, auto-cleanup, permissions check, custom path configuration
   git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
-  project.rs            # Workspace paths registration, permissions matching, active project mapping
-  project_tools.rs      # Workspace native tools (read, write, grep, edit, bash, glob) with validation
+  project.rs            # Workspace registration, permissions, worktree mapping, compiled root-relative exclusions
+  project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
   commands/
     config.rs           # Encrypted settings/config commands, keychain secret maps, and full data wipe
     conversations.rs    # Encrypted content-addressed conversation snapshots
@@ -310,6 +310,7 @@ export interface ModelConfig {
 - **Tailwind v4**: `@theme` directive, `@import "tailwindcss"` — no `tailwind.config.js`.
 - **VS Code Themes**: Settings > Appearance houses customizable themes fetched from a marketplace, dynamically mapped to stylesheet CSS properties.
 - **Git Worktree Isolation**: Highly secure write actions. Modifications execute inside a worktree sandbox before confirmation, preventing accidental main-branch workspace writes.
+- **Project exclusions**: Project patterns use root-relative Git-ignore semantics, cannot use negation, and are enforced before and after canonicalization as well as during list/grep/glob traversal.
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
 - **Keychain**: `keyring-core` with platform backends (macOS Keychain, Windows Credential Manager, Linux keyutils).

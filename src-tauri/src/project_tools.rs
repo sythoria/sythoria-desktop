@@ -1,4 +1,4 @@
-use crate::project::{ProjectPermission, ProjectRegistry};
+use crate::project::{ProjectExclusions, ProjectPermission, ProjectRegistry};
 use crate::AppError;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,13 +10,18 @@ const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 120_000;
 const MAX_COMMAND_TIMEOUT_MS: u64 = 600_000;
 const MAX_COMMAND_OUTPUT_BYTES: usize = 1024 * 1024;
 
+struct ValidatedProjectAccess {
+    path: PathBuf,
+    exclusions: ProjectExclusions,
+}
+
 fn get_and_validate_project(
     state: &ProjectRegistry,
     project_id: &str,
     relative_path: &str,
     required_permission: &str,
     worktree_path: Option<&str>,
-) -> Result<PathBuf, AppError> {
+) -> Result<ValidatedProjectAccess, AppError> {
     // 1. Validate active project ID
     {
         let active_guard = state
@@ -50,7 +55,12 @@ fn get_and_validate_project(
     project.path = root.to_string_lossy().into_owned();
 
     // 3. Validate path and permission
-    crate::project::validate_project_path(&project, relative_path, required_permission)
+    let path = crate::project::validate_project_path(&project, relative_path, required_permission)?;
+    let root = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::AppPath(format!("Failed to canonicalize project root: {e}")))?;
+    let exclusions = ProjectExclusions::new(&project, &root)?;
+    Ok(ValidatedProjectAccess { path, exclusions })
 }
 
 #[tauri::command]
@@ -62,8 +72,9 @@ pub async fn project_read(
     limit: Option<usize>,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let validated_path =
+    let access =
         get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let validated_path = access.path;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -126,7 +137,8 @@ pub async fn project_write(
         &path,
         "write",
         worktree_path.as_deref(),
-    )?;
+    )?
+    .path;
     tokio::task::spawn_blocking(move || {
         if let Some(parent) = validated_path.parent() {
             fs::create_dir_all(parent)
@@ -146,34 +158,46 @@ pub async fn project_list_dir(
     path: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let validated_path =
+    let access =
         get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
-    tokio::task::spawn_blocking(move || {
-        if !validated_path.exists() || !validated_path.is_dir() {
-            return Err(AppError::AppPath(format!(
-                "Directory does not exist: {}",
-                validated_path.display()
-            )));
-        }
+    tokio::task::spawn_blocking(move || list_project_directory(access))
+        .await
+        .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
+}
 
-        let mut entries = Vec::new();
-        let dir = fs::read_dir(validated_path)
-            .map_err(|e| AppError::AppPath(format!("Failed to read dir: {}", e)))?;
+fn list_project_directory(access: ValidatedProjectAccess) -> Result<Vec<String>, AppError> {
+    if !access.path.exists() || !access.path.is_dir() {
+        return Err(AppError::AppPath(format!(
+            "Directory does not exist: {}",
+            access.path.display()
+        )));
+    }
 
-        for entry in dir.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            if is_dir {
-                entries.push(format!("{}/", file_name));
-            } else {
-                entries.push(file_name);
-            }
+    let mut entries = Vec::new();
+    let dir = fs::read_dir(&access.path)
+        .map_err(|e| AppError::AppPath(format!("Failed to read dir: {e}")))?;
+
+    for entry in dir.flatten() {
+        let entry_path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry
+            .file_type()
+            .map(|file_type| file_type.is_dir())
+            .unwrap_or(false);
+        if !access
+            .exclusions
+            .allows_discovered_path(&entry_path, is_dir)
+        {
+            continue;
         }
-        entries.sort();
-        Ok(entries)
-    })
-    .await
-    .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
+        entries.push(if is_dir {
+            format!("{file_name}/")
+        } else {
+            file_name
+        });
+    }
+    entries.sort();
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -391,7 +415,8 @@ pub async fn project_edit(
         &path,
         "write",
         worktree_path.as_deref(),
-    )?;
+    )?
+    .path;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -447,7 +472,8 @@ pub async fn project_multi_replace_file_content(
         &path,
         "write",
         worktree_path.as_deref(),
-    )?;
+    )?
+    .path;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -511,103 +537,118 @@ pub async fn project_grep(
     multiline: Option<bool>,
     worktree_path: Option<String>,
 ) -> Result<GrepResult, AppError> {
-    let validated_root =
+    let access =
         get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
     tokio::task::spawn_blocking(move || {
-        if !validated_root.exists() || !validated_root.is_dir() {
-            return Err(AppError::AppPath(format!(
-                "Directory does not exist: {}",
-                validated_root.display()
-            )));
-        }
-
-        let is_multiline = multiline.unwrap_or(false);
-        let mode = output_mode.unwrap_or_else(|| "files_with_matches".to_string());
-
-        let regex = regex::RegexBuilder::new(&pattern)
-            .multi_line(is_multiline)
-            .build()
-            .map_err(|e| AppError::AppPath(format!("Invalid regex: {}", e)))?;
-
-        let mut files_with_matches = Vec::new();
-        let mut content_results = Vec::new();
-        let mut total_matches = 0;
-
-        let walker = ignore::WalkBuilder::new(&validated_root)
-            .hidden(false)
-            .git_ignore(true)
-            .build();
-
-        for entry in walker.flatten() {
-            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                    let mut is_large = false;
-                    let mut size = 0;
-                    if let Ok(metadata) = entry.metadata() {
-                        size = metadata.len();
-                        if size > 10 * 1024 * 1024 {
-                            is_large = true;
-                        }
-                    }
-
-                    let content_opt = if is_large {
-                        use std::io::{BufRead, BufReader};
-                        fs::File::open(entry.path()).ok().map(|file| {
-                            let reader = BufReader::new(file);
-                            let mut lines = Vec::new();
-                            for line in reader.lines().take(5000).flatten() {
-                                lines.push(line);
-                            }
-                            lines.push(format!("\n--- [WARNING: File size is {:.2}MB, which exceeds the 10MB limit. Loaded first 5000 lines only] ---", size as f64 / (1024.0 * 1024.0)));
-                            lines.join("\n")
-                        })
-                    } else {
-                        fs::read_to_string(entry.path()).ok()
-                    };
-
-                    if let Some(content) = content_opt {
-                        if regex.is_match(&content) {
-                            let rel_path = entry
-                                .path()
-                                .strip_prefix(&validated_root)
-                                .unwrap_or(entry.path());
-                            let rel_path_str = rel_path.to_string_lossy().into_owned();
-
-                            match mode.as_str() {
-                                "files_with_matches" => {
-                                    files_with_matches.push(rel_path_str);
-                                }
-                                "count" => {
-                                    total_matches += regex.find_iter(&content).count();
-                                }
-                                "content" => {
-                                    for (i, line) in content.lines().enumerate() {
-                                        if regex.is_match(line) {
-                                            content_results.push(GrepContentResult {
-                                                file: rel_path_str.clone(),
-                                                line: i + 1,
-                                                content: line.to_string(),
-                                            });
-                                            if content_results.len() >= 1000 {
-                                                return Ok(GrepResult::Content(content_results));
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-            }
-        }
-
-        match mode.as_str() {
-            "files_with_matches" => Ok(GrepResult::FilesWithMatches(files_with_matches)),
-            "count" => Ok(GrepResult::Count(total_matches)),
-            _ => Ok(GrepResult::Content(content_results)),
-        }
+        grep_project_files(access, &pattern, output_mode, multiline)
     })
     .await
     .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
+}
+
+fn grep_project_files(
+    access: ValidatedProjectAccess,
+    pattern: &str,
+    output_mode: Option<String>,
+    multiline: Option<bool>,
+) -> Result<GrepResult, AppError> {
+    if !access.path.exists() || !access.path.is_dir() {
+        return Err(AppError::AppPath(format!(
+            "Directory does not exist: {}",
+            access.path.display()
+        )));
+    }
+
+    let mode = output_mode.unwrap_or_else(|| "files_with_matches".to_string());
+    let regex = regex::RegexBuilder::new(pattern)
+        .multi_line(multiline.unwrap_or(false))
+        .build()
+        .map_err(|e| AppError::AppPath(format!("Invalid regex: {e}")))?;
+    let mut files_with_matches = Vec::new();
+    let mut content_results = Vec::new();
+    let mut total_matches = 0;
+
+    let traversal_exclusions = access.exclusions.clone();
+    let mut walk_builder = ignore::WalkBuilder::new(&access.path);
+    walk_builder
+        .hidden(false)
+        .git_ignore(true)
+        .filter_entry(move |entry| {
+            let is_dir = entry
+                .file_type()
+                .map(|file_type| file_type.is_dir())
+                .unwrap_or(false);
+            traversal_exclusions.allows_discovered_path(entry.path(), is_dir)
+        });
+
+    for entry in walk_builder.build().flatten() {
+        if !entry
+            .file_type()
+            .map(|file_type| file_type.is_file())
+            .unwrap_or(false)
+            || !access
+                .exclusions
+                .allows_discovered_path(entry.path(), false)
+        {
+            continue;
+        }
+
+        let size = entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        let content = if size > 10 * 1024 * 1024 {
+            use std::io::{BufRead, BufReader};
+            let Some(file) = fs::File::open(entry.path()).ok() else {
+                continue;
+            };
+            let reader = BufReader::new(file);
+            let mut lines: Vec<String> = reader.lines().take(5000).flatten().collect();
+            lines.push(format!(
+                "\n--- [WARNING: File size is {:.2}MB, which exceeds the 10MB limit. Loaded first 5000 lines only] ---",
+                size as f64 / (1024.0 * 1024.0)
+            ));
+            lines.join("\n")
+        } else {
+            let Some(content) = fs::read_to_string(entry.path()).ok() else {
+                continue;
+            };
+            content
+        };
+
+        if !regex.is_match(&content) {
+            continue;
+        }
+        let relative_path = entry
+            .path()
+            .strip_prefix(&access.path)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .into_owned();
+
+        match mode.as_str() {
+            "files_with_matches" => files_with_matches.push(relative_path),
+            "count" => total_matches += regex.find_iter(&content).count(),
+            "content" => {
+                for (index, line) in content.lines().enumerate() {
+                    if regex.is_match(line) {
+                        content_results.push(GrepContentResult {
+                            file: relative_path.clone(),
+                            line: index + 1,
+                            content: line.to_string(),
+                        });
+                        if content_results.len() >= 1000 {
+                            return Ok(GrepResult::Content(content_results));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    match mode.as_str() {
+        "files_with_matches" => Ok(GrepResult::FilesWithMatches(files_with_matches)),
+        "count" => Ok(GrepResult::Count(total_matches)),
+        _ => Ok(GrepResult::Content(content_results)),
+    }
 }
 
 #[tauri::command]
@@ -618,45 +659,160 @@ pub async fn project_glob(
     pattern: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let validated_root =
+    let access =
         get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
-    tokio::task::spawn_blocking(move || {
-        if !validated_root.exists() || !validated_root.is_dir() {
-            return Err(AppError::AppPath(format!(
-                "Directory does not exist: {}",
-                validated_root.display()
-            )));
+    tokio::task::spawn_blocking(move || glob_project_files(access, &pattern))
+        .await
+        .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
+}
+
+fn glob_project_files(
+    access: ValidatedProjectAccess,
+    pattern: &str,
+) -> Result<Vec<String>, AppError> {
+    if !access.path.exists() || !access.path.is_dir() {
+        return Err(AppError::AppPath(format!(
+            "Directory does not exist: {}",
+            access.path.display()
+        )));
+    }
+
+    let mut builder = ignore::overrides::OverrideBuilder::new(&access.path);
+    builder
+        .add(pattern)
+        .map_err(|e| AppError::AppPath(format!("Invalid glob pattern: {e}")))?;
+    let overrides = builder
+        .build()
+        .map_err(|e| AppError::AppPath(format!("Failed to build overrides: {e}")))?;
+
+    let traversal_exclusions = access.exclusions.clone();
+    let mut walk_builder = ignore::WalkBuilder::new(&access.path);
+    walk_builder
+        .hidden(false)
+        .git_ignore(true)
+        .overrides(overrides)
+        .filter_entry(move |entry| {
+            let is_dir = entry
+                .file_type()
+                .map(|file_type| file_type.is_dir())
+                .unwrap_or(false);
+            traversal_exclusions.allows_discovered_path(entry.path(), is_dir)
+        });
+
+    let mut results = Vec::new();
+    for entry in walk_builder.build().flatten() {
+        if entry
+            .file_type()
+            .map(|file_type| file_type.is_file())
+            .unwrap_or(false)
+            && access
+                .exclusions
+                .allows_discovered_path(entry.path(), false)
+        {
+            let relative_path = entry
+                .path()
+                .strip_prefix(&access.path)
+                .unwrap_or(entry.path());
+            results.push(relative_path.to_string_lossy().into_owned());
         }
+    }
+    Ok(results)
+}
 
-        let mut builder = ignore::overrides::OverrideBuilder::new(&validated_root);
-        builder
-            .add(&pattern)
-            .map_err(|e| AppError::AppPath(format!("Invalid glob pattern: {}", e)))?;
-        let overrides = builder
-            .build()
-            .map_err(|e| AppError::AppPath(format!("Failed to build overrides: {}", e)))?;
+#[cfg(test)]
+mod tests {
+    use super::{
+        glob_project_files, grep_project_files, list_project_directory, GrepResult,
+        ValidatedProjectAccess,
+    };
+    use crate::project::{Project, ProjectExclusions, ProjectPermission};
+    use std::path::{Path, PathBuf};
 
-        let walker = ignore::WalkBuilder::new(&validated_root)
-            .hidden(false)
-            .git_ignore(true)
-            .overrides(overrides)
-            .build();
+    fn fixture() -> (PathBuf, Project) {
+        let root = std::env::temp_dir().join(format!("sythoria-walkers-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("node_modules/pkg")).expect("create node_modules");
+        std::fs::create_dir_all(root.join("nested/.git")).expect("create git directory");
+        std::fs::write(
+            root.join("node_modules/pkg/secret.txt"),
+            "MATCH hidden dependency",
+        )
+        .expect("write dependency file");
+        std::fs::write(root.join("nested/.git/config"), "MATCH hidden git metadata")
+            .expect("write git file");
+        std::fs::write(root.join("nested/.env"), "MATCH hidden environment")
+            .expect("write env file");
+        std::fs::write(root.join("visible.txt"), "MATCH visible").expect("write visible file");
+        std::fs::write(root.join("nested/visible.md"), "visible markdown")
+            .expect("write visible nested file");
 
-        let mut results = Vec::new();
-        for entry in walker.flatten() {
-            if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-                let rel_path = entry
-                    .path()
-                    .strip_prefix(&validated_root)
-                    .unwrap_or(entry.path());
-                results.push(rel_path.to_string_lossy().into_owned());
-            }
+        let project = Project {
+            id: "project".to_string(),
+            name: "Project".to_string(),
+            path: root.to_string_lossy().into_owned(),
+            permissions: ProjectPermission::Read,
+            exclude_patterns: Some(vec!["node_modules".into(), ".git".into(), ".env".into()]),
+            system_prompt_override: None,
+            model_override: None,
+            is_auto_commit_enabled: None,
+            auto_commit_msg_template: None,
+        };
+        (root, project)
+    }
+
+    fn access(project: &Project, path: &Path) -> ValidatedProjectAccess {
+        let root = Path::new(&project.path)
+            .canonicalize()
+            .expect("canonical project root");
+        ValidatedProjectAccess {
+            path: path.canonicalize().expect("canonical access path"),
+            exclusions: ProjectExclusions::new(project, &root).expect("compile exclusions"),
         }
+    }
 
-        Ok(results)
-    })
-    .await
-    .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
+    #[test]
+    fn list_directory_hides_excluded_entries() {
+        let (root, project) = fixture();
+
+        let root_entries =
+            list_project_directory(access(&project, &root)).expect("list project root");
+        let nested_entries = list_project_directory(access(&project, &root.join("nested")))
+            .expect("list nested directory");
+
+        assert_eq!(root_entries, vec!["nested/", "visible.txt"]);
+        assert_eq!(nested_entries, vec!["visible.md"]);
+        std::fs::remove_dir_all(&root).expect("remove fixture");
+    }
+
+    #[test]
+    fn grep_does_not_read_excluded_files() {
+        let (root, project) = fixture();
+
+        let result = grep_project_files(
+            access(&project, &root),
+            "MATCH",
+            Some("files_with_matches".to_string()),
+            Some(false),
+        )
+        .expect("grep project");
+
+        let GrepResult::FilesWithMatches(files) = result else {
+            panic!("unexpected grep result mode");
+        };
+        assert_eq!(files, vec!["visible.txt"]);
+        std::fs::remove_dir_all(&root).expect("remove fixture");
+    }
+
+    #[test]
+    fn glob_does_not_return_excluded_files() {
+        let (root, project) = fixture();
+
+        let mut results =
+            glob_project_files(access(&project, &root), "**/*").expect("glob project");
+        results.sort();
+
+        assert_eq!(results, vec!["nested/visible.md", "visible.txt"]);
+        std::fs::remove_dir_all(&root).expect("remove fixture");
+    }
 }
 
 #[tauri::command]

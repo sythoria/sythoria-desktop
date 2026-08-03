@@ -46,6 +46,101 @@ pub(crate) struct ValidatedWorktree {
     pub branch: String,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ProjectExclusions {
+    root: PathBuf,
+    matcher: ignore::gitignore::Gitignore,
+}
+
+impl ProjectExclusions {
+    pub(crate) fn new(project: &Project, root: &Path) -> Result<Self, AppError> {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+        builder
+            .case_insensitive(cfg!(target_os = "windows"))
+            .map_err(|error| {
+                AppError::AppPath(format!("Failed to configure project exclusions: {error}"))
+            })?;
+
+        if let Some(patterns) = &project.exclude_patterns {
+            for raw_pattern in patterns {
+                let Some(pattern) = normalize_exclusion_pattern(raw_pattern)? else {
+                    continue;
+                };
+                builder.add_line(None, &pattern).map_err(|error| {
+                    AppError::AppPath(format!(
+                        "Invalid project exclusion pattern '{}': {error}",
+                        raw_pattern.trim()
+                    ))
+                })?;
+            }
+        }
+
+        let matcher = builder.build().map_err(|error| {
+            AppError::AppPath(format!("Failed to compile project exclusions: {error}"))
+        })?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            matcher,
+        })
+    }
+
+    fn matching_pattern(&self, path: &Path, is_dir: bool) -> Option<&str> {
+        if !path.starts_with(&self.root) {
+            return None;
+        }
+        match self.matcher.matched_path_or_any_parents(path, is_dir) {
+            ignore::Match::Ignore(glob) => Some(glob.original()),
+            ignore::Match::None | ignore::Match::Whitelist(_) => None,
+        }
+    }
+
+    pub(crate) fn ensure_allowed(&self, path: &Path, is_dir: bool) -> Result<(), AppError> {
+        if let Some(pattern) = self.matching_pattern(path, is_dir) {
+            return Err(AppError::AppPath(format!(
+                "Access denied: path '{}' matches exclude pattern '{}'",
+                path.display(),
+                pattern
+            )));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn allows_discovered_path(&self, path: &Path, is_dir: bool) -> bool {
+        if !path.starts_with(&self.root) || self.ensure_allowed(path, is_dir).is_err() {
+            return false;
+        }
+        let Ok(canonical) = path.canonicalize() else {
+            return false;
+        };
+        canonical.starts_with(&self.root)
+            && self.ensure_allowed(&canonical, canonical.is_dir()).is_ok()
+    }
+}
+
+fn normalize_exclusion_pattern(raw_pattern: &str) -> Result<Option<String>, AppError> {
+    let mut pattern = raw_pattern.trim().replace('\\', "/");
+    while let Some(stripped) = pattern.strip_prefix("./") {
+        pattern = stripped.to_string();
+    }
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    if pattern.starts_with('!') {
+        return Err(AppError::AppPath(
+            "Project exclusion patterns cannot use negation ('!')".to_string(),
+        ));
+    }
+    if pattern.split('/').any(|component| component == "..") {
+        return Err(AppError::AppPath(
+            "Project exclusion patterns must be root-relative and cannot contain '..'".to_string(),
+        ));
+    }
+    if pattern.starts_with('#') {
+        pattern.insert(0, '\\');
+    }
+    Ok(Some(pattern))
+}
+
 pub(crate) fn sythoria_worktree_root() -> PathBuf {
     std::env::temp_dir().join("sythoria-worktrees")
 }
@@ -454,22 +549,9 @@ pub(crate) fn validate_project_path(
         )));
     }
 
-    // Check exclude patterns
-    if let Some(ref patterns) = project.exclude_patterns {
-        let resolved_str = resolved.to_string_lossy().to_string();
-        for pattern in patterns {
-            let pattern_trimmed = pattern.trim();
-            if !pattern_trimmed.is_empty()
-                && crate::search::matches_wildcard(&resolved_str, pattern_trimmed)
-            {
-                return Err(AppError::AppPath(format!(
-                    "Access denied: path '{}' matches exclude pattern '{}'",
-                    resolved.display(),
-                    pattern_trimmed
-                )));
-            }
-        }
-    }
+    let exclusions = ProjectExclusions::new(project, &root_canonical)?;
+    exclusions.ensure_allowed(&clean_path, clean_path.is_dir())?;
+    exclusions.ensure_allowed(&resolved, resolved.is_dir())?;
 
     Ok(resolved)
 }
@@ -478,7 +560,8 @@ pub(crate) fn validate_project_path(
 mod tests {
     use super::{
         configure_project_run, is_sythoria_agent_branch, parse_git_worktrees,
-        validate_owned_worktree, Project, ProjectPermission, ProjectRegistry,
+        validate_owned_worktree, validate_project_path, Project, ProjectExclusions,
+        ProjectPermission, ProjectRegistry,
     };
     use std::path::PathBuf;
 
@@ -593,5 +676,60 @@ mod tests {
             .insert(project.id.clone(), project);
 
         assert!(configure_project_run(&registry, "project", None, None).is_err());
+    }
+
+    #[test]
+    fn root_relative_exclusions_match_nested_files_and_directories() {
+        let root =
+            std::env::temp_dir().join(format!("sythoria-exclusions-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("src/node_modules/pkg")).expect("create node_modules");
+        std::fs::create_dir_all(root.join("nested/.git")).expect("create nested git directory");
+        std::fs::write(root.join("src/node_modules/pkg/index.js"), "secret")
+            .expect("write dependency file");
+        std::fs::write(root.join("nested/.git/config"), "secret").expect("write git config");
+        std::fs::write(root.join("nested/.env"), "TOKEN=secret").expect("write env file");
+        std::fs::write(root.join("visible.txt"), "visible").expect("write visible file");
+
+        let mut project = test_project(root.clone());
+        project.permissions = ProjectPermission::Read;
+        project.exclude_patterns = Some(vec!["node_modules".into(), ".git".into(), ".env".into()]);
+
+        assert!(validate_project_path(&project, "src/node_modules/pkg/index.js", "read").is_err());
+        assert!(validate_project_path(&project, "nested/.git/config", "read").is_err());
+        assert!(validate_project_path(&project, "nested/.env", "read").is_err());
+        assert!(validate_project_path(&project, "visible.txt", "read").is_ok());
+
+        std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_aliases_to_excluded_paths_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!("sythoria-symlink-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("private")).expect("create private directory");
+        std::fs::write(root.join("private/secret.txt"), "secret").expect("write secret");
+        symlink(root.join("private"), root.join("alias")).expect("create symlink");
+
+        let mut project = test_project(root.clone());
+        project.permissions = ProjectPermission::Read;
+        project.exclude_patterns = Some(vec!["private".into()]);
+
+        assert!(validate_project_path(&project, "alias/secret.txt", "read").is_err());
+
+        std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    #[test]
+    fn exclusion_matcher_rejects_reinclusion_patterns() {
+        let root = std::env::temp_dir().join(format!("sythoria-pattern-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+        let mut project = test_project(root.clone());
+        project.exclude_patterns = Some(vec!["!secret.txt".into()]);
+
+        assert!(ProjectExclusions::new(&project, &root).is_err());
+
+        std::fs::remove_dir_all(&root).expect("remove test root");
     }
 }
