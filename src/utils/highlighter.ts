@@ -80,26 +80,6 @@ const ALIAS_MAP: Record<string, string> = {
   arm: "armasm",
 };
 
-const PRELOAD_LANGS = [
-  "javascript",
-  "typescript",
-  "python",
-  "css",
-  "json",
-  "bash",
-  "xml",
-  "diff",
-  "yaml",
-  "sql",
-  "rust",
-  "go",
-  "java",
-  "cpp",
-  "csharp",
-  "armasm",
-  "x86asm",
-];
-
 function getLowlight(): LowlightInstance {
   if (lowlightInstance) return lowlightInstance;
   lowlightInstance = createLowlight();
@@ -121,19 +101,9 @@ async function loadLanguage(lang: string): Promise<boolean> {
   }
 }
 
-let preloadPromise: Promise<void> | null = null;
-
-function preloadLanguages(): Promise<void> {
-  if (preloadPromise) return preloadPromise;
-  preloadPromise = Promise.all(PRELOAD_LANGS.map(loadLanguage)).then(() => {});
-  return preloadPromise;
-}
-
 import DOMPurify from "dompurify";
 
 export async function highlightCode(code: string, lang: string): Promise<string | null> {
-  await preloadLanguages();
-
   const resolvedLang = ALIAS_MAP[lang.toLowerCase()] || lang.toLowerCase();
   const lowlight = getLowlight();
 

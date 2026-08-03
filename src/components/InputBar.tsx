@@ -100,7 +100,7 @@ export default memo(function InputBar({
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecordingActiveRef = useRef<boolean>(false);
   const initialValueRef = useRef<string>("");
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -146,7 +146,7 @@ export default memo(function InputBar({
         }
       }
     };
-  }, []);
+  }, [initWhisper]);
 
   const handleToggleVoice = async () => {
     // Check if Whisper model is ready (chosen, downloaded, or loaded)
@@ -280,8 +280,9 @@ export default memo(function InputBar({
             unlistenChunk();
           }
         }
-      } catch (err: any) {
-        useUIStore.getState().addToast(`Voice transcription failed: ${err.message || err}`, "error");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        useUIStore.getState().addToast(`Voice transcription failed: ${message}`, "error");
       } finally {
         setIsTranscribing(false);
         setVoiceDraft("");
@@ -324,13 +325,14 @@ export default memo(function InputBar({
             console.warn("Live transcription error:", e);
           }
           if (isRecordingActiveRef.current) {
-            recordingTimeoutRef.current = setTimeout(pollTranscription, 1200) as any;
+            recordingTimeoutRef.current = setTimeout(pollTranscription, 1200);
           }
         };
 
-        recordingTimeoutRef.current = setTimeout(pollTranscription, 1200) as any;
-      } catch (err: any) {
-        useUIStore.getState().addToast(`Could not access microphone: ${err.message || err}`, "error");
+        recordingTimeoutRef.current = setTimeout(pollTranscription, 1200);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        useUIStore.getState().addToast(`Could not access microphone: ${message}`, "error");
       }
     }
   };

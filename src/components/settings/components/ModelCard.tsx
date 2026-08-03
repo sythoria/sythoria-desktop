@@ -130,6 +130,7 @@ export const ModelCard = memo(function ModelCard({
                     apiBase: preset.apiBase || model.apiBase,
                     modelId: preset.defaultModel || model.modelId,
                     name: model.name === "New Model" ? preset.label : model.name,
+                    allowLocalNetwork: false,
                   });
                 } else {
                   onUpdate(model.id, { provider: providerId });
@@ -172,6 +173,26 @@ export const ModelCard = memo(function ModelCard({
             </p>
           )}
         </div>
+
+        <Switch
+          checked={model.allowLocalNetwork ?? false}
+          onChange={(checked) => {
+            if (
+              checked &&
+              !window.confirm(
+                "Allow this provider to connect to local or private network addresses? Only enable this for an endpoint you trust.",
+              )
+            ) {
+              return;
+            }
+            onUpdate(model.id, { allowLocalNetwork: checked });
+          }}
+          label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+          description={t("settings.network.allowLocalDesc", {
+            defaultValue:
+              "Required for trusted loopback providers such as Ollama. Plaintext stays limited to loopback.",
+          })}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">

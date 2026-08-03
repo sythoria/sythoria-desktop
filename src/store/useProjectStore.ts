@@ -129,17 +129,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setWorktree: async (path, branch) => {
-    const { activeProjectId } = get();
-    if (activeProjectId) {
-      try {
-        await invoke("set_project_path_override", {
-          projectId: activeProjectId,
-          pathOverride: path,
-        });
-      } catch (e) {
-        console.error("Failed to set project path override:", e);
-      }
-    }
+    // UI-only selection. Native project commands are bound to immutable,
+    // per-conversation run capabilities and never consult this value.
     set({ activeWorktreePath: path, activeWorktreeBranch: branch });
   },
 

@@ -1167,16 +1167,14 @@ export function AuxiliaryPanel() {
           ))}
         </nav>
       </header>
-      <AnimatePresence initial={false}>
-        {isSummaryPinned && (
-          <PinnedSummary
-            projectId={projectId}
-            project={project}
-            worktreePath={worktreePath}
-            conversation={activeConversation}
-          />
-        )}
-      </AnimatePresence>
+      {isSummaryPinned && (
+        <PinnedSummary
+          projectId={projectId}
+          project={project}
+          worktreePath={worktreePath}
+          conversation={activeConversation}
+        />
+      )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div

@@ -15,6 +15,7 @@ import {
   Mic,
   BookOpen,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export type SectionId =
   | "general"
@@ -41,7 +42,7 @@ export type SectionId =
 export interface SettingSectionItem {
   id: SectionId;
   label: string;
-  icon: any;
+  icon: LucideIcon;
   keywords: string[];
 }
 

@@ -4,6 +4,7 @@ import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, Executab
 import { generateId } from "../utils/generateId";
 import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers, saveMcpApiKeys } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
+import { summarizeToolArguments } from "../utils/redaction";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
@@ -387,7 +388,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }
     try {
       logInfo("mcp", `Calling MCP tool: ${toolName}`, {
-        details: `Server: "${config?.name ?? serverId}", Args: ${JSON.stringify(args).slice(0, 200)}`,
+        details: `Server: "${config?.name ?? serverId}", ${summarizeToolArguments(args)}`,
       });
       const serializedArguments = JSON.stringify(args);
       const approvalCapability = await invoke<string | null>("mcp_request_tool_approval", {

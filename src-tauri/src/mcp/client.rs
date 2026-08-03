@@ -525,12 +525,19 @@ pub async fn connect_server(
                 return Err("Base URL is required for HTTP transport".to_string());
             }
 
-            crate::endpoint_security::validate_outbound_url(&base_url, &["http", "https"])
-                .await
-                .map_err(|error| error.to_string())?;
+            let has_secret = config.apiKey.as_deref().is_some_and(|key| !key.is_empty());
+            let endpoint = crate::endpoint_security::validate_http_endpoint(
+                &base_url,
+                config.allowLocalNetwork.unwrap_or(false),
+                has_secret,
+                std::time::Duration::from_secs(120),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            let validated_url = endpoint.url.to_string();
 
             let mut transport_config =
-                StreamableHttpClientTransportConfig::with_uri(Arc::from(base_url.as_str()));
+                StreamableHttpClientTransportConfig::with_uri(Arc::from(validated_url.as_str()));
 
             if let Some(api_key) = &config.apiKey {
                 if !api_key.is_empty() {
@@ -538,8 +545,10 @@ pub async fn connect_server(
                 }
             }
 
-            let transport =
-                rmcp::transport::StreamableHttpClientTransport::from_config(transport_config);
+            let transport = rmcp::transport::StreamableHttpClientTransport::with_client(
+                endpoint.client,
+                transport_config,
+            );
 
             let mut running = client
                 .serve_with_ct(transport, ct)

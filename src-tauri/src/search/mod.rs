@@ -22,6 +22,13 @@ pub struct UrlContent {
     pub error: Option<String>,
 }
 
+pub(crate) fn allows_local_network(config: &serde_json::Value) -> bool {
+    config
+        .get("allowLocalNetwork")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[allow(dead_code)]

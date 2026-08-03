@@ -11,6 +11,7 @@ import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
 import { Select } from "./ui/Select";
 import type { ProjectPermission } from "../types";
+import { useTranslation } from "../utils/i18n";
 
 interface FormProps {
   id: string | null;
@@ -19,6 +20,7 @@ interface FormProps {
 }
 
 function ProjectForm({ id, mode, onClose }: FormProps) {
+  const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const { projects, addProject, updateProject, setActiveProject } = useProjectStore();
   const { models } = useModelStore();
@@ -52,34 +54,46 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "Select Project Directory",
+        title: t("projectForm.selectDirectory"),
       });
       if (selected && typeof selected === "string") {
         setPath(selected);
         if (!name) {
-          const folderName = selected.split(/[\\/]/).pop() || "New Project";
+          const folderName = selected.split(/[\\/]/).pop() || t("projectForm.newProject");
           setName(folderName);
         }
       }
     } catch (e) {
       console.error("Failed to open directory dialog:", e);
-      addToast("Failed to select folder", "error");
+      addToast(t("projectForm.selectFolderError"), "error");
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      addToast("Project name is required", "error");
+      addToast(t("projectForm.nameRequired"), "error");
       return;
     }
     if (creationMode === "custom" && !path.trim()) {
-      addToast("Folder path is required", "error");
+      addToast(t("projectForm.pathRequired"), "error");
       return;
     }
 
     setSaving(true);
     try {
+      if (permissions !== "read") {
+        if (creationMode === "documents" && mode === "create") {
+          addToast(t("projectForm.newFolderReadOnly"), "error");
+          return;
+        }
+        const gitRoot = await invoke<string | null>("git_detect_repo", { startPath: path });
+        if (!gitRoot) {
+          addToast(t("projectForm.gitRequired"), "error");
+          return;
+        }
+      }
+
       const parsedExcludes = excludePatterns
         .split(",")
         .map((p) => p.trim())
@@ -101,10 +115,13 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 
         const newId = addProject(name.trim(), finalPath, permissions, configData);
         if (activeConversationHasPendingWorktree) {
-          addToast(`Project "${name}" was added. Resolve pending workspace changes before switching to it.`, "success");
+          addToast(
+            `${t("projectForm.added", { name })} Resolve pending workspace changes before switching to it.`,
+            "success",
+          );
         } else {
           setActiveProject(newId);
-          addToast(`Project "${name}" added successfully!`, "success");
+          addToast(t("projectForm.added", { name }), "success");
         }
       } else if (mode === "edit" && id) {
         updateProject(id, {
@@ -113,12 +130,12 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           permissions,
           ...configData,
         });
-        addToast(`Project "${name}" updated!`, "success");
+        addToast(t("projectForm.updated", { name }), "success");
       }
       onClose();
     } catch (err) {
       console.error(err);
-      addToast(typeof err === "string" ? err : "Failed to save project directory", "error");
+      addToast(typeof err === "string" ? err : t("projectForm.saveError"), "error");
     } finally {
       setSaving(false);
     }
@@ -138,7 +155,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           }`}
         >
           <Sliders size={13} />
-          <span>General</span>
+          <span>{t("projectForm.general")}</span>
         </button>
         <button
           type="button"
@@ -150,7 +167,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           }`}
         >
           <Terminal size={13} />
-          <span>AI & Context</span>
+          <span>{t("projectForm.aiContext")}</span>
         </button>
         <button
           type="button"
@@ -162,7 +179,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           }`}
         >
           <GitBranch size={13} />
-          <span>Git Settings</span>
+          <span>{t("projectForm.gitSettings")}</span>
         </button>
       </div>
 
@@ -171,8 +188,13 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
         <div className="space-y-4">
           {/* Creation Mode Tabs (Create mode only) */}
           {mode === "create" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-text-muted uppercase tracking-wider">Location Type</label>
+            <div className="space-y-1.5" role="group" aria-labelledby="project-location-type-label">
+              <div
+                id="project-location-type-label"
+                className="text-xs font-semibold text-text-muted uppercase tracking-wider"
+              >
+                {t("projectForm.locationType")}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -184,8 +206,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                   }`}
                 >
                   <FolderPlus size={16} className={creationMode === "documents" ? "text-accent" : "text-text-muted"} />
-                  <span className="text-xs font-semibold">New in Documents</span>
-                  <span className="text-[10px] text-text-muted">Auto-create system folder</span>
+                  <span className="text-xs font-semibold">{t("projectForm.newInDocuments")}</span>
+                  <span className="text-[10px] text-text-muted">{t("projectForm.autoCreateFolder")}</span>
                 </button>
                 <button
                   type="button"
@@ -197,8 +219,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                   }`}
                 >
                   <Folder size={16} className={creationMode === "custom" ? "text-accent" : "text-text-muted"} />
-                  <span className="text-xs font-semibold">Select Local Path</span>
-                  <span className="text-[10px] text-text-muted">Choose folder on disk</span>
+                  <span className="text-xs font-semibold">{t("projectForm.selectLocalPath")}</span>
+                  <span className="text-[10px] text-text-muted">{t("projectForm.chooseFolder")}</span>
                 </button>
               </div>
             </div>
@@ -206,8 +228,11 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 
           {/* Name Input */}
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-text-secondary">Project Name</label>
+            <label htmlFor="project-name" className="text-xs font-semibold text-text-secondary">
+              {t("projectForm.projectName")}
+            </label>
             <input
+              id="project-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -220,9 +245,12 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           {/* Path Selection */}
           {creationMode === "custom" && (
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-text-secondary">Project Folder Path</label>
+              <label htmlFor="project-folder-path" className="text-xs font-semibold text-text-secondary">
+                {t("projectForm.folderPath")}
+              </label>
               <div className="flex gap-2">
                 <input
+                  id="project-folder-path"
                   type="text"
                   value={path}
                   onChange={(e) => setPath(e.target.value)}
@@ -235,7 +263,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                   onClick={handleBrowseFolder}
                   className="px-3 py-2 text-xs font-semibold rounded-lg bg-hover border border-border text-text-primary hover:bg-active transition-colors"
                 >
-                  Browse...
+                  {t("projectForm.browse")}
                 </button>
               </div>
             </div>
@@ -245,7 +273,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
             <div className="p-2.5 bg-active/40 border border-border/50 rounded-xl flex items-start gap-2 text-xs text-text-muted">
               <Info size={14} className="shrink-0 mt-0.5 text-accent" />
               <span>
-                The project will be created in your systems <strong>Documents</strong> folder:{" "}
+                {t("projectForm.documentsPrefix")} <strong>{t("projectForm.documents")}</strong>{" "}
                 <code className="text-accent-hover font-mono break-all">
                   Documents/{name ? name.replace(/[^a-zA-Z0-9\-_ ]/g, "_").trim() : "[ProjectName]"}
                 </code>
@@ -254,10 +282,13 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           )}
 
           {/* Permissions */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
-              Default Permission Level
-            </label>
+          <div className="space-y-1.5" role="group" aria-labelledby="project-permission-label">
+            <div
+              id="project-permission-label"
+              className="text-xs font-semibold text-text-muted uppercase tracking-wider block"
+            >
+              {t("projectForm.permissionLevel")}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
@@ -268,8 +299,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
                 }`}
               >
-                <span className="text-xs">Read Only</span>
-                <span className="text-[9px] opacity-75">RO (Safe)</span>
+                <span className="text-xs">{t("settings.projects.readOnly")}</span>
+                <span className="text-[9px] opacity-75">{t("settings.projects.readOnlyDesc")}</span>
               </button>
               <button
                 type="button"
@@ -280,15 +311,13 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
                 }`}
               >
-                <span className="text-xs">Read/Write</span>
-                <span className="text-[9px] opacity-75">RW (Editable)</span>
+                <span className="text-xs">{t("settings.projects.readWrite")}</span>
+                <span className="text-[9px] opacity-75">{t("settings.projects.readWriteDesc")}</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const confirmed = window.confirm(
-                    "WARNING: Enabling Full Shell gives the AI complete access to run arbitrary shell commands on your system. Only enable this for trusted tasks and projects. Continue?",
-                  );
+                  const confirmed = window.confirm(t("projectForm.fullShellConfirm"));
                   if (confirmed) setPermissions("full");
                 }}
                 className={`py-2 px-3 rounded-lg border text-center transition-[color,background-color,border-color,box-shadow,transform] flex flex-col items-center gap-1 ${
@@ -297,8 +326,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
                     : "border-border bg-surface text-text-secondary hover:bg-hover"
                 }`}
               >
-                <span className="text-xs">Full Shell</span>
-                <span className="text-[9px] opacity-75">Execute commands</span>
+                <span className="text-xs">{t("settings.projects.fullShell")}</span>
+                <span className="text-[9px] opacity-75">{t("settings.projects.fullShellDesc")}</span>
               </button>
             </div>
 
@@ -306,9 +335,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
               <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
                 <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" />
                 <div>
-                  <span className="font-semibold block mb-0.5">High Risk Permission Level</span>
-                  Giving full shell permission allows the AI to perform any actions or commands via shell. Ensure the
-                  workspace doesn't contain sensitive system files.
+                  <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
+                  {t("settings.projects.warningDesc")}
                 </div>
               </div>
             )}
@@ -322,32 +350,38 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           {/* Model Override */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-text-secondary">Model Override</label>
-              <span className="text-[10px] text-text-muted">Force model for this workspace</span>
+              <label htmlFor="project-model-override-trigger" className="text-xs font-semibold text-text-secondary">
+                {t("projectForm.modelOverride")}
+              </label>
+              <span className="text-[10px] text-text-muted">{t("projectForm.modelOverrideDesc")}</span>
             </div>
             <Select
+              id="project-model-override"
               value={modelOverride}
               onChange={setModelOverride}
               options={[
-                { value: "", label: "Use System-wide Selected Model" },
+                { value: "", label: t("projectForm.useSystemModel") },
                 ...models
                   .filter((model) => model.enabled !== false)
                   .map((model) => ({ value: model.id, label: `${model.name} (${model.provider})` })),
               ]}
-              aria-label="Model override"
+              aria-label={t("projectForm.modelOverride")}
             />
           </div>
 
           {/* Custom System Prompt */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-text-secondary">Project-Specific Prompt Override</label>
-              <span className="text-[10px] text-text-muted">Injected when working in this project</span>
+              <label htmlFor="project-system-prompt" className="text-xs font-semibold text-text-secondary">
+                {t("projectForm.promptOverride")}
+              </label>
+              <span className="text-[10px] text-text-muted">{t("projectForm.promptOverrideDesc")}</span>
             </div>
             <textarea
+              id="project-system-prompt"
               value={systemPromptOverride}
               onChange={(e) => setSystemPromptOverride(e.target.value)}
-              placeholder="e.g. This is a Next.js App Router project using TypeScript. Follow strict clean code patterns, avoid writing nested helper callbacks, and write tests for all utils."
+              placeholder={t("projectForm.promptPlaceholder")}
               rows={4}
               className="w-full px-3 py-2 text-xs rounded-lg bg-input border border-input-border text-text-primary focus:outline-none focus:border-accent resize-none font-sans"
             />
@@ -356,19 +390,20 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           {/* Exclude Patterns */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-text-secondary">Exclude Patterns</label>
-              <span className="text-[10px] text-text-muted">Comma-separated globs the AI will ignore</span>
+              <label htmlFor="project-exclude-patterns" className="text-xs font-semibold text-text-secondary">
+                {t("projectForm.excludePatterns")}
+              </label>
+              <span className="text-[10px] text-text-muted">{t("projectForm.excludePatternsDesc")}</span>
             </div>
             <input
+              id="project-exclude-patterns"
               type="text"
               value={excludePatterns}
               onChange={(e) => setExcludePatterns(e.target.value)}
               placeholder="node_modules, .git, dist, build, target, *.log"
               className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-input border border-input-border text-text-primary focus:outline-none focus:border-accent"
             />
-            <p className="text-[10px] text-text-muted mt-0.5">
-              Matches are case-insensitive. Wildcards (*) are supported.
-            </p>
+            <p className="text-[10px] text-text-muted mt-0.5">{t("projectForm.excludeHelp")}</p>
           </div>
         </div>
       )}
@@ -381,8 +416,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
             <Switch
               checked={isAutoCommitEnabled}
               onChange={setIsAutoCommitEnabled}
-              label="Auto-Commit Changes"
-              description="Automatically stage and commit changed files on message completions"
+              label={t("projectForm.autoCommit")}
+              description={t("projectForm.autoCommitDesc")}
             />
           </div>
 
@@ -390,15 +425,16 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           {isAutoCommitEnabled && (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-text-secondary">
-                  AI Commit Message System Instructions
+                <label htmlFor="project-commit-instructions" className="text-xs font-semibold text-text-secondary">
+                  {t("projectForm.commitInstructions")}
                 </label>
-                <span className="text-[10px] text-text-muted">Controls commit message style</span>
+                <span className="text-[10px] text-text-muted">{t("projectForm.commitInstructionsDesc")}</span>
               </div>
               <textarea
+                id="project-commit-instructions"
                 value={autoCommitMsgTemplate}
                 onChange={(e) => setAutoCommitMsgTemplate(e.target.value)}
-                placeholder="You are a git commit message generator. Based on the following diff, write a concise conventional commit message (e.g. feat: add auth validation). Do not write anything else."
+                placeholder={t("projectForm.commitPlaceholder")}
                 rows={4}
                 className="w-full px-3 py-2 text-xs rounded-lg bg-input border border-input-border text-text-primary focus:outline-none focus:border-accent resize-none font-sans"
               />
@@ -407,10 +443,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 
           <div className="p-2.5 bg-active/40 border border-border/50 rounded-xl flex items-start gap-2 text-xs text-text-muted">
             <Info size={14} className="shrink-0 mt-0.5 text-accent" />
-            <span>
-              Make sure the project folder contains a git repository (`.git` folder). If not, you can run `git init` in
-              your terminal or grant Full Shell permission to let the AI initialize it.
-            </span>
+            <span>{t("projectForm.gitHelp")}</span>
           </div>
         </div>
       )}
@@ -423,7 +456,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           disabled={saving}
           className="px-4 py-2 text-xs font-semibold rounded-lg text-text-secondary hover:bg-hover transition-colors min-h-[36px]"
         >
-          Cancel
+          {t("projectForm.cancel")}
         </button>
         <button
           type="submit"
@@ -433,10 +466,10 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           {saving ? (
             <>
               <span className="w-3.5 h-3.5 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
-              <span>Saving...</span>
+              <span>{t("projectForm.saving")}</span>
             </>
           ) : (
-            <span>{mode === "create" ? "Create Project" : "Save Changes"}</span>
+            <span>{mode === "create" ? t("projectForm.createProject") : t("projectForm.saveChanges")}</span>
           )}
         </button>
       </div>
@@ -445,6 +478,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 }
 
 export default function ProjectConfigModal() {
+  const { t } = useTranslation();
   const isOpen = useUIStore((s) => s.showProjectConfigModal);
   const mode = useUIStore((s) => s.projectConfigModalMode);
   const id = useUIStore((s) => s.projectConfigModalId);
@@ -454,7 +488,7 @@ export default function ProjectConfigModal() {
     <Modal
       isOpen={isOpen}
       onClose={close}
-      title={mode === "create" ? "Add Project Workspace" : "Project Workspace Settings"}
+      title={mode === "create" ? t("projectForm.addWorkspace") : t("projectForm.workspaceSettings")}
     >
       <ProjectForm key={isOpen ? `${id || "create"}-${mode}` : "closed"} id={id} mode={mode} onClose={close} />
     </Modal>

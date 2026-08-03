@@ -1,5 +1,7 @@
 use crate::{search, AppError, NETWORK_CONFIG};
+use reqwest::redirect::Policy;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Duration;
 
 const METADATA_HOSTS: &[&str] = &[
     "metadata",
@@ -290,6 +292,131 @@ pub async fn validate_outbound_url(
     })
 }
 
+const MAX_PROVIDER_ERROR_CHARS: usize = 512;
+
+fn redact_json_secrets(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                let key = key.to_ascii_lowercase();
+                if [
+                    "key",
+                    "token",
+                    "secret",
+                    "password",
+                    "authorization",
+                    "cookie",
+                ]
+                .iter()
+                .any(|sensitive| key.contains(sensitive))
+                {
+                    *value = serde_json::Value::String("[REDACTED]".to_string());
+                } else {
+                    redact_json_secrets(value);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => values.iter_mut().for_each(redact_json_secrets),
+        _ => {}
+    }
+}
+
+pub(crate) fn sanitize_provider_error(body: &str) -> String {
+    let cleaned = if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(body) {
+        redact_json_secrets(&mut json);
+        serde_json::to_string(&json)
+            .unwrap_or_else(|_| "Provider returned an invalid error body".to_string())
+    } else {
+        let bearer = regex::Regex::new("(?i)bearer\\s+[a-z0-9._~+/-]+")
+            .expect("static provider-error redaction regex");
+        bearer.replace_all(body, "Bearer [REDACTED]").into_owned()
+    };
+    let mut chars = cleaned
+        .chars()
+        .filter(|character| !character.is_control() || *character == '\n');
+    let preview: String = chars.by_ref().take(MAX_PROVIDER_ERROR_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{preview}...")
+    } else {
+        preview
+    }
+}
+
+pub struct ValidatedHttpEndpoint {
+    pub url: url::Url,
+    pub client: reqwest::Client,
+}
+
+pub struct ValidatedWebSocketEndpoint {
+    pub url: url::Url,
+    pub address: SocketAddr,
+}
+
+async fn parse_and_resolve(
+    raw_url: &str,
+    allowed_schemes: &[&str],
+    _allow_local_network: bool,
+    has_secret: bool,
+) -> Result<(url::Url, String, Vec<SocketAddr>), AppError> {
+    // The authenticated global policy is authoritative for local access. The
+    // legacy per-provider flag remains in command signatures for compatibility,
+    // but it cannot bypass exact-origin grants or additive block rules.
+    let validated = validate_outbound_url(raw_url, allowed_schemes).await?;
+    let host = validated
+        .url
+        .host_str()
+        .ok_or_else(|| {
+            AppError::UrlValidationError("Endpoint must include a hostname".to_string())
+        })?
+        .to_string();
+    let is_plaintext = matches!(validated.url.scheme(), "http" | "ws");
+    if is_plaintext
+        && !validated
+            .addresses
+            .iter()
+            .all(|address| address.ip().is_loopback())
+    {
+        let reason = if has_secret {
+            "Credentials may only use plaintext transport to an explicitly trusted loopback endpoint"
+        } else {
+            "Plaintext transport is only allowed for an explicitly trusted loopback endpoint"
+        };
+        return Err(AppError::UrlValidationError(reason.to_string()));
+    }
+
+    Ok((validated.url, host, validated.addresses))
+}
+
+pub async fn validate_http_endpoint(
+    raw_url: &str,
+    allow_local_network: bool,
+    has_secret: bool,
+    timeout: Duration,
+) -> Result<ValidatedHttpEndpoint, AppError> {
+    let (url, host, addresses) =
+        parse_and_resolve(raw_url, &["http", "https"], allow_local_network, has_secret).await?;
+    let client = crate::client_builder()
+        .redirect(Policy::none())
+        .resolve_to_addrs(&host, &addresses)
+        .timeout(timeout)
+        .build()
+        .map_err(AppError::from)?;
+    Ok(ValidatedHttpEndpoint { url, client })
+}
+
+pub async fn validate_websocket_endpoint(
+    raw_url: &str,
+    allow_local_network: bool,
+    has_secret: bool,
+) -> Result<ValidatedWebSocketEndpoint, AppError> {
+    let (url, _host, addresses) =
+        parse_and_resolve(raw_url, &["ws", "wss"], allow_local_network, has_secret).await?;
+    Ok(ValidatedWebSocketEndpoint {
+        url,
+        address: addresses[0],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,5 +474,20 @@ mod tests {
             "api.example.test",
             &["*.example.test".to_string()]
         ));
+    }
+
+    #[test]
+    fn provider_errors_are_bounded_and_secret_fields_are_redacted() {
+        let sanitized = sanitize_provider_error(
+            r#"{"error":"failed","apiKey":"secret-value","nested":{"access_token":"token-value"}}"#,
+        );
+        assert!(sanitized.contains("[REDACTED]"));
+        assert!(!sanitized.contains("secret-value"));
+        assert!(!sanitized.contains("token-value"));
+
+        let bearer = sanitize_provider_error(&format!("Bearer secret-token {}", "x".repeat(600)));
+        assert!(bearer.contains("Bearer [REDACTED]"));
+        assert!(!bearer.contains("secret-token"));
+        assert!(bearer.ends_with("..."));
     }
 }

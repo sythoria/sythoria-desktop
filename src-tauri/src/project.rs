@@ -37,7 +37,15 @@ pub struct Project {
 pub struct ProjectRegistry {
     pub projects: Mutex<HashMap<String, Project>>,
     pub active_project_id: Mutex<Option<String>>,
-    pub project_path_overrides: Mutex<HashMap<String, String>>,
+    run_capabilities: Mutex<HashMap<String, ProjectRunCapability>>,
+}
+
+#[derive(Clone, Debug)]
+struct ProjectRunCapability {
+    conversation_id: String,
+    project_id: String,
+    worktree_path: Option<PathBuf>,
+    branch: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -248,23 +256,12 @@ pub(crate) fn validate_owned_worktree(
 }
 
 pub(crate) fn resolve_project_root(
-    state: &ProjectRegistry,
+    _state: &ProjectRegistry,
     project: &Project,
-    project_id: &str,
+    _project_id: &str,
     requested_worktree: Option<&str>,
 ) -> Result<PathBuf, AppError> {
-    let stored_override = if requested_worktree.is_none() {
-        state
-            .project_path_overrides
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
-            .get(project_id)
-            .cloned()
-    } else {
-        None
-    };
-
-    if let Some(worktree) = requested_worktree.or(stored_override.as_deref()) {
+    if let Some(worktree) = requested_worktree {
         return Ok(validate_owned_worktree(project, worktree, None)?.path);
     }
 
@@ -278,7 +275,7 @@ impl ProjectRegistry {
         Self {
             projects: Mutex::new(HashMap::new()),
             active_project_id: Mutex::new(None),
-            project_path_overrides: Mutex::new(HashMap::new()),
+            run_capabilities: Mutex::new(HashMap::new()),
         }
     }
 
@@ -356,48 +353,13 @@ pub(crate) fn set_active_project(
     Ok(())
 }
 
-#[tauri::command]
-pub(crate) fn set_project_path_override(
-    state: tauri::State<'_, ProjectRegistry>,
-    project_id: String,
-    path_override: Option<String>,
-) -> Result<(), AppError> {
-    let canonical_override = if let Some(path) = path_override.as_deref() {
-        let projects_guard = state
-            .projects
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        let project = projects_guard.get(&project_id).ok_or_else(|| {
-            AppError::AppPath("Access denied: Project not found in registry".to_string())
-        })?;
-        Some(
-            validate_owned_worktree(project, path, None)?
-                .path
-                .to_string_lossy()
-                .into_owned(),
-        )
-    } else {
-        None
-    };
-
-    let mut overrides_guard = state
-        .project_path_overrides
-        .lock()
-        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-    if let Some(path) = canonical_override {
-        overrides_guard.insert(project_id, path);
-    } else {
-        overrides_guard.remove(&project_id);
-    }
-    Ok(())
-}
-
-fn configure_project_run(
+pub(crate) fn register_project_run(
     state: &ProjectRegistry,
     project_id: &str,
+    conversation_id: &str,
     worktree_path: Option<&str>,
-    branch_name: Option<&str>,
-) -> Result<(), AppError> {
+    branch: Option<&str>,
+) -> Result<String, AppError> {
     let project = state
         .projects
         .lock()
@@ -408,56 +370,137 @@ fn configure_project_run(
             AppError::AppPath("Access denied: Project not found in registry".to_string())
         })?;
 
-    let canonical_override = match (worktree_path, branch_name) {
-        (None, None) if project.permissions == ProjectPermission::Read => None,
-        (None, None) => {
-            return Err(AppError::AppPath(
-                "Write-capable project runs require an isolated worktree".to_string(),
-            ));
+    let (canonical_worktree, verified_branch) = match worktree_path {
+        Some(path) => {
+            let verified = validate_owned_worktree(&project, path, branch)?;
+            (Some(verified.path), Some(verified.branch))
         }
-        (Some(_), _) if project.permissions == ProjectPermission::Read => {
-            return Err(AppError::AppPath(
-                "Read-only project runs cannot use a writable worktree".to_string(),
-            ));
-        }
-        (Some(path), Some(branch)) => Some(
-            validate_owned_worktree(&project, path, Some(branch))?
-                .path
-                .to_string_lossy()
-                .into_owned(),
-        ),
-        _ => {
-            return Err(AppError::AppPath(
-                "Worktree path and branch must be provided together".to_string(),
-            ));
+        None => {
+            if project.permissions != ProjectPermission::Read {
+                return Err(AppError::AppPath(
+                    "Write-capable project runs require an isolated Git worktree".to_string(),
+                ));
+            }
+            if branch.is_some() {
+                return Err(AppError::AppPath(
+                    "A worktree branch cannot be supplied without a worktree path".to_string(),
+                ));
+            }
+            (None, None)
         }
     };
 
-    let mut overrides_guard = state
-        .project_path_overrides
+    let token = uuid::Uuid::new_v4().to_string();
+    state
+        .run_capabilities
         .lock()
-        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-    if let Some(path) = canonical_override {
-        overrides_guard.insert(project_id.to_string(), path);
-    } else {
-        overrides_guard.remove(project_id);
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+        .insert(
+            token.clone(),
+            ProjectRunCapability {
+                conversation_id: conversation_id.to_string(),
+                project_id: project_id.to_string(),
+                worktree_path: canonical_worktree,
+                branch: verified_branch,
+            },
+        );
+    Ok(token)
+}
+
+pub(crate) fn validate_project_run(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+    requested_worktree: Option<&str>,
+) -> Result<Option<PathBuf>, AppError> {
+    let capability = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+        .get(run_token)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::AppPath(
+                "Access denied: Project run capability is invalid or expired".to_string(),
+            )
+        })?;
+
+    if capability.project_id != project_id {
+        return Err(AppError::AppPath(
+            "Access denied: Project run capability belongs to another project".to_string(),
+        ));
     }
-    Ok(())
+
+    match (&capability.worktree_path, requested_worktree) {
+        (Some(expected), Some(requested)) => {
+            let requested = Path::new(requested)
+                .canonicalize()
+                .map_err(|e| AppError::AppPath(format!("Invalid worktree path: {e}")))?;
+            if &requested != expected {
+                return Err(AppError::AppPath(
+                    "Access denied: Worktree does not belong to this project run".to_string(),
+                ));
+            }
+            let project = state
+                .projects
+                .lock()
+                .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+                .get(project_id)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::AppPath("Access denied: Project not found in registry".to_string())
+                })?;
+            let branch = capability.branch.as_deref().ok_or_else(|| {
+                AppError::AppPath("Access denied: Project run worktree has no branch".to_string())
+            })?;
+            Ok(Some(
+                validate_owned_worktree(&project, &expected.to_string_lossy(), Some(branch))?.path,
+            ))
+        }
+        (None, None) => Ok(None),
+        _ => Err(AppError::AppPath(
+            "Access denied: Every project command must use the run's explicit worktree".to_string(),
+        )),
+    }
 }
 
 #[tauri::command]
 pub(crate) fn project_run_begin(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    conversation_id: String,
     worktree_path: Option<String>,
-    branch_name: Option<String>,
-) -> Result<(), AppError> {
-    configure_project_run(
+    branch: Option<String>,
+) -> Result<String, AppError> {
+    register_project_run(
         &state,
         &project_id,
+        &conversation_id,
         worktree_path.as_deref(),
-        branch_name.as_deref(),
+        branch.as_deref(),
     )
+}
+
+#[tauri::command]
+pub(crate) fn project_run_end(
+    state: tauri::State<'_, ProjectRegistry>,
+    run_token: String,
+    conversation_id: String,
+) -> Result<(), AppError> {
+    let mut capabilities = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let capability = capabilities.get(&run_token).ok_or_else(|| {
+        AppError::AppPath("Access denied: Project run capability is invalid or expired".to_string())
+    })?;
+    if capability.conversation_id != conversation_id {
+        return Err(AppError::AppPath(
+            "Access denied: Project run capability belongs to another conversation".to_string(),
+        ));
+    }
+    capabilities.remove(&run_token);
+    Ok(())
 }
 
 /// Helper function to validate if a path is within the project root and is allowed
@@ -559,11 +602,16 @@ pub(crate) fn validate_project_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        configure_project_run, is_sythoria_agent_branch, parse_git_worktrees,
-        validate_owned_worktree, validate_project_path, Project, ProjectExclusions,
+        is_sythoria_agent_branch, parse_git_worktrees, register_project_run,
+        sythoria_worktree_root, validate_owned_worktree, validate_project_path,
+        validate_project_run, Project, ProjectExclusions,
         ProjectPermission, ProjectRegistry,
     };
+    use std::fs;
     use std::path::PathBuf;
+    use std::process::Command;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     fn test_project(path: PathBuf) -> Project {
         Project {
@@ -641,44 +689,6 @@ mod tests {
     }
 
     #[test]
-    fn read_only_project_run_uses_the_project_root_without_a_worktree() {
-        let registry = ProjectRegistry::new();
-        let mut project = test_project(PathBuf::from("C:/workspace"));
-        project.permissions = ProjectPermission::Read;
-        registry
-            .projects
-            .lock()
-            .expect("projects lock")
-            .insert(project.id.clone(), project);
-        registry
-            .project_path_overrides
-            .lock()
-            .expect("overrides lock")
-            .insert("project".to_string(), "stale-worktree".to_string());
-
-        configure_project_run(&registry, "project", None, None).expect("begin read-only run");
-
-        assert!(!registry
-            .project_path_overrides
-            .lock()
-            .expect("overrides lock")
-            .contains_key("project"));
-    }
-
-    #[test]
-    fn write_project_run_rejects_a_missing_worktree() {
-        let registry = ProjectRegistry::new();
-        let project = test_project(PathBuf::from("C:/workspace"));
-        registry
-            .projects
-            .lock()
-            .expect("projects lock")
-            .insert(project.id.clone(), project);
-
-        assert!(configure_project_run(&registry, "project", None, None).is_err());
-    }
-
-    #[test]
     fn root_relative_exclusions_match_nested_files_and_directories() {
         let root =
             std::env::temp_dir().join(format!("sythoria-exclusions-{}", uuid::Uuid::new_v4()));
@@ -731,5 +741,134 @@ mod tests {
         assert!(ProjectExclusions::new(&project, &root).is_err());
 
         std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    fn run_git(repo: &PathBuf, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("run git command");
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn concurrent_project_runs_keep_writes_in_their_own_worktrees() {
+        let unique = uuid::Uuid::new_v4().simple().to_string();
+        let fixture_root = std::env::temp_dir().join("sythoria-tests").join(&unique);
+        let repo = fixture_root.join("repo");
+        let owned_root = sythoria_worktree_root().join(&unique);
+        let worktree_one = owned_root.join("run-one");
+        let worktree_two = owned_root.join("run-two");
+        fs::create_dir_all(&repo).expect("create repository fixture");
+        fs::create_dir_all(&owned_root).expect("create owned worktree fixture");
+
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.name", "Sythoria Test"]);
+        run_git(&repo, &["config", "user.email", "test@sythoria.local"]);
+        fs::write(repo.join("shared.txt"), "base").expect("write fixture file");
+        run_git(&repo, &["add", "shared.txt"]);
+        run_git(&repo, &["commit", "-m", "fixture"]);
+
+        let branch_one = format!("sythoria-agent-{}", &unique[0..8]);
+        let branch_two = format!("sythoria-agent-{}", &unique[8..16]);
+        let worktree_one_arg = worktree_one.to_string_lossy().into_owned();
+        let worktree_two_arg = worktree_two.to_string_lossy().into_owned();
+        run_git(
+            &repo,
+            &["worktree", "add", "-b", &branch_one, &worktree_one_arg],
+        );
+        run_git(
+            &repo,
+            &["worktree", "add", "-b", &branch_two, &worktree_two_arg],
+        );
+
+        let registry = Arc::new(ProjectRegistry::new());
+        registry
+            .projects
+            .lock()
+            .expect("lock registry")
+            .insert("project".to_string(), test_project(repo.clone()));
+        let token_one = register_project_run(
+            &registry,
+            "project",
+            "conversation-one",
+            Some(&worktree_one_arg),
+            Some(&branch_one),
+        )
+        .expect("register first run");
+        let token_two = register_project_run(
+            &registry,
+            "project",
+            "conversation-two",
+            Some(&worktree_two_arg),
+            Some(&branch_two),
+        )
+        .expect("register second run");
+
+        assert!(
+            validate_project_run(&registry, &token_one, "project", Some(&worktree_two_arg))
+                .is_err()
+        );
+        assert!(
+            validate_project_run(&registry, &token_two, "project", Some(&worktree_one_arg))
+                .is_err()
+        );
+
+        let barrier = Arc::new(Barrier::new(2));
+        let handles = [
+            (
+                Arc::clone(&registry),
+                Arc::clone(&barrier),
+                token_one,
+                worktree_one_arg.clone(),
+                "conversation one",
+            ),
+            (
+                Arc::clone(&registry),
+                Arc::clone(&barrier),
+                token_two,
+                worktree_two_arg.clone(),
+                "conversation two",
+            ),
+        ]
+        .into_iter()
+        .map(|(registry, barrier, token, worktree, content)| {
+            thread::spawn(move || {
+                barrier.wait();
+                let root = validate_project_run(&registry, &token, "project", Some(&worktree))
+                    .expect("validate run")
+                    .expect("run has worktree");
+                fs::write(root.join("shared.txt"), content).expect("write isolated file");
+            })
+        })
+        .collect::<Vec<_>>();
+        for handle in handles {
+            handle.join().expect("project run thread");
+        }
+
+        assert_eq!(
+            fs::read_to_string(worktree_one.join("shared.txt")).expect("read first worktree"),
+            "conversation one"
+        );
+        assert_eq!(
+            fs::read_to_string(worktree_two.join("shared.txt")).expect("read second worktree"),
+            "conversation two"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("shared.txt")).expect("read base repository"),
+            "base"
+        );
+
+        run_git(&repo, &["worktree", "remove", "--force", &worktree_one_arg]);
+        run_git(&repo, &["worktree", "remove", "--force", &worktree_two_arg]);
+        fs::remove_dir_all(&fixture_root).expect("remove repository fixture");
+        fs::remove_dir_all(&owned_root).expect("remove worktree fixture");
     }
 }

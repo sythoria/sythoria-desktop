@@ -380,7 +380,7 @@ function formatToolName(name: string): string {
 function getNativeToolDisplayInfo(
   name: string,
   args: Record<string, string> | undefined,
-  result: any,
+  result: Message["toolResult"] | undefined,
   isCompleted: boolean,
   t: (key: string, replacements?: Record<string, string>) => string,
 ) {
@@ -480,17 +480,18 @@ function getNativeToolDisplayInfo(
       extraInfo = ` #L${start}-${Number(start) + Number(limit)}`;
     } else if (isCompleted && result && result.content) {
       try {
-        const parsed = JSON.parse(result.content);
+        const parsed = JSON.parse(result.content) as
+          unknown[] | { FilesWithMatches?: unknown[]; Content?: unknown[]; Count?: number };
         if (isList && Array.isArray(parsed)) {
           extraInfo = " " + t("chat.tools.itemsCount", { count: String(parsed.length) });
         } else if (isGlob && Array.isArray(parsed)) {
           extraInfo = " " + t("chat.tools.matchesCount", { count: String(parsed.length) });
         } else if (isGrep) {
-          if (parsed.FilesWithMatches) {
+          if (!Array.isArray(parsed) && parsed.FilesWithMatches) {
             extraInfo = " " + t("chat.tools.filesCount", { count: String(parsed.FilesWithMatches.length) });
-          } else if (parsed.Content) {
+          } else if (!Array.isArray(parsed) && parsed.Content) {
             extraInfo = " " + t("chat.tools.linesCount", { count: String(parsed.Content.length) });
-          } else if (typeof parsed.Count === "number") {
+          } else if (!Array.isArray(parsed) && typeof parsed.Count === "number") {
             extraInfo = " " + t("chat.tools.matchesCount", { count: String(parsed.Count) });
           }
         }
@@ -939,7 +940,8 @@ function ToolCallDisplay({ message }: { message: Message }) {
                         {mcpImages.map((img, idx) => {
                           const dataUrl = `data:${img.mimeType};base64,${img.data}`;
                           return (
-                            <div
+                            <button
+                              type="button"
                               key={idx}
                               onClick={() => setPreviewImageIndex(idx)}
                               className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
@@ -950,7 +952,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
                                 alt={`MCP Output ${idx + 1}`}
                                 className="w-full h-full object-cover select-none"
                               />
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
@@ -1151,14 +1153,15 @@ function AttachmentList({
         if (a.kind === "image" && a.dataUrl) {
           const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
           return (
-            <div
+            <button
+              type="button"
               key={a.id}
               onClick={() => onImageClick(imgIdx)}
               className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
               title={`View ${a.name}`}
             >
               <img src={a.dataUrl} alt={a.name} className="w-full h-full object-cover select-none" />
-            </div>
+            </button>
           );
         } else {
           return (
@@ -1531,6 +1534,30 @@ function ChatAreaBase({
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
+  const handleVirtualScroll = useCallback(() => {
+    const element = virtualScrollerRef.current;
+    if (!element) return;
+    const denominator = element.scrollHeight - element.clientHeight;
+    onScroll?.(element.scrollTop, denominator > 0 ? element.scrollTop / denominator : 0);
+  }, [onScroll]);
+  const setVirtualScroller = useCallback(
+    (element: HTMLElement | Window | null) => {
+      virtualScrollerRef.current?.removeEventListener("scroll", handleVirtualScroll);
+      const div = element instanceof HTMLDivElement ? element : null;
+      virtualScrollerRef.current = div;
+      if (scrollContainerRef) scrollContainerRef.current = div;
+      div?.addEventListener("scroll", handleVirtualScroll, { passive: true });
+    },
+    [handleVirtualScroll, scrollContainerRef],
+  );
+
+  useEffect(
+    () => () => {
+      virtualScrollerRef.current?.removeEventListener("scroll", handleVirtualScroll);
+    },
+    [handleVirtualScroll],
+  );
   const messageIdsSignature = messages.map((message) => message.id).join("\u0000");
   const [messageAnimationState, setMessageAnimationState] = useState(() => ({
     conversationId,
@@ -1627,18 +1654,7 @@ function ChatAreaBase({
           data={messages}
           atBottomStateChange={setIsAtBottom}
           atBottomThreshold={100}
-          scrollerRef={(el) => {
-            if (el && el instanceof HTMLElement) {
-              el.addEventListener(
-                "scroll",
-                () => {
-                  const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight);
-                  onScroll?.(el.scrollTop, isNaN(ratio) ? 0 : ratio);
-                },
-                { passive: true },
-              );
-            }
-          }}
+          scrollerRef={setVirtualScroller}
           itemContent={(index, msg) => (
             <div className={index > 0 ? "mt-0.5" : ""}>
               <MessageBubble

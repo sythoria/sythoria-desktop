@@ -8,16 +8,15 @@ import type {
   GenerationState,
   McpTool,
   Project,
+  McpImageContent,
 } from "../types";
 import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
-import { logError, logInfo } from "../utils/logger";
+import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
-import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
-import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
 import {
@@ -36,6 +35,26 @@ export interface ToolLoopSlice {
   generationState: GenerationState;
   generationLabel: string;
   generationByConversation: Record<string, { state: GenerationState; label: string }>;
+  activeStreamContent?: Record<string, string>;
+  activeStreamReasoning?: Record<string, string>;
+  activeStreamThinkingStart?: Record<string, number>;
+  activeStreamThinkingEnd?: Record<string, number>;
+  persistConversations?: () => Promise<void>;
+  resumeConversation?: (conversationId: string) => Promise<void>;
+}
+
+interface ProjectRunContext {
+  readonly conversationId: string;
+  readonly projectId: string;
+  readonly worktreePath: string | null;
+  readonly branch: string | null;
+  readonly capabilityToken: string;
+}
+
+type ToolResultDiffSummary = NonNullable<NonNullable<Message["toolResult"]>["diffSummary"]>;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const pendingSubagentMessages = new Map<string, Message[]>();
@@ -483,11 +502,6 @@ function buildProjectToolDefinitions(project: Project | null) {
               description:
                 "Optional. Maximum duration allowed for the command to execute before throwing a termination error, specified in milliseconds. Maximum cap is 600000 (10 minutes).",
             },
-            run_in_background: {
-              type: "boolean",
-              description:
-                "Optional. When configured to true, detaches the process to run in the background. Defaults to false.",
-            },
           },
           required: ["command"],
         },
@@ -531,7 +545,7 @@ function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null
       prompt += `\n- project_write(file_path: string, content: string)\n- project_edit(file_path: string, old_string: string, new_string: string, replace_all?: boolean)\n- project_git_commit(message: string, files?: string[])`;
     }
     if (project.permissions === "full") {
-      prompt += `\n- project_bash(command: string, timeout?: number, run_in_background?: boolean)`;
+      prompt += `\n- project_bash(command: string, timeout?: number)`;
     }
     prompt += `\nWhen using project tools, you can use paths relative to the project path.`;
   }
@@ -790,14 +804,18 @@ function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
   return get().isStreaming && isGenerationActive(gen.state);
 }
 
-function triggerParentResume(parentId: string, parentMsg: Message) {
-  const chatStore = useChatStore.getState();
-  const currentConvs = chatStore.conversations;
+function triggerParentResume(
+  parentId: string,
+  parentMsg: Message,
+  set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
+  get: () => ToolLoopSlice,
+) {
+  const currentConvs = get().conversations;
   const parentConv = currentConvs.find((c) => c.id === parentId);
   const currentDepth = parentConv?.recursionDepth || 0;
   const newDepth = currentDepth + 1;
 
-  useChatStore.setState((s) => ({
+  set((s) => ({
     conversations: s.conversations.map((c) => (c.id === parentId ? { ...c, recursionDepth: newDepth } : c)),
   }));
 
@@ -808,7 +826,7 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
       content: `${parentMsg.content}\n\n**Warning:** The subagent loop recursion safety limit (${maxDepth} iterations) has been reached. Auto-execution is paused. Please review the output above. You can reply or manually resume if needed.`,
     };
 
-    useChatStore.setState((s) => ({
+    set((s) => ({
       conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, warnedMsg]),
     }));
 
@@ -816,7 +834,7 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
     return;
   }
 
-  const genState = chatStore.generationByConversation[parentId];
+  const genState = get().generationByConversation[parentId];
   const parentIsGenerating = isGenerationActive(genState?.state);
 
   if (parentIsGenerating) {
@@ -825,12 +843,11 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
     }
     pendingSubagentMessages.get(parentId)!.push(parentMsg);
   } else {
-    useChatStore.setState((s) => ({
+    set((s) => ({
       conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, parentMsg]),
     }));
-    useChatStore
-      .getState()
-      .resumeConversation(parentId)
+    get()
+      .resumeConversation?.(parentId)
       .catch((e) => console.error("Parent auto-resume loop error:", e));
   }
 }
@@ -866,6 +883,7 @@ async function runWithToolLoop(
   useUIStore.getState().setLoading("toolExecution", false);
 
   let wasAborted = false;
+  let projectCapability: ProjectRunContext | null = null;
   const collectedSources: { title: string; url: string }[] = [];
 
   const streamDoneResolves = new Map<string, () => void>();
@@ -879,11 +897,11 @@ async function runWithToolLoop(
     cleanupStream = await modelStore.ensureStreamListeners(
       convId,
       ({ kind, content }) => {
-        useChatStore.setState((state) => {
+        set((state) => {
           const isReasoning = kind === "reasoning";
           const now = Date.now();
-          const nextStart = { ...state.activeStreamThinkingStart };
-          const nextEnd = { ...state.activeStreamThinkingEnd };
+          const nextStart = { ...(state.activeStreamThinkingStart ?? {}) };
+          const nextEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
           if (isReasoning) nextStart[convId] ||= now;
           else if (nextStart[convId] && !nextEnd[convId]) nextEnd[convId] = now;
 
@@ -896,22 +914,22 @@ async function runWithToolLoop(
               ? {
                   activeStreamReasoning: {
                     ...state.activeStreamReasoning,
-                    [convId]: (state.activeStreamReasoning[convId] || "") + content,
+                    [convId]: (state.activeStreamReasoning?.[convId] || "") + content,
                   },
                 }
               : {
                   activeStreamContent: {
                     ...state.activeStreamContent,
-                    [convId]: (state.activeStreamContent[convId] || "") + content,
+                    [convId]: (state.activeStreamContent?.[convId] || "") + content,
                   },
                 }),
           };
         });
       },
       () => {
-        useChatStore.setState((state) => {
-          const streamContent = state.activeStreamContent[convId] || "";
-          const streamReasoning = state.activeStreamReasoning[convId] || "";
+        set((state) => {
+          const streamContent = state.activeStreamContent?.[convId] || "";
+          const streamReasoning = state.activeStreamReasoning?.[convId] || "";
           const conversations = state.conversations.map((c) => {
             if (c.id !== convId) return c;
             const updated = [...c.messages];
@@ -928,13 +946,13 @@ async function runWithToolLoop(
             }
             return { ...c, messages: updated };
           });
-          const nextActiveStreamContent = { ...state.activeStreamContent };
+          const nextActiveStreamContent = { ...(state.activeStreamContent ?? {}) };
           delete nextActiveStreamContent[convId];
-          const nextActiveStreamReasoning = { ...state.activeStreamReasoning };
+          const nextActiveStreamReasoning = { ...(state.activeStreamReasoning ?? {}) };
           delete nextActiveStreamReasoning[convId];
-          const nextActiveStreamThinkingStart = { ...state.activeStreamThinkingStart };
+          const nextActiveStreamThinkingStart = { ...(state.activeStreamThinkingStart ?? {}) };
           delete nextActiveStreamThinkingStart[convId];
-          const nextActiveStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+          const nextActiveStreamThinkingEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
           delete nextActiveStreamThinkingEnd[convId];
           return {
             conversations,
@@ -953,14 +971,19 @@ async function runWithToolLoop(
 
     if (project) {
       if (project.permissions === "read") {
-        await invoke("project_run_begin", {
+        const capabilityToken = await invoke<string>("project_run_begin", {
+          projectId: project.id,
+          conversationId: convId,
+          worktreePath: null,
+          branch: null,
+        });
+        projectCapability = Object.freeze({
+          conversationId: convId,
           projectId: project.id,
           worktreePath: null,
-          branchName: null,
+          branch: null,
+          capabilityToken,
         });
-        if (useProjectStore.getState().activeProjectId === project.id) {
-          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
-        }
       } else {
         const isGit = await invoke<string | null>("git_detect_repo", { startPath: project.path });
         if (!isGit) {
@@ -968,10 +991,32 @@ async function runWithToolLoop(
         }
 
         if (!worktree) {
-          const [path, branch] = await invoke<[string, string]>("git_worktree_create", {
+          const [path, branch, capabilityToken] = await invoke<[string, string, string]>("git_worktree_create", {
             projectId: project.id,
+            conversationId: convId,
           });
           worktree = { path, branch };
+          projectCapability = Object.freeze({
+            conversationId: convId,
+            projectId: project.id,
+            worktreePath: path,
+            branch,
+            capabilityToken,
+          });
+        } else {
+          const capabilityToken = await invoke<string>("project_run_begin", {
+            projectId: project.id,
+            conversationId: convId,
+            worktreePath: worktree.path,
+            branch: worktree.branch,
+          });
+          projectCapability = Object.freeze({
+            conversationId: convId,
+            projectId: project.id,
+            worktreePath: worktree.path,
+            branch: worktree.branch,
+            capabilityToken,
+          });
         }
         runContext = continueConversationRunContext(runContext, convId, worktree);
         const pendingWorktree = {
@@ -987,20 +1032,12 @@ async function runWithToolLoop(
             conversation.id === convId ? { ...conversation, pendingWorktree } : conversation,
           ),
         }));
-
-        await invoke("project_run_begin", {
-          projectId: project.id,
-          worktreePath: worktree.path,
-          branchName: worktree.branch,
-        });
-        if (useProjectStore.getState().activeProjectId === project.id) {
-          useProjectStore.setState({
-            activeWorktreePath: worktree.path,
-            activeWorktreeBranch: worktree.branch,
-          });
-        }
       }
     }
+    if (project && !projectCapability) {
+      throw new Error("Project run capability could not be established.");
+    }
+    const projectRun = projectCapability;
     logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
     const baseMessages =
       conv?.messages
@@ -1039,10 +1076,11 @@ async function runWithToolLoop(
       try {
         const agentsMdContent = await invoke<string>("project_read", {
           projectId: project.id,
+          runToken: projectRun?.capabilityToken,
           path: "AGENTS.md",
           offset: null,
           limit: null,
-          worktreePath: worktree?.path || null,
+          worktreePath: projectRun?.worktreePath ?? null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
           userSystemPrompt += `\n\n<user_rules>\nThe following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any following instructions.\nReview them carefully and always take them into account when you generate responses and code:\n<RULE[AGENTS.md]>\n${agentsMdContent.trim()}\n</RULE[AGENTS.md]>\n</user_rules>`;
@@ -1078,7 +1116,7 @@ async function runWithToolLoop(
       if (!isConvStreaming(get, convId)) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
         setCancelledStatus(set, convId);
-        await useChatStore.getState().persistConversations();
+        await get().persistConversations?.();
         wasAborted = true;
         return;
       }
@@ -1142,7 +1180,7 @@ async function runWithToolLoop(
         });
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
         setCancelledStatus(set, convId);
-        await useChatStore.getState().persistConversations();
+        await get().persistConversations?.();
         wasAborted = true;
         return;
       }
@@ -1313,9 +1351,9 @@ async function runWithToolLoop(
           uiStore.addTask(toolCall.id, taskLabel, convId);
 
           let resultContent = "";
-          let images: any[] | undefined = undefined;
+          let images: McpImageContent[] | undefined = undefined;
           let isError = false;
-          let toolResultDiffSummary: any = undefined;
+          let toolResultDiffSummary: ToolResultDiffSummary | undefined = undefined;
           let toolResultSubagentIds: string[] | undefined = undefined;
 
           try {
@@ -1379,10 +1417,11 @@ async function runWithToolLoop(
                   try {
                     mcpOldContent = await invoke<string>("project_read", {
                       projectId: project?.id || "",
+                      runToken: projectRun?.capabilityToken,
                       path: getRelativePath(resolvedPath),
                       offset: null,
                       limit: null,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun?.worktreePath ?? null,
                     });
                   } catch {
                     mcpIsNew = true;
@@ -1398,10 +1437,11 @@ async function runWithToolLoop(
                   try {
                     const mcpNewContent = await invoke<string>("project_read", {
                       projectId: project?.id || "",
+                      runToken: projectRun?.capabilityToken,
                       path: getRelativePath(mcpFileChangeInfo.path),
                       offset: null,
                       limit: null,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun?.worktreePath ?? null,
                     });
                     const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
@@ -1470,7 +1510,7 @@ async function runWithToolLoop(
                   status: "running",
                   recursionDepth: parentDepth + 1,
                 };
-                useChatStore.setState((s) => ({ conversations: [...s.conversations, newConv] }));
+                set((s) => ({ conversations: [...s.conversations, newConv] }));
 
                 sendWithToolLoop(
                   continueConversationRunContext(runContext, subagentId, worktree),
@@ -1544,7 +1584,7 @@ async function runWithToolLoop(
                 content: String(msgContent).slice(0, MAX_INPUT_LENGTH),
                 timestamp: new Date(),
               };
-              useChatStore.setState((s) => ({
+              set((s) => ({
                 conversations: updateConversationMessages(s.conversations, targetId, (msgs) => [...msgs, newMsg]),
               }));
 
@@ -1567,9 +1607,10 @@ async function runWithToolLoop(
                   resultContent = JSON.stringify(
                     await invoke("project_glob", {
                       projectId: project.id,
+                      runToken: projectRun!.capabilityToken,
                       path: "",
                       pattern: fnArgs.pattern,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun!.worktreePath,
                     }),
                   );
                   break;
@@ -1579,8 +1620,9 @@ async function runWithToolLoop(
                   resultContent = JSON.stringify(
                     await invoke("project_list_dir", {
                       projectId: project.id,
+                      runToken: projectRun!.capabilityToken,
                       path: relativeDir,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun!.worktreePath,
                     }),
                   );
                   break;
@@ -1589,10 +1631,11 @@ async function runWithToolLoop(
                   const relativeFile = getRelativePath(fnArgs.file_path || "");
                   resultContent = await invoke<string>("project_read", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   break;
                 }
@@ -1600,11 +1643,12 @@ async function runWithToolLoop(
                   resultContent = JSON.stringify(
                     await invoke("project_grep", {
                       projectId: project.id,
+                      runToken: projectRun!.capabilityToken,
                       path: "",
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun!.worktreePath,
                     }),
                   );
                   break;
@@ -1616,10 +1660,11 @@ async function runWithToolLoop(
                   try {
                     oldContent = await invoke<string>("project_read", {
                       projectId: project.id,
+                      runToken: projectRun!.capabilityToken,
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun!.worktreePath,
                     });
                   } catch {
                     isNew = true;
@@ -1627,9 +1672,10 @@ async function runWithToolLoop(
 
                   await invoke("project_write", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     content: fnArgs.content,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   resultContent = "File written successfully.";
 
@@ -1650,10 +1696,11 @@ async function runWithToolLoop(
                   try {
                     oldContent = await invoke<string>("project_read", {
                       projectId: project.id,
+                      runToken: projectRun!.capabilityToken,
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: worktree?.path || null,
+                      worktreePath: projectRun!.worktreePath,
                     });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
@@ -1661,20 +1708,22 @@ async function runWithToolLoop(
 
                   await invoke("project_edit", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   resultContent = "File content replaced successfully.";
 
                   const newContent = await invoke<string>("project_read", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     offset: null,
                     limit: null,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   const diff = computeLineDiff(oldContent, newContent);
                   const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
@@ -1690,37 +1739,42 @@ async function runWithToolLoop(
                 case "project_bash":
                   resultContent = await invoke<string>("project_bash", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     command: fnArgs.command,
-                    cwd: worktree?.path ?? project.path,
+                    cwd: projectRun!.worktreePath ?? project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   break;
                 case "project_git_status":
                   resultContent = JSON.stringify(
                     await invoke("git_get_status", {
                       projectId: project.id,
-                      worktreePath: worktree?.path || null,
+                      runToken: projectRun!.capabilityToken,
+                      worktreePath: projectRun!.worktreePath,
                     }),
                   );
                   break;
                 case "project_git_diff":
                   resultContent = await invoke<string>("git_diff_changes", {
                     projectId: project.id,
-                    worktreePath: worktree?.path || null,
+                    runToken: projectRun!.capabilityToken,
+                    worktreePath: projectRun!.worktreePath,
+                    files: null,
                   });
                   break;
                 case "project_git_commit":
                   if (project.permissions === "read") throw new Error("Permission denied: write not allowed");
                   resultContent = await invoke<string>("git_create_commit", {
                     projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
                     message: fnArgs.message,
                     files: fnArgs.files && Array.isArray(fnArgs.files) && fnArgs.files.length > 0 ? fnArgs.files : null,
                     authorName: null,
                     authorEmail: null,
                     bypassHooks: false,
-                    worktreePath: worktree?.path || null,
+                    worktreePath: projectRun!.worktreePath,
                   });
                   break;
               }
@@ -1736,9 +1790,9 @@ async function runWithToolLoop(
               logInfo("chat", `Tool loop read skill: ${skillId}`);
               try {
                 resultContent = await invoke<string>("read_skill", { id: skillId });
-              } catch (err: any) {
+              } catch (err: unknown) {
                 isError = true;
-                resultContent = err.message || String(err);
+                resultContent = errorMessage(err);
               }
             } else if (fnName === "fetch_url" && useSearch) {
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
@@ -1754,9 +1808,9 @@ async function runWithToolLoop(
             } else {
               throw new Error(`${fnName} is not available — web search is not configured`);
             }
-          } catch (err: any) {
+          } catch (err: unknown) {
             isError = true;
-            resultContent = err.message || String(err);
+            resultContent = errorMessage(err);
           }
 
           if (resultContent.length > MAX_TOOL_RESULT_LENGTH) {
@@ -1784,8 +1838,8 @@ async function runWithToolLoop(
           let displayContent = "";
           if (fnName === "search_query" && !isError) {
             try {
-              const parsed = JSON.parse(resultContent);
-              displayContent = parsed.map((r: any) => `[${r.title}](${r.url}): ${r.snippet}`).join("\n");
+              const parsed = JSON.parse(resultContent) as SearchResult[];
+              displayContent = parsed.map((result) => `[${result.title}](${result.url}): ${result.snippet}`).join("\n");
             } catch {
               displayContent = resultContent;
             }
@@ -1858,7 +1912,7 @@ async function runWithToolLoop(
         if (!isConvStreaming(get, convId)) {
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
           setCancelledStatus(set, convId);
-          await useChatStore.getState().persistConversations();
+          await get().persistConversations?.();
           wasAborted = true;
           return;
         }
@@ -1937,7 +1991,7 @@ async function runWithToolLoop(
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
 
-        await useChatStore.getState().persistConversations();
+        await get().persistConversations?.();
 
         const updatedConv = get().conversations.find((c) => c.id === convId);
         if (updatedConv?.isSubagent && updatedConv.parentId) {
@@ -1948,7 +2002,7 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-          triggerParentResume(updatedConv.parentId, parentMsg);
+          triggerParentResume(updatedConv.parentId, parentMsg, set, get);
         }
 
         return;
@@ -1982,7 +2036,7 @@ async function runWithToolLoop(
     useUIStore.getState().setLoading("sendMessage", false);
     useUIStore.getState().setLoading("toolExecution", false);
 
-    await useChatStore.getState().persistConversations();
+    await get().persistConversations?.();
   } catch (err) {
     const parsed = parseApiError(err);
     set((state) => {
@@ -2016,21 +2070,33 @@ async function runWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-      triggerParentResume(updatedConv.parentId, parentMsg);
+      triggerParentResume(updatedConv.parentId, parentMsg, set, get);
     }
   } finally {
     cleanupStream?.();
+
+    if (projectCapability) {
+      try {
+        await invoke("project_run_end", {
+          runToken: projectCapability.capabilityToken,
+          conversationId: projectCapability.conversationId,
+        });
+      } catch (error) {
+        logWarn("chat", "Failed to release project run capability", {
+          details: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     if (!wasAborted) {
       const pending = pendingSubagentMessages.get(convId);
       if (pending && pending.length > 0) {
         pendingSubagentMessages.delete(convId);
-        useChatStore.setState((s) => ({
+        set((s) => ({
           conversations: updateConversationMessages(s.conversations, convId, (msgs) => [...msgs, ...pending]),
         }));
-        useChatStore
-          .getState()
-          .resumeConversation(convId)
+        get()
+          .resumeConversation?.(convId)
           .catch((e) => console.error("Auto-resume loop error:", e));
       }
     }

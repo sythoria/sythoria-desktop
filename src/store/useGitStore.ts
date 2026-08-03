@@ -3,6 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { loadGitConfig, saveGitConfig, GitConfig } from "../utils/storage";
 import { logInfo, logError } from "../utils/logger";
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export interface GitStatus {
   isRepo: boolean;
   path: string;
@@ -75,9 +79,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
       if (config.repoPath) {
         await get().verifyPath(config.repoPath);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", "Failed to initialize Git store", { error: e });
-      set({ error: e.message || String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
@@ -125,9 +129,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
       }
 
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", `Failed to verify repository path: ${path}`, { error: e });
-      set({ error: e.message || String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
       return false;
     }
   },
@@ -155,9 +159,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
       logInfo("git", `Created Git commit for project: ${projectId}`, { details: result });
       await get().verifyPath(repoPath);
       return result;
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", `Failed to commit changes for project: ${projectId}`, { error: e });
-      set({ error: e.message || String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
       throw e;
     }
   },
@@ -172,9 +176,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
       await invoke("git_undo_last_commit", { projectId });
       logInfo("git", `Soft reset last commit for project: ${projectId}`);
       await get().verifyPath(repoPath);
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", `Failed to undo last commit for project: ${projectId}`, { error: e });
-      set({ error: e.message || String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
@@ -188,9 +192,9 @@ export const useGitStore = create<GitStore>((set, get) => ({
       await invoke("git_checkout_branch", { projectId, branch });
       logInfo("git", `Checked out branch ${branch} for project: ${projectId}`);
       await get().verifyPath(repoPath);
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", `Failed to checkout branch ${branch} for project: ${projectId}`, { error: e });
-      set({ error: e.message || String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
@@ -200,7 +204,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
     if (!projectId) return "";
     try {
       return await invoke<string>("git_diff_changes", { projectId, worktreePath: null, files: null });
-    } catch (e: any) {
+    } catch (e: unknown) {
       logError("git", "Failed to retrieve diff from repository", { error: e });
       return "";
     }

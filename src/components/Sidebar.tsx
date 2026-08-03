@@ -1068,6 +1068,8 @@ export default memo(function Sidebar({
 
         {/* Resize Handle */}
         {!isSidebarCollapsed && (
+          // The adjustable separator follows the WAI-ARIA window-splitter pattern.
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
           <div
             className="group absolute top-0 -right-1 z-50 hidden h-full w-2 cursor-col-resize touch-none select-none focus-visible:outline-none md:block"
             role="separator"

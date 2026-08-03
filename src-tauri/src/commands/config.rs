@@ -574,12 +574,14 @@ pub struct ModelConfig {
     #[serde(rename = "modelId")]
     pub model_id: String,
     pub provider: Option<String>,
+    #[serde(rename = "allowLocalNetwork", default)]
+    pub allow_local_network: bool,
 }
 
 pub async fn get_model_config_and_key(
     app: &tauri::AppHandle,
     config_id: &str,
-) -> Result<(String, String, String, Option<String>), AppError> {
+) -> Result<(String, String, String, Option<String>, bool), AppError> {
     let configs: Vec<ModelConfig> = secure_storage::load_json(app, StorageDomain::Models)?
         .ok_or_else(|| AppError::ConfigIo("Model configuration not found".to_string()))?;
 
@@ -592,22 +594,13 @@ pub async fn get_model_config_and_key(
 
     let api_key = get_keychain_secret("model", config_id).unwrap_or_default();
 
-    let validated =
-        crate::endpoint_security::validate_outbound_url(&config.api_base, &["http", "https"])
-            .await?;
-    if !api_key.is_empty()
-        && validated.url.scheme() != "https"
-        && !validated
-            .addresses
-            .iter()
-            .all(|address| address.ip().is_loopback())
-    {
-        return Err(AppError::ConfigIo(
-            "API keys may only be sent to HTTPS or loopback model endpoints".to_string(),
-        ));
-    }
-
-    Ok((config.api_base, api_key, config.model_id, config.provider))
+    Ok((
+        config.api_base,
+        api_key,
+        config.model_id,
+        config.provider,
+        config.allow_local_network,
+    ))
 }
 
 pub fn init_keyring_store() {

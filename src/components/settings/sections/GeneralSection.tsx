@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Download } from "lucide-react";
 import { Switch } from "../../ui/Switch";
@@ -6,9 +5,9 @@ import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { useUIStore } from "../../../store/useUIStore";
 import { useChatStore } from "../../../store/useChatStore";
-import { getVersion } from "@tauri-apps/api/app";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
+import { useAppVersion } from "../../../hooks/useAppVersion";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 export function GeneralSection() {
@@ -38,7 +37,7 @@ export function GeneralSection() {
   const setLanguage = useUIStore((s) => s.setLanguage);
   const addToast = useUIStore((s) => s.addToast);
 
-  const [appVersion, setAppVersion] = useState("v0.1.0");
+  const appVersion = useAppVersion();
 
   const textSizes = [
     { value: "small", label: t("general.textSizeSmall") },
@@ -46,16 +45,6 @@ export function GeneralSection() {
     { value: "large", label: t("general.textSizeLarge") },
     { value: "xlarge", label: t("general.textSizeXLarge") },
   ] as const;
-
-  useEffect(() => {
-    getVersion()
-      .then((v) => {
-        setAppVersion(`v${v}`);
-      })
-      .catch((err) => {
-        console.error("Failed to get version from Tauri:", err);
-      });
-  }, []);
 
   const handleExportConversations = () => {
     try {
@@ -258,7 +247,7 @@ export function GeneralSection() {
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-text-primary">{t("general.currentVersion")}</span>
               <span className="px-2 py-0.5 rounded bg-input border border-border/60 text-xs font-mono text-text-secondary">
-                {appVersion}
+                {appVersion ? `v${appVersion}` : "—"}
               </span>
             </div>
             <motion.button

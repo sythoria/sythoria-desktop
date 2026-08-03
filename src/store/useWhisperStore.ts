@@ -50,6 +50,12 @@ interface WhisperState extends WhisperConfig {
   setIsTranscribing: (transcribing: boolean) => void;
 }
 
+interface WhisperDownloadProgress {
+  modelId: string;
+  percentage: number;
+  done: boolean;
+}
+
 const DEFAULT_CONFIG: WhisperConfig = {
   isVoiceEnabled: true,
   selectedModelId: "tiny.en",
@@ -98,7 +104,7 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
     init: async () => {
       if (!isListening) {
         try {
-          await listen<any>("whisper-download-progress", (event) => {
+          await listen<WhisperDownloadProgress>("whisper-download-progress", (event) => {
             const payload = event.payload;
             if (downloadCancelled) return;
             if (payload.modelId === get().downloadingModelId) {

@@ -18,27 +18,16 @@ struct ValidatedProjectAccess {
 fn get_and_validate_project(
     state: &ProjectRegistry,
     project_id: &str,
+    run_token: &str,
     relative_path: &str,
     required_permission: &str,
     worktree_path: Option<&str>,
 ) -> Result<ValidatedProjectAccess, AppError> {
-    // 1. Validate active project ID
-    {
-        let active_guard = state
-            .active_project_id
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        match &*active_guard {
-            Some(active_id) if active_id == project_id => {}
-            _ => {
-                return Err(AppError::AppPath(
-                    "Access denied: Project is not the active project".to_string(),
-                ))
-            }
-        }
-    }
+    // Native run capabilities authorize an immutable project/worktree pair.
+    // The currently visible project is intentionally irrelevant to an active run.
+    let capability_root =
+        crate::project::validate_project_run(state, run_token, project_id, worktree_path)?;
 
-    // 2. Retrieve project config
     let projects_guard = state
         .projects
         .lock()
@@ -51,10 +40,12 @@ fn get_and_validate_project(
         .clone();
     drop(projects_guard);
 
-    let root = crate::project::resolve_project_root(state, &project, project_id, worktree_path)?;
+    let root = match capability_root {
+        Some(path) => path,
+        None => crate::project::resolve_project_root(state, &project, project_id, None)?,
+    };
     project.path = root.to_string_lossy().into_owned();
 
-    // 3. Validate path and permission
     let path = crate::project::validate_project_path(&project, relative_path, required_permission)?;
     let root = Path::new(&project.path)
         .canonicalize()
@@ -67,14 +58,21 @@ fn get_and_validate_project(
 pub async fn project_read(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     offset: Option<usize>,
     limit: Option<usize>,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    let access =
-        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
-    let validated_path = access.path;
+    let validated_path = get_and_validate_project(
+        &state,
+        &project_id,
+        &run_token,
+        &path,
+        "read",
+        worktree_path.as_deref(),
+    )?
+    .path;
     tokio::task::spawn_blocking(move || {
         if !validated_path.exists() {
             return Err(AppError::AppPath(format!(
@@ -127,6 +125,7 @@ pub async fn project_read(
 pub async fn project_write(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     content: String,
     worktree_path: Option<String>,
@@ -134,6 +133,7 @@ pub async fn project_write(
     let validated_path = get_and_validate_project(
         &state,
         &project_id,
+        &run_token,
         &path,
         "write",
         worktree_path.as_deref(),
@@ -155,11 +155,18 @@ pub async fn project_write(
 pub async fn project_list_dir(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let access =
-        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let access = get_and_validate_project(
+        &state,
+        &project_id,
+        &run_token,
+        &path,
+        "read",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || list_project_directory(access))
         .await
         .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
@@ -206,28 +213,21 @@ pub async fn project_bash(
     app: AppHandle,
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     command: String,
     cwd: String,
     timeout: Option<u64>,
     run_in_background: Option<bool>,
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
-    // 1. Validate active project and retrieve config
+    // Validate the immutable run capability and retrieve its project config.
+    let capability_root = crate::project::validate_project_run(
+        &state,
+        &run_token,
+        &project_id,
+        worktree_path.as_deref(),
+    )?;
     let mut project = {
-        {
-            let active_guard = state
-                .active_project_id
-                .lock()
-                .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-            match &*active_guard {
-                Some(active_id) if active_id == &project_id => {}
-                _ => {
-                    return Err(AppError::AppPath(
-                        "Access denied: Project is not the active project".to_string(),
-                    ))
-                }
-            }
-        }
         let projects_guard = state
             .projects
             .lock()
@@ -240,12 +240,10 @@ pub async fn project_bash(
             .clone()
     };
 
-    let root = crate::project::resolve_project_root(
-        &state,
-        &project,
-        &project_id,
-        worktree_path.as_deref(),
-    )?;
+    let root = match capability_root {
+        Some(path) => path,
+        None => crate::project::resolve_project_root(&state, &project, &project_id, None)?,
+    };
     project.path = root.to_string_lossy().into_owned();
 
     if project.permissions != ProjectPermission::Full {
@@ -290,7 +288,12 @@ pub async fn project_bash(
         ));
     }
 
-    let run_bg = run_in_background.unwrap_or(false);
+    if run_in_background.unwrap_or(false) {
+        return Err(AppError::AppPath(
+            "Background commands are disabled until they can be tracked and stopped safely"
+                .to_string(),
+        ));
+    }
 
     use tokio::process::Command as TokioCommand;
     let mut tcmd = if cfg!(target_os = "windows") {
@@ -303,12 +306,6 @@ pub async fn project_bash(
         c
     };
     tcmd.current_dir(&cwd_path);
-
-    if run_bg {
-        tcmd.spawn()
-            .map_err(|e| AppError::AppPath(format!("Failed to spawn command: {}", e)))?;
-        return Ok("Command started in background successfully.".to_string());
-    }
 
     let timeout_ms = timeout
         .unwrap_or(DEFAULT_COMMAND_TIMEOUT_MS)
@@ -400,9 +397,11 @@ pub async fn project_bash(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Named IPC fields are part of the stable renderer command contract.
 pub async fn project_edit(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     old_string: String,
     new_string: String,
@@ -412,6 +411,7 @@ pub async fn project_edit(
     let validated_path = get_and_validate_project(
         &state,
         &project_id,
+        &run_token,
         &path,
         "write",
         worktree_path.as_deref(),
@@ -462,6 +462,7 @@ pub struct ReplacementChunk {
 pub async fn project_multi_replace_file_content(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     chunks: Vec<ReplacementChunk>,
     worktree_path: Option<String>,
@@ -469,6 +470,7 @@ pub async fn project_multi_replace_file_content(
     let validated_path = get_and_validate_project(
         &state,
         &project_id,
+        &run_token,
         &path,
         "write",
         worktree_path.as_deref(),
@@ -528,17 +530,25 @@ pub struct GrepContentResult {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Named IPC fields are part of the stable renderer command contract.
 pub async fn project_grep(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     pattern: String,
     output_mode: Option<String>,
     multiline: Option<bool>,
     worktree_path: Option<String>,
 ) -> Result<GrepResult, AppError> {
-    let access =
-        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let access = get_and_validate_project(
+        &state,
+        &project_id,
+        &run_token,
+        &path,
+        "read",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || {
         grep_project_files(access, &pattern, output_mode, multiline)
     })
@@ -655,12 +665,19 @@ fn grep_project_files(
 pub async fn project_glob(
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
+    run_token: String,
     path: String,
     pattern: String,
     worktree_path: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let access =
-        get_and_validate_project(&state, &project_id, &path, "read", worktree_path.as_deref())?;
+    let access = get_and_validate_project(
+        &state,
+        &project_id,
+        &run_token,
+        &path,
+        "read",
+        worktree_path.as_deref(),
+    )?;
     tokio::task::spawn_blocking(move || glob_project_files(access, &pattern))
         .await
         .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?

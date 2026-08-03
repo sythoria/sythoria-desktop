@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useRef } from "react";
 import { Search, Command, Settings } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { motionTransitions } from "../lib/motion-tokens";
 import { useUIStore } from "../store/useUIStore";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 interface SettingItem {
   id: string;
@@ -87,35 +88,25 @@ const SETTINGS_ITEMS: SettingItem[] = [
 export function SpotlightArea() {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [prevShowSpotlight, setPrevShowSpotlight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const { showSpotlight, setShowSpotlight, setView, setActiveSection } = useUIStore();
-
-  if (showSpotlight !== prevShowSpotlight) {
-    setPrevShowSpotlight(showSpotlight);
-    if (showSpotlight) {
-      setQuery("");
-      setSelectedIndex(0);
-    }
-  }
-
-  useEffect(() => {
-    if (showSpotlight) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }, 50);
-    }
-  }, [showSpotlight]);
+  const handleClose = useCallback(() => {
+    setQuery("");
+    setSelectedIndex(0);
+    setShowSpotlight(false);
+  }, [setShowSpotlight]);
+  useDialogFocus({
+    isOpen: showSpotlight,
+    onClose: handleClose,
+    containerRef: dialogRef,
+    initialFocusRef: inputRef,
+  });
 
   const filteredItems = SETTINGS_ITEMS.filter((item) => {
     const q = query.toLowerCase();
     return item.label.toLowerCase().includes(q) || item.keywords.some((k) => k.includes(q));
   });
-
-  const handleClose = () => {
-    setShowSpotlight(false);
-  };
 
   const executeAction = (section: string) => {
     handleClose();
@@ -156,6 +147,7 @@ export function SpotlightArea() {
           aria-label="Search settings"
         >
           <motion.div
+            ref={dialogRef}
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.98, transition: motionTransitions.modalExit }}
@@ -176,7 +168,6 @@ export function SpotlightArea() {
                 }}
                 placeholder="Search settings..."
                 className="flex-1 bg-transparent border-none text-text-primary placeholder-text-muted text-lg font-medium outline-none"
-                autoFocus
                 aria-label="Search settings"
               />
               <span className="shrink-0 flex items-center gap-1 text-xs text-text-muted">

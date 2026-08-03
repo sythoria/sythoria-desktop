@@ -1,7 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +72,7 @@ pub struct WsConfig {
     pub model: String,
     pub reconnect: bool,
     pub max_reconnect_attempts: u32,
+    pub allow_local_network: bool,
 }
 
 impl Default for WsConfig {
@@ -83,6 +83,7 @@ impl Default for WsConfig {
             model: "gpt-4o".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
+            allow_local_network: false,
         }
     }
 }
@@ -146,10 +147,6 @@ pub async fn ws_chat_stream(
     crate::ensure_online().map_err(|error| error.to_string())?;
     use tauri::Emitter;
 
-    crate::endpoint_security::validate_outbound_url(&ws_config.url, &["ws", "wss"])
-        .await
-        .map_err(|error| error.to_string())?;
-
     let mut connection = WebSocketConnection::new(ws_config.clone());
 
     loop {
@@ -187,9 +184,7 @@ async fn run_ws_connection(
 ) -> Result<String, String> {
     use tauri::Emitter;
 
-    let (ws_stream, _) = connect_async(&ws_config.url)
-        .await
-        .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+    let (ws_stream, _) = connect_validated(ws_config).await?;
 
     let (mut write, mut read) = ws_stream.split();
 
@@ -300,9 +295,7 @@ pub async fn send_typing_event(
         return Ok(());
     }
 
-    let (ws_stream, _) = connect_async(&ws_config.url)
-        .await
-        .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+    let (ws_stream, _) = connect_validated(ws_config).await?;
 
     let (mut write, _) = ws_stream.split();
 
@@ -330,6 +323,33 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 pub type WsWriter = SplitSink<WsStream, Message>;
 
+async fn connect_validated(
+    ws_config: &WsConfig,
+) -> Result<
+    (
+        WsStream,
+        tokio_tungstenite::tungstenite::handshake::client::Response,
+    ),
+    String,
+> {
+    let endpoint = crate::endpoint_security::validate_websocket_endpoint(
+        &ws_config.url,
+        ws_config.allow_local_network,
+        ws_config
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.is_empty()),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let tcp = TcpStream::connect(endpoint.address)
+        .await
+        .map_err(|error| format!("WebSocket connection failed: {error}"))?;
+    tokio_tungstenite::client_async_tls_with_config(endpoint.url.as_str(), tcp, None, None)
+        .await
+        .map_err(|error| format!("WebSocket handshake failed: {error}"))
+}
+
 pub struct WsSession {
     pub writer: std::sync::Arc<Mutex<Option<WsWriter>>>,
 }
@@ -348,10 +368,6 @@ pub async fn ws_connect(
     session: &WsSession,
 ) -> Result<(), String> {
     crate::ensure_online().map_err(|error| error.to_string())?;
-    crate::endpoint_security::validate_outbound_url(&ws_config.url, &["ws", "wss"])
-        .await
-        .map_err(|error| error.to_string())?;
-
     // 1. Close any existing connection first
     {
         let mut guard = session.writer.lock().await;
@@ -359,9 +375,7 @@ pub async fn ws_connect(
     }
 
     // 2. Connect
-    let (ws_stream, _) = connect_async(&ws_config.url)
-        .await
-        .map_err(|e| format!("WebSocket connection failed: {}", e))?;
+    let (ws_stream, _) = connect_validated(&ws_config).await?;
 
     let (mut write, mut read) = ws_stream.split();
 
@@ -527,6 +541,7 @@ mod tests {
             model: "gpt-4o".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
+            allow_local_network: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("ws://localhost:8080/chat"));
@@ -539,6 +554,7 @@ mod tests {
             model: "llama3.1".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
+            allow_local_network: true,
         };
         let json = serde_json::to_string(&config_no_key).unwrap();
         assert!(json.contains("\"api_key\":null"));

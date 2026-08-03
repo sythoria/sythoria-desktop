@@ -8,7 +8,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::client_builder;
 use crate::AppError;
 
 fn convert_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
@@ -430,20 +429,26 @@ pub async fn download_whisper_model(
     let (partial_path, backup_path) = whisper_download_staging_paths(&models_dir, operation_id);
 
     let result = async {
-        let client = client_builder()
-            .build()
-            .map_err(|e| AppError::RequestFailed(e.to_string()))?;
-
         let mut current_url = url.clone();
         let mut redirects = 0u8;
         let res = loop {
-            let validated =
-                crate::endpoint_security::validate_outbound_url(&current_url, &["https"]).await?;
+            let endpoint = crate::endpoint_security::validate_http_endpoint(
+                &current_url,
+                false,
+                false,
+                std::time::Duration::from_secs(300),
+            )
+            .await?;
+            if endpoint.url.scheme() != "https" {
+                return Err(AppError::RequestFailed(
+                    "Whisper models must be downloaded over HTTPS".to_string(),
+                ));
+            }
             let response = tokio::select! {
                 _ = &mut cancel_rx => {
                     return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
                 }
-                res_result = client.get(validated.url.clone()).send() => {
+                res_result = endpoint.client.get(endpoint.url.clone()).send() => {
                     res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
                 }
             };
@@ -470,7 +475,7 @@ pub async fn download_whisper_model(
                             .to_string(),
                     )
                 })?;
-            current_url = validated
+            current_url = endpoint
                 .url
                 .join(location)
                 .map_err(|error| AppError::RequestFailed(format!("Invalid redirect URL: {error}")))?
@@ -967,16 +972,13 @@ pub async fn transcribe_audio_cloud(
         return Ok(String::new());
     }
 
-    let validated_endpoint =
-        crate::endpoint_security::validate_outbound_url(&api_url, &["https"]).await?;
-    let endpoint_host = validated_endpoint
-        .url
-        .host_str()
-        .ok_or_else(|| {
-            AppError::ConfigIo("Cloud speech-to-text endpoint must include a hostname".to_string())
-        })?
-        .to_string();
-    let endpoint_address = validated_endpoint.addresses[0];
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        &api_url,
+        false,
+        true,
+        std::time::Duration::from_secs(120),
+    )
+    .await?;
 
     let host = cpal::default_host();
     let device = host
@@ -989,13 +991,6 @@ pub async fn transcribe_audio_cloud(
 
     let resampled = resample(&samples, sample_rate, 16000);
     let wav_bytes = encode_wav_f32(&resampled, 16000);
-
-    let client = client_builder()
-        .resolve(&endpoint_host, endpoint_address)
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
     let part = reqwest::multipart::Part::bytes(wav_bytes)
         .file_name("audio.wav")
@@ -1012,8 +1007,9 @@ pub async fn transcribe_audio_cloud(
         }
     }
 
-    let res = client
-        .post(&api_url)
+    let res = endpoint
+        .client
+        .post(endpoint.url)
         .header("Authorization", format!("Bearer {}", api_key))
         .multipart(form)
         .send()

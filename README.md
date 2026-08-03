@@ -99,11 +99,11 @@ Normal chats stream provider output directly into the conversation. When search,
 ## Local data and security
 
 - Model, search, and MCP credentials are stored through the operating system keychain. MCP environment secrets use the same mechanism.
-- Conversations, projects, preferences, and non-secret configuration are stored locally with the Tauri store plugin. Some settings use local storage as a fallback.
-- The cloud transcription key is currently saved with the voice configuration in local storage, not in the operating system keychain.
+- Conversations use authenticated, content-addressed encrypted snapshots. Projects, preferences, network policy, and non-secret provider configuration are stored in domain-separated AES-256-GCM files whose master key is held by the operating system keychain.
+- The cloud transcription key is stored in the operating system keychain; only non-secret voice preferences are written to encrypted preferences.
 - Imported files are represented by short-lived backend tokens instead of exposing arbitrary paths to the webview.
-- Project and Git commands are restricted to registered roots and verified worktrees.
-- URL fetching rejects blocked hosts and private-address targets; strict SSL, offline mode, and additional host blocks are configurable.
+- Project and Git commands are restricted to registered roots and verified worktrees. Every agent run receives an expiring native capability bound to one conversation, project, and worktree.
+- Outbound endpoints reject embedded credentials, blocked or unresolved addresses, and redirects; validated DNS addresses are pinned for the request. Local/private access requires an explicit per-provider opt-in, and plaintext HTTP/WebSocket is restricted to trusted loopback endpoints.
 - Untrusted MCP tools require approval until the server or tool is trusted. Project edits and commits require approval at `write` access; `full` access skips that UI gate, while shell commands retain a native confirmation dialog.
 - Artifact previews run in a sandboxed iframe. Their network access is opt-in per open preview.
 

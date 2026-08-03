@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ZoomIn, ZoomOut, Download, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import { useKeybindStore, matchKeybind } from "../../store/useKeybindStore";
 import { formatFileSize } from "../../utils/attachments";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 
 interface ImagePreviewModalProps {
   isOpen: boolean;
@@ -26,6 +26,8 @@ export function ImagePreviewModal({
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus({ isOpen, onClose, containerRef: dialogRef });
 
   const keybinds = useKeybindStore((s) => s.keybinds);
 
@@ -54,12 +56,6 @@ export function ImagePreviewModal({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape closes the modal
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-
       // Prev image matching settings
       if (matchKeybind(e, keybinds.prevImage.currentCombo)) {
         e.preventDefault();
@@ -73,13 +69,10 @@ export function ImagePreviewModal({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    lockBodyScroll();
-
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      unlockBodyScroll();
     };
-  }, [isOpen, keybinds, handlePrev, handleNext, onClose]);
+  }, [isOpen, keybinds, handlePrev, handleNext]);
 
   if (!isOpen || images.length === 0) return null;
 
@@ -182,17 +175,26 @@ export function ImagePreviewModal({
   return (
     <AnimatePresence>
       <motion.div
+        ref={dialogRef}
         className="fixed inset-0 z-50 flex flex-col backdrop-blur-md select-none overflow-hidden"
         style={{ backgroundColor: "var(--theme-overlay)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0, transition: motionTransitions.modalExit }}
         transition={motionTransitions.modalEnter}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="image-preview-title"
+        tabIndex={-1}
       >
         {/* Header bar */}
         <div className="relative z-20 shrink-0 min-h-24 pt-10 px-4 sm:px-6 pb-3 flex items-start justify-between gap-4 bg-gradient-to-b from-surface/80 to-transparent pointer-events-none">
           <div className="pointer-events-auto flex min-w-0 flex-col">
-            <span className="text-text-primary font-semibold text-sm truncate" title={currentImage.name}>
+            <span
+              id="image-preview-title"
+              className="text-text-primary font-semibold text-sm truncate"
+              title={currentImage.name}
+            >
               {currentImage.name}
             </span>
             {currentImage.size !== undefined && (
@@ -204,6 +206,7 @@ export function ImagePreviewModal({
               onClick={handleDownload}
               className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-[color,background-color,border-color,box-shadow,transform]"
               title="Download image"
+              aria-label="Download image"
             >
               <Download size={20} />
             </button>
@@ -211,6 +214,7 @@ export function ImagePreviewModal({
               onClick={onClose}
               className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-hover active:scale-95 transition-[color,background-color,border-color,box-shadow,transform]"
               title="Close viewer (Esc)"
+              aria-label="Close image viewer"
             >
               <X size={20} />
             </button>
@@ -260,6 +264,7 @@ export function ImagePreviewModal({
               }}
               className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-[color,background-color,border-color,box-shadow,transform] active:scale-95"
               title="Previous image"
+              aria-label="Previous image"
             >
               <ChevronLeft size={24} />
             </button>
@@ -272,6 +277,7 @@ export function ImagePreviewModal({
               }}
               className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 z-20 bg-surface/50 hover:bg-surface/80 text-text-primary p-3 rounded-full border border-border backdrop-blur-sm transition-[color,background-color,border-color,box-shadow,transform] active:scale-95"
               title="Next image"
+              aria-label="Next image"
             >
               <ChevronRight size={24} />
             </button>
@@ -286,6 +292,7 @@ export function ImagePreviewModal({
               disabled={scale <= 1}
               className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
               title="Zoom Out"
+              aria-label="Zoom out"
             >
               <ZoomOut size={16} />
             </button>
@@ -295,6 +302,7 @@ export function ImagePreviewModal({
               disabled={scale >= 5}
               className="p-1.5 hover:bg-hover disabled:opacity-30 disabled:hover:bg-transparent rounded-full transition-colors active:scale-95"
               title="Zoom In"
+              aria-label="Zoom in"
             >
               <ZoomIn size={16} />
             </button>
@@ -303,6 +311,7 @@ export function ImagePreviewModal({
               onClick={handleToggleFit}
               className="p-1.5 hover:bg-hover rounded-full transition-colors active:scale-95 text-text-secondary hover:text-text-primary"
               title={scale !== 1 ? "Reset zoom (Fit)" : "Zoom 200%"}
+              aria-label={scale !== 1 ? "Reset zoom" : "Zoom to 200%"}
             >
               <RefreshCw size={16} />
             </button>

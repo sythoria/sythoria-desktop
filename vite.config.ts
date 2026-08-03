@@ -1,12 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import type { Plugin } from "vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+function bundleBudgetPlugin(): Plugin {
+  return {
+    name: "sythoria-bundle-budgets",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "chunk") continue;
+        const limit = output.name === "markdown" ? 500 * 1024 : output.isEntry ? 650 * 1024 : null;
+        if (limit !== null && output.code.length > limit) {
+          this.error(
+            `Bundle budget exceeded for ${output.fileName}: ${Math.ceil(output.code.length / 1024)} KiB > ${limit / 1024} KiB`,
+          );
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), bundleBudgetPlugin()],
 
   clearScreen: false,
 

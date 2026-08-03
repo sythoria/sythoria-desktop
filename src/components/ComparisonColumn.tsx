@@ -7,6 +7,7 @@ import { useScrollTracking } from "../hooks/useScrollTracking";
 import type { Conversation, ModelConfig } from "../types";
 import { useModelStore } from "../store/useModelStore";
 import { useTranslation } from "../utils/i18n";
+import type { VirtuosoHandle } from "react-virtuoso";
 
 interface ComparisonColumnProps {
   conversation: Conversation;
@@ -20,14 +21,20 @@ interface ComparisonColumnProps {
   onScroll?: (scrollTop: number, ratio: number) => void;
 }
 
+export interface ComparisonColumnHandle {
+  scrollTo: (options: ScrollToOptions) => void;
+  scrollToIndex: (options: Parameters<VirtuosoHandle["scrollToIndex"]>[0]) => void;
+  getScroller: () => HTMLElement | null;
+}
+
 export const ComparisonColumn = React.memo(
-  React.forwardRef<any, ComparisonColumnProps>(
+  React.forwardRef<ComparisonColumnHandle, ComparisonColumnProps>(
     (
       { conversation, isPrimary = false, label, models, onModelChange, onClose, onRetry, isStreaming, onScroll },
       ref,
     ) => {
       const { t } = useTranslation();
-      const scroll = useScrollButton();
+      const { virtuosoRef, isAtBottom, setIsAtBottom, scrollToBottom } = useScrollButton();
       const nonVirtualizedRef = React.useRef<HTMLDivElement>(null);
       const modelStatuses = useModelStore((state) => state.modelStatuses);
 
@@ -35,37 +42,35 @@ export const ComparisonColumn = React.memo(
         ref,
         () => ({
           scrollTo: (options: ScrollToOptions) => {
-            if (scroll.virtuosoRef.current) {
-              scroll.virtuosoRef.current.scrollTo(options);
+            if (virtuosoRef.current) {
+              virtuosoRef.current.scrollTo(options);
             } else if (nonVirtualizedRef.current) {
               nonVirtualizedRef.current.scrollTo(options);
             }
           },
-          scrollToIndex: (options: any) => {
-            if (scroll.virtuosoRef.current) {
-              scroll.virtuosoRef.current.scrollToIndex(options);
+          scrollToIndex: (options: Parameters<VirtuosoHandle["scrollToIndex"]>[0]) => {
+            if (virtuosoRef.current) {
+              virtuosoRef.current.scrollToIndex(options);
             } else if (nonVirtualizedRef.current) {
               nonVirtualizedRef.current.scrollTo({
                 top: nonVirtualizedRef.current.scrollHeight,
-                behavior: options?.behavior,
+                behavior: typeof options === "object" ? options.behavior : undefined,
               });
             }
           },
-          getScroller: () => {
-            return (scroll.virtuosoRef.current as any)?._scroller || nonVirtualizedRef.current;
-          },
+          getScroller: () => nonVirtualizedRef.current,
         }),
-        [scroll.virtuosoRef, nonVirtualizedRef],
+        [virtuosoRef],
       );
 
       const messages = conversation.messages;
-      useScrollTracking(conversation.id, messages.length, scroll.isAtBottom, isStreaming);
+      useScrollTracking(conversation.id, messages.length, isAtBottom, isStreaming);
 
       useEffect(() => {
-        if (isStreaming && scroll.isAtBottom) {
-          scroll.scrollToBottom("auto");
+        if (isStreaming && isAtBottom) {
+          scrollToBottom("auto");
         }
-      }, [messages.length, isStreaming, scroll.isAtBottom]);
+      }, [messages.length, isStreaming, isAtBottom, scrollToBottom]);
 
       return (
         <section
@@ -100,8 +105,8 @@ export const ComparisonColumn = React.memo(
           </div>
           <ChatArea
             messages={messages}
-            setIsAtBottom={scroll.setIsAtBottom}
-            virtuosoRef={scroll.virtuosoRef}
+            setIsAtBottom={setIsAtBottom}
+            virtuosoRef={virtuosoRef}
             onRetry={onRetry}
             onScroll={onScroll}
             conversationId={conversation.id}

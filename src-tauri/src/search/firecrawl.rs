@@ -21,22 +21,23 @@ pub async fn search(
         .min(20);
 
     let url = format!("{}/search", base_url.trim_end_matches('/'));
-
-    let client = crate::client_builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| {
-            log::error!("Failed to build HTTP client: {}", e);
-            SearchError::RequestFailed(e.to_string())
-        })?;
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        &url,
+        crate::search::allows_local_network(config),
+        true,
+        std::time::Duration::from_secs(30),
+    )
+    .await
+    .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
 
     let body = serde_json::json!({
         "query": query,
         "limit": num,
     });
 
-    let resp = client
-        .post(&url)
+    let resp = endpoint
+        .client
+        .post(endpoint.url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -50,7 +51,9 @@ pub async fn search(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("Firecrawl API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
             "Firecrawl API error {}: {}",
@@ -114,14 +117,14 @@ pub async fn fetch(
         .unwrap_or("https://api.firecrawl.dev/v1");
 
     let endpoint = format!("{}/scrape", base_url.trim_end_matches('/'));
-
-    let client = crate::client_builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| {
-            log::error!("Failed to build HTTP client: {}", e);
-            SearchError::RequestFailed(e.to_string())
-        })?;
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        &endpoint,
+        crate::search::allows_local_network(config),
+        true,
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
 
     let requested_raw =
         format == Some("raw") || format == Some("raw_html") || format == Some("html");
@@ -136,8 +139,9 @@ pub async fn fetch(
         "formats": formats,
     });
 
-    let resp = client
-        .post(&endpoint)
+    let resp = endpoint
+        .client
+        .post(endpoint.url)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -151,7 +155,9 @@ pub async fn fetch(
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("Firecrawl API error {}: {}", status, body);
         return Err(SearchError::RequestFailed(format!(
             "Firecrawl API error {}: {}",

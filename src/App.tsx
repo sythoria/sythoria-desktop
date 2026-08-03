@@ -74,6 +74,7 @@ import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
 import { motionTransitions } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
+import type { ComparisonColumnHandle } from "./components/ComparisonColumn";
 
 import "./index.css";
 
@@ -480,10 +481,11 @@ function App() {
     scrollToBottom: primaryScrollToBottom,
   } = useScrollButton();
 
-  const compareRefsMap = useRef<Record<string, any>>({});
+  const primaryComparisonRef = useRef<ComparisonColumnHandle | null>(null);
+  const compareRefsMap = useRef<Record<string, ComparisonColumnHandle | null>>({});
 
   const activeScrollSourceRef = useRef<string | null>(null);
-  const scrollTimeoutRef = useRef<any>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleScrollSync = useCallback(
     (cId: string, scrollTop: number, ratio: number) => {
@@ -493,13 +495,13 @@ function App() {
 
       activeScrollSourceRef.current = cId;
 
-      if (activeId !== cId && primaryVirtuosoRef.current) {
-        const scroller = (primaryVirtuosoRef.current as any).getScroller?.();
+      if (activeId !== cId && primaryComparisonRef.current) {
+        const scroller = primaryComparisonRef.current.getScroller();
         if (scroller) {
           const targetTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
-          primaryVirtuosoRef.current.scrollTo({ top: targetTop });
+          primaryComparisonRef.current.scrollTo({ top: targetTop });
         } else {
-          primaryVirtuosoRef.current.scrollTo({ top: scrollTop });
+          primaryComparisonRef.current.scrollTo({ top: scrollTop });
         }
       }
 
@@ -507,7 +509,7 @@ function App() {
         if (id !== cId) {
           const compRef = compareRefsMap.current[id];
           if (compRef) {
-            const scroller = compRef.getScroller?.();
+            const scroller = compRef.getScroller();
             if (scroller) {
               const targetTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
               compRef.scrollTo({ top: targetTop });
@@ -523,7 +525,7 @@ function App() {
         activeScrollSourceRef.current = null;
       }, 120);
     },
-    [syncScrolls, activeId, compareIds, primaryVirtuosoRef, isStreaming],
+    [syncScrolls, activeId, compareIds, isStreaming],
   );
 
   // Synchronize active project when active conversation changes
@@ -565,9 +567,7 @@ function App() {
     if (isCompareMode) {
       compareIds.forEach((id) => {
         const compRef = compareRefsMap.current[id];
-        if (compRef?.current) {
-          compRef.current.scrollTo({ top: Number.MAX_SAFE_INTEGER });
-        }
+        compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
       });
     }
   }, [primaryScrollToBottom, primaryTracking, isCompareMode, compareIds]);
@@ -580,9 +580,7 @@ function App() {
         if (isCompareMode) {
           compareIds.forEach((id) => {
             const compRef = compareRefsMap.current[id];
-            if (compRef?.current) {
-              compRef.current.scrollTo({ top: Number.MAX_SAFE_INTEGER });
-            }
+            compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
           });
         }
       };
@@ -1410,7 +1408,7 @@ function App() {
                             onRetry={handleRetry}
                             isStreaming={isStreaming}
                             onScroll={syncScrolls ? handlePrimaryScroll : undefined}
-                            ref={primaryVirtuosoRef}
+                            ref={primaryComparisonRef}
                           />
 
                           {/* Comparison Columns */}
@@ -1502,6 +1500,8 @@ function App() {
                         transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
                       >
                         {!isAuxPanelExpanded && (
+                          // The adjustable separator follows the WAI-ARIA window-splitter pattern.
+                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                           <div
                             role="separator"
                             aria-orientation="vertical"

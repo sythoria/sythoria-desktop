@@ -10,12 +10,18 @@ pub async fn fetch(url: &str, config: &serde_json::Value) -> Result<UrlContent, 
         .unwrap_or("https://r.jina.ai");
 
     let endpoint = format!("{}/{}", base_url.trim_end_matches('/'), url);
+    let endpoint = crate::endpoint_security::validate_http_endpoint(
+        &endpoint,
+        crate::search::allows_local_network(config),
+        api_key.is_some_and(|key| !key.trim().is_empty()),
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
 
-    let mut req = crate::client_builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| SearchError::RequestFailed(e.to_string()))?
-        .get(&endpoint)
+    let mut req = endpoint
+        .client
+        .get(endpoint.url)
         .header("Accept", "application/json");
 
     if let Some(key) = api_key {
@@ -32,7 +38,9 @@ pub async fn fetch(url: &str, config: &serde_json::Value) -> Result<UrlContent, 
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
+        let body = crate::endpoint_security::sanitize_provider_error(
+            &resp.text().await.unwrap_or_default(),
+        );
         log::error!("Jina API error {}: {}", status, body);
         return Ok(UrlContent {
             url: url.to_string(),

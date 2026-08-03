@@ -198,6 +198,13 @@ export function Select({
                 role="option"
                 aria-selected={isSelected}
                 onMouseEnter={() => setActiveIndex(index)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onChange(option.value);
+                    closeListbox(false);
+                  }
+                }}
                 onClick={() => {
                   onChange(option.value);
                   closeListbox(false);
