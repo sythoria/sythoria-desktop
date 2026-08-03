@@ -53,6 +53,7 @@ import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import { sendWithToolLoop } from "../services/toolLoop";
+import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
   uiToast,
@@ -146,7 +147,6 @@ function setAssistantError(conversations: Conversation[], convId: string, err: u
 }
 
 interface EnabledToolLoopConfig {
-  shouldUseTools: boolean;
   searchConfig: SearchApiConfig | undefined;
   searchApiKey: string;
   mcpTools: McpTool[];
@@ -169,15 +169,37 @@ function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
           useMcpStore.getState().callTool(serverId, toolName, args)
       : undefined;
 
-  const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
-
   return {
-    shouldUseTools: Boolean(searchConfig) || mcpTools.length > 0 || Boolean(isProjectsEnabled && activeProjectId),
     searchConfig,
     searchApiKey,
     mcpTools,
     mcpCallTool,
   };
+}
+
+function showMissingModelConfig(message: string) {
+  logError("model", message, {
+    action: "Go to Settings > Model Providers and add at least one model configuration.",
+  });
+  uiToast(
+    React.createElement(
+      "span",
+      null,
+      "No model configured — add one in ",
+      React.createElement(
+        "button",
+        {
+          onClick: () => {
+            useUIStore.getState().setView("settings");
+            useUIStore.getState().setActiveSection("models");
+          },
+          className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
+        },
+        "settings/model-providers",
+      ),
+    ),
+    "error",
+  );
 }
 
 interface ChatState {
@@ -800,6 +822,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: async (text, attachments) => {
     const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
+    const {
+      activeProjectId: sendActiveProjectId,
+      isProjectsEnabled: sendProjectsEnabled,
+      projects: sendProjects,
+    } = useProjectStore.getState();
+    const toolLoop = getEnabledToolLoopConfig();
 
     if (activeId) {
       const activeGen = get().generationByConversation[activeId];
@@ -818,53 +846,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     let convId = activeId;
     let activeCompareIds = [...compareIds];
 
-    const primaryConv = get().conversations.find((c) => c.id === convId);
-    const primaryModel = primaryConv?.model || selectedModel;
-    let primaryModelConfig = resolveModelConfig(models, primaryModel);
-
-    const {
-      activeProjectId: sendActiveProjectId,
-      isProjectsEnabled: sendProjectsEnabled,
-      projects: sendProjects,
-    } = useProjectStore.getState();
-    const activeProject = sendProjectsEnabled ? sendProjects.find((p) => p.id === sendActiveProjectId) || null : null;
-    if (activeProject && activeProject.modelOverride) {
-      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
-      if (overrideModel && overrideModel.enabled !== false) {
-        primaryModelConfig = overrideModel;
-      }
-    }
-
-    if (!primaryModelConfig) {
-      logError("model", "No model configuration selected — user tried to send message without any model configured", {
-        action: "Go to Settings > Model Providers and add at least one model configuration.",
-      });
-      uiToast(
-        React.createElement(
-          "span",
-          null,
-          "No model configured — add one in ",
-          React.createElement(
-            "button",
-            {
-              onClick: () => {
-                useUIStore.getState().setView("settings");
-                useUIStore.getState().setActiveSection("models");
-              },
-              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
-            },
-            "settings/model-providers",
-          ),
-        ),
-        "error",
+    if (!resolveModelConfig(models, selectedModel)) {
+      showMissingModelConfig(
+        "No model configuration selected — user tried to send message without any model configured",
       );
       return;
     }
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
-    const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
-
     if (!convId) {
       const id = generateId();
       const modelConfig = models.find((m) => m.id === selectedModel);
@@ -874,7 +864,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: modelConfig?.id || selectedModel,
-        projectId: (isProjectsEnabled && activeProjectId) || undefined,
+        projectId: (sendProjectsEnabled && sendActiveProjectId) || undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
@@ -892,13 +882,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         messages: [],
         model: secondaryModel,
-        projectId: (isProjectsEnabled && activeProjectId) || undefined,
+        projectId: (sendProjectsEnabled && sendActiveProjectId) || undefined,
       };
       set((state) => ({
         conversations: [conv, ...state.conversations],
         compareIds: [id],
       }));
       activeCompareIds = [id];
+    }
+
+    const conversationIds = [convId, ...(isCompareMode ? activeCompareIds : [])];
+    const runContexts = conversationIds.flatMap((conversationId) => {
+      const conversation = get().conversations.find((candidate) => candidate.id === conversationId);
+      if (!conversation) return [];
+      const context = buildConversationRunContext({
+        conversation,
+        models,
+        selectedModel,
+        temperature,
+        projects: sendProjects,
+        projectsEnabled: sendProjectsEnabled,
+        ...toolLoop,
+      });
+      return context ? [context] : [];
+    });
+
+    if (runContexts.length !== conversationIds.length) {
+      showMissingModelConfig("No enabled model configuration was available for every conversation in this send");
+      return;
+    }
+
+    if (attachments?.some((attachment) => attachment.kind === "image")) {
+      const unsupportedContext = runContexts.find((context) => !context.attachmentCapabilities.images);
+      if (unsupportedContext) {
+        uiToast(`${unsupportedContext.modelConfig.name} does not support image attachments.`, "error");
+        return;
+      }
     }
 
     const userMsg: Message = {
@@ -911,8 +930,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
 
-    const runForConversation = async (cId: string, modelConfig: ModelConfig) => {
-      if (!modelConfig) return;
+    const runForConversation = async (context: ConversationRunContext) => {
+      const cId = context.conversationId;
       const currentConvs = get().conversations;
       const conversation = currentConvs.find((c) => c.id === cId);
       const isFirstForThis = (conversation?.messages?.length ?? 0) === 0;
@@ -931,33 +950,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
 
       if (isFirstForThis && !isTemporary && titleConfig.enabled) {
-        generateConversationTitle(cId, text || fallbackTitle, modelConfig, apiKeys, titleConfig, set, get);
+        generateConversationTitle(cId, text || fallbackTitle, context.modelConfig, apiKeys, titleConfig, set, get);
       }
 
-      const toolLoop = getEnabledToolLoopConfig();
-      if (toolLoop.shouldUseTools) {
-        const {
-          activeProjectId: runActiveProjectId,
-          isProjectsEnabled: runProjectsEnabled,
-          projects: runProjects,
-        } = useProjectStore.getState();
-        const activeProject = runProjectsEnabled ? runProjects.find((p) => p.id === runActiveProjectId) || null : null;
+      if (context.shouldUseTools) {
         await sendWithToolLoop(
-          cId,
-          modelConfig,
-          temperature,
-          toolLoop.searchConfig,
-          toolLoop.searchApiKey,
-          toolLoop.mcpTools,
-          toolLoop.mcpCallTool,
+          context,
           (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
           get,
           searchPerformSearch,
           searchFetchUrlContent,
-          activeProject,
         );
       } else {
-        await sendNormal(cId, modelConfig, temperature, set, get);
+        await sendNormal(cId, context.modelConfig, context.temperature, set, get);
       }
     };
 
@@ -967,21 +972,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       generationLabel: "Loading",
     });
 
-    const promises = [runForConversation(convId, primaryModelConfig)];
-
-    if (isCompareMode && activeCompareIds.length > 0) {
-      for (const compId of activeCompareIds) {
-        const compareConv = get().conversations.find((c) => c.id === compId);
-        if (!compareConv) continue;
-        const compareModel = compareConv.model || selectedModel;
-        const compareModelConfig = resolveModelConfig(models, compareModel);
-        if (compareModelConfig) {
-          promises.push(runForConversation(compId, compareModelConfig));
-        }
-      }
-    }
-
-    await Promise.all(promises);
+    await Promise.all(runContexts.map(runForConversation));
 
     useGitStore.getState().autoCommitIfNeeded();
   },
@@ -1112,6 +1103,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = conversations.find((c) => c.id === convId);
     if (!conv || conv.messages.length === 0) return;
 
+    const { isProjectsEnabled, projects } = useProjectStore.getState();
+    const toolLoop = getEnabledToolLoopConfig();
+    const runContext = buildConversationRunContext({
+      conversation: conv,
+      models,
+      selectedModel,
+      temperature,
+      projects,
+      projectsEnabled: isProjectsEnabled,
+      ...toolLoop,
+    });
+    if (!runContext) {
+      showMissingModelConfig(
+        "No model configuration selected — user tried to retry message without any model configured",
+      );
+      return;
+    }
+
     let lastUserIdx = -1;
     for (let i = conv.messages.length - 1; i >= 0; i--) {
       if (conv.messages[i].role === "user") {
@@ -1121,6 +1130,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     if (lastUserIdx === -1) return;
 
+    if (
+      conv.messages[lastUserIdx].attachments?.some((attachment) => attachment.kind === "image") &&
+      !runContext.attachmentCapabilities.images
+    ) {
+      uiToast(`${runContext.modelConfig.name} does not support image attachments.`, "error");
+      return;
+    }
+
     const trimmed = conv.messages.slice(0, lastUserIdx + 1);
 
     set((state) => ({
@@ -1129,73 +1146,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     }));
 
-    const {
-      activeProjectId: retryActiveProjectId,
-      isProjectsEnabled: retryProjectsEnabled,
-      projects: retryProjects,
-    } = useProjectStore.getState();
-    const activeProject = retryProjectsEnabled
-      ? retryProjects.find((p) => p.id === retryActiveProjectId) || null
-      : null;
-    let modelConfig = resolveModelConfig(models, conv.model || selectedModel);
-    if (activeProject && activeProject.modelOverride) {
-      const overrideModel = models.find((m) => m.id === activeProject.modelOverride);
-      if (overrideModel && overrideModel.enabled !== false) {
-        modelConfig = overrideModel;
-      }
-    }
-    if (!modelConfig) {
-      logError("model", "No model configuration selected — user tried to retry message without any model configured", {
-        action: "Go to Settings > Model Providers and add at least one model configuration.",
-      });
-      uiToast(
-        React.createElement(
-          "span",
-          null,
-          "No model configured — add one in ",
-          React.createElement(
-            "button",
-            {
-              onClick: () => {
-                useUIStore.getState().setView("settings");
-                useUIStore.getState().setActiveSection("models");
-              },
-              className: "text-red-200 underline font-medium hover:text-white transition-colors cursor-pointer",
-            },
-            "settings/model-providers",
-          ),
-        ),
-        "error",
-      );
-      return;
-    }
-
-    const toolLoop = getEnabledToolLoopConfig();
-    if (toolLoop.shouldUseTools) {
-      const {
-        activeProjectId: retryToolActiveProjectId,
-        isProjectsEnabled: retryToolProjectsEnabled,
-        projects: retryToolProjects,
-      } = useProjectStore.getState();
-      const activeProject = retryToolProjectsEnabled
-        ? retryToolProjects.find((p) => p.id === retryToolActiveProjectId) || null
-        : null;
+    if (runContext.shouldUseTools) {
       await sendWithToolLoop(
-        convId,
-        modelConfig,
-        temperature,
-        toolLoop.searchConfig,
-        toolLoop.searchApiKey,
-        toolLoop.mcpTools,
-        toolLoop.mcpCallTool,
+        runContext,
         (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
         get,
         searchPerformSearch,
         searchFetchUrlContent,
-        activeProject,
       );
     } else {
-      await sendNormal(convId, modelConfig, temperature, set, get);
+      await sendNormal(convId, runContext.modelConfig, runContext.temperature, set, get);
     }
 
     // Auto-commit if enabled and changes exist
@@ -1318,9 +1278,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conv) return;
 
     const { selectedModel, models, temperature } = useModelStore.getState();
-    const model = conv.model || selectedModel;
-    const modelConfig = resolveModelConfig(models, model);
-    if (!modelConfig) {
+    const { isProjectsEnabled, projects } = useProjectStore.getState();
+    const toolLoop = getEnabledToolLoopConfig();
+    const runContext = buildConversationRunContext({
+      conversation: conv,
+      models,
+      selectedModel,
+      temperature,
+      projects,
+      projectsEnabled: isProjectsEnabled,
+      ...toolLoop,
+    });
+    if (!runContext) {
       logError("model", "No enabled model configuration available to resume conversation", {
         action: "Go to Settings > Model Providers and enable a model configuration.",
       });
@@ -1328,25 +1297,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    const { activeProjectId, isProjectsEnabled, projects } = useProjectStore.getState();
-    const project = isProjectsEnabled ? projects.find((p) => p.id === activeProjectId) || null : null;
-
-    const toolLoop = getEnabledToolLoopConfig();
-
-    await sendWithToolLoop(
-      convId,
-      modelConfig,
-      temperature,
-      toolLoop.searchConfig,
-      toolLoop.searchApiKey,
-      toolLoop.mcpTools,
-      toolLoop.mcpCallTool,
-      (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
-      get,
-      searchPerformSearch,
-      searchFetchUrlContent,
-      project,
-    );
+    if (runContext.shouldUseTools) {
+      await sendWithToolLoop(
+        runContext,
+        (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+        get,
+        searchPerformSearch,
+        searchFetchUrlContent,
+      );
+    } else {
+      await sendNormal(convId, runContext.modelConfig, runContext.temperature, set, get);
+    }
   },
 
   clearAllChats: async () => {

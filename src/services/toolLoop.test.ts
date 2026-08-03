@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectStore } from "../store/useProjectStore";
+import type { ConversationRunContext } from "./conversationRunContext";
 import {
   TOOL_DEFINITIONS,
   TOOL_SYSTEM_PROMPT,
@@ -103,6 +104,40 @@ vi.mock("../store/useChatStore", () => ({
 
 const invokeMock = vi.mocked(invoke);
 
+function makeRunContext(
+  conversationId: string,
+  overrides: Partial<ConversationRunContext> = {},
+): ConversationRunContext {
+  const project = overrides.project ?? null;
+  const worktree = overrides.worktree ?? null;
+  return {
+    conversationId,
+    modelConfig: {
+      id: "model-1",
+      name: "Model",
+      apiBase: "https://example.com/v1/chat/completions",
+      apiKey: "",
+      modelId: "test-model",
+    },
+    temperature: 0.7,
+    project,
+    worktree,
+    searchConfig: undefined,
+    searchApiKey: "",
+    mcpTools: [],
+    mcpCallTool: undefined,
+    attachmentCapabilities: { images: true },
+    commitScope: {
+      projectId: project?.id ?? null,
+      projectRoot: project?.path ?? null,
+      worktreePath: worktree?.path ?? null,
+      worktreeBranch: worktree?.branch ?? null,
+    },
+    shouldUseTools: Boolean(project || overrides.searchConfig || overrides.mcpTools?.length),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
   mockMaxToolSteps = 25;
@@ -198,7 +233,7 @@ describe("TOOL_SYSTEM_PROMPT", () => {
 });
 
 describe("sendWithToolLoop", () => {
-  it("runs project tools for the default read-only project without creating a Git worktree", async () => {
+  it("runs tools with the captured read-only project when global navigation points elsewhere", async () => {
     mockMaxToolSteps = 2;
     mockStreamContent = "";
     const project = {
@@ -208,8 +243,16 @@ describe("sendWithToolLoop", () => {
       permissions: "read" as const,
     };
     useProjectStore.setState({
-      projects: [project],
-      activeProjectId: project.id,
+      projects: [
+        project,
+        {
+          id: "project-2",
+          name: "Current navigation project",
+          path: "/workspace/other",
+          permissions: "full",
+        },
+      ],
+      activeProjectId: "project-2",
       isProjectsEnabled: true,
     });
 
@@ -277,26 +320,7 @@ describe("sendWithToolLoop", () => {
       }
     };
 
-    await sendWithToolLoop(
-      "conv-read",
-      {
-        id: "model-1",
-        name: "Model",
-        apiBase: "https://example.com/v1/chat/completions",
-        apiKey: "",
-        modelId: "test-model",
-      },
-      0.7,
-      undefined,
-      "",
-      [],
-      undefined,
-      set,
-      () => state,
-      vi.fn(),
-      vi.fn(),
-      project,
-    );
+    await sendWithToolLoop(makeRunContext("conv-read", { project }), set, () => state, vi.fn(), vi.fn());
 
     expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
       projectId: project.id,
@@ -370,31 +394,21 @@ describe("sendWithToolLoop", () => {
     };
 
     await sendWithToolLoop(
-      "conv-1",
-      {
-        id: "model-1",
-        name: "Model",
-        apiBase: "https://example.com/v1/chat/completions",
-        apiKey: "",
-        modelId: "test-model",
-      },
-      0.7,
-      {
-        id: "search-1",
-        name: "Search",
-        provider: "google",
-        baseUrl: "https://www.googleapis.com/customsearch/v1",
-        maxResults: 5,
-        enabled: true,
-      },
-      "",
-      [],
-      undefined,
+      makeRunContext("conv-1", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
       set,
       () => state,
       vi.fn().mockResolvedValue([]),
       vi.fn(),
-      null,
     );
 
     const messages = state.conversations[0].messages;
@@ -438,31 +452,21 @@ describe("sendWithToolLoop", () => {
     };
 
     await sendWithToolLoop(
-      "conv-1",
-      {
-        id: "model-1",
-        name: "Model",
-        apiBase: "https://example.com/v1/chat/completions",
-        apiKey: "",
-        modelId: "test-model",
-      },
-      0.7,
-      {
-        id: "search-1",
-        name: "Search",
-        provider: "google",
-        baseUrl: "https://www.googleapis.com/customsearch/v1",
-        maxResults: 5,
-        enabled: true,
-      },
-      "",
-      [],
-      undefined,
+      makeRunContext("conv-1", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
       set,
       () => state,
       vi.fn(),
       vi.fn(),
-      null,
     );
 
     const last = state.conversations[0].messages[state.conversations[0].messages.length - 1];
@@ -504,26 +508,7 @@ describe("sendWithToolLoop", () => {
       delete state.generationByConversation["sub-1"];
     }, 2);
 
-    await sendWithToolLoop(
-      "sub-1",
-      {
-        id: "model-1",
-        name: "Model",
-        apiBase: "",
-        apiKey: "",
-        modelId: "",
-      },
-      0.7,
-      undefined,
-      "",
-      [],
-      undefined,
-      set,
-      () => state,
-      vi.fn(),
-      vi.fn(),
-      null,
-    );
+    await sendWithToolLoop(makeRunContext("sub-1"), set, () => state, vi.fn(), vi.fn());
 
     // It should abort immediately due to isConvStreaming returning false
     const last = state.conversations[0].messages[state.conversations[0].messages.length - 1];
@@ -581,26 +566,7 @@ describe("sendWithToolLoop", () => {
       }
     };
 
-    await sendWithToolLoop(
-      "sub-1",
-      {
-        id: "model-1",
-        name: "Model",
-        apiBase: "",
-        apiKey: "",
-        modelId: "",
-      },
-      0.7,
-      undefined,
-      "",
-      [],
-      undefined,
-      set,
-      () => state,
-      vi.fn(),
-      vi.fn(),
-      null,
-    );
+    await sendWithToolLoop(makeRunContext("sub-1"), set, () => state, vi.fn(), vi.fn());
 
     // 1. Verify parent's recursionDepth is incremented to 6
     const parent = mockConversations.find((c) => c.id === "parent-1");

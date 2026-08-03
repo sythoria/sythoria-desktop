@@ -2,13 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Conversation,
   Message,
-  ModelConfig,
   SearchApiConfig,
   SearchResult,
   UrlContent,
   GenerationState,
   McpTool,
-  McpToolResult,
   Project,
   McpServerConfig,
 } from "../types";
@@ -23,6 +21,7 @@ import { useModelStore } from "../store/useModelStore";
 import { useMcpStore } from "../store/useMcpStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
+import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
 import {
   MAX_SUBAGENTS_PER_CALL,
   MAX_SUBAGENT_DEPTH,
@@ -843,20 +842,24 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
 }
 
 export async function sendWithToolLoop(
-  convId: string,
-  modelConfig: ModelConfig,
-  temperature: number,
-  searchConfig: SearchApiConfig | undefined,
-  searchApiKey: string,
-  mcpTools: McpTool[],
-  mcpCallTool:
-    ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>) | undefined,
+  initialRunContext: ConversationRunContext,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
-  project: Project | null,
 ) {
+  let runContext = initialRunContext;
+  const {
+    conversationId: convId,
+    modelConfig,
+    temperature,
+    searchConfig,
+    searchApiKey,
+    mcpTools,
+    mcpCallTool,
+    project,
+  } = runContext;
+  let worktree = runContext.worktree ? { ...runContext.worktree } : null;
   set((state) => ({
     isStreaming: true,
     generationState: "loading" as GenerationState,
@@ -968,17 +971,18 @@ export async function sendWithToolLoop(
           throw new Error("Write-capable project tools require a Git repository for worktree isolation.");
         }
 
-        let worktree = conv?.pendingWorktree;
         if (!worktree) {
           const [path, branch] = await invoke<[string, string]>("git_worktree_create", {
             projectId: project.id,
           });
           worktree = { path, branch };
+          const worktreeSnapshot = worktree;
           set((state) => ({
             conversations: state.conversations.map((conversation) =>
-              conversation.id === convId ? { ...conversation, pendingWorktree: worktree } : conversation,
+              conversation.id === convId ? { ...conversation, pendingWorktree: worktreeSnapshot } : conversation,
             ),
           }));
+          runContext = continueConversationRunContext(runContext, convId, worktree);
         }
 
         await invoke("project_run_begin", {
@@ -1035,7 +1039,7 @@ export async function sendWithToolLoop(
           path: "AGENTS.md",
           offset: null,
           limit: null,
-          worktreePath: conv?.pendingWorktree?.path || null,
+          worktreePath: worktree?.path || null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
           userSystemPrompt += `\n\n<user_rules>\nThe following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any following instructions.\nReview them carefully and always take them into account when you generate responses and code:\n<RULE[AGENTS.md]>\n${agentsMdContent.trim()}\n</RULE[AGENTS.md]>\n</user_rules>`;
@@ -1317,9 +1321,7 @@ export async function sendWithToolLoop(
             }
 
             // 1. Check HITL gate
-            const pStore = useProjectStore.getState();
-            const activeProject = pStore.projects.find((p) => p.id === pStore.activeProjectId);
-            const hasFullAccess = activeProject?.permissions === "full";
+            const hasFullAccess = project?.permissions === "full";
 
             const requiresHitl =
               fnName === "project_write" ||
@@ -1396,7 +1398,7 @@ export async function sendWithToolLoop(
                       path: getRelativePath(resolvedPath),
                       offset: null,
                       limit: null,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     });
                   } catch {
                     mcpIsNew = true;
@@ -1415,7 +1417,7 @@ export async function sendWithToolLoop(
                       path: getRelativePath(mcpFileChangeInfo.path),
                       offset: null,
                       limit: null,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     });
                     const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
@@ -1467,6 +1469,7 @@ export async function sendWithToolLoop(
                   ],
                   model: modelConfig.id,
                   projectId: project?.id,
+                  pendingWorktree: worktree ?? undefined,
                   parentId: convId,
                   role: subagentRole,
                   isSubagent: true,
@@ -1476,18 +1479,11 @@ export async function sendWithToolLoop(
                 useChatStore.setState((s) => ({ conversations: [...s.conversations, newConv] }));
 
                 sendWithToolLoop(
-                  subagentId,
-                  modelConfig,
-                  temperature,
-                  searchConfig,
-                  searchApiKey,
-                  mcpTools,
-                  mcpCallTool,
+                  continueConversationRunContext(runContext, subagentId, worktree),
                   set,
                   get,
                   performSearch,
                   fetchUrlContent,
-                  project,
                 ).catch((e) => console.error("Subagent loop error:", e));
 
                 invokedIds.push(subagentId);
@@ -1559,18 +1555,11 @@ export async function sendWithToolLoop(
               }));
 
               sendWithToolLoop(
-                targetId,
-                modelConfig,
-                temperature,
-                searchConfig,
-                searchApiKey,
-                mcpTools,
-                mcpCallTool,
+                continueConversationRunContext(runContext, targetId, worktree),
                 set,
                 get,
                 performSearch,
                 fetchUrlContent,
-                project,
               ).catch((e) => console.error("Subagent message loop error:", e));
 
               resultContent = "Message sent.";
@@ -1586,7 +1575,7 @@ export async function sendWithToolLoop(
                       projectId: project.id,
                       path: "",
                       pattern: fnArgs.pattern,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     }),
                   );
                   break;
@@ -1597,7 +1586,7 @@ export async function sendWithToolLoop(
                     await invoke("project_list_dir", {
                       projectId: project.id,
                       path: relativeDir,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     }),
                   );
                   break;
@@ -1609,7 +1598,7 @@ export async function sendWithToolLoop(
                     path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   break;
                 }
@@ -1621,7 +1610,7 @@ export async function sendWithToolLoop(
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     }),
                   );
                   break;
@@ -1636,7 +1625,7 @@ export async function sendWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     });
                   } catch {
                     isNew = true;
@@ -1646,7 +1635,7 @@ export async function sendWithToolLoop(
                     projectId: project.id,
                     path: relativeFile,
                     content: fnArgs.content,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   resultContent = "File written successfully.";
 
@@ -1670,7 +1659,7 @@ export async function sendWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
@@ -1682,7 +1671,7 @@ export async function sendWithToolLoop(
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   resultContent = "File content replaced successfully.";
 
@@ -1691,7 +1680,7 @@ export async function sendWithToolLoop(
                     path: relativeFile,
                     offset: null,
                     limit: null,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   const diff = computeLineDiff(oldContent, newContent);
                   const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
@@ -1708,24 +1697,24 @@ export async function sendWithToolLoop(
                   resultContent = await invoke<string>("project_bash", {
                     projectId: project.id,
                     command: fnArgs.command,
-                    cwd: conv?.pendingWorktree?.path ?? project.path,
+                    cwd: worktree?.path ?? project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   break;
                 case "project_git_status":
                   resultContent = JSON.stringify(
                     await invoke("git_get_status", {
                       projectId: project.id,
-                      worktreePath: conv?.pendingWorktree?.path || null,
+                      worktreePath: worktree?.path || null,
                     }),
                   );
                   break;
                 case "project_git_diff":
                   resultContent = await invoke<string>("git_diff_changes", {
                     projectId: project.id,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   break;
                 case "project_git_commit":
@@ -1737,7 +1726,7 @@ export async function sendWithToolLoop(
                     authorName: null,
                     authorEmail: null,
                     bypassHooks: false,
-                    worktreePath: conv?.pendingWorktree?.path || null,
+                    worktreePath: worktree?.path || null,
                   });
                   break;
               }

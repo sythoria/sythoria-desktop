@@ -49,6 +49,7 @@ src/
     index.ts            # Centralized store exports
   services/
     toolLoop.ts         # Agentic tool loop: search_query + fetch_url + MCP + project workspace tools (default limit 25)
+    conversationRunContext.ts # Immutable per-run model, project, tool, worktree, attachment, and commit scope
   config/
     constants.ts        # MAX_INPUT_LENGTH, DEFAULT_TEMPERATURE, ID_LENGTH, etc.
     providerPresets.ts  # OpenAI, Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
@@ -151,7 +152,7 @@ src-tauri/src/
 
 **SSE**: `sendMessage()` → `invoke("chat_stream", { streamId })` → Rust emits `chat-stream-chunk`/`chat-stream-done` → store appends content. Cancel via `cancel_chat_stream`.
 
-**Tool loop**: Run tool execution (max `maxToolSteps` steps) → executes `search_query`/`fetch_url`/MCP/project workspace tools → collects sources → final assistant message.
+**Tool loop**: `sendMessage()` snapshots a `ConversationRunContext` from the target conversation → run tool execution (max `maxToolSteps` steps) → executes `search_query`/`fetch_url`/MCP/project workspace tools using that fixed context → collects sources → final assistant message. Compare, retry, resume, and subagent runs keep their originating conversation's project/model context instead of consulting global navigation state.
 
 **Git Worktree Isolation Flow**: If writing to a project:
 
