@@ -3,18 +3,28 @@ set -e
 
 REPO="sythoria/sythoria-desktop"
 
-echo "Fetching latest version information..."
-# Fetch the latest release tag from GitHub API
-LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+echo "Fetching release information from GitHub..."
+RELEASE_JSON=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+
+LATEST_TAG=$(echo "$RELEASE_JSON" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' | tr -d '\r')
 
 if [ -z "$LATEST_TAG" ]; then
     echo "Error: Could not fetch latest release version from GitHub."
     exit 1
 fi
 
-VERSION=${LATEST_TAG#v} # Removes the 'v' prefix if it exists
+echo "Detected latest Sythoria version tag: $LATEST_TAG"
 
-echo "Detected latest Sythoria version: $VERSION"
+# Detect if root or if sudo is available
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        SUDO="sudo"
+    else
+        echo "Error: This script requires root privileges or sudo to install system packages."
+        exit 1
+    fi
+fi
 
 # Detect the operating system
 if [ -f /etc/os-release ]; then
@@ -27,33 +37,47 @@ else
 fi
 
 TMP_DIR=$(mktemp -d)
-cd $TMP_DIR
+cd "$TMP_DIR"
 
 install_deb() {
     echo "Downloading Debian/Ubuntu (.deb) package..."
-    URL="https://github.com/$REPO/releases/download/$LATEST_TAG/Sythoria_${VERSION}_amd64.deb"
-    curl -LO $URL
+    URL=$(echo "$RELEASE_JSON" | grep -o "https://github.com/$REPO/releases/download/[^\"]*amd64\.deb" | head -n 1 | tr -d '\r')
+    if [ -z "$URL" ]; then
+        echo "Could not find .deb asset in latest release. Falling back to AppImage..."
+        install_appimage
+        return
+    fi
+    curl -fsSL -o "sythoria.deb" "$URL"
     echo "Installing..."
-    sudo apt-get update
-    sudo apt-get install -y ./Sythoria_${VERSION}_amd64.deb
+    $SUDO apt-get update
+    $SUDO apt-get install -y ./sythoria.deb
 }
 
 install_rpm() {
     echo "Downloading Fedora/RHEL (.rpm) package..."
-    URL="https://github.com/$REPO/releases/download/$LATEST_TAG/Sythoria-${VERSION}-1.x86_64.rpm"
-    curl -LO $URL
+    URL=$(echo "$RELEASE_JSON" | grep -o "https://github.com/$REPO/releases/download/[^\"]*x86_64\.rpm" | head -n 1 | tr -d '\r')
+    if [ -z "$URL" ]; then
+        echo "Could not find .rpm asset in latest release. Falling back to AppImage..."
+        install_appimage
+        return
+    fi
+    curl -fsSL -o "sythoria.rpm" "$URL"
     echo "Installing..."
-    sudo dnf install -y ./Sythoria-${VERSION}-1.x86_64.rpm
+    $SUDO dnf install -y ./sythoria.rpm
 }
 
 install_appimage() {
     echo "Downloading universal AppImage..."
-    URL="https://github.com/$REPO/releases/download/$LATEST_TAG/Sythoria_${VERSION}_amd64.AppImage"
-    curl -LO $URL
+    URL=$(echo "$RELEASE_JSON" | grep -o "https://github.com/$REPO/releases/download/[^\"]*amd64\.AppImage" | head -n 1 | tr -d '\r')
+    if [ -z "$URL" ]; then
+        echo "Error: Could not find AppImage release asset."
+        exit 1
+    fi
+    curl -fsSL -o "sythoria.AppImage" "$URL"
     
     echo "Installing AppImage..."
     mkdir -p ~/.local/bin
-    mv ./Sythoria_${VERSION}_amd64.AppImage ~/.local/bin/sythoria
+    mv ./sythoria.AppImage ~/.local/bin/sythoria
     chmod +x ~/.local/bin/sythoria
 
     echo "Creating desktop menu entry..."
@@ -78,7 +102,6 @@ case $OS in
         install_rpm
         ;;
     *)
-        # Check ID_LIKE for derivatives (e.g., a distro based on Ubuntu but with a different ID)
         case $OS_LIKE in
             *debian*|*ubuntu*) install_deb ;;
             *fedora*|*rhel*) install_rpm ;;
@@ -92,5 +115,6 @@ case $OS in
 esac
 
 # Cleanup temp files
-rm -rf $TMP_DIR
+cd ~
+rm -rf "$TMP_DIR"
 echo "Installation complete!"
