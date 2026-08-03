@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { isGenerationActive, type Message, type Attachment } from "../types";
+import { isGenerationActive, type Message, type Attachment, type PendingWorktree } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
@@ -58,7 +58,7 @@ interface ChatAreaProps {
   onRetry?: () => void;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
-  pendingWorktree?: { path: string; branch: string };
+  pendingWorktree?: PendingWorktree;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   autoExpandReasoning?: boolean;
   showEmptyState?: boolean;
@@ -1720,7 +1720,7 @@ function NonVirtualizedChatArea({
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
-  pendingWorktree?: { path: string; branch: string };
+  pendingWorktree?: PendingWorktree;
   conversationId?: string;
   onApply: (id: string) => Promise<void>;
   onDiscard: (id: string) => Promise<void>;
@@ -1836,32 +1836,63 @@ function PendingWorktreeCard({
   onDiscard,
 }: {
   conversationId: string;
-  pendingWorktree: { path: string; branch: string };
-  onApply: (id: string) => void;
-  onDiscard: (id: string) => void;
+  pendingWorktree: PendingWorktree;
+  onApply: (id: string) => void | Promise<void>;
+  onDiscard: (id: string) => void | Promise<void>;
 }) {
   const [diffFiles, setDiffFiles] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [statusState, setStatusState] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [statusError, setStatusError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [actionLoading, setActionLoading] = useState(false);
+  const conversationProjectId = useChatStore(
+    (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
+  );
+  const recoveryProjectId = pendingWorktree.commitScope?.projectId ?? conversationProjectId;
 
   useEffect(() => {
+    let active = true;
     const loadStatus = async () => {
-      if (!pendingWorktree?.path) return;
+      setStatusState("loading");
+      setStatusError("");
+      if (!recoveryProjectId) {
+        setStatusState("error");
+        setStatusError(
+          "The original project could not be identified. The worktree remains intact; restore its project assignment before applying or discarding it.",
+        );
+        return;
+      }
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const status = await invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
-          projectId: useProjectStore.getState().activeProjectId || "",
+          projectId: recoveryProjectId,
           worktreePath: pendingWorktree.path,
         });
-        const files = [...(status.unstagedFiles || []), ...(status.stagedFiles || [])];
+        if (!active) return;
+        const files = [...new Set([...(status.unstagedFiles || []), ...(status.stagedFiles || [])])];
         setDiffFiles(files);
-      } catch (e) {
-        console.error("Failed to load worktree git status:", e);
+        setStatusState(files.length > 0 ? "ready" : "empty");
+      } catch (error) {
+        if (!active) return;
+        console.error("Failed to load worktree git status:", error);
+        setStatusState("error");
+        setStatusError("The file list could not be loaded. You can retry, apply, or discard this worktree.");
       }
     };
     loadStatus();
-  }, [conversationId, pendingWorktree?.path, pendingWorktree?.branch]);
+    return () => {
+      active = false;
+    };
+  }, [pendingWorktree.path, pendingWorktree.branch, recoveryProjectId, refreshKey]);
 
-  if (diffFiles.length === 0) return null;
+  const runAction = async (action: (id: string) => void | Promise<void>) => {
+    setActionLoading(true);
+    try {
+      await action(conversationId);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   return (
     <motion.div
@@ -1870,6 +1901,8 @@ function PendingWorktreeCard({
       exit={{ opacity: 0, y: 10, scale: 0.98 }}
       transition={motionTransitions.content}
       className="p-4 rounded-xl border border-border bg-surface/60 backdrop-blur-md flex flex-col gap-3 shadow-md mx-auto max-w-3xl w-full"
+      role="region"
+      aria-label="Pending agent workspace changes"
     >
       <div className="flex items-center justify-between border-b border-border/50 pb-2">
         <div className="flex items-center gap-2 text-text-primary font-semibold text-xs">
@@ -1883,34 +1916,60 @@ function PendingWorktreeCard({
       <p className="text-xs text-text-muted">
         The agent has completed changes inside an isolated Git worktree. Review the modified files below:
       </p>
-      <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto bg-chat/30 p-2 rounded-lg border border-border/30">
-        {diffFiles.map((file) => (
-          <div key={file} className="flex items-center gap-2 text-xs text-text-secondary font-mono truncate">
-            <FileTextIcon size={12} className="text-text-muted shrink-0" />
-            <span className="truncate">{file}</span>
+      {statusState === "loading" && (
+        <div className="flex items-center gap-2 text-xs text-text-muted" role="status">
+          <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+          Loading changed files…
+        </div>
+      )}
+      {statusState === "ready" && (
+        <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto bg-chat/30 p-2 rounded-lg border border-border/30">
+          {diffFiles.map((file) => (
+            <div key={file} className="flex items-center gap-2 text-xs text-text-secondary font-mono truncate">
+              <FileTextIcon size={12} className="text-text-muted shrink-0" />
+              <span className="truncate">{file}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {statusState === "empty" && (
+        <div className="flex items-start gap-2 text-xs text-text-muted bg-chat/30 p-2 rounded-lg border border-border/30">
+          <GitBranch size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            No uncommitted file list is available. The branch may contain committed or binary-only changes; recovery
+            actions remain available.
+          </span>
+        </div>
+      )}
+      {statusState === "error" && (
+        <div className="flex items-center justify-between gap-3 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+          <div className="flex items-start gap-2 text-xs text-red-400" role="alert">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
+            <span>{statusError}</span>
           </div>
-        ))}
-      </div>
+          <button
+            type="button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            className="shrink-0 px-2 py-1 rounded-md border border-red-500/30 text-xs text-red-300 hover:bg-red-500/10"
+          >
+            Retry status
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2 justify-end pt-2">
         <button
-          onClick={async () => {
-            setLoading(true);
-            await onDiscard(conversationId);
-            setLoading(false);
-          }}
-          disabled={loading}
+          type="button"
+          onClick={() => runAction(onDiscard)}
+          disabled={actionLoading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-text-secondary bg-hover hover:bg-hover-active border border-border hover:border-text-muted rounded-lg transition-colors cursor-pointer"
         >
           <Trash2 size={12} className="text-red-500 shrink-0" />
           <span>Discard Changes</span>
         </button>
         <button
-          onClick={async () => {
-            setLoading(true);
-            await onApply(conversationId);
-            setLoading(false);
-          }}
-          disabled={loading}
+          type="button"
+          onClick={() => runAction(onApply)}
+          disabled={actionLoading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-foreground bg-accent hover:bg-accent-active border border-accent rounded-lg transition-[color,background-color,border-color,box-shadow,transform] shadow-sm cursor-pointer hover:shadow"
         >
           <Check size={12} className="shrink-0" />

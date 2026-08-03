@@ -116,7 +116,7 @@ src-tauri/src/
 
 ## State (10 Zustand stores)
 
-- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`.
+- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Project reassignment and compare teardown are blocked while their conversations own pending worktrees.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, default 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), active stream listener Map (`activeStreamIds`).
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, connection generations that prevent stale connection publication, transactional async disable/delete, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
@@ -158,8 +158,9 @@ src-tauri/src/
 
 1. Tool loop triggers workspace write → backend creates isolated worktree (`git_worktree_create`).
 2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
-3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea renders a `PendingWorktreeCard` showing diff summaries.
-4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete. Apply returns the authoritative AI-changed path list; optional auto-commit runs only afterward and commits only those paths.
+3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea always renders a recovery card, even when status is empty, committed/binary-only, loading, or unavailable.
+4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete. Apply compares the staged worktree state to its merge base so committed branch-ahead and uncommitted changes are both preserved, then returns the authoritative AI-changed path list; optional auto-commit runs only afterward and commits only those paths.
+5. Project switching/detachment and compare-mode teardown remain blocked until the recovery action completes; legacy detached records recover their project ID from `commitScope`.
 
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
@@ -203,6 +204,16 @@ export interface Message {
   attachments?: Attachment[];
 }
 
+export interface PendingWorktree {
+  path: string;
+  branch: string;
+  commitScope?: {
+    projectId: string;
+    projectRoot: string;
+    modelId: string;
+  };
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -210,15 +221,7 @@ export interface Conversation {
   messages: Message[];
   model: string;
   projectId?: string;
-  pendingWorktree?: {
-    path: string;
-    branch: string;
-    commitScope?: {
-      projectId: string;
-      projectRoot: string;
-      modelId: string;
-    };
-  };
+  pendingWorktree?: PendingWorktree;
   isPinned?: boolean;
 }
 

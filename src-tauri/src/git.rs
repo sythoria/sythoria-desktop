@@ -206,8 +206,48 @@ async fn apply_worktree_changes(
         )));
     }
 
+    let primary_head_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to resolve primary HEAD: {e}")))?;
+    if !primary_head_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to resolve primary HEAD: {}",
+            String::from_utf8_lossy(&primary_head_output.stderr).trim()
+        )));
+    }
+    let primary_head = String::from_utf8_lossy(&primary_head_output.stdout)
+        .trim()
+        .to_string();
+    let merge_base_output = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .args(["merge-base", "HEAD", &primary_head])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to resolve worktree merge base: {e}")))?;
+    if !merge_base_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to resolve worktree merge base: {}",
+            String::from_utf8_lossy(&merge_base_output.stderr).trim()
+        )));
+    }
+    let merge_base = String::from_utf8_lossy(&merge_base_output.stdout)
+        .trim()
+        .to_string();
+    if merge_base.is_empty() {
+        return Err(AppError::GitError(
+            "Failed to resolve worktree merge base: Git returned an empty revision".to_string(),
+        ));
+    }
+
     // Disabling rename detection gives one explicit path per create/delete, so
     // every path embedded in the patch can be validated against both roots.
+    // Comparing the staged worktree state to the branch merge base includes
+    // both committed branch-ahead changes and current uncommitted changes.
     let names_output = Command::new("git")
         .arg("-C")
         .arg(worktree_dir)
@@ -216,7 +256,7 @@ async fn apply_worktree_changes(
         .arg("--name-status")
         .arg("-z")
         .arg("--no-renames")
-        .arg("HEAD")
+        .arg(&merge_base)
         .arg("--")
         .output()
         .await
@@ -247,7 +287,7 @@ async fn apply_worktree_changes(
         .arg("--full-index")
         .arg("--no-ext-diff")
         .arg("--no-renames")
-        .arg("HEAD")
+        .arg(&merge_base)
         .arg("--")
         .output()
         .await
@@ -957,6 +997,40 @@ mod tests {
             [0, 1, 2, 0xff]
         );
         assert!(fixture.worktree.exists(), "apply helper must not clean up");
+    }
+
+    #[tokio::test]
+    async fn worktree_apply_includes_committed_and_uncommitted_branch_changes() {
+        let fixture = TestRepository::new();
+        std::fs::write(
+            fixture.worktree.join("committed.txt"),
+            b"committed agent change\n",
+        )
+        .expect("write committed fixture");
+        run_git(&fixture.worktree, &["add", "--", "committed.txt"]);
+        run_git(&fixture.worktree, &["commit", "-m", "agent commit"]);
+        std::fs::write(
+            fixture.worktree.join("uncommitted.txt"),
+            b"uncommitted agent change\n",
+        )
+        .expect("write uncommitted fixture");
+
+        let changed_paths = apply_worktree_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("apply complete branch state");
+
+        assert_eq!(
+            changed_paths,
+            ["committed.txt".to_string(), "uncommitted.txt".to_string()]
+        );
+        assert_eq!(
+            std::fs::read(fixture.repo.join("committed.txt")).expect("read committed result"),
+            b"committed agent change\n"
+        );
+        assert_eq!(
+            std::fs::read(fixture.repo.join("uncommitted.txt")).expect("read uncommitted result"),
+            b"uncommitted agent change\n"
+        );
     }
 
     #[tokio::test]

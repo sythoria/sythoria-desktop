@@ -463,23 +463,8 @@ function App() {
         setIsCompareMode(true);
       }
     } else {
-      setIsCompareMode(false);
+      if (!setIsCompareMode(false)) return;
       if (compareIds.length > 0) {
-        compareIds.forEach((cId) => {
-          const conv = conversations.find((c) => c.id === cId);
-          if (conv?.pendingWorktree && conv.projectId) {
-            const projectId = conv.projectId;
-            const worktreePath = conv.pendingWorktree.path;
-            const branchName = conv.pendingWorktree.branch;
-            import("@tauri-apps/api/core").then(({ invoke }) => {
-              invoke("git_worktree_discard", {
-                projectId,
-                worktreePath,
-                branchName,
-              }).catch((err) => console.error("Failed to discard worktree on compare disable:", err));
-            });
-          }
-        });
         useChatStore.setState({
           conversations: conversations.filter((c) => !compareIds.includes(c.id)),
           compareIds: [],

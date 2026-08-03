@@ -1,9 +1,16 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { invoke } from "@tauri-apps/api/core";
 import ChatArea from "./ChatArea";
 import type { Conversation, Message } from "../types";
 import { useChatStore } from "../store/useChatStore";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
+
+const invokeMock = vi.mocked(invoke);
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -23,6 +30,9 @@ const defaultProps = {
 };
 
 describe("ChatArea", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
   it("shows empty state when no messages", () => {
     render(<ChatArea messages={[]} {...defaultProps} />);
 
@@ -149,5 +159,86 @@ describe("ChatArea", () => {
     expect(screen.getByText("Arguments")).toBeInTheDocument();
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByText("Images")).toBeInTheDocument();
+  });
+
+  it("keeps recovery actions visible when the worktree status is empty", async () => {
+    invokeMock.mockResolvedValue({ unstagedFiles: [], stagedFiles: [] });
+    const pendingWorktree = {
+      path: "/worktrees/run-a",
+      branch: "sythoria-agent-a",
+      commitScope: {
+        projectId: "project-a",
+        projectRoot: "/projects/a",
+        modelId: "model-a",
+      },
+    };
+    useChatStore.setState({
+      conversations: [
+        {
+          id: "pending-chat",
+          title: "Pending chat",
+          timestamp: new Date(),
+          messages: [makeMessage()],
+          model: "model-a",
+          pendingWorktree,
+        },
+      ],
+    });
+
+    render(
+      <ChatArea
+        messages={[makeMessage()]}
+        {...defaultProps}
+        conversationId="pending-chat"
+        pendingWorktree={pendingWorktree}
+      />,
+    );
+
+    expect(await screen.findByText(/No uncommitted file list is available/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply to Workspace" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard Changes" })).toBeEnabled();
+    expect(invokeMock).toHaveBeenCalledWith("git_get_status", {
+      projectId: "project-a",
+      worktreePath: "/worktrees/run-a",
+    });
+  });
+
+  it("keeps recovery actions and retry visible when status loading fails", async () => {
+    invokeMock.mockRejectedValue(new Error("status unavailable"));
+    const pendingWorktree = {
+      path: "/worktrees/run-b",
+      branch: "sythoria-agent-b",
+      commitScope: {
+        projectId: "project-b",
+        projectRoot: "/projects/b",
+        modelId: "model-b",
+      },
+    };
+    useChatStore.setState({
+      conversations: [
+        {
+          id: "errored-pending-chat",
+          title: "Errored pending chat",
+          timestamp: new Date(),
+          messages: [makeMessage()],
+          model: "model-b",
+          pendingWorktree,
+        },
+      ],
+    });
+
+    render(
+      <ChatArea
+        messages={[makeMessage()]}
+        {...defaultProps}
+        conversationId="errored-pending-chat"
+        pendingWorktree={pendingWorktree}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/file list could not be loaded/i);
+    expect(screen.getByRole("button", { name: "Retry status" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Apply to Workspace" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Discard Changes" })).toBeEnabled();
   });
 });

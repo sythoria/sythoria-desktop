@@ -125,11 +125,14 @@ export default memo(function Sidebar({
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
   const setActiveSection = useUIStore((s) => s.setActiveSection);
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
+  const addToast = useUIStore((s) => s.addToast);
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
 
   const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore();
+  const activeConversation = conversations.find((conversation) => conversation.id === activeId);
+  const hasPendingWorktree = Boolean(activeConversation?.pendingWorktree);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -335,7 +338,11 @@ export default memo(function Sidebar({
   const nonEmptyConversations = useMemo(
     () =>
       conversations.filter(
-        (c) => c.messages.length > 0 && !c.id.startsWith("compare-") && !c.isSubagent && !c.isTemporary,
+        (c) =>
+          (c.messages.length > 0 || Boolean(c.pendingWorktree)) &&
+          (!c.id.startsWith("compare-") || Boolean(c.pendingWorktree)) &&
+          !c.isSubagent &&
+          (!c.isTemporary || Boolean(c.pendingWorktree)),
       ),
     [conversations],
   );
@@ -380,10 +387,17 @@ export default memo(function Sidebar({
 
   const handleDeleteProjectConfirm = useCallback(() => {
     if (projectToDelete) {
+      if (
+        conversations.some((conversation) => conversation.projectId === projectToDelete && conversation.pendingWorktree)
+      ) {
+        addToast("Apply or discard pending workspace changes before removing this project.", "error");
+        setProjectToDelete(null);
+        return;
+      }
       deleteProject(projectToDelete);
       setProjectToDelete(null);
     }
-  }, [projectToDelete, deleteProject]);
+  }, [projectToDelete, conversations, addToast, deleteProject]);
 
   useEffect(() => {
     if (openMenuId === null && !showProjectMenu) return;
@@ -697,9 +711,22 @@ export default memo(function Sidebar({
                               </button>
                               <button
                                 onClick={() => {
+                                  if (hasPendingWorktree && activeConversation?.projectId !== project.id) {
+                                    addToast(
+                                      "Apply or discard pending workspace changes before switching projects.",
+                                      "error",
+                                    );
+                                    return;
+                                  }
                                   setActiveProject(project.id);
                                   toggleProject(project.id);
                                 }}
+                                aria-disabled={hasPendingWorktree && activeConversation?.projectId !== project.id}
+                                title={
+                                  hasPendingWorktree && activeConversation?.projectId !== project.id
+                                    ? "Resolve pending workspace changes before switching projects"
+                                    : undefined
+                                }
                                 className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                                   isActive
                                     ? "bg-active text-text-primary"

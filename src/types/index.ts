@@ -54,6 +54,16 @@ export interface Message {
   thinkingDuration?: number;
 }
 
+export interface PendingWorktree {
+  path: string;
+  branch: string;
+  commitScope?: {
+    projectId: string;
+    projectRoot: string;
+    modelId: string;
+  };
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -61,15 +71,7 @@ export interface Conversation {
   messages: Message[];
   model: string;
   projectId?: string;
-  pendingWorktree?: {
-    path: string;
-    branch: string;
-    commitScope?: {
-      projectId: string;
-      projectRoot: string;
-      modelId: string;
-    };
-  };
+  pendingWorktree?: PendingWorktree;
   isPinned?: boolean;
   // Subagent fields
   parentId?: string;

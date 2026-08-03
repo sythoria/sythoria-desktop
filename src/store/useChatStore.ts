@@ -221,7 +221,7 @@ interface ChatState {
   activeStreamStartTime: Record<string, number>;
 
   setCompareIds: (ids: string[]) => void;
-  setIsCompareMode: (val: boolean) => void;
+  setIsCompareMode: (val: boolean) => boolean;
 
   init: () => Promise<void>;
   cleanupEmptyConversations: (exceptId?: string | null) => void;
@@ -288,7 +288,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeStreamStartTime: {},
 
   setCompareIds: (compareIds) => set({ compareIds }),
-  setIsCompareMode: (isCompareMode) => set({ isCompareMode }),
+  setIsCompareMode: (isCompareMode) => {
+    if (!isCompareMode) {
+      const state = get();
+      const pendingComparison = state.compareIds
+        .map((compareId) => state.conversations.find((conversation) => conversation.id === compareId))
+        .find((conversation) => conversation?.pendingWorktree);
+      if (pendingComparison) {
+        uiToast(
+          `Apply or discard pending workspace changes in “${pendingComparison.title}” before leaving compare mode.`,
+          "error",
+        );
+        return false;
+      }
+    }
+    set({ isCompareMode });
+    return true;
+  },
 
   init: async () => {
     if (initInProgress) return;
@@ -526,9 +542,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const keepId = exceptId !== undefined ? exceptId : activeId;
     const nonEmpty = conversations.filter((c) => {
       if (c.id.startsWith("compare-")) {
-        return get().isCompareMode && get().compareIds.includes(c.id);
+        return Boolean(c.pendingWorktree) || (get().isCompareMode && get().compareIds.includes(c.id));
       }
-      return c.messages.length > 0 || c.id === keepId;
+      return Boolean(c.pendingWorktree) || c.messages.length > 0 || c.id === keepId;
     });
     if (nonEmpty.length === conversations.length) return;
 
@@ -558,8 +574,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveId: (id, isHistoryMove = false) => {
-    const { activeId, navigationHistory, navigationIndex } = get();
+    const { activeId, navigationHistory, navigationIndex, conversations, compareIds } = get();
     if (activeId === id) return;
+
+    const pendingComparison = compareIds
+      .map((compareId) => conversations.find((conversation) => conversation.id === compareId))
+      .find((conversation) => conversation?.pendingWorktree);
+    if (pendingComparison) {
+      uiToast(
+        `Resolve pending workspace changes in “${pendingComparison.title}” before switching conversations.`,
+        "error",
+      );
+      return;
+    }
 
     // Exit compare mode when switching chats to prevent state pollution
     set({
@@ -805,6 +832,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setConversationProject: (id, projectId) => {
+    const conversation = get().conversations.find((candidate) => candidate.id === id);
+    if (conversation?.pendingWorktree && conversation.projectId !== projectId) {
+      uiToast("Apply or discard pending workspace changes before changing this conversation's project.", "error");
+      return;
+    }
     set((state) => ({
       conversations: state.conversations.map((c) => (c.id === id ? { ...c, projectId } : c)),
     }));
@@ -1159,18 +1191,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   applyPendingWorktree: async (convId) => {
     const conv = get().conversations.find((c) => c.id === convId);
-    if (!conv || !conv.pendingWorktree || !conv.projectId) return;
+    if (!conv || !conv.pendingWorktree) return;
+    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    if (!projectId) {
+      uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
+      return;
+    }
 
     uiLoading("toolExecution", true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const changedPaths = await invoke<string[]>("git_worktree_apply", {
-        projectId: conv.projectId,
+        projectId,
         worktreePath: conv.pendingWorktree.path,
         branchName: conv.pendingWorktree.branch,
       });
 
-      await useProjectStore.getState().setWorktree(null, null);
+      try {
+        await invoke("set_project_path_override", { projectId, pathOverride: null });
+      } catch (error) {
+        logWarn("git", "Applied worktree but could not clear its project path override", { details: String(error) });
+      }
+      const projectStore = useProjectStore.getState();
+      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
+        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+      }
 
       set((state) => ({
         conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
@@ -1179,7 +1224,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiToast("Changes applied successfully to workspace!", "success");
 
       const commitScope = conv.pendingWorktree.commitScope;
-      if (commitScope && commitScope.projectId === conv.projectId) {
+      if (commitScope && commitScope.projectId === projectId) {
         await useGitStore.getState().autoCommitIfNeeded({
           ...commitScope,
           files: changedPaths,
@@ -1197,18 +1242,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   discardPendingWorktree: async (convId) => {
     const conv = get().conversations.find((c) => c.id === convId);
-    if (!conv || !conv.pendingWorktree || !conv.projectId) return;
+    if (!conv || !conv.pendingWorktree) return;
+    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    if (!projectId) {
+      uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
+      return;
+    }
 
     uiLoading("toolExecution", true);
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("git_worktree_discard", {
-        projectId: conv.projectId,
+        projectId,
         worktreePath: conv.pendingWorktree.path,
         branchName: conv.pendingWorktree.branch,
       });
 
-      await useProjectStore.getState().setWorktree(null, null);
+      try {
+        await invoke("set_project_path_override", { projectId, pathOverride: null });
+      } catch (error) {
+        logWarn("git", "Discarded worktree but could not clear its project path override", {
+          details: String(error),
+        });
+      }
+      const projectStore = useProjectStore.getState();
+      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
+        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+      }
 
       set((state) => ({
         conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),

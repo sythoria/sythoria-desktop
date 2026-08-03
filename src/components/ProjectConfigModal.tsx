@@ -6,6 +6,7 @@ import { useProjectStore } from "../store/useProjectStore";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { useGitStore } from "../store/useGitStore";
+import { useChatStore } from "../store/useChatStore";
 import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
 import { Select } from "./ui/Select";
@@ -22,6 +23,10 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
   const { projects, addProject, updateProject, setActiveProject } = useProjectStore();
   const { models } = useModelStore();
   const gitConfig = useGitStore((s) => s.config);
+  const activeConversationHasPendingWorktree = useChatStore((state) => {
+    const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);
+    return Boolean(activeConversation?.pendingWorktree);
+  });
 
   const projectToEdit = id ? projects.find((p) => p.id === id) : null;
 
@@ -95,8 +100,12 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
         }
 
         const newId = addProject(name.trim(), finalPath, permissions, configData);
-        setActiveProject(newId);
-        addToast(`Project "${name}" added successfully!`, "success");
+        if (activeConversationHasPendingWorktree) {
+          addToast(`Project "${name}" was added. Resolve pending workspace changes before switching to it.`, "success");
+        } else {
+          setActiveProject(newId);
+          addToast(`Project "${name}" added successfully!`, "success");
+        }
       } else if (mode === "edit" && id) {
         updateProject(id, {
           name: name.trim(),

@@ -87,6 +87,7 @@ export default memo(function InputBar({
 
   const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore();
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
+  const addToast = useUIStore((s) => s.addToast);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
@@ -107,6 +108,7 @@ export default memo(function InputBar({
   const showContextWindow = useUIStore((s) => s.showContextWindow);
   const activeConversationId = useChatStore((s) => s.activeId);
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
+  const hasPendingWorktree = Boolean(conversation?.pendingWorktree);
   const setConversationProject = useChatStore((s) => s.setConversationProject);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
 
@@ -1100,6 +1102,14 @@ export default memo(function InputBar({
                                   <FolderPlus size={15} className="text-accent" />
                                   <span>Add Project Workspace...</span>
                                 </button>
+                                {hasPendingWorktree && (
+                                  <div
+                                    className="mx-1 my-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-400"
+                                    role="status"
+                                  >
+                                    Resolve pending workspace changes before selecting another project.
+                                  </div>
+                                )}
                                 {projects.length > 0 && (
                                   <>
                                     <div className="border-t border-border/50 my-1 mx-1" />
@@ -1111,13 +1121,26 @@ export default memo(function InputBar({
                                         <button
                                           key={p.id}
                                           onClick={() => {
+                                            if (hasPendingWorktree) {
+                                              addToast(
+                                                "Apply or discard pending workspace changes before switching projects.",
+                                                "error",
+                                              );
+                                              return;
+                                            }
                                             setActiveProject(p.id);
                                             if (activeConversationId) {
                                               setConversationProject(activeConversationId, p.id);
                                             }
                                             setProjectDropdownOpen(false);
                                           }}
-                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                          disabled={hasPendingWorktree}
+                                          title={
+                                            hasPendingWorktree
+                                              ? "Resolve pending workspace changes before switching projects"
+                                              : undefined
+                                          }
+                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                           <Folder size={13} className="text-text-muted shrink-0" />
                                           <span className="truncate">{p.name}</span>
@@ -1196,15 +1219,36 @@ export default memo(function InputBar({
                                   <Settings size={13} className="text-text-muted" />
                                   <span>Workspace Settings...</span>
                                 </button>
+                                {hasPendingWorktree && (
+                                  <div
+                                    className="mx-1 mb-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-400"
+                                    role="status"
+                                  >
+                                    Apply or discard the pending workspace changes before detaching this project.
+                                  </div>
+                                )}
                                 <button
                                   onClick={() => {
+                                    if (hasPendingWorktree) {
+                                      addToast(
+                                        "Apply or discard pending workspace changes before detaching the project.",
+                                        "error",
+                                      );
+                                      return;
+                                    }
                                     setActiveProject(null);
                                     if (activeConversationId) {
                                       setConversationProject(activeConversationId, undefined);
                                     }
                                     setProjectDropdownOpen(false);
                                   }}
-                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
+                                  disabled={hasPendingWorktree}
+                                  title={
+                                    hasPendingWorktree
+                                      ? "Resolve pending workspace changes before detaching the project"
+                                      : undefined
+                                  }
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                                   role="menuitem"
                                 >
                                   <X size={13} className="text-text-muted" />

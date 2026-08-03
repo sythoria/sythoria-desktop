@@ -212,4 +212,101 @@ describe("worktree approval", () => {
       invokeMock.mockReset();
     }
   });
+
+  it("rejects project detachment while a worktree is pending", () => {
+    useChatStore.setState({
+      conversations: [
+        {
+          ...primaryConversation,
+          projectId: "project-a",
+          pendingWorktree: { path: "/worktrees/run-a", branch: "sythoria-agent-a" },
+        },
+      ],
+      activeId: primaryConversation.id,
+    });
+
+    useChatStore.getState().setConversationProject(primaryConversation.id, undefined);
+
+    expect(useChatStore.getState().conversations[0].projectId).toBe("project-a");
+  });
+
+  it("keeps compare conversations visible until their pending worktrees are resolved", () => {
+    const pendingComparison = {
+      ...comparisonConversation,
+      pendingWorktree: { path: "/worktrees/compare", branch: "sythoria-agent-compare" },
+    };
+    const destination = { ...primaryConversation, id: "destination-chat" };
+    useChatStore.setState({
+      conversations: [primaryConversation, pendingComparison, destination],
+      activeId: primaryConversation.id,
+      compareIds: [pendingComparison.id],
+      isCompareMode: true,
+    });
+
+    const compareModeChanged = useChatStore.getState().setIsCompareMode(false);
+    useChatStore.getState().setActiveId(destination.id);
+
+    const state = useChatStore.getState();
+    expect(compareModeChanged).toBe(false);
+    expect(state.activeId).toBe(primaryConversation.id);
+    expect(state.isCompareMode).toBe(true);
+    expect(state.compareIds).toEqual([pendingComparison.id]);
+    expect(state.conversations.some((conversation) => conversation.id === pendingComparison.id)).toBe(true);
+  });
+
+  it("can discard a legacy detached worktree using its captured project scope", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_worktree_discard" || command === "set_project_path_override") return undefined;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    useChatStore.setState({
+      conversations: [
+        {
+          ...primaryConversation,
+          projectId: undefined,
+          pendingWorktree: {
+            path: "/worktrees/legacy",
+            branch: "sythoria-agent-legacy",
+            commitScope: {
+              projectId: "project-a",
+              projectRoot: "/projects/a",
+              modelId: "model-a",
+            },
+          },
+        },
+      ],
+      activeId: primaryConversation.id,
+    });
+
+    await useChatStore.getState().discardPendingWorktree(primaryConversation.id);
+
+    expect(invokeMock).toHaveBeenCalledWith("git_worktree_discard", {
+      projectId: "project-a",
+      worktreePath: "/worktrees/legacy",
+      branchName: "sythoria-agent-legacy",
+    });
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toBeUndefined();
+  });
+
+  it("does not prune an empty conversation that owns the only worktree recovery record", () => {
+    const pendingEmptyConversation = {
+      ...primaryConversation,
+      id: "pending-empty-chat",
+      messages: [],
+      pendingWorktree: { path: "/worktrees/empty", branch: "sythoria-agent-empty" },
+    };
+    useChatStore.setState({
+      conversations: [pendingEmptyConversation, { ...primaryConversation, id: "active-chat" }],
+      activeId: "active-chat",
+      isCompareMode: false,
+      compareIds: [],
+    });
+
+    useChatStore.getState().cleanupEmptyConversations();
+
+    expect(
+      useChatStore.getState().conversations.some((conversation) => conversation.id === pendingEmptyConversation.id),
+    ).toBe(true);
+  });
 });

@@ -5,6 +5,7 @@ import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
+import { useProjectStore } from "../store/useProjectStore";
 
 const mockModels: ModelConfig[] = [
   {
@@ -348,5 +349,48 @@ describe("InputBar", () => {
     act(() => {
       useChatStore.getState().setDraftAttachments([]);
     });
+  });
+
+  it("blocks project detachment while workspace changes are pending", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useProjectStore.setState({
+        projects: [{ id: "project-a", name: "Project A", path: "/projects/a", permissions: "write" }],
+        activeProjectId: "project-a",
+        isProjectsEnabled: true,
+      });
+      useChatStore.setState({
+        activeId: "pending-chat",
+        conversations: [
+          {
+            id: "pending-chat",
+            title: "Pending chat",
+            timestamp: new Date(),
+            messages: [],
+            model: "model-1",
+            projectId: "project-a",
+            pendingWorktree: { path: "/worktrees/a", branch: "sythoria-agent-a" },
+          },
+        ],
+      });
+    });
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Project context" }));
+
+    expect(screen.getByRole("menuitem", { name: "Detach Project" })).toBeDisabled();
+    expect(screen.getByText(/Apply or discard the pending workspace changes/i)).toBeInTheDocument();
   });
 });
