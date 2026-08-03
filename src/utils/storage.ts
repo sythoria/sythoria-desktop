@@ -1846,7 +1846,7 @@ export async function saveDisableBgActivity(value: boolean): Promise<void> {
   }
 }
 
-export const DEFAULT_BLOCKED_HOSTS = [
+const LEGACY_INTRINSIC_BLOCKED_HOSTS = [
   "localhost",
   "127.0.0.1",
   "0.0.0.0",
@@ -1863,16 +1863,19 @@ export const DEFAULT_BLOCKED_HOSTS = [
   "fc00::/7",
   "fe80::/10",
 ];
+export const DEFAULT_BLOCKED_HOSTS: string[] = [];
 
 export interface NetworkSettings {
   strictSsl: boolean;
   blockedHosts: string[];
+  allowedLocalEndpoints: string[];
   offlineMode: boolean;
 }
 
 const NetworkSettingsSchema = z.object({
   strict_ssl: z.boolean(),
   blocked_hosts: z.array(z.string()),
+  allowed_local_endpoints: z.array(z.string()).default([]),
   offline_mode: z.boolean().default(false),
 });
 
@@ -1885,11 +1888,18 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
 
     if (raw) {
       const parsed = NetworkSettingsSchema.parse(JSON.parse(raw));
+      const customBlockedHosts = parsed.blocked_hosts.filter(
+        (host) => !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
+      );
       settings = {
         strictSsl: parsed.strict_ssl,
-        blockedHosts: parsed.blocked_hosts,
+        blockedHosts: customBlockedHosts,
+        allowedLocalEndpoints: parsed.allowed_local_endpoints,
         offlineMode: parsed.offline_mode,
       };
+      if (customBlockedHosts.length !== parsed.blocked_hosts.length) {
+        await saveNetworkSettings(settings);
+      }
     } else {
       const legacyStrictSsl = await store.get<unknown>(legacyKeys[0]);
       const legacyBlockedHosts = await store.get<unknown>(legacyKeys[1]);
@@ -1906,10 +1916,20 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
         strictSsl:
           typeof legacyStrictSsl === "boolean" ? legacyStrictSsl : localStorage.getItem(legacyKeys[0]) !== "false",
         blockedHosts: Array.isArray(legacyBlockedHosts)
-          ? legacyBlockedHosts.filter((host): host is string => typeof host === "string")
+          ? legacyBlockedHosts
+              .filter((host): host is string => typeof host === "string")
+              .filter(
+                (host) => !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
+              )
           : Array.isArray(localBlockedHosts)
-            ? localBlockedHosts.filter((host): host is string => typeof host === "string")
+            ? localBlockedHosts
+                .filter((host): host is string => typeof host === "string")
+                .filter(
+                  (host) =>
+                    !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
+                )
             : DEFAULT_BLOCKED_HOSTS,
+        allowedLocalEndpoints: [],
         offlineMode:
           typeof legacyOfflineMode === "boolean" ? legacyOfflineMode : localStorage.getItem(legacyKeys[2]) === "true",
       };
@@ -1929,6 +1949,7 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
     return {
       strictSsl: true,
       blockedHosts: DEFAULT_BLOCKED_HOSTS,
+      allowedLocalEndpoints: [],
       offlineMode: true,
     };
   }
@@ -1949,6 +1970,7 @@ export async function saveNetworkSettings(settings: NetworkSettings): Promise<vo
             config: JSON.stringify({
               strict_ssl: next.strictSsl,
               blocked_hosts: next.blockedHosts,
+              allowed_local_endpoints: next.allowedLocalEndpoints,
               offline_mode: next.offlineMode,
             }),
           });

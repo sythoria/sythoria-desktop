@@ -146,42 +146,9 @@ pub async fn ws_chat_stream(
     crate::ensure_online().map_err(|error| error.to_string())?;
     use tauri::Emitter;
 
-    // SSRF URL Block Validation
-    let parsed_url =
-        url::Url::parse(&ws_config.url).map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
-
-    if let Some(host) = parsed_url.host_str() {
-        let host_lower = host.to_lowercase();
-        let blocked_hosts = crate::get_blocked_hosts();
-
-        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-            let blocked_lower = blocked.to_lowercase();
-            if blocked.contains('*') {
-                crate::search::matches_wildcard(&host_lower, &blocked_lower)
-            } else {
-                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-            }
-        });
-
-        let is_blocked_ip = {
-            use std::net::ToSocketAddrs;
-            let port = parsed_url.port_or_known_default().unwrap_or(80);
-            if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs
-                    .into_iter()
-                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-            } else {
-                false
-            }
-        };
-
-        if is_blocked_host || is_blocked_ip {
-            return Err(format!(
-                "Access denied: Endpoint '{}' is blocked in network settings.",
-                host
-            ));
-        }
-    }
+    crate::endpoint_security::validate_outbound_url(&ws_config.url, &["ws", "wss"])
+        .await
+        .map_err(|error| error.to_string())?;
 
     let mut connection = WebSocketConnection::new(ws_config.clone());
 
@@ -381,42 +348,9 @@ pub async fn ws_connect(
     session: &WsSession,
 ) -> Result<(), String> {
     crate::ensure_online().map_err(|error| error.to_string())?;
-    // SSRF URL Block Validation
-    let parsed_url =
-        url::Url::parse(&ws_config.url).map_err(|e| format!("Invalid WebSocket URL: {}", e))?;
-
-    if let Some(host) = parsed_url.host_str() {
-        let host_lower = host.to_lowercase();
-        let blocked_hosts = crate::get_blocked_hosts();
-
-        let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-            let blocked_lower = blocked.to_lowercase();
-            if blocked.contains('*') {
-                crate::search::matches_wildcard(&host_lower, &blocked_lower)
-            } else {
-                host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-            }
-        });
-
-        let is_blocked_ip = {
-            use std::net::ToSocketAddrs;
-            let port = parsed_url.port_or_known_default().unwrap_or(80);
-            if let Ok(addrs) = (host, port).to_socket_addrs() {
-                addrs
-                    .into_iter()
-                    .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-            } else {
-                false
-            }
-        };
-
-        if is_blocked_host || is_blocked_ip {
-            return Err(format!(
-                "Access denied: Endpoint '{}' is blocked in network settings.",
-                host
-            ));
-        }
-    }
+    crate::endpoint_security::validate_outbound_url(&ws_config.url, &["ws", "wss"])
+        .await
+        .map_err(|error| error.to_string())?;
 
     // 1. Close any existing connection first
     {

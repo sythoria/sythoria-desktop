@@ -90,6 +90,7 @@ interface UIState {
   disableBgActivity: boolean;
   strictSsl: boolean;
   blockedHosts: string[];
+  allowedLocalEndpoints: string[];
   offlineMode: boolean;
   language: string;
   skipExternalLinkWarning: boolean;
@@ -134,6 +135,7 @@ interface UIState {
   setDisableBgActivity: (value: boolean) => void;
   setStrictSsl: (value: boolean) => void;
   setBlockedHosts: (value: string[]) => void;
+  setAllowedLocalEndpoints: (value: string[]) => void;
   setOfflineMode: (value: boolean) => void;
   setLanguage: (value: string) => void;
   sidebarWidth: number;
@@ -253,6 +255,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   disableBgActivity: false,
   strictSsl: true,
   blockedHosts: [],
+  allowedLocalEndpoints: [],
   offlineMode: false,
   language: "en",
   sidebarWidth: initialSidebarWidth,
@@ -530,9 +533,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   setStrictSsl: (value) => {
     const previous = get().strictSsl;
-    const { blockedHosts, offlineMode } = get();
+    const { blockedHosts, allowedLocalEndpoints, offlineMode } = get();
     set({ strictSsl: value });
-    void saveNetworkSettings({ strictSsl: value, blockedHosts, offlineMode }).catch((error) => {
+    void saveNetworkSettings({ strictSsl: value, blockedHosts, allowedLocalEndpoints, offlineMode }).catch((error) => {
       if (get().strictSsl === value) set({ strictSsl: previous });
       console.error("Failed to save Strict SSL setting:", error);
       get().addToast("Strict SSL was not saved; the previous setting was restored.", "error");
@@ -540,17 +543,27 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   setBlockedHosts: (value) => {
     const previous = get().blockedHosts;
-    const { strictSsl, offlineMode } = get();
+    const { strictSsl, allowedLocalEndpoints, offlineMode } = get();
     set({ blockedHosts: value });
-    void saveNetworkSettings({ strictSsl, blockedHosts: value, offlineMode }).catch((error) => {
+    void saveNetworkSettings({ strictSsl, blockedHosts: value, allowedLocalEndpoints, offlineMode }).catch((error) => {
       if (get().blockedHosts === value) set({ blockedHosts: previous });
       console.error("Failed to save blocked hosts:", error);
       get().addToast("Blocked hosts were not saved; the previous list was restored.", "error");
     });
   },
+  setAllowedLocalEndpoints: (value) => {
+    const previous = get().allowedLocalEndpoints;
+    const { strictSsl, blockedHosts, offlineMode } = get();
+    set({ allowedLocalEndpoints: value });
+    void saveNetworkSettings({ strictSsl, blockedHosts, allowedLocalEndpoints: value, offlineMode }).catch((error) => {
+      if (get().allowedLocalEndpoints === value) set({ allowedLocalEndpoints: previous });
+      console.error("Failed to save local endpoint grants:", error);
+      get().addToast("Local endpoint grants were not saved; the previous list was restored.", "error");
+    });
+  },
   setOfflineMode: (value) => {
     const previous = get().offlineMode;
-    const { strictSsl, blockedHosts } = get();
+    const { strictSsl, blockedHosts, allowedLocalEndpoints } = get();
     set({ offlineMode: value });
     if (value) {
       useModelStore.getState().stopHealthCheck();
@@ -568,7 +581,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       useModelStore.getState().startHealthCheck();
       void useModelStore.getState().checkModelConnections();
     }
-    void saveNetworkSettings({ strictSsl, blockedHosts, offlineMode: value }).catch((error) => {
+    void saveNetworkSettings({ strictSsl, blockedHosts, allowedLocalEndpoints, offlineMode: value }).catch((error) => {
       if (get().offlineMode === value) set({ offlineMode: previous });
       console.error("Failed to save Offline Mode:", error);
       get().addToast("Offline Mode was not saved; the previous setting was restored.", "error");

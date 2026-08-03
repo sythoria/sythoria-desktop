@@ -95,6 +95,7 @@ src-tauri/src/
   main.rs               # sythoria_lib::run()
   lib.rs                # Tauri commands, AppError, initialization, network policy, window/tray event hooks
   atomic_file.rs        # Crash-safe temporary-file writes with atomic replacement
+  endpoint_security.rs  # Intrinsic outbound-network policy, exact local grants, and endpoint resolution
   secure_storage.rs     # AES-256-GCM domain storage, key derivation, migration, and preference mutation
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
   ws_handler.rs         # WebSocket: types, SessionManager, reconnect (1s–30s, max 5)
@@ -332,6 +333,7 @@ export interface ModelConfig {
 - **Encrypted storage**: Settings use per-domain AES-256-GCM keys derived from an OS-keychain master key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
 - **Conversation storage**: Each conversation is an authenticated content-addressed blob behind an encrypted manifest and a separate keychain-backed key; failed saves retain the previous snapshot.
 - **Network fail-closed**: If an existing authenticated network policy cannot be loaded, startup enables strict SSL and offline mode instead of silently reverting to permissive defaults.
+- **Local endpoint policy**: Loopback, private, shared, link-local, unspecified, and cloud-metadata destinations are enforced natively and cannot be removed from the policy. Intentional local services require exact scheme/host/port grants; editable block rules are additive and always take precedence over grants.
 - **Window state**: Main-window size, position, and maximized state are restored from encrypted preferences. The default window is 1200×780 when no saved geometry exists.
 - **Privacy wipe**: The Rust backend deletes indexed keychain secrets before encrypted files, and frontend persistence is suspended during the wipe to prevent data recreation.
 - **Logging privacy**: Legacy plaintext log files are removed at startup; runtime Rust logs target stdout at warning level.

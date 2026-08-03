@@ -434,13 +434,48 @@ pub async fn download_whisper_model(
             .build()
             .map_err(|e| AppError::RequestFailed(e.to_string()))?;
 
-        let res = tokio::select! {
-            _ = &mut cancel_rx => {
-                return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+        let mut current_url = url.clone();
+        let mut redirects = 0u8;
+        let res = loop {
+            let validated =
+                crate::endpoint_security::validate_outbound_url(&current_url, &["https"]).await?;
+            let response = tokio::select! {
+                _ = &mut cancel_rx => {
+                    return Err(AppError::ConfigIo("Download cancelled by user".to_string()));
+                }
+                res_result = client.get(validated.url.clone()).send() => {
+                    res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
+                }
+            };
+            if !response.status().is_redirection() {
+                break response;
             }
-            res_result = client.get(&url).send() => {
-                res_result.map_err(|e| AppError::RequestFailed(e.to_string()))?
+            if redirects >= 5 {
+                return Err(AppError::RequestFailed(
+                    "Whisper model download exceeded the redirect limit".to_string(),
+                ));
             }
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .ok_or_else(|| {
+                    AppError::RequestFailed(
+                        "Whisper model download redirect omitted the Location header".to_string(),
+                    )
+                })?
+                .to_str()
+                .map_err(|_| {
+                    AppError::RequestFailed(
+                        "Whisper model download redirect had an invalid Location header"
+                            .to_string(),
+                    )
+                })?;
+            current_url = validated
+                .url
+                .join(location)
+                .map_err(|error| AppError::RequestFailed(format!("Invalid redirect URL: {error}")))?
+                .to_string();
+            redirects += 1;
         };
         if !res.status().is_success() {
             return Err(AppError::RequestFailed(format!(
@@ -932,59 +967,16 @@ pub async fn transcribe_audio_cloud(
         return Ok(String::new());
     }
 
-    let parsed_url = url::Url::parse(&api_url)
-        .map_err(|e| AppError::ConfigIo(format!("Invalid api_url: {}", e)))?;
-    if parsed_url.scheme() != "https" {
-        return Err(AppError::ConfigIo(
-            "Cloud speech-to-text endpoints must use HTTPS".to_string(),
-        ));
-    }
-
-    let endpoint_host = parsed_url
+    let validated_endpoint =
+        crate::endpoint_security::validate_outbound_url(&api_url, &["https"]).await?;
+    let endpoint_host = validated_endpoint
+        .url
         .host_str()
         .ok_or_else(|| {
             AppError::ConfigIo("Cloud speech-to-text endpoint must include a hostname".to_string())
         })?
         .to_string();
-    let host_lower = endpoint_host.to_lowercase();
-    let blocked_hosts = crate::get_blocked_hosts();
-    let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-        let blocked_lower = blocked.to_lowercase();
-        if blocked.contains('*') {
-            crate::search::matches_wildcard(&host_lower, &blocked_lower)
-        } else {
-            host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-        }
-    });
-    if is_blocked_host {
-        return Err(AppError::ConfigIo(format!(
-            "Access denied: Endpoint '{}' is blocked in network settings.",
-            endpoint_host
-        )));
-    }
-
-    let endpoint_port = parsed_url.port_or_known_default().unwrap_or(443);
-    let resolved_addresses: Vec<_> =
-        tokio::net::lookup_host((endpoint_host.as_str(), endpoint_port))
-            .await
-            .map_err(|e| {
-                AppError::ConfigIo(format!(
-                    "Failed to resolve cloud speech-to-text endpoint: {}",
-                    e
-                ))
-            })?
-            .collect();
-    if resolved_addresses.is_empty()
-        || resolved_addresses
-            .iter()
-            .any(|address| crate::search::is_ip_blocked(&address.ip(), &blocked_hosts))
-    {
-        return Err(AppError::ConfigIo(format!(
-            "Access denied: Endpoint '{}' resolves to a blocked or unavailable address.",
-            endpoint_host
-        )));
-    }
-    let endpoint_address = resolved_addresses[0];
+    let endpoint_address = validated_endpoint.addresses[0];
 
     let host = cpal::default_host();
     let device = host

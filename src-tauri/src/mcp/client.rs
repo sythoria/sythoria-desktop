@@ -525,43 +525,9 @@ pub async fn connect_server(
                 return Err("Base URL is required for HTTP transport".to_string());
             }
 
-            // Validate URL and restrict local networks unless allowLocalNetwork is true
-            let parsed_url =
-                url::Url::parse(&base_url).map_err(|e| format!("Invalid base URL: {}", e))?;
-
-            if let Some(host) = parsed_url.host_str() {
-                let host_lower = host.to_lowercase();
-                let blocked_hosts = crate::get_blocked_hosts();
-
-                let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-                    let blocked_lower = blocked.to_lowercase();
-                    if blocked.contains('*') {
-                        crate::search::matches_wildcard(&host_lower, &blocked_lower)
-                    } else {
-                        host_lower == blocked_lower
-                            || host_lower.ends_with(&format!(".{}", blocked_lower))
-                    }
-                });
-
-                let is_blocked_ip = {
-                    use std::net::ToSocketAddrs;
-                    let port = parsed_url.port_or_known_default().unwrap_or(80);
-                    if let Ok(addrs) = (host, port).to_socket_addrs() {
-                        addrs
-                            .into_iter()
-                            .any(|addr| crate::search::is_ip_blocked(&addr.ip(), &blocked_hosts))
-                    } else {
-                        false
-                    }
-                };
-
-                if is_blocked_host || is_blocked_ip {
-                    return Err(format!(
-                        "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
-                        host
-                    ));
-                }
-            }
+            crate::endpoint_security::validate_outbound_url(&base_url, &["http", "https"])
+                .await
+                .map_err(|error| error.to_string())?;
 
             let mut transport_config =
                 StreamableHttpClientTransportConfig::with_uri(Arc::from(base_url.as_str()));

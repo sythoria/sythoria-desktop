@@ -296,6 +296,10 @@ export const en = {
     "Specify IP addresses or hostnames that are restricted from network access (one per line).",
   "settings.privacy.resetBlockedHostsBtn": "Reset to Defaults",
   "settings.privacy.blockedHostsPlaceholder": "e.g. localhost\n127.0.0.1",
+  "settings.privacy.allowedLocalEndpoints": "Local endpoint grants",
+  "settings.privacy.allowedLocalEndpointsDesc":
+    "Allow intentional local services by exact origin (one per line). Grants apply only to local/private destinations; cloud metadata and custom block rules remain denied.",
+  "settings.privacy.allowedLocalEndpointsPlaceholder": "e.g. http://127.0.0.1:11434",
   "settings.privacy.offlineMode": "Offline Mode",
   "settings.privacy.offlineModeDesc": "Force the app to run completely offline. Blocks all outgoing requests.",
   "settings.privacy.dangerZone": "Danger Zone",

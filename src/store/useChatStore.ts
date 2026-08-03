@@ -525,6 +525,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         disableBgActivity: hasOnboarded ? loadedDisableBgActivity : false,
         strictSsl: loadedNetworkSettings.strictSsl,
         blockedHosts: loadedNetworkSettings.blockedHosts,
+        allowedLocalEndpoints: loadedNetworkSettings.allowedLocalEndpoints,
         offlineMode: loadedNetworkSettings.offlineMode,
         language: hasOnboarded ? loadedLanguage : "en",
         sidebarWidth: Math.max(180, Math.min(480, loadedUiLayout.sidebarWidth ?? 260)),

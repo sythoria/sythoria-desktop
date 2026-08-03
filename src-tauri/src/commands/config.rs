@@ -1,4 +1,3 @@
-use crate::get_blocked_hosts;
 use crate::secure_storage::{self, StorageDomain};
 use crate::AppError;
 use crate::NetworkConfig;
@@ -45,6 +44,14 @@ fn validate_network_config(config: &NetworkConfig) -> Result<(), AppError> {
         return Err(AppError::ParseError(
             "Network policy contains an invalid blocked-host entry".to_string(),
         ));
+    }
+    if config.allowed_local_endpoints.len() > 128 {
+        return Err(AppError::ParseError(
+            "Network policy contains too many local endpoint grants".to_string(),
+        ));
+    }
+    for endpoint in &config.allowed_local_endpoints {
+        crate::endpoint_security::validate_local_grant(endpoint).map_err(AppError::ParseError)?;
     }
     Ok(())
 }
@@ -585,49 +592,13 @@ pub async fn get_model_config_and_key(
 
     let api_key = get_keychain_secret("model", config_id).unwrap_or_default();
 
-    let parsed_url = url::Url::parse(&config.api_base)
-        .map_err(|e| AppError::ConfigIo(format!("Invalid apiBase URL: {}", e)))?;
-    if !matches!(parsed_url.scheme(), "http" | "https")
-        || parsed_url.username() != ""
-        || parsed_url.password().is_some()
-    {
-        return Err(AppError::ConfigIo(
-            "Model endpoint must be an HTTP(S) URL without embedded credentials".to_string(),
-        ));
-    }
-    let host = parsed_url
-        .host_str()
-        .ok_or_else(|| AppError::ConfigIo("Model endpoint must include a hostname".to_string()))?;
-    let host_lower = host.to_lowercase();
-    let blocked_hosts = get_blocked_hosts();
-
-    let is_blocked_host = blocked_hosts.iter().any(|blocked| {
-        let blocked_lower = blocked.to_lowercase();
-        if blocked.contains('*') {
-            crate::search::matches_wildcard(&host_lower, &blocked_lower)
-        } else {
-            host_lower == blocked_lower || host_lower.ends_with(&format!(".{}", blocked_lower))
-        }
-    });
-    let port = parsed_url.port_or_known_default().unwrap_or(80);
-    let resolved_addresses: Vec<_> = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|e| AppError::ConfigIo(format!("Failed to resolve model endpoint: {}", e)))?
-        .collect();
-    let is_blocked_ip = resolved_addresses.is_empty()
-        || resolved_addresses
-            .iter()
-            .any(|address| crate::search::is_ip_blocked(&address.ip(), &blocked_hosts));
-
-    if is_blocked_host || is_blocked_ip {
-        return Err(AppError::ConfigIo(format!(
-            "Access denied: Endpoint '{}' is blocked in network settings. You can modify blocked hosts/IPs in Settings > Privacy.",
-            host
-        )));
-    }
+    let validated =
+        crate::endpoint_security::validate_outbound_url(&config.api_base, &["http", "https"])
+            .await?;
     if !api_key.is_empty()
-        && parsed_url.scheme() != "https"
-        && !resolved_addresses
+        && validated.url.scheme() != "https"
+        && !validated
+            .addresses
             .iter()
             .all(|address| address.ip().is_loopback())
     {

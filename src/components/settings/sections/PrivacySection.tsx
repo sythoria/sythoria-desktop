@@ -34,10 +34,13 @@ export function PrivacySection() {
   const setStrictSsl = useUIStore((s) => s.setStrictSsl);
   const blockedHosts = useUIStore((s) => s.blockedHosts);
   const setBlockedHosts = useUIStore((s) => s.setBlockedHosts);
+  const allowedLocalEndpoints = useUIStore((s) => s.allowedLocalEndpoints);
+  const setAllowedLocalEndpoints = useUIStore((s) => s.setAllowedLocalEndpoints);
   const offlineMode = useUIStore((s) => s.offlineMode);
   const setOfflineMode = useUIStore((s) => s.setOfflineMode);
 
   const [blockedHostsText, setBlockedHostsText] = useState(() => blockedHosts.join("\n"));
+  const [allowedLocalEndpointsText, setAllowedLocalEndpointsText] = useState(() => allowedLocalEndpoints.join("\n"));
 
   useEffect(() => {
     if (document.activeElement?.tagName !== "TEXTAREA") {
@@ -48,6 +51,15 @@ export function PrivacySection() {
     }
   }, [blockedHosts]);
 
+  useEffect(() => {
+    if (document.activeElement?.tagName !== "TEXTAREA") {
+      const handle = requestAnimationFrame(() => {
+        setAllowedLocalEndpointsText(allowedLocalEndpoints.join("\n"));
+      });
+      return () => cancelAnimationFrame(handle);
+    }
+  }, [allowedLocalEndpoints]);
+
   const handleBlockedHostsChange = (val: string) => {
     setBlockedHostsText(val);
     const list = val
@@ -56,6 +68,17 @@ export function PrivacySection() {
       .filter(Boolean);
     if (JSON.stringify(list) !== JSON.stringify(blockedHosts)) {
       setBlockedHosts(list);
+    }
+  };
+
+  const handleAllowedLocalEndpointsChange = (val: string) => {
+    setAllowedLocalEndpointsText(val);
+    const list = val
+      .split("\n")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (JSON.stringify(list) !== JSON.stringify(allowedLocalEndpoints)) {
+      setAllowedLocalEndpoints(list);
     }
   };
 
@@ -404,6 +427,20 @@ export function PrivacySection() {
               onKeyDown={handleKeyDown}
               placeholder={t("settings.privacy.blockedHostsPlaceholder")}
               rows={4}
+              className="w-full px-3 py-2 mt-1 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors font-mono"
+            />
+          </div>
+          <div className="h-px bg-border/50" />
+          <div className="space-y-1">
+            <span className="text-sm font-medium text-text-primary block">
+              {t("settings.privacy.allowedLocalEndpoints")}
+            </span>
+            <span className="text-xs text-text-muted block">{t("settings.privacy.allowedLocalEndpointsDesc")}</span>
+            <textarea
+              value={allowedLocalEndpointsText}
+              onChange={(event) => handleAllowedLocalEndpointsChange(event.target.value)}
+              placeholder={t("settings.privacy.allowedLocalEndpointsPlaceholder")}
+              rows={3}
               className="w-full px-3 py-2 mt-1 rounded-lg border border-input-border bg-input text-sm text-text-primary focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors font-mono"
             />
           </div>

@@ -82,6 +82,22 @@ pub async fn search(
     query: &str,
     config: &serde_json::Value,
 ) -> Result<Vec<SearchResult>, SearchError> {
+    let default_base = match provider {
+        "google" => "https://www.googleapis.com/customsearch/v1",
+        "searxng" => "http://localhost:8080",
+        "firecrawl" => "https://api.firecrawl.dev/v1",
+        _ => "",
+    };
+    if !default_base.is_empty() {
+        let base_url = config
+            .get("baseUrl")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(default_base);
+        crate::endpoint_security::validate_outbound_url(base_url, &["http", "https"])
+            .await
+            .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
+    }
     match provider {
         "google" => google::search(query, config).await,
         "searxng" => searxng::search(query, config).await,
@@ -99,6 +115,23 @@ pub async fn fetch(
     config: Option<&serde_json::Value>,
     format: Option<&str>,
 ) -> Result<UrlContent, SearchError> {
+    if let (Some(provider), Some(config)) = (provider, config) {
+        let default_base = match provider {
+            "firecrawl" => "https://api.firecrawl.dev/v1",
+            "jina" => "https://r.jina.ai",
+            _ => "",
+        };
+        if !default_base.is_empty() {
+            let base_url = config
+                .get("baseUrl")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .unwrap_or(default_base);
+            crate::endpoint_security::validate_outbound_url(base_url, &["http", "https"])
+                .await
+                .map_err(|error| SearchError::UrlValidationError(error.to_string()))?;
+        }
+    }
     if let (Some("firecrawl"), Some(cfg)) = (provider, config) {
         return firecrawl::fetch(url, cfg, format).await;
     }
@@ -182,22 +215,4 @@ pub fn matches_wildcard(host_or_ip: &str, pattern: &str) -> bool {
     }
 
     dp[h_len][p_len]
-}
-
-pub fn is_ip_blocked(ip: &std::net::IpAddr, blocked_hosts: &[String]) -> bool {
-    let ip_str = ip.to_string();
-    for blocked in blocked_hosts {
-        if blocked.contains('/') {
-            if ip_belongs_to_cidr(ip, blocked) {
-                return true;
-            }
-        } else if blocked.contains('*') {
-            if matches_wildcard(&ip_str, blocked) {
-                return true;
-            }
-        } else if ip_str == *blocked {
-            return true;
-        }
-    }
-    false
 }

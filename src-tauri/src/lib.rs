@@ -2,6 +2,7 @@ mod anthropic;
 mod appshots;
 mod atomic_file;
 pub mod commands;
+mod endpoint_security;
 mod git;
 mod mcp;
 pub mod project;
@@ -20,6 +21,8 @@ pub struct NetworkConfig {
     pub strict_ssl: bool,
     pub blocked_hosts: Vec<String>,
     #[serde(default)]
+    pub allowed_local_endpoints: Vec<String>,
+    #[serde(default)]
     pub offline_mode: bool,
 }
 
@@ -28,23 +31,8 @@ impl Default for NetworkConfig {
         Self {
             strict_ssl: true,
             offline_mode: false,
-            blocked_hosts: vec![
-                "localhost".to_string(),
-                "127.0.0.1".to_string(),
-                "0.0.0.0".to_string(),
-                "::1".to_string(),
-                "169.254.169.254".to_string(),
-                "metadata.google.internal".to_string(),
-                "metadata.azure.com".to_string(),
-                "100.100.100.200".to_string(),
-                "10.0.0.0/8".to_string(),
-                "172.16.0.0/12".to_string(),
-                "192.168.0.0/16".to_string(),
-                "169.254.0.0/16".to_string(),
-                "100.64.0.0/10".to_string(),
-                "fc00::/7".to_string(),
-                "fe80::/10".to_string(),
-            ],
+            blocked_hosts: Vec::new(),
+            allowed_local_endpoints: Vec::new(),
         }
     }
 }
@@ -55,6 +43,7 @@ impl NetworkConfig {
             strict_ssl: true,
             offline_mode: true,
             blocked_hosts: Self::default().blocked_hosts,
+            allowed_local_endpoints: Vec::new(),
         }
     }
 }
@@ -64,13 +53,6 @@ pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> =
 
 pub fn get_strict_ssl() -> bool {
     NETWORK_CONFIG.read().map(|c| c.strict_ssl).unwrap_or(true)
-}
-
-pub fn get_blocked_hosts() -> Vec<String> {
-    NETWORK_CONFIG
-        .read()
-        .map(|c| c.blocked_hosts.clone())
-        .unwrap_or_else(|_| NetworkConfig::default().blocked_hosts)
 }
 
 pub fn get_offline_mode() -> bool {
@@ -103,7 +85,7 @@ fn init_network_settings(app: &tauri::AppHandle) {
 }
 
 pub fn client_builder() -> reqwest::ClientBuilder {
-    let mut builder = reqwest::Client::builder();
+    let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
     if !get_strict_ssl() {
         builder = builder.danger_accept_invalid_certs(true);
     }
@@ -883,6 +865,8 @@ struct OllamaModel {
 #[tauri::command]
 async fn check_ollama() -> Result<Vec<String>, AppError> {
     ensure_online()?;
+    crate::endpoint_security::validate_outbound_url("http://127.0.0.1:11434/api/tags", &["http"])
+        .await?;
     let client = client_builder().build()?;
     let resp = client
         .get("http://127.0.0.1:11434/api/tags")
@@ -1061,8 +1045,9 @@ async fn ws_authenticate(
     server_url: String,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let client = client_builder().build()?;
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
+    crate::endpoint_security::validate_outbound_url(&auth_url, &["http", "https"]).await?;
+    let client = client_builder().build()?;
 
     let body = serde_json::json!({
         "username": username,
@@ -2308,6 +2293,7 @@ mod tests {
             serde_json::from_str(r#"{"strict_ssl":true,"blocked_hosts":["localhost"]}"#).unwrap();
 
         assert!(!config.offline_mode);
+        assert!(config.allowed_local_endpoints.is_empty());
     }
 
     #[test]
@@ -2316,7 +2302,8 @@ mod tests {
 
         assert!(config.strict_ssl);
         assert!(config.offline_mode);
-        assert!(!config.blocked_hosts.is_empty());
+        assert!(config.blocked_hosts.is_empty());
+        assert!(config.allowed_local_endpoints.is_empty());
     }
 
     #[test]
