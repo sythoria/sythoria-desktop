@@ -315,13 +315,13 @@ pub async fn send_typing_event(
     Ok(())
 }
 
-use futures_util::stream::SplitSink;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_util::sync::CancellationToken;
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
-pub type WsWriter = SplitSink<WsStream, Message>;
 
 async fn connect_validated(
     ws_config: &WsConfig,
@@ -350,16 +350,137 @@ async fn connect_validated(
         .map_err(|error| format!("WebSocket handshake failed: {error}"))
 }
 
+enum WsWriterCommand {
+    Send {
+        message: Message,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+}
+
+struct ActiveWsConnection {
+    command_tx: mpsc::Sender<WsWriterCommand>,
+    cancellation: CancellationToken,
+    closed_rx: oneshot::Receiver<()>,
+}
+
+#[derive(Default)]
+struct WsSessionState {
+    generation: u64,
+    active: Option<ActiveWsConnection>,
+}
+
+#[derive(Clone)]
 pub struct WsSession {
-    pub writer: std::sync::Arc<Mutex<Option<WsWriter>>>,
+    state: std::sync::Arc<Mutex<WsSessionState>>,
 }
 
 impl Default for WsSession {
     fn default() -> Self {
         WsSession {
-            writer: std::sync::Arc::new(Mutex::new(None)),
+            state: std::sync::Arc::new(Mutex::new(WsSessionState::default())),
         }
     }
+}
+
+impl WsSession {
+    async fn begin_generation(&self) -> (u64, Option<ActiveWsConnection>) {
+        let mut state = self.state.lock().await;
+        state.generation = state.generation.wrapping_add(1).max(1);
+        let generation = state.generation;
+        (generation, state.active.take())
+    }
+
+    async fn install_connection(
+        &self,
+        generation: u64,
+        active: ActiveWsConnection,
+    ) -> Result<(), ActiveWsConnection> {
+        let mut state = self.state.lock().await;
+        if state.generation != generation || state.active.is_some() {
+            return Err(active);
+        }
+        state.active = Some(active);
+        Ok(())
+    }
+
+    async fn current_sender(&self) -> Option<(u64, mpsc::Sender<WsWriterCommand>)> {
+        let state = self.state.lock().await;
+        state
+            .active
+            .as_ref()
+            .map(|active| (state.generation, active.command_tx.clone()))
+    }
+
+    async fn is_current(&self, generation: u64) -> bool {
+        let state = self.state.lock().await;
+        state.generation == generation && state.active.is_some()
+    }
+
+    async fn take_if_current(&self, generation: u64) -> Option<ActiveWsConnection> {
+        let mut state = self.state.lock().await;
+        (state.generation == generation)
+            .then(|| state.active.take())
+            .flatten()
+    }
+}
+
+async fn shutdown_connection(active: ActiveWsConnection) {
+    active.cancellation.cancel();
+    let _ = timeout(Duration::from_secs(1), active.closed_rx).await;
+}
+
+async fn send_writer_message(
+    command_tx: &mpsc::Sender<WsWriterCommand>,
+    message: Message,
+) -> Result<(), String> {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    command_tx
+        .send(WsWriterCommand::Send {
+            message,
+            reply: reply_tx,
+        })
+        .await
+        .map_err(|_| "WebSocket writer is no longer available".to_string())?;
+    reply_rx
+        .await
+        .map_err(|_| "WebSocket writer stopped before sending".to_string())?
+}
+
+async fn run_ws_writer(
+    mut write: futures_util::stream::SplitSink<WsStream, Message>,
+    mut command_rx: mpsc::Receiver<WsWriterCommand>,
+    cancellation: CancellationToken,
+    closed_tx: oneshot::Sender<()>,
+) {
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => break,
+            command = command_rx.recv() => {
+                let Some(WsWriterCommand::Send { message, reply }) = command else {
+                    break;
+                };
+                let result = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => {
+                        Err("WebSocket connection was replaced".to_string())
+                    }
+                    result = write.send(message) => {
+                        result.map_err(|error| format!("WebSocket send failed: {error}"))
+                    }
+                };
+                let failed = result.is_err();
+                let _ = reply.send(result);
+                if failed {
+                    break;
+                }
+            }
+        }
+    }
+
+    cancellation.cancel();
+    let _ = timeout(Duration::from_secs(1), write.send(Message::Close(None))).await;
+    let _ = closed_tx.send(());
 }
 
 pub async fn ws_connect(
@@ -368,18 +489,15 @@ pub async fn ws_connect(
     session: &WsSession,
 ) -> Result<(), String> {
     crate::ensure_online().map_err(|error| error.to_string())?;
-    // 1. Close any existing connection first
-    {
-        let mut guard = session.writer.lock().await;
-        *guard = None;
+    let (generation, previous) = session.begin_generation().await;
+    if let Some(previous) = previous {
+        shutdown_connection(previous).await;
     }
 
-    // 2. Connect
     let (ws_stream, _) = connect_validated(&ws_config).await?;
 
     let (mut write, mut read) = ws_stream.split();
 
-    // 3. Auth handshake if needed
     if let Some(ref key) = ws_config.api_key {
         let auth_frame = AuthFrame {
             frame_type: "auth".to_string(),
@@ -393,7 +511,6 @@ pub async fn ws_connect(
             .map_err(|e| format!("Send auth failed: {}", e))?;
     }
 
-    // 4. Config handshake if needed
     let config_frame = ConfigFrame {
         frame_type: "config".to_string(),
         model: ws_config.model.clone(),
@@ -405,6 +522,28 @@ pub async fn ws_connect(
         .await
         .map_err(|e| format!("Send config failed: {}", e))?;
 
+    let cancellation = CancellationToken::new();
+    let (command_tx, command_rx) = mpsc::channel(32);
+    let (closed_tx, closed_rx) = oneshot::channel();
+    let active = ActiveWsConnection {
+        command_tx: command_tx.clone(),
+        cancellation: cancellation.clone(),
+        closed_rx,
+    };
+    if let Err(stale) = session.install_connection(generation, active).await {
+        cancellation.cancel();
+        drop(stale);
+        let _ = timeout(Duration::from_secs(1), write.send(Message::Close(None))).await;
+        return Err("WebSocket connection was superseded".to_string());
+    }
+
+    tokio::spawn(run_ws_writer(
+        write,
+        command_rx,
+        cancellation.clone(),
+        closed_tx,
+    ));
+
     use tauri::Emitter;
     let _ = app_handle.emit(
         "ws-connected",
@@ -414,18 +553,22 @@ pub async fn ws_connect(
         }),
     );
 
-    // Save the writer
-    {
-        let mut guard = session.writer.lock().await;
-        *guard = Some(write);
-    }
-
-    // Spawn the read loop
-    let writer_clone = session.writer.clone();
+    let session_clone = session.clone();
     let app_handle_clone = app_handle.clone();
     tokio::spawn(async move {
         use tauri::Emitter;
-        while let Some(msg) = read.next().await {
+        loop {
+            let msg = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => break,
+                msg = read.next() => msg,
+            };
+            let Some(msg) = msg else {
+                break;
+            };
+            if !session_clone.is_current(generation).await {
+                break;
+            }
             match msg {
                 Ok(Message::Text(text)) => {
                     let text_str = text.to_string();
@@ -453,9 +596,11 @@ pub async fn ws_connect(
                     break;
                 }
                 Ok(Message::Ping(data)) => {
-                    let mut guard = writer_clone.lock().await;
-                    if let Some(ref mut writer) = *guard {
-                        let _ = writer.send(Message::Pong(data)).await;
+                    if send_writer_message(&command_tx, Message::Pong(data))
+                        .await
+                        .is_err()
+                    {
+                        break;
                     }
                 }
                 Ok(Message::Pong(_)) => {}
@@ -466,25 +611,24 @@ pub async fn ws_connect(
                 _ => {}
             }
         }
-        // Connection closed: clear the writer
-        let mut guard = writer_clone.lock().await;
-        *guard = None;
+        if let Some(active) = session_clone.take_if_current(generation).await {
+            shutdown_connection(active).await;
+        }
     });
 
     Ok(())
 }
 
 pub async fn ws_send(message: String, session: &WsSession) -> Result<(), String> {
-    let mut guard = session.writer.lock().await;
-    if let Some(ref mut writer) = *guard {
-        writer
-            .send(Message::Text(message.into()))
-            .await
-            .map_err(|e| format!("Send message failed: {}", e))?;
-        Ok(())
-    } else {
-        Err("WebSocket is not connected".to_string())
+    let (generation, command_tx) = session
+        .current_sender()
+        .await
+        .ok_or_else(|| "WebSocket is not connected".to_string())?;
+    send_writer_message(&command_tx, Message::Text(message.into())).await?;
+    if !session.is_current(generation).await {
+        return Err("WebSocket connection was replaced while sending".to_string());
     }
+    Ok(())
 }
 
 pub async fn ws_disconnect(
@@ -492,11 +636,10 @@ pub async fn ws_disconnect(
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    let mut guard = session.writer.lock().await;
-    if let Some(ref mut writer) = *guard {
-        let _ = writer.send(Message::Close(None)).await;
+    let (_, active) = session.begin_generation().await;
+    if let Some(active) = active {
+        shutdown_connection(active).await;
     }
-    *guard = None;
     let _ = app_handle.emit("ws-closed", ());
     Ok(())
 }
@@ -504,6 +647,19 @@ pub async fn ws_disconnect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn disconnected_active_connection() -> ActiveWsConnection {
+        let (command_tx, command_rx) = mpsc::channel(1);
+        drop(command_rx);
+        let cancellation = CancellationToken::new();
+        let (closed_tx, closed_rx) = oneshot::channel();
+        drop(closed_tx);
+        ActiveWsConnection {
+            command_tx,
+            cancellation,
+            closed_rx,
+        }
+    }
 
     #[test]
     fn test_chat_ws_message_serialization() {
@@ -651,5 +807,33 @@ mod tests {
         let mut connection = WebSocketConnection::new(config_no_reconnect);
         connection.reconnect_count = 0;
         assert!(!connection.should_reconnect());
+    }
+
+    #[tokio::test]
+    async fn session_generations_cannot_clear_or_publish_over_newer_connections() {
+        let session = WsSession::default();
+        let (first_generation, previous) = session.begin_generation().await;
+        assert!(previous.is_none());
+        assert!(session
+            .install_connection(first_generation, disconnected_active_connection())
+            .await
+            .is_ok());
+        assert!(session.is_current(first_generation).await);
+
+        let (second_generation, previous) = session.begin_generation().await;
+        assert!(previous.is_some());
+        assert!(!session.is_current(first_generation).await);
+        assert!(session
+            .install_connection(first_generation, disconnected_active_connection())
+            .await
+            .is_err());
+        assert!(session
+            .install_connection(second_generation, disconnected_active_connection())
+            .await
+            .is_ok());
+
+        assert!(session.take_if_current(first_generation).await.is_none());
+        assert!(session.is_current(second_generation).await);
+        assert!(session.take_if_current(second_generation).await.is_some());
     }
 }

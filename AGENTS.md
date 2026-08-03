@@ -98,7 +98,7 @@ src-tauri/src/
   endpoint_security.rs  # Intrinsic outbound-network policy, exact local grants, and endpoint resolution
   secure_storage.rs     # AES-256-GCM domain storage, key derivation, migration, and preference mutation
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
-  ws_handler.rs         # WebSocket: types, SessionManager, reconnect (1s–30s, max 5)
+  ws_handler.rs         # WebSocket: generation-scoped sessions, cancellation, reconnect backoff (1s–30s, max 5)
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
   appshots.rs           # Screen capture, auto-cleanup, permissions check, custom path configuration
   git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
