@@ -48,8 +48,15 @@ fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
     result
 }
 
-static RECORDED_SAMPLES: LazyLock<Arc<Mutex<Vec<f32>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
+#[derive(Default)]
+struct RecordedAudio {
+    session_id: Option<String>,
+    sample_rate: u32,
+    samples: Vec<f32>,
+}
+
+static RECORDED_AUDIO: LazyLock<Arc<Mutex<RecordedAudio>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(RecordedAudio::default())));
 const WHISPER_SAMPLE_RATE: usize = 16_000;
 const MAX_AUDIO_DURATION_SECONDS: usize = 5 * 60;
 const MAX_TRANSCRIPTION_SAMPLES: usize = WHISPER_SAMPLE_RATE * MAX_AUDIO_DURATION_SECONDS;
@@ -58,6 +65,25 @@ const MAX_CLOUD_STT_RESPONSE_BYTES: usize = 1024 * 1024;
 fn append_recorded_samples(samples: &mut Vec<f32>, mono: &[f32], max_samples: usize) {
     let remaining = max_samples.saturating_sub(samples.len());
     samples.extend_from_slice(&mono[..mono.len().min(remaining)]);
+}
+
+fn validate_recording_session_id(session_id: &str) -> Result<(), AppError> {
+    uuid::Uuid::parse_str(session_id)
+        .map(|_| ())
+        .map_err(|_| AppError::ConfigIo("Invalid recording session ID".to_string()))
+}
+
+fn recorded_audio_for_session(session_id: &str) -> Result<(Vec<f32>, u32), AppError> {
+    validate_recording_session_id(session_id)?;
+    let recorded = RECORDED_AUDIO
+        .lock()
+        .map_err(|error| AppError::ConfigIo(format!("Failed to lock recorded audio: {error}")))?;
+    if recorded.session_id.as_deref() != Some(session_id) {
+        return Err(AppError::ConfigIo(
+            "Recording session is no longer active".to_string(),
+        ));
+    }
+    Ok((recorded.samples.clone(), recorded.sample_rate))
 }
 
 pub struct BoundedAudioSamples(Vec<f32>);
@@ -129,12 +155,22 @@ fn validate_transcription_samples(samples: &[f32]) -> Result<(), AppError> {
     Ok(())
 }
 
-static RECORDING_STREAM: LazyLock<Mutex<Option<cpal::Stream>>> = LazyLock::new(|| Mutex::new(None));
+struct RecordingSession {
+    id: String,
+    stream: cpal::Stream,
+}
+
+static RECORDING_SESSION: LazyLock<Mutex<Option<RecordingSession>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[tauri::command]
-pub async fn start_recording() -> Result<(), AppError> {
-    if let Ok(mut samples) = RECORDED_SAMPLES.lock() {
-        samples.clear();
+pub async fn start_recording(session_id: String) -> Result<(), AppError> {
+    validate_recording_session_id(&session_id)?;
+
+    if let Ok(mut active) = RECORDING_SESSION.lock() {
+        if let Some(previous) = active.take() {
+            let _ = previous.stream.pause();
+        }
     }
 
     let host = cpal::default_host();
@@ -147,56 +183,80 @@ pub async fn start_recording() -> Result<(), AppError> {
         .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
 
     let channels = config.channels();
-    let max_recorded_samples =
-        (config.sample_rate() as usize).saturating_mul(MAX_AUDIO_DURATION_SECONDS);
-    let samples_clone = RECORDED_SAMPLES.clone();
+    let sample_rate = config.sample_rate();
+    let max_recorded_samples = (sample_rate as usize).saturating_mul(MAX_AUDIO_DURATION_SECONDS);
+    {
+        let mut recorded = RECORDED_AUDIO.lock().map_err(|error| {
+            AppError::ConfigIo(format!("Failed to initialize recorded audio: {error}"))
+        })?;
+        recorded.session_id = Some(session_id.clone());
+        recorded.sample_rate = sample_rate;
+        recorded.samples.clear();
+    }
+    let audio_clone = RECORDED_AUDIO.clone();
 
     let error_callback = |err| {
         log::error!("An error occurred on the audio stream: {}", err);
     };
 
     let stream = match config.sample_format() {
-        cpal::SampleFormat::F32 => device.build_input_stream(
-            config.into(),
-            move |data: &[f32], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mono = convert_to_mono(data, channels);
-                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
-                }
-            },
-            error_callback,
-            None,
-        ),
-        cpal::SampleFormat::I16 => device.build_input_stream(
-            config.into(),
-            move |data: &[i16], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mut float_data = vec![0.0f32; data.len()];
-                    for (i, &s) in data.iter().enumerate() {
-                        float_data[i] = s as f32 / 32768.0;
+        cpal::SampleFormat::F32 => {
+            let callback_session_id = session_id.clone();
+            device.build_input_stream(
+                config.into(),
+                move |data: &[f32], _| {
+                    if let Ok(mut recorded) = audio_clone.lock() {
+                        if recorded.session_id.as_deref() != Some(&callback_session_id) {
+                            return;
+                        }
+                        let mono = convert_to_mono(data, channels);
+                        append_recorded_samples(&mut recorded.samples, &mono, max_recorded_samples);
                     }
-                    let mono = convert_to_mono(&float_data, channels);
-                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
-                }
-            },
-            error_callback,
-            None,
-        ),
-        cpal::SampleFormat::U16 => device.build_input_stream(
-            config.into(),
-            move |data: &[u16], _| {
-                if let Ok(mut samples) = samples_clone.lock() {
-                    let mut float_data = vec![0.0f32; data.len()];
-                    for (i, &s) in data.iter().enumerate() {
-                        float_data[i] = (s as f32 - 32768.0) / 32768.0;
+                },
+                error_callback,
+                None,
+            )
+        }
+        cpal::SampleFormat::I16 => {
+            let callback_session_id = session_id.clone();
+            device.build_input_stream(
+                config.into(),
+                move |data: &[i16], _| {
+                    if let Ok(mut recorded) = audio_clone.lock() {
+                        if recorded.session_id.as_deref() != Some(&callback_session_id) {
+                            return;
+                        }
+                        let float_data: Vec<f32> =
+                            data.iter().map(|sample| *sample as f32 / 32768.0).collect();
+                        let mono = convert_to_mono(&float_data, channels);
+                        append_recorded_samples(&mut recorded.samples, &mono, max_recorded_samples);
                     }
-                    let mono = convert_to_mono(&float_data, channels);
-                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
-                }
-            },
-            error_callback,
-            None,
-        ),
+                },
+                error_callback,
+                None,
+            )
+        }
+        cpal::SampleFormat::U16 => {
+            let callback_session_id = session_id.clone();
+            device.build_input_stream(
+                config.into(),
+                move |data: &[u16], _| {
+                    if let Ok(mut recorded) = audio_clone.lock() {
+                        if recorded.session_id.as_deref() != Some(&callback_session_id) {
+                            return;
+                        }
+                        let float_data: Vec<f32> = data
+                            .iter()
+                            .map(|sample| (*sample as f32 - 32768.0) / 32768.0)
+                            .collect();
+                        let mono = convert_to_mono(&float_data, channels);
+                        append_recorded_samples(&mut recorded.samples, &mono, max_recorded_samples);
+                    }
+                },
+                error_callback,
+                None,
+            )
+        }
         _ => return Err(AppError::ConfigIo("Unsupported sample format".to_string())),
     }
     .map_err(|e| AppError::ConfigIo(format!("Failed to build input stream: {}", e)))?;
@@ -205,42 +265,51 @@ pub async fn start_recording() -> Result<(), AppError> {
         .play()
         .map_err(|e| AppError::ConfigIo(format!("Failed to play stream: {}", e)))?;
 
-    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        *active_stream = Some(stream);
+    let session_is_current = RECORDED_AUDIO
+        .lock()
+        .map(|recorded| recorded.session_id.as_deref() == Some(&session_id))
+        .unwrap_or(false);
+    if !session_is_current {
+        let _ = stream.pause();
+        return Err(AppError::ConfigIo(
+            "Recording session was superseded before it started".to_string(),
+        ));
+    }
+    if let Ok(mut active) = RECORDING_SESSION.lock() {
+        *active = Some(RecordingSession {
+            id: session_id,
+            stream,
+        });
+    } else {
+        let _ = stream.pause();
+        return Err(AppError::ConfigIo(
+            "Failed to store the recording session".to_string(),
+        ));
     }
 
     Ok(())
 }
 
 #[tauri::command]
-pub async fn stop_recording() -> Result<(), AppError> {
-    if let Ok(mut active_stream) = RECORDING_STREAM.lock() {
-        if let Some(stream) = active_stream.take() {
-            let _ = stream.pause();
+pub async fn stop_recording(session_id: String) -> Result<(), AppError> {
+    validate_recording_session_id(&session_id)?;
+    let mut active = RECORDING_SESSION
+        .lock()
+        .map_err(|error| AppError::ConfigIo(format!("Failed to stop recording: {error}")))?;
+    if active
+        .as_ref()
+        .is_some_and(|recording| recording.id == session_id)
+    {
+        if let Some(recording) = active.take() {
+            let _ = recording.stream.pause();
         }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_recorded_samples() -> Result<Vec<f32>, AppError> {
-    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-        samples.clone()
-    } else {
-        return Err(AppError::ConfigIo(
-            "Failed to lock recorded samples".to_string(),
-        ));
-    };
-
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-    let sample_rate = config.sample_rate();
-
+pub async fn get_recorded_samples(session_id: String) -> Result<Vec<f32>, AppError> {
+    let (samples, sample_rate) = recorded_audio_for_session(&session_id)?;
     let resampled = resample(&samples, sample_rate, 16000);
     Ok(resampled)
 }
@@ -916,9 +985,9 @@ pub async fn delete_whisper_model(app: AppHandle, file_name: String) -> Result<(
 mod tests {
     use super::{
         has_valid_whisper_header, promote_whisper_download, remove_partial_download,
-        validate_transcription_samples, validate_whisper_model_file_name,
-        whisper_download_staging_paths, whisper_preset_download, WhisperDownloadState,
-        MAX_TRANSCRIPTION_SAMPLES, NEXT_WHISPER_DOWNLOAD_ID,
+        validate_recording_session_id, validate_transcription_samples,
+        validate_whisper_model_file_name, whisper_download_staging_paths, whisper_preset_download,
+        WhisperDownloadState, MAX_TRANSCRIPTION_SAMPLES, NEXT_WHISPER_DOWNLOAD_ID,
     };
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
@@ -987,6 +1056,13 @@ mod tests {
         assert!(validate_transcription_samples(&[0.0, -0.5, 1.0]).is_ok());
         assert!(validate_transcription_samples(&[f32::NAN]).is_err());
         assert!(validate_transcription_samples(&vec![0.0; MAX_TRANSCRIPTION_SAMPLES + 1]).is_err());
+    }
+
+    #[test]
+    fn recording_sessions_require_uuid_identifiers() {
+        assert!(validate_recording_session_id("d6ad5d62-1af0-4b66-a825-dfebc9651f8d").is_ok());
+        assert!(validate_recording_session_id("recording-1").is_err());
+        assert!(validate_recording_session_id("").is_err());
     }
 
     #[test]
@@ -1088,6 +1164,7 @@ pub async fn transcribe_audio(
     model_path: String,
     audio_data: BoundedAudioSamples,
     language: Option<String>,
+    recording_session_id: Option<String>,
 ) -> Result<String, AppError> {
     let resolved_path = resolve_whisper_model_path(&app, &model_path)?;
     validate_whisper_model_header(&resolved_path).await?;
@@ -1095,21 +1172,11 @@ pub async fn transcribe_audio(
     let resolved_path_str = resolved_path.to_string_lossy().to_string();
 
     let actual_audio_data = if audio_data.0.is_empty() {
-        let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-            samples.clone()
-        } else {
-            return Err(AppError::ConfigIo(
-                "Failed to lock recorded samples".to_string(),
-            ));
-        };
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-        let config = device.default_input_config().map_err(|e| {
-            AppError::ConfigIo(format!("Failed to get default input config: {}", e))
+        let session_id = recording_session_id.ok_or_else(|| {
+            AppError::ConfigIo("Recording session ID is required for captured audio".to_string())
         })?;
-        resample(&samples, config.sample_rate(), 16000)
+        let (samples, sample_rate) = recorded_audio_for_session(&session_id)?;
+        resample(&samples, sample_rate, 16000)
     } else {
         audio_data.0
     };
@@ -1213,6 +1280,7 @@ pub async fn transcribe_audio_cloud(
     api_url: String,
     model: String,
     language: Option<String>,
+    recording_session_id: String,
 ) -> Result<String, AppError> {
     crate::ensure_online()?;
     let api_key = crate::commands::config::get_cloud_stt_api_key().map_err(|err| match err {
@@ -1221,13 +1289,7 @@ pub async fn transcribe_audio_cloud(
         }
         other => other,
     })?;
-    let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
-        samples.clone()
-    } else {
-        return Err(AppError::ConfigIo(
-            "Failed to lock recorded samples".to_string(),
-        ));
-    };
+    let (samples, sample_rate) = recorded_audio_for_session(&recording_session_id)?;
 
     if samples.is_empty() {
         return Ok(String::new());
@@ -1240,15 +1302,6 @@ pub async fn transcribe_audio_cloud(
         std::time::Duration::from_secs(120),
     )
     .await?;
-
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| AppError::ConfigIo("No default input device found".to_string()))?;
-    let config = device
-        .default_input_config()
-        .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
-    let sample_rate = config.sample_rate();
 
     let resampled = resample(&samples, sample_rate, 16000);
     let wav_bytes = encode_wav_f32(&resampled, 16000);

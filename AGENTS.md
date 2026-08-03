@@ -167,7 +167,7 @@ src-tauri/src/
 
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
-**Whisper Transcription**: Toggle voice recording (`start_recording` / `stop_recording`) → temporary audio recorded → backend runs `transcribe_audio` against downloaded whisper model → output injected into input text.
+**Whisper Transcription**: Toggle voice recording (`start_recording` / `stop_recording`) with a UUID session → temporary audio is bound to that session → backend runs `transcribe_audio` against a managed Whisper model → output is injected into input text. UI abort/unmount cleanup stops only its own native session and releases live-poll/refinement resources.
 
 **App Updates**: `checkForUpdates()` uses the Tauri updater plugin against the signed `latest.json` in GitHub Releases → the update modal downloads and installs the verified platform artifact → the process plugin relaunches Sythoria. Release builds require the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret; keep the corresponding private key backed up and never commit it. The macOS `app` bundle target must remain enabled so Tauri creates the `.app.tar.gz` updater artifact in addition to the DMG. See `docs/updater-releases.md` for the signing, release, and test procedure.
 

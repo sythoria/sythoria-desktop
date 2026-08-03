@@ -23,6 +23,7 @@ import {
   Bot,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useWhisperStore } from "../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../config/whisperPresets";
 import { ModelConfig, McpServerConfig, McpServerStatus, Attachment, ProjectPermission } from "../types";
@@ -99,6 +100,11 @@ export default memo(function InputBar({
   const [voiceDraft, setVoiceDraft] = useState<string>("");
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecordingActiveRef = useRef<boolean>(false);
+  const recordingSessionIdRef = useRef<string | null>(null);
+  const recordingAbortRef = useRef<AbortController | null>(null);
+  const refinementUnlistenRef = useRef<UnlistenFn | null>(null);
+  const refinementStreamIdRef = useRef<string | null>(null);
+  const unmountedRef = useRef(false);
   const initialValueRef = useRef<string>("");
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
@@ -132,11 +138,27 @@ export default memo(function InputBar({
     refinementModelId,
   } = useWhisperStore();
 
+  const cancelActiveRefinement = useCallback(() => {
+    refinementUnlistenRef.current?.();
+    refinementUnlistenRef.current = null;
+    const streamId = refinementStreamIdRef.current;
+    refinementStreamIdRef.current = null;
+    if (streamId) {
+      void invoke("cancel_chat_stream", { streamId });
+    }
+  }, []);
+
   useEffect(() => {
-    initWhisper();
+    unmountedRef.current = false;
+    void initWhisper();
     return () => {
+      unmountedRef.current = true;
+      isRecordingActiveRef.current = false;
+      recordingAbortRef.current?.abort();
+      recordingAbortRef.current = null;
       if (recordingTimeoutRef.current) {
         clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
       }
       if (recognitionRef.current) {
         try {
@@ -144,9 +166,18 @@ export default memo(function InputBar({
         } catch {
           // ignore
         }
+        recognitionRef.current = null;
       }
+      cancelActiveRefinement();
+      const sessionId = recordingSessionIdRef.current;
+      recordingSessionIdRef.current = null;
+      if (sessionId) {
+        void invoke("stop_recording", { sessionId });
+      }
+      useWhisperStore.getState().setIsRecording(false);
+      useWhisperStore.getState().setIsTranscribing(false);
     };
-  }, [initWhisper]);
+  }, [cancelActiveRefinement, initWhisper]);
 
   const handleToggleVoice = async () => {
     // Check if Whisper model is ready (chosen, downloaded, or loaded)
@@ -194,6 +225,12 @@ export default memo(function InputBar({
     }
 
     if (isRecording) {
+      const sessionId = recordingSessionIdRef.current;
+      if (!sessionId) {
+        setIsRecording(false);
+        return;
+      }
+      const sessionAbort = recordingAbortRef.current ?? new AbortController();
       isRecordingActiveRef.current = false;
       if (recordingTimeoutRef.current) {
         clearTimeout(recordingTimeoutRef.current);
@@ -211,7 +248,8 @@ export default memo(function InputBar({
       setIsTranscribing(true);
 
       try {
-        await invoke("stop_recording");
+        await invoke("stop_recording", { sessionId });
+        if (sessionAbort.signal.aborted) return;
 
         let transcription = "";
         if (sttProvider === "cloud") {
@@ -219,14 +257,17 @@ export default memo(function InputBar({
             apiUrl: cloudApiUrl,
             model: cloudModel,
             language,
+            recordingSessionId: sessionId,
           });
         } else {
           transcription = await invoke<string>("transcribe_audio", {
             modelPath,
             audioData: [],
             language,
+            recordingSessionId: sessionId,
           });
         }
+        if (sessionAbort.signal.aborted || recordingSessionIdRef.current !== sessionId) return;
 
         const rawText = transcription.trim();
         if (rawText) {
@@ -238,101 +279,172 @@ export default memo(function InputBar({
 
           const streamId = "refine-" + Math.random().toString().slice(2, 10);
           let accumulated = "";
+          let unlistenChunk: UnlistenFn | null = null;
+          refinementStreamIdRef.current = streamId;
 
-          const { listen } = await import("@tauri-apps/api/event");
-
-          const unlistenChunk = await listen<{
-            streamId: string;
-            content: string;
-            kind?: "content" | "reasoning";
-          }>("chat-stream-chunk", (event) => {
-            if (event.payload.streamId === streamId && (event.payload.kind ?? "content") === "content") {
-              accumulated += event.payload.content;
-              const combinedRefined = initialValueRef.current
-                ? `${initialValueRef.current} ${accumulated}`
-                : accumulated;
-              setValue(combinedRefined);
-            }
-          });
-
-          const modelStore = useModelStore.getState();
-          const targetModelId = refinementModelId || modelStore.selectedModel || modelStore.models[0]?.id;
-          const currentModel = modelStore.models.find((m) => m.id === targetModelId) || modelStore.models[0];
-
-          if (currentModel) {
-            setValue(initialValueRef.current);
-
-            await invoke<string>("chat_stream", {
-              configId: currentModel.id,
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    "Clean filler words (uh, um, then, like) and speech bugs from this transcript. Output ONLY refined sentences. Do not add intro/outro.",
-                },
-                { role: "user", content: combinedRaw },
-              ],
-              temperature: 0.1,
-              streamId,
-              maxTokens: 500,
+          try {
+            unlistenChunk = await listen<{
+              streamId: string;
+              content: string;
+              kind?: "content" | "reasoning";
+            }>("chat-stream-chunk", (event) => {
+              if (
+                !sessionAbort.signal.aborted &&
+                event.payload.streamId === streamId &&
+                (event.payload.kind ?? "content") === "content"
+              ) {
+                accumulated += event.payload.content;
+                const combinedRefined = initialValueRef.current
+                  ? `${initialValueRef.current} ${accumulated}`
+                  : accumulated;
+                setValue(combinedRefined);
+              }
             });
+            refinementUnlistenRef.current = unlistenChunk;
+            if (sessionAbort.signal.aborted) return;
 
-            unlistenChunk();
+            const modelStore = useModelStore.getState();
+            const targetModelId = refinementModelId || modelStore.selectedModel || modelStore.models[0]?.id;
+            const currentModel = modelStore.models.find((m) => m.id === targetModelId) || modelStore.models[0];
+
+            if (currentModel) {
+              setValue(initialValueRef.current);
+
+              await invoke<string>("chat_stream", {
+                configId: currentModel.id,
+                messages: [
+                  {
+                    role: "system",
+                    content:
+                      "Clean filler words (uh, um, then, like) and speech bugs from this transcript. Output ONLY refined sentences. Do not add intro/outro.",
+                  },
+                  { role: "user", content: combinedRaw },
+                ],
+                temperature: 0.1,
+                streamId,
+                maxTokens: 500,
+              });
+            }
+          } finally {
+            unlistenChunk?.();
+            if (refinementUnlistenRef.current === unlistenChunk) {
+              refinementUnlistenRef.current = null;
+            }
+            if (refinementStreamIdRef.current === streamId) {
+              refinementStreamIdRef.current = null;
+            }
+            if (sessionAbort.signal.aborted) {
+              void invoke("cancel_chat_stream", { streamId });
+            }
           }
         }
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        useUIStore.getState().addToast(`Voice transcription failed: ${message}`, "error");
+        if (!sessionAbort.signal.aborted) {
+          const message = err instanceof Error ? err.message : String(err);
+          useUIStore.getState().addToast(`Voice transcription failed: ${message}`, "error");
+        }
       } finally {
-        setIsTranscribing(false);
-        setVoiceDraft("");
+        try {
+          await invoke("stop_recording", { sessionId });
+        } catch {
+          // The session may already have been stopped or superseded.
+        }
+        if (recordingSessionIdRef.current === sessionId) {
+          recordingSessionIdRef.current = null;
+          recordingAbortRef.current?.abort();
+          recordingAbortRef.current = null;
+        }
+        if (!unmountedRef.current) {
+          setIsTranscribing(false);
+          setVoiceDraft("");
+        }
       }
     } else {
+      const sessionId = crypto.randomUUID();
+      const sessionAbort = new AbortController();
+      recordingSessionIdRef.current = sessionId;
+      recordingAbortRef.current?.abort();
+      recordingAbortRef.current = sessionAbort;
       try {
         initialValueRef.current = value;
-        await invoke("start_recording");
+        await invoke("start_recording", { sessionId });
+        if (sessionAbort.signal.aborted) {
+          await invoke("stop_recording", { sessionId });
+          return;
+        }
         setIsRecording(true);
 
         isRecordingActiveRef.current = true;
         const pollTranscription = async () => {
-          if (!isRecordingActiveRef.current) return;
+          if (
+            sessionAbort.signal.aborted ||
+            !isRecordingActiveRef.current ||
+            recordingSessionIdRef.current !== sessionId
+          ) {
+            return;
+          }
           try {
-            if (isRecordingActiveRef.current) {
-              let transcription = "";
-              if (sttProvider === "cloud") {
-                transcription = await invoke<string>("transcribe_audio_cloud", {
-                  apiUrl: cloudApiUrl,
-                  model: cloudModel,
-                  language,
-                });
-              } else {
-                transcription = await invoke<string>("transcribe_audio", {
-                  modelPath,
-                  audioData: [],
-                  language,
-                });
-              }
+            let transcription = "";
+            if (sttProvider === "cloud") {
+              transcription = await invoke<string>("transcribe_audio_cloud", {
+                apiUrl: cloudApiUrl,
+                model: cloudModel,
+                language,
+                recordingSessionId: sessionId,
+              });
+            } else {
+              transcription = await invoke<string>("transcribe_audio", {
+                modelPath,
+                audioData: [],
+                language,
+                recordingSessionId: sessionId,
+              });
+            }
 
-              if (isRecordingActiveRef.current && transcription.trim()) {
-                const combined = initialValueRef.current
-                  ? `${initialValueRef.current} ${transcription.trim()}`
-                  : transcription.trim();
-                setValue(combined);
-                setVoiceDraft(combined);
-              }
+            if (
+              !sessionAbort.signal.aborted &&
+              isRecordingActiveRef.current &&
+              recordingSessionIdRef.current === sessionId &&
+              transcription.trim()
+            ) {
+              const combined = initialValueRef.current
+                ? `${initialValueRef.current} ${transcription.trim()}`
+                : transcription.trim();
+              setValue(combined);
+              setVoiceDraft(combined);
             }
           } catch (e) {
-            console.warn("Live transcription error:", e);
+            if (!sessionAbort.signal.aborted) {
+              console.warn("Live transcription error:", e);
+            }
           }
-          if (isRecordingActiveRef.current) {
+          if (
+            !sessionAbort.signal.aborted &&
+            isRecordingActiveRef.current &&
+            recordingSessionIdRef.current === sessionId
+          ) {
             recordingTimeoutRef.current = setTimeout(pollTranscription, 1200);
           }
         };
 
         recordingTimeoutRef.current = setTimeout(pollTranscription, 1200);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        useUIStore.getState().addToast(`Could not access microphone: ${message}`, "error");
+        sessionAbort.abort();
+        isRecordingActiveRef.current = false;
+        if (recordingSessionIdRef.current === sessionId) {
+          recordingSessionIdRef.current = null;
+          recordingAbortRef.current = null;
+        }
+        try {
+          await invoke("stop_recording", { sessionId });
+        } catch {
+          // Starting may have failed before the native session was registered.
+        }
+        if (!unmountedRef.current) {
+          setIsRecording(false);
+          const message = err instanceof Error ? err.message : String(err);
+          useUIStore.getState().addToast(`Could not access microphone: ${message}`, "error");
+        }
       }
     }
   };
@@ -976,24 +1088,36 @@ export default memo(function InputBar({
 
                   {/* Voice-to-Text Button */}
                   {isVoiceEnabled && (
-                    <button
-                      type="button"
-                      onClick={handleToggleVoice}
-                      disabled={isTranscribing}
-                      className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed ${
-                        isRecording
-                          ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
-                          : "bg-transparent hover:bg-hover text-text-muted hover:text-text-primary disabled:opacity-40"
-                      }`}
-                      aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
-                      title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
-                    >
-                      {isTranscribing ? (
-                        <Loader2 size={16} className="animate-spin text-accent" />
-                      ) : (
-                        <Mic size={16} className={isRecording ? "text-white" : ""} />
+                    <>
+                      {isRecording && (
+                        <span
+                          className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/10 px-2 py-1 text-[10px] font-semibold text-red-500"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <span className="size-1.5 rounded-full bg-red-500 animate-pulse" aria-hidden="true" />
+                          Recording
+                        </span>
                       )}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={handleToggleVoice}
+                        disabled={isTranscribing}
+                        className={`shrink-0 p-2 rounded-full transition-colors flex items-center justify-center relative cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed ${
+                          isRecording
+                            ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                            : "bg-transparent hover:bg-hover text-text-muted hover:text-text-primary disabled:opacity-40"
+                        }`}
+                        aria-label={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                        title={isRecording ? t("tooltip.voiceStop") : t("tooltip.voiceStart")}
+                      >
+                        {isTranscribing ? (
+                          <Loader2 size={16} className="animate-spin text-accent" />
+                        ) : (
+                          <Mic size={16} className={isRecording ? "text-white" : ""} />
+                        )}
+                      </button>
+                    </>
                   )}
 
                   {/* Send / Stop button */}
