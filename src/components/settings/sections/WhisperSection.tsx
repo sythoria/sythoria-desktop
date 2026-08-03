@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useWhisperStore } from "../../../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../../../config/whisperPresets";
-import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Download,
   Trash2,
@@ -63,12 +63,8 @@ export function WhisperSection() {
 
   const handlePickLocal = async () => {
     try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [{ name: "Whisper GGML Model", extensions: ["bin"] }],
-      });
-      if (selected && typeof selected === "string") {
+      const selected = await invoke<string | null>("import_custom_whisper_model");
+      if (selected) {
         setCustomModelPath(selected);
       }
     } catch {
@@ -78,7 +74,7 @@ export function WhisperSection() {
 
   const activeModelPath = () => {
     if (selectedModelId === "custom" && customModelPath) {
-      return customModelPath;
+      return `Unverified custom model: ${customModelPath}`;
     }
     const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);
     if (preset) {

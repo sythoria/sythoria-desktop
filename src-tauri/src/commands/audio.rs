@@ -1,11 +1,14 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use futures_util::StreamExt;
+use ring::digest::{Context as DigestContext, SHA256};
+use serde::de::{SeqAccess, Visitor};
+use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::AppError;
@@ -47,12 +50,83 @@ fn resample(samples: &[f32], source_rate: u32, target_rate: u32) -> Vec<f32> {
 
 static RECORDED_SAMPLES: LazyLock<Arc<Mutex<Vec<f32>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
-const MAX_RECORDED_SAMPLES: usize = 30_000_000;
+const WHISPER_SAMPLE_RATE: usize = 16_000;
+const MAX_AUDIO_DURATION_SECONDS: usize = 5 * 60;
+const MAX_TRANSCRIPTION_SAMPLES: usize = WHISPER_SAMPLE_RATE * MAX_AUDIO_DURATION_SECONDS;
 const MAX_CLOUD_STT_RESPONSE_BYTES: usize = 1024 * 1024;
 
-fn append_recorded_samples(samples: &mut Vec<f32>, mono: &[f32]) {
-    let remaining = MAX_RECORDED_SAMPLES.saturating_sub(samples.len());
+fn append_recorded_samples(samples: &mut Vec<f32>, mono: &[f32], max_samples: usize) {
+    let remaining = max_samples.saturating_sub(samples.len());
     samples.extend_from_slice(&mono[..mono.len().min(remaining)]);
+}
+
+pub struct BoundedAudioSamples(Vec<f32>);
+
+impl<'de> serde::Deserialize<'de> for BoundedAudioSamples {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SamplesVisitor;
+
+        impl<'de> Visitor<'de> for SamplesVisitor {
+            type Value = BoundedAudioSamples;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    formatter,
+                    "at most {MAX_TRANSCRIPTION_SAMPLES} finite audio samples"
+                )
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                if sequence
+                    .size_hint()
+                    .is_some_and(|size| size > MAX_TRANSCRIPTION_SAMPLES)
+                {
+                    return Err(serde::de::Error::custom("Audio exceeds the 5 minute limit"));
+                }
+
+                let mut samples = Vec::with_capacity(
+                    sequence
+                        .size_hint()
+                        .unwrap_or_default()
+                        .min(MAX_TRANSCRIPTION_SAMPLES),
+                );
+                while let Some(sample) = sequence.next_element::<f32>()? {
+                    if samples.len() == MAX_TRANSCRIPTION_SAMPLES {
+                        return Err(serde::de::Error::custom("Audio exceeds the 5 minute limit"));
+                    }
+                    if !sample.is_finite() {
+                        return Err(serde::de::Error::custom(
+                            "Audio samples must contain only finite values",
+                        ));
+                    }
+                    samples.push(sample);
+                }
+                Ok(BoundedAudioSamples(samples))
+            }
+        }
+
+        deserializer.deserialize_seq(SamplesVisitor)
+    }
+}
+
+fn validate_transcription_samples(samples: &[f32]) -> Result<(), AppError> {
+    if samples.len() > MAX_TRANSCRIPTION_SAMPLES {
+        return Err(AppError::ConfigIo(
+            "Audio exceeds the 5 minute transcription limit".to_string(),
+        ));
+    }
+    if samples.iter().any(|sample| !sample.is_finite()) {
+        return Err(AppError::ConfigIo(
+            "Audio samples must contain only finite values".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 static RECORDING_STREAM: LazyLock<Mutex<Option<cpal::Stream>>> = LazyLock::new(|| Mutex::new(None));
@@ -73,6 +147,8 @@ pub async fn start_recording() -> Result<(), AppError> {
         .map_err(|e| AppError::ConfigIo(format!("Failed to get default input config: {}", e)))?;
 
     let channels = config.channels();
+    let max_recorded_samples =
+        (config.sample_rate() as usize).saturating_mul(MAX_AUDIO_DURATION_SECONDS);
     let samples_clone = RECORDED_SAMPLES.clone();
 
     let error_callback = |err| {
@@ -85,7 +161,7 @@ pub async fn start_recording() -> Result<(), AppError> {
             move |data: &[f32], _| {
                 if let Ok(mut samples) = samples_clone.lock() {
                     let mono = convert_to_mono(data, channels);
-                    append_recorded_samples(&mut samples, &mono);
+                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
                 }
             },
             error_callback,
@@ -100,7 +176,7 @@ pub async fn start_recording() -> Result<(), AppError> {
                         float_data[i] = s as f32 / 32768.0;
                     }
                     let mono = convert_to_mono(&float_data, channels);
-                    append_recorded_samples(&mut samples, &mono);
+                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
                 }
             },
             error_callback,
@@ -115,7 +191,7 @@ pub async fn start_recording() -> Result<(), AppError> {
                         float_data[i] = (s as f32 - 32768.0) / 32768.0;
                     }
                     let mono = convert_to_mono(&float_data, channels);
-                    append_recorded_samples(&mut samples, &mono);
+                    append_recorded_samples(&mut samples, &mono, max_recorded_samples);
                 }
             },
             error_callback,
@@ -245,6 +321,112 @@ static WHISPER_DOWNLOAD_STATE: LazyLock<Mutex<WhisperDownloadState>> =
 static NEXT_WHISPER_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(1);
 
 const MAX_WHISPER_MODEL_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const WHISPER_MODEL_REVISION: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
+
+struct WhisperPresetDownload {
+    file_name: &'static str,
+    sha256: &'static str,
+    size: u64,
+}
+
+fn whisper_preset_download(model_id: &str) -> Result<WhisperPresetDownload, AppError> {
+    let preset = match model_id {
+        "tiny.en" => WhisperPresetDownload {
+            file_name: "ggml-tiny.en.bin",
+            sha256: "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+            size: 77_704_715,
+        },
+        "tiny" => WhisperPresetDownload {
+            file_name: "ggml-tiny.bin",
+            sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+            size: 77_691_713,
+        },
+        "base.en" => WhisperPresetDownload {
+            file_name: "ggml-base.en.bin",
+            sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+            size: 147_964_211,
+        },
+        "base" => WhisperPresetDownload {
+            file_name: "ggml-base.bin",
+            sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+            size: 147_951_465,
+        },
+        "small.en" => WhisperPresetDownload {
+            file_name: "ggml-small.en.bin",
+            sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
+            size: 487_614_201,
+        },
+        "small" => WhisperPresetDownload {
+            file_name: "ggml-small.bin",
+            sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+            size: 487_601_967,
+        },
+        "large-v3-turbo" => WhisperPresetDownload {
+            file_name: "ggml-large-v3-turbo.bin",
+            sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+            size: 1_624_555_275,
+        },
+        _ => {
+            return Err(AppError::ConfigIo(
+                "Unknown Whisper model preset".to_string(),
+            ))
+        }
+    };
+    Ok(preset)
+}
+
+fn whisper_models_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::AppPath(error.to_string()))?;
+    Ok(app_data_dir.join("whisper_models"))
+}
+
+fn has_valid_whisper_header(header: &[u8]) -> bool {
+    matches!(header, b"lmgg" | b"GGUF")
+}
+
+async fn validate_whisper_model_header(path: &Path) -> Result<(), AppError> {
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut header = [0u8; 4];
+    file.read_exact(&mut header).await.map_err(|_| {
+        AppError::ParseError("Whisper model is too small to contain a valid header".to_string())
+    })?;
+    if !has_valid_whisper_header(&header) {
+        return Err(AppError::ParseError(
+            "Whisper model has an invalid GGML/GGUF header".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn encode_sha256(digest: &[u8]) -> String {
+    use std::fmt::Write;
+
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+fn resolve_whisper_model_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, AppError> {
+    let file_name = validate_whisper_model_file_name(file_name)?;
+    let models_dir = whisper_models_dir(app)?;
+    fs::create_dir_all(&models_dir)?;
+    let canonical_root = fs::canonicalize(&models_dir)?;
+    let candidate = models_dir.join(file_name);
+    let canonical_model = fs::canonicalize(&candidate).map_err(|_| {
+        AppError::ConfigIo(format!("Whisper model file was not found: {file_name}"))
+    })?;
+    if !canonical_model.starts_with(&canonical_root) || !canonical_model.is_file() {
+        return Err(AppError::AppPath(
+            "Whisper model must be a regular file in the managed model directory".to_string(),
+        ));
+    }
+    Ok(canonical_model)
+}
 
 fn whisper_download_staging_paths(models_dir: &Path, operation_id: u64) -> (PathBuf, PathBuf) {
     let process_id = std::process::id();
@@ -363,23 +545,6 @@ fn validate_whisper_model_file_name(file_name: &str) -> Result<&str, AppError> {
     Ok(file_name)
 }
 
-fn whisper_file_name_from_url(url: &str) -> Result<String, AppError> {
-    let parsed = url::Url::parse(url)
-        .map_err(|e| AppError::RequestFailed(format!("Invalid model URL: {e}")))?;
-    if parsed.scheme() != "https" {
-        return Err(AppError::RequestFailed(
-            "Whisper models must be downloaded over HTTPS".to_string(),
-        ));
-    }
-
-    let file_name = parsed
-        .path_segments()
-        .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
-        .ok_or_else(|| AppError::AppPath("Model URL does not contain a file name".to_string()))?;
-    validate_whisper_model_file_name(file_name)?;
-    Ok(file_name.to_string())
-}
-
 #[tauri::command]
 pub async fn cancel_whisper_download() -> Result<(), AppError> {
     WHISPER_DOWNLOAD_STATE
@@ -390,12 +555,9 @@ pub async fn cancel_whisper_download() -> Result<(), AppError> {
 }
 
 #[tauri::command]
-pub async fn download_whisper_model(
-    app: AppHandle,
-    model_id: String,
-    url: String,
-) -> Result<String, AppError> {
+pub async fn download_whisper_model(app: AppHandle, model_id: String) -> Result<String, AppError> {
     crate::ensure_online()?;
+    let preset = whisper_preset_download(&model_id)?;
     let operation_id = NEXT_WHISPER_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
     let WhisperDownloadRegistration {
         cancelled,
@@ -417,19 +579,17 @@ pub async fn download_whisper_model(
     }
     let _state_guard = DownloadStateGuard { operation_id };
 
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let models_dir = app_data_dir.join("whisper_models");
+    let models_dir = whisper_models_dir(&app)?;
     fs::create_dir_all(&models_dir)?;
 
-    let file_name = whisper_file_name_from_url(&url)?;
-    let destination_path = models_dir.join(&file_name);
+    let destination_path = models_dir.join(preset.file_name);
     let (partial_path, backup_path) = whisper_download_staging_paths(&models_dir, operation_id);
 
     let result = async {
-        let mut current_url = url.clone();
+        let mut current_url = format!(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/{WHISPER_MODEL_REVISION}/{}",
+            preset.file_name
+        );
         let mut redirects = 0u8;
         let res = loop {
             let endpoint = crate::endpoint_security::validate_http_endpoint(
@@ -489,6 +649,11 @@ pub async fn download_whisper_model(
             )));
         }
         let total_size = res.content_length();
+        if total_size.is_some_and(|size| size != preset.size) {
+            return Err(AppError::RequestFailed(
+                "Whisper model content length did not match the pinned manifest".to_string(),
+            ));
+        }
         if total_size.is_some_and(|size| size > MAX_WHISPER_MODEL_BYTES) {
             return Err(AppError::RequestFailed(format!(
                 "Whisper model exceeds the {} GiB download limit",
@@ -503,6 +668,7 @@ pub async fn download_whisper_model(
             .await?;
         let mut stream = res.bytes_stream();
         let mut downloaded = 0u64;
+        let mut digest = DigestContext::new(&SHA256);
         let mut last_emit_time = std::time::Instant::now();
         let mut last_emitted_percentage = -1.0f32;
 
@@ -531,6 +697,7 @@ pub async fn download_whisper_model(
                                 ));
                             }
                             file.write_all(&chunk).await?;
+                            digest.update(&chunk);
                             downloaded = next_downloaded;
 
                             let percentage = total_size
@@ -579,10 +746,23 @@ pub async fn download_whisper_model(
                 total_size.unwrap_or_default()
             )));
         }
+        if downloaded != preset.size {
+            return Err(AppError::RequestFailed(
+                "Whisper model size did not match the pinned manifest".to_string(),
+            ));
+        }
 
         file.flush().await?;
         file.sync_all().await?;
         drop(file);
+
+        let actual_sha256 = encode_sha256(digest.finish().as_ref());
+        if actual_sha256 != preset.sha256 {
+            return Err(AppError::RequestFailed(
+                "Whisper model checksum verification failed".to_string(),
+            ));
+        }
+        validate_whisper_model_header(&partial_path).await?;
 
         if cancelled.load(Ordering::SeqCst) {
             return Err(AppError::ConfigIo(
@@ -615,12 +795,97 @@ pub async fn download_whisper_model(
 }
 
 #[tauri::command]
+pub async fn import_custom_whisper_model(app: AppHandle) -> Result<Option<String>, AppError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Select an unverified Whisper model")
+        .add_filter("Whisper GGML/GGUF model", &["bin", "gguf"])
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let selected_path = match selected {
+        tauri_plugin_dialog::FilePath::Path(path) => path,
+        tauri_plugin_dialog::FilePath::Url(url) => url
+            .to_file_path()
+            .map_err(|_| AppError::AppPath("Invalid model file URL".to_string()))?,
+    };
+    let source_path = fs::canonicalize(selected_path)?;
+    let source_name = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AppError::AppPath("Invalid custom model file name".to_string()))?;
+    validate_whisper_model_file_name(source_name)?;
+
+    let source = tokio::fs::File::open(&source_path).await?;
+    let source_metadata = source.metadata().await?;
+    if !source_metadata.is_file() || source_metadata.len() == 0 {
+        return Err(AppError::ConfigIo(
+            "Custom Whisper model must be a non-empty regular file".to_string(),
+        ));
+    }
+    if source_metadata.len() > MAX_WHISPER_MODEL_BYTES {
+        return Err(AppError::ConfigIo(format!(
+            "Custom Whisper model exceeds the {} GiB limit",
+            MAX_WHISPER_MODEL_BYTES / (1024 * 1024 * 1024)
+        )));
+    }
+
+    let models_dir = whisper_models_dir(&app)?;
+    fs::create_dir_all(&models_dir)?;
+    let extension = source_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("bin")
+        .to_ascii_lowercase();
+    let imported_name = format!("unverified-{}.{}", uuid::Uuid::new_v4(), extension);
+    let destination_path = models_dir.join(&imported_name);
+    let partial_path = models_dir.join(format!(".{imported_name}.part"));
+
+    let copy_result = async {
+        let mut source = source;
+        let mut destination = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial_path)
+            .await?;
+        let mut buffer = vec![0u8; 64 * 1024];
+        let mut copied = 0u64;
+        loop {
+            let read = source.read(&mut buffer).await?;
+            if read == 0 {
+                break;
+            }
+            copied = copied.saturating_add(read as u64);
+            if copied > MAX_WHISPER_MODEL_BYTES {
+                return Err(AppError::ConfigIo(
+                    "Custom Whisper model grew beyond the import limit".to_string(),
+                ));
+            }
+            destination.write_all(&buffer[..read]).await?;
+        }
+        destination.flush().await?;
+        destination.sync_all().await?;
+        drop(destination);
+        validate_whisper_model_header(&partial_path).await?;
+        tokio::fs::rename(&partial_path, &destination_path).await?;
+        Ok::<(), AppError>(())
+    }
+    .await;
+
+    if copy_result.is_err() {
+        remove_partial_download(&partial_path).await;
+    }
+    copy_result?;
+    Ok(Some(imported_name))
+}
+
+#[tauri::command]
 pub async fn check_downloaded_whisper_models(app: AppHandle) -> Result<Vec<String>, AppError> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let models_dir = app_data_dir.join("whisper_models");
+    let models_dir = whisper_models_dir(&app)?;
     if !models_dir.exists() {
         return Ok(vec![]);
     }
@@ -629,7 +894,7 @@ pub async fn check_downloaded_whisper_models(app: AppHandle) -> Result<Vec<Strin
     let mut entries = fs::read_dir(models_dir)?;
     while let Some(Ok(entry)) = entries.next() {
         if let Some(name) = entry.file_name().to_str() {
-            if name.ends_with(".bin") {
+            if validate_whisper_model_file_name(name).is_ok() && entry.path().is_file() {
                 downloaded.push(name.to_string());
             }
         }
@@ -639,14 +904,10 @@ pub async fn check_downloaded_whisper_models(app: AppHandle) -> Result<Vec<Strin
 
 #[tauri::command]
 pub async fn delete_whisper_model(app: AppHandle, file_name: String) -> Result<(), AppError> {
-    let file_name = validate_whisper_model_file_name(&file_name)?;
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(e.to_string()))?;
-    let model_path = app_data_dir.join("whisper_models").join(file_name);
-    if model_path.exists() {
-        fs::remove_file(model_path)?;
+    match resolve_whisper_model_path(&app, &file_name) {
+        Ok(model_path) => fs::remove_file(model_path)?,
+        Err(AppError::ConfigIo(_)) => {}
+        Err(error) => return Err(error),
     }
     Ok(())
 }
@@ -654,9 +915,10 @@ pub async fn delete_whisper_model(app: AppHandle, file_name: String) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::{
-        promote_whisper_download, remove_partial_download, validate_whisper_model_file_name,
-        whisper_download_staging_paths, whisper_file_name_from_url, WhisperDownloadState,
-        NEXT_WHISPER_DOWNLOAD_ID,
+        has_valid_whisper_header, promote_whisper_download, remove_partial_download,
+        validate_transcription_samples, validate_whisper_model_file_name,
+        whisper_download_staging_paths, whisper_preset_download, WhisperDownloadState,
+        MAX_TRANSCRIPTION_SAMPLES, NEXT_WHISPER_DOWNLOAD_ID,
     };
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
@@ -705,14 +967,26 @@ mod tests {
     }
 
     #[test]
-    fn whisper_url_requires_https_and_a_safe_model_basename() {
-        assert_eq!(
-            whisper_file_name_from_url("https://models.example/ggml-base.en.bin?download=1")
-                .expect("safe model URL"),
-            "ggml-base.en.bin"
-        );
-        assert!(whisper_file_name_from_url("http://models.example/model.bin").is_err());
-        assert!(whisper_file_name_from_url("https://models.example/readme.txt").is_err());
+    fn whisper_presets_are_allowlisted_with_pinned_hashes() {
+        let tiny = whisper_preset_download("tiny.en").expect("known preset");
+        assert_eq!(tiny.file_name, "ggml-tiny.en.bin");
+        assert_eq!(tiny.sha256.len(), 64);
+        assert!(whisper_preset_download("renderer-controlled").is_err());
+    }
+
+    #[test]
+    fn whisper_headers_accept_ggml_and_gguf_only() {
+        assert!(has_valid_whisper_header(b"lmgg"));
+        assert!(has_valid_whisper_header(b"GGUF"));
+        assert!(!has_valid_whisper_header(b"MZ\0\0"));
+        assert!(!has_valid_whisper_header(b"PK\x03\x04"));
+    }
+
+    #[test]
+    fn transcription_samples_are_bounded_and_finite() {
+        assert!(validate_transcription_samples(&[0.0, -0.5, 1.0]).is_ok());
+        assert!(validate_transcription_samples(&[f32::NAN]).is_err());
+        assert!(validate_transcription_samples(&vec![0.0; MAX_TRANSCRIPTION_SAMPLES + 1]).is_err());
     }
 
     #[test]
@@ -812,29 +1086,15 @@ mod tests {
 pub async fn transcribe_audio(
     app: AppHandle,
     model_path: String,
-    audio_data: Vec<f32>,
+    audio_data: BoundedAudioSamples,
     language: Option<String>,
 ) -> Result<String, AppError> {
-    let resolved_path = if std::path::Path::new(&model_path).is_absolute() {
-        std::path::PathBuf::from(&model_path)
-    } else {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| AppError::AppPath(e.to_string()))?;
-        app_data_dir.join("whisper_models").join(&model_path)
-    };
-
-    if !resolved_path.exists() {
-        return Err(AppError::ConfigIo(format!(
-            "Model file not found at: {}",
-            resolved_path.display()
-        )));
-    }
+    let resolved_path = resolve_whisper_model_path(&app, &model_path)?;
+    validate_whisper_model_header(&resolved_path).await?;
 
     let resolved_path_str = resolved_path.to_string_lossy().to_string();
 
-    let actual_audio_data = if audio_data.is_empty() {
+    let actual_audio_data = if audio_data.0.is_empty() {
         let samples = if let Ok(samples) = RECORDED_SAMPLES.lock() {
             samples.clone()
         } else {
@@ -851,8 +1111,9 @@ pub async fn transcribe_audio(
         })?;
         resample(&samples, config.sample_rate(), 16000)
     } else {
-        audio_data
+        audio_data.0
     };
+    validate_transcription_samples(&actual_audio_data)?;
 
     let ctx_clone = resolved_path_str.clone();
     let audio_clone = actual_audio_data;

@@ -57,7 +57,7 @@ src/
     mcpPresets.ts       # MCP transport presets (stdio, sse, streamable-http)
     themePresets.ts     # UI theme settings and default styles
     marketplaceThemes.ts# VS Code themed stylesheets and Marketplace listings
-    whisperPresets.ts   # Whisper-compatible GGUF models check/download URLs
+    whisperPresets.ts   # Whisper preset metadata shown by the frontend
   hooks/
     useScrollPosition.ts
     useScrollTracking.ts
@@ -126,7 +126,7 @@ src-tauri/src/
 - **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
 - **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded(scope)`. Automatic commits require an explicit captured project/model/path scope and are serialized per repository.
-- **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath`, `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
+- **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath` (managed basename, never an arbitrary renderer path), `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
 
 ## Tool Loop (MCP + Search + Project Workspaces)
 
@@ -284,7 +284,8 @@ export interface ModelConfig {
 | `mcp_cancel_tool_call`                                            | Cancel one request-scoped MCP tool invocation       |
 | `select_file_and_get_token`                                       | Open dialog to import file, returns secure token    |
 | `read_file_from_token`                                            | Read local file contents via secure token payload   |
-| `download_whisper_model` / `cancel_whisper_download`              | Handle Whisper GGUF asset downloading               |
+| `download_whisper_model` / `cancel_whisper_download`              | Download checksum-pinned Whisper preset assets      |
+| `import_custom_whisper_model`                                     | Import an explicitly unverified model into app data |
 | `check_downloaded_whisper_models`                                 | Lists cached local Whisper files                    |
 | `transcribe_audio`                                                | Transcribes recorded audio buffer via whisper.cpp   |
 | `load_projects` / `save_projects`                                 | Workspace configs storage                           |

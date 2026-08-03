@@ -153,7 +153,7 @@ export default memo(function InputBar({
     let isModelReady = false;
     let modelPath = "";
     if (selectedModelId === "custom" && customModelPath) {
-      isModelReady = true;
+      isModelReady = downloadedFiles.includes(customModelPath);
       modelPath = customModelPath;
     } else {
       const preset = WHISPER_PRESETS.find((p) => p.id === selectedModelId);

@@ -241,7 +241,6 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
       try {
         await invoke("download_whisper_model", {
           modelId,
-          url: preset.url,
         });
       } catch (err) {
         if (!downloadCancelled) {

@@ -2207,6 +2207,7 @@ pub fn run() {
             commands::audio::get_recorded_samples,
             commands::audio::download_whisper_model,
             commands::audio::cancel_whisper_download,
+            commands::audio::import_custom_whisper_model,
             commands::audio::check_downloaded_whisper_models,
             commands::audio::delete_whisper_model,
             commands::audio::transcribe_audio_cloud,
