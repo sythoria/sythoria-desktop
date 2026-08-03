@@ -2208,6 +2208,7 @@ pub fn run() {
             commands::mcp::mcp_start_server,
             commands::mcp::mcp_check_command,
             commands::mcp::mcp_stop_server,
+            commands::mcp::mcp_set_server_enabled,
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_list_resources,
             commands::mcp::mcp_list_prompts,

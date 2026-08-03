@@ -157,11 +157,12 @@ interface EnabledToolLoopConfig {
 function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
   const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
   const searchConfig =
-    isSearchEnabled && activeSearchId ? searchConfigs.find((config) => config.id === activeSearchId) : undefined;
+    isSearchEnabled && activeSearchId
+      ? searchConfigs.find((config) => config.id === activeSearchId && config.enabled)
+      : undefined;
   const searchApiKey = searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
-  const { enabledServerIds, availableTools } = useMcpStore.getState();
-  const mcpTools = availableTools.filter((tool) => enabledServerIds.has(tool.serverId));
+  const mcpTools = useMcpStore.getState().getEnabledTools();
   const mcpCallTool =
     mcpTools.length > 0
       ? (serverId: string, toolName: string, args: Record<string, string>) =>
@@ -407,7 +408,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         envSecrets: loadedMcpEnvSecrets,
         mcpApiKeys: loadedMcpKeys || {},
         serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
-        enabledServerIds: new Set(mcpEnabledServers.filter((id) => mcpConfigs.some((c) => c.id === id))),
+        enabledServerIds: new Set(
+          mcpEnabledServers.filter((id) => mcpConfigs.some((config) => config.id === id && config.enabled)),
+        ),
       });
 
       const initialActiveId = cleanedConvs.length > 0 ? cleanedConvs[0].id : null;

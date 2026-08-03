@@ -47,16 +47,17 @@ interface McpState {
   serverStatuses: Record<string, McpServerStatus>;
   availableTools: McpTool[];
   enabledServerIds: Set<string>;
+  connectionGenerations: Record<string, number>;
 
   addMcpConfig: () => void;
   addMcpConfigFromPreset: (preset: McpServerPreset) => void;
-  updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => void;
-  deleteMcpConfig: (id: string) => void;
+  updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
+  deleteMcpConfig: (id: string) => Promise<void>;
   connectServer: (id: string) => Promise<void>;
   disconnectServer: (id: string) => Promise<void>;
   connectAllEnabled: () => Promise<void>;
   callTool: (serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>;
-  toggleServerEnabled: (serverId: string, enabled: boolean) => void;
+  toggleServerEnabled: (serverId: string, enabled: boolean) => Promise<void>;
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
   checkCommand: (command: string) => Promise<ExecutableCheck>;
@@ -69,6 +70,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   serverStatuses: {},
   availableTools: [],
   enabledServerIds: new Set(),
+  connectionGenerations: {},
 
   addMcpConfig: () => {
     const newConfig: McpServerConfig = {
@@ -155,10 +157,30 @@ export const useMcpStore = create<McpState>((set, get) => ({
       );
   },
 
-  updateMcpConfig: (id, updates) => {
+  updateMcpConfig: async (id, updates) => {
     const { mcpConfigs, mcpApiKeys } = get();
     const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
-    set({ mcpConfigs: updatedConfigs });
+    const isBeingDisabled = updates.enabled === false;
+
+    if (isBeingDisabled) {
+      const nextEnabled = new Set(get().enabledServerIds);
+      nextEnabled.delete(id);
+      set({
+        mcpConfigs: updatedConfigs,
+        enabledServerIds: nextEnabled,
+        availableTools: get().availableTools.filter((tool) => tool.serverId !== id),
+        serverStatuses: { ...get().serverStatuses, [id]: "disconnected" },
+        connectionGenerations: {
+          ...get().connectionGenerations,
+          [id]: (get().connectionGenerations[id] ?? 0) + 1,
+        },
+      });
+      await invoke("mcp_set_server_enabled", { serverId: id, enabled: false });
+      await Promise.all([saveMcpConfigs(updatedConfigs), saveEnabledMcpServers(Array.from(nextEnabled))]);
+      await invoke("mcp_stop_server", { serverId: id });
+    } else {
+      set({ mcpConfigs: updatedConfigs });
+    }
 
     if (updates.apiKey !== undefined) {
       const newKeys = { ...mcpApiKeys, [id]: updates.apiKey };
@@ -170,8 +192,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       // Trust revocation is a security boundary: persist it immediately so a
       // quick shutdown cannot restore the previous trusted state on restart.
       debouncedSaveMcpConfigs.cancel();
-      void saveMcpConfigs(updatedConfigs);
-    } else {
+      await saveMcpConfigs(updatedConfigs);
+    } else if (!isBeingDisabled) {
       debouncedSaveMcpConfigs(updatedConfigs);
     }
     const updatedConfig = updatedConfigs.find((c) => c.id === id);
@@ -180,7 +202,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }
   },
 
-  deleteMcpConfig: (id) => {
+  deleteMcpConfig: async (id) => {
     const { mcpConfigs, serverStatuses, envSecrets, availableTools, mcpApiKeys } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     const updated = mcpConfigs.filter((c) => c.id !== id);
@@ -202,14 +224,22 @@ export const useMcpStore = create<McpState>((set, get) => ({
       availableTools: updatedTools,
       enabledServerIds: nextEnabled,
       mcpApiKeys: newKeys,
+      connectionGenerations: {
+        ...get().connectionGenerations,
+        [id]: (get().connectionGenerations[id] ?? 0) + 1,
+      },
     });
     debouncedSaveMcpConfigs.cancel();
     debouncedSaveMcpEnvSecrets.cancel();
     debouncedSaveMcpApiKeys.cancel();
-    saveMcpConfigs(updated);
-    saveMcpEnvSecrets(newEnvSecrets);
-    saveMcpApiKeys(newKeys);
-    saveEnabledMcpServers(Array.from(nextEnabled));
+    await invoke("mcp_set_server_enabled", { serverId: id, enabled: false });
+    await Promise.all([
+      saveMcpConfigs(updated),
+      saveMcpEnvSecrets(newEnvSecrets),
+      saveMcpApiKeys(newKeys),
+      saveEnabledMcpServers(Array.from(nextEnabled)),
+    ]);
+    await invoke("mcp_stop_server", { serverId: id });
     logInfo("mcp", `MCP server deleted: "${config?.name ?? id}"`, {});
     useUIStore.getState().addToast("MCP server deleted", "info");
   },
@@ -217,9 +247,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
   connectServer: async (id) => {
     const { mcpConfigs, envSecrets } = get();
     const config = mcpConfigs.find((c) => c.id === id);
-    if (!config) return;
+    if (!config || !config.enabled) return;
 
-    set({ serverStatuses: { ...get().serverStatuses, [id]: "connecting" } });
+    const connectionGeneration = (get().connectionGenerations[id] ?? 0) + 1;
+
+    set({
+      serverStatuses: { ...get().serverStatuses, [id]: "connecting" },
+      connectionGenerations: { ...get().connectionGenerations, [id]: connectionGeneration },
+    });
     logInfo("mcp", `Connecting to MCP server: "${config.name}"`, {
       details: `Transport: ${config.transport}, Command: ${config.command || config.baseUrl || "(none)"}`,
     });
@@ -231,7 +266,15 @@ export const useMcpStore = create<McpState>((set, get) => ({
       const raw = await invoke<string>("mcp_start_server", {
         config: JSON.stringify(configPayload),
         envSecrets: JSON.stringify(envForServer),
+        explicitlyEnabled: get().enabledServerIds.has(id),
       });
+
+      const currentState = get();
+      const currentConfig = currentState.mcpConfigs.find((candidate) => candidate.id === id);
+      if (currentState.connectionGenerations[id] !== connectionGeneration || !currentConfig?.enabled) {
+        await invoke("mcp_stop_server", { serverId: id });
+        return;
+      }
 
       const tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] = JSON.parse(raw);
 
@@ -257,6 +300,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
       });
       useUIStore.getState().addToast(`Connected to ${config.name} (${mcpTools.length} tools)`, "success");
     } catch (err) {
+      if (get().connectionGenerations[id] !== connectionGeneration || !get().mcpConfigs.some((c) => c.id === id)) {
+        return;
+      }
       const parsed = parseApiError(err);
       logError("mcp", `MCP server connect failed: "${config.name}"`, {
         error: err,
@@ -271,6 +317,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
   disconnectServer: async (id) => {
     const { mcpConfigs } = get();
     const config = mcpConfigs.find((c) => c.id === id);
+    set({
+      serverStatuses: { ...get().serverStatuses, [id]: "disconnected" },
+      availableTools: get().availableTools.filter((tool) => tool.serverId !== id),
+      connectionGenerations: {
+        ...get().connectionGenerations,
+        [id]: (get().connectionGenerations[id] ?? 0) + 1,
+      },
+    });
     try {
       await invoke("mcp_stop_server", { serverId: id });
       logInfo("mcp", `Disconnected from MCP server: "${config?.name ?? id}"`, {});
@@ -280,16 +334,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
         action: "The server process may have already exited. If tools are stuck, try restarting the app.",
       });
     }
-    const { availableTools } = get();
-    set({
-      serverStatuses: { ...get().serverStatuses, [id]: "disconnected" },
-      availableTools: availableTools.filter((t) => t.serverId !== id),
-    });
   },
 
   connectAllEnabled: async () => {
-    const { mcpConfigs } = get();
-    const enabledServers = mcpConfigs.filter((c) => c.enabled);
+    const { mcpConfigs, enabledServerIds } = get();
+    const enabledServers = mcpConfigs.filter((c) => c.enabled && enabledServerIds.has(c.id));
     if (enabledServers.length > 0) {
       logInfo("mcp", `Auto-connecting ${enabledServers.length} enabled MCP server(s)`, {
         details: enabledServers.map((s) => s.name).join(", "),
@@ -301,8 +350,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   callTool: async (serverId, toolName, args) => {
-    const { mcpConfigs } = get();
+    const { mcpConfigs, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
+    if (!config?.enabled || !enabledServerIds.has(serverId) || serverStatuses[serverId] !== "connected") {
+      return { content: "Error: MCP server is disabled or disconnected", isError: true };
+    }
     try {
       logInfo("mcp", `Calling MCP tool: ${toolName}`, {
         details: `Server: "${config?.name ?? serverId}", Args: ${JSON.stringify(args).slice(0, 200)}`,
@@ -331,21 +383,51 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }
   },
 
-  toggleServerEnabled: (serverId, enabled) => {
-    const { enabledServerIds } = get();
+  toggleServerEnabled: async (serverId, enabled) => {
+    const { enabledServerIds, mcpConfigs } = get();
+    const config = mcpConfigs.find((candidate) => candidate.id === serverId);
+    if (enabled && !config?.enabled) {
+      useUIStore.getState().addToast("Enable this MCP server in Settings before selecting its tools", "error");
+      return;
+    }
     const next = new Set(enabledServerIds);
     if (enabled) {
       next.add(serverId);
     } else {
       next.delete(serverId);
     }
+    if (!enabled) {
+      set({
+        enabledServerIds: next,
+        availableTools: get().availableTools.filter((tool) => tool.serverId !== serverId),
+        serverStatuses: { ...get().serverStatuses, [serverId]: "disconnected" },
+        connectionGenerations: {
+          ...get().connectionGenerations,
+          [serverId]: (get().connectionGenerations[serverId] ?? 0) + 1,
+        },
+      });
+      await invoke("mcp_set_server_enabled", { serverId, enabled: false });
+      await saveEnabledMcpServers(Array.from(next));
+      await invoke("mcp_stop_server", { serverId });
+      return;
+    }
+
     set({ enabledServerIds: next });
-    saveEnabledMcpServers(Array.from(next));
+    await invoke("mcp_set_server_enabled", { serverId, enabled: true });
+    await saveEnabledMcpServers(Array.from(next));
+    if (get().serverStatuses[serverId] !== "connected") {
+      await get().connectServer(serverId);
+    }
   },
 
   getEnabledTools: () => {
-    const { availableTools, enabledServerIds } = get();
-    return availableTools.filter((t) => enabledServerIds.has(t.serverId));
+    const { availableTools, enabledServerIds, mcpConfigs, serverStatuses } = get();
+    return availableTools.filter(
+      (tool) =>
+        enabledServerIds.has(tool.serverId) &&
+        serverStatuses[tool.serverId] === "connected" &&
+        mcpConfigs.some((config) => config.id === tool.serverId && config.enabled),
+    );
   },
 
   setEnvSecrets: (serverId, secrets) => {

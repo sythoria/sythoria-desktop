@@ -209,7 +209,7 @@ function App() {
   const handleToggleMcpServer = useCallback(
     (serverId: string) => {
       const isEnabled = enabledServerIds.has(serverId);
-      toggleServerEnabled(serverId, !isEnabled);
+      void toggleServerEnabled(serverId, !isEnabled);
     },
     [enabledServerIds, toggleServerEnabled],
   );

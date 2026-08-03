@@ -346,6 +346,14 @@ pub async fn connect_server(
     config: &McpServerConfig,
     env_secrets: HashMap<String, String>,
 ) -> Result<Vec<McpToolInfo>, String> {
+    if !config.enabled {
+        return Err(format!("MCP server '{}' is disabled", config.id));
+    }
+
+    let connection_generation = {
+        let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        manager.begin_connection(&config.id)
+    };
     let cancel_token = tokio_util::sync::CancellationToken::new();
     let ct = cancel_token.clone();
     let server_id = config.id.clone();
@@ -411,6 +419,7 @@ pub async fn connect_server(
             let peer = running.peer().clone();
             let task_cancel = cancel_token.clone();
             let server_id_clone = server_id.clone();
+            let task_generation = connection_generation;
 
             tokio::spawn(async move {
                 let mut timeout_sleep =
@@ -450,9 +459,7 @@ pub async fn connect_server(
                         _ = &mut timeout_sleep => {
                             log::info!("MCP server '{}' idle timeout: terminating child process", server_id_clone);
                             if let Ok(mut manager) = MCP_SERVERS.lock() {
-                                if let Some(handle) = manager.servers.get_mut(&server_id_clone) {
-                                    handle.request_tx = None;
-                                }
+                                manager.mark_idle(&server_id_clone, task_generation);
                             }
                             break;
                         }
@@ -470,11 +477,19 @@ pub async fn connect_server(
                 request_tx: Some(request_tx),
                 config: config.clone(),
                 env_secrets: env_secrets.clone(),
+                connection_generation,
             };
 
-            {
+            let connected = {
                 let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-                manager.servers.insert(server_id, handle);
+                manager.complete_connection(server_id, connection_generation, handle)
+            };
+
+            if !connected {
+                return Err(format!(
+                    "MCP server '{}' connection was superseded",
+                    config.id
+                ));
             }
 
             Ok(tools)
@@ -597,11 +612,19 @@ pub async fn connect_server(
                 request_tx: Some(request_tx),
                 config: config.clone(),
                 env_secrets: env_secrets.clone(),
+                connection_generation,
             };
 
-            {
+            let connected = {
                 let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-                manager.servers.insert(server_id, handle);
+                manager.complete_connection(server_id, connection_generation, handle)
+            };
+
+            if !connected {
+                return Err(format!(
+                    "MCP server '{}' connection was superseded",
+                    config.id
+                ));
             }
 
             Ok(tools)
@@ -668,35 +691,19 @@ pub async fn call_tool_on_server(
     tool_name: &str,
     arguments: &serde_json::Value,
 ) -> Result<McpToolResult, String> {
-    let mut needs_respawn = false;
-    let mut saved_config = None;
-    let mut saved_env_secrets = None;
-
-    {
+    let respawn = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(h) = manager.servers.get(server_id) {
-            if h.request_tx.is_none() {
-                needs_respawn = true;
-                saved_config = Some(h.config.clone());
-                saved_env_secrets = Some(h.env_secrets.clone());
-            }
-        }
-    }
+        manager.respawn_config(server_id)?
+    };
 
-    if needs_respawn {
-        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
-            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
-            connect_server(&config, env_secrets).await?;
-        }
+    if let Some((config, env_secrets)) = respawn {
+        log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+        connect_server(&config, env_secrets).await?;
     }
 
     let request_tx = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        manager
-            .servers
-            .get(server_id)
-            .and_then(|h| h.request_tx.clone())
-            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
+        manager.executable_request_tx(server_id)?
     };
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -717,7 +724,7 @@ pub async fn call_tool_on_server(
 
 pub fn disconnect_server(server_id: &str) -> Result<(), String> {
     let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-    manager.remove_server(server_id);
+    manager.disconnect_server(server_id);
     Ok(())
 }
 
@@ -740,35 +747,19 @@ fn io_error_kind_from_display(msg: &str) -> Option<std::io::ErrorKind> {
 }
 
 pub async fn list_resources_on_server(server_id: &str) -> Result<serde_json::Value, String> {
-    let mut needs_respawn = false;
-    let mut saved_config = None;
-    let mut saved_env_secrets = None;
-
-    {
+    let respawn = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(h) = manager.servers.get(server_id) {
-            if h.request_tx.is_none() {
-                needs_respawn = true;
-                saved_config = Some(h.config.clone());
-                saved_env_secrets = Some(h.env_secrets.clone());
-            }
-        }
-    }
+        manager.respawn_config(server_id)?
+    };
 
-    if needs_respawn {
-        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
-            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
-            connect_server(&config, env_secrets).await?;
-        }
+    if let Some((config, env_secrets)) = respawn {
+        log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+        connect_server(&config, env_secrets).await?;
     }
 
     let request_tx = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        manager
-            .servers
-            .get(server_id)
-            .and_then(|h| h.request_tx.clone())
-            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
+        manager.executable_request_tx(server_id)?
     };
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -784,35 +775,19 @@ pub async fn list_resources_on_server(server_id: &str) -> Result<serde_json::Val
 }
 
 pub async fn list_prompts_on_server(server_id: &str) -> Result<serde_json::Value, String> {
-    let mut needs_respawn = false;
-    let mut saved_config = None;
-    let mut saved_env_secrets = None;
-
-    {
+    let respawn = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(h) = manager.servers.get(server_id) {
-            if h.request_tx.is_none() {
-                needs_respawn = true;
-                saved_config = Some(h.config.clone());
-                saved_env_secrets = Some(h.env_secrets.clone());
-            }
-        }
-    }
+        manager.respawn_config(server_id)?
+    };
 
-    if needs_respawn {
-        if let (Some(config), Some(env_secrets)) = (saved_config, saved_env_secrets) {
-            log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
-            connect_server(&config, env_secrets).await?;
-        }
+    if let Some((config, env_secrets)) = respawn {
+        log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
+        connect_server(&config, env_secrets).await?;
     }
 
     let request_tx = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        manager
-            .servers
-            .get(server_id)
-            .and_then(|h| h.request_tx.clone())
-            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?
+        manager.executable_request_tx(server_id)?
     };
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();

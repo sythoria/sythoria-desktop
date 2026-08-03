@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub async fn mcp_start_server(
     config: String,
     env_secrets: String,
+    explicitly_enabled: bool,
     _app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     crate::ensure_online()?;
@@ -14,6 +15,11 @@ pub async fn mcp_start_server(
         .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
     let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
         .map_err(|e| AppError::ParseError(format!("Invalid MCP env secrets JSON: {}", e)))?;
+
+    {
+        let mut manager = mcp::MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        manager.set_explicitly_enabled(&server_config.id, explicitly_enabled);
+    }
 
     if server_config.apiKey.as_deref().unwrap_or("").is_empty() {
         if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
@@ -31,6 +37,13 @@ pub async fn mcp_start_server(
         })?;
 
     Ok(serde_json::to_string(&tools).unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn mcp_set_server_enabled(server_id: String, enabled: bool) -> Result<(), AppError> {
+    let mut manager = mcp::MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+    manager.set_explicitly_enabled(&server_id, enabled);
+    Ok(())
 }
 
 #[tauri::command]

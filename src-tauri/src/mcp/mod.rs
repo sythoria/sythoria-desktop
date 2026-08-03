@@ -1,7 +1,7 @@
 pub mod client;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 
 #[allow(non_snake_case)]
@@ -64,28 +64,137 @@ pub struct McpServerHandle {
     pub request_tx: Option<tokio::sync::mpsc::Sender<McpServerRequest>>,
     pub config: McpServerConfig,
     pub env_secrets: HashMap<String, String>,
+    pub connection_generation: u64,
 }
 
 pub struct McpServerManager {
     pub servers: HashMap<String, McpServerHandle>,
+    connection_generations: HashMap<String, u64>,
+    explicitly_enabled: HashSet<String>,
 }
 
 impl McpServerManager {
     pub fn new() -> Self {
         Self {
             servers: HashMap::new(),
+            connection_generations: HashMap::new(),
+            explicitly_enabled: HashSet::new(),
         }
     }
 
-    pub fn remove_server(&mut self, server_id: &str) {
+    pub fn begin_connection(&mut self, server_id: &str) -> u64 {
+        let generation = self
+            .connection_generations
+            .get(server_id)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.connection_generations
+            .insert(server_id.to_string(), generation);
         if let Some(handle) = self.servers.remove(server_id) {
             handle.cancel_token.cancel();
         }
+        generation
+    }
+
+    pub fn complete_connection(
+        &mut self,
+        server_id: String,
+        generation: u64,
+        handle: McpServerHandle,
+    ) -> bool {
+        if self.connection_generations.get(&server_id).copied() != Some(generation) {
+            handle.cancel_token.cancel();
+            return false;
+        }
+        self.servers.insert(server_id, handle);
+        true
+    }
+
+    pub fn disconnect_server(&mut self, server_id: &str) {
+        let _ = self.begin_connection(server_id);
+    }
+
+    pub fn set_explicitly_enabled(&mut self, server_id: &str, enabled: bool) {
+        if enabled {
+            self.explicitly_enabled.insert(server_id.to_string());
+        } else {
+            self.explicitly_enabled.remove(server_id);
+            self.disconnect_server(server_id);
+        }
+    }
+
+    pub fn mark_idle(&mut self, server_id: &str, generation: u64) {
+        if let Some(handle) = self.servers.get_mut(server_id) {
+            if handle.connection_generation == generation {
+                handle.request_tx = None;
+            }
+        }
+    }
+
+    pub fn respawn_config(
+        &self,
+        server_id: &str,
+    ) -> Result<Option<(McpServerConfig, HashMap<String, String>)>, String> {
+        if !self.explicitly_enabled.contains(server_id) {
+            return Err(format!(
+                "MCP server '{}' is not explicitly enabled",
+                server_id
+            ));
+        }
+        let handle = self
+            .servers
+            .get(server_id)
+            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?;
+        if !handle.config.enabled {
+            return Err(format!("MCP server '{}' is disabled", server_id));
+        }
+        if self.connection_generations.get(server_id).copied() != Some(handle.connection_generation)
+        {
+            return Err(format!("MCP server '{}' connection is stale", server_id));
+        }
+        Ok(handle
+            .request_tx
+            .is_none()
+            .then(|| (handle.config.clone(), handle.env_secrets.clone())))
+    }
+
+    pub fn executable_request_tx(
+        &self,
+        server_id: &str,
+    ) -> Result<tokio::sync::mpsc::Sender<McpServerRequest>, String> {
+        if !self.explicitly_enabled.contains(server_id) {
+            return Err(format!(
+                "MCP server '{}' is not explicitly enabled",
+                server_id
+            ));
+        }
+        let handle = self
+            .servers
+            .get(server_id)
+            .ok_or_else(|| format!("MCP server '{}' not found or not connected", server_id))?;
+        if !handle.config.enabled {
+            return Err(format!("MCP server '{}' is disabled", server_id));
+        }
+        if self.connection_generations.get(server_id).copied() != Some(handle.connection_generation)
+        {
+            return Err(format!("MCP server '{}' connection is stale", server_id));
+        }
+        handle
+            .request_tx
+            .clone()
+            .ok_or_else(|| format!("MCP server '{}' is not connected", server_id))
     }
 
     pub fn get_tools(&self, server_id: &str) -> Vec<McpToolInfo> {
         self.servers
             .get(server_id)
+            .filter(|handle| {
+                handle.config.enabled
+                    && self.explicitly_enabled.contains(server_id)
+                    && self.connection_generations.get(server_id).copied()
+                        == Some(handle.connection_generation)
+            })
             .map(|h| h.tools.clone())
             .unwrap_or_default()
     }
@@ -93,3 +202,68 @@ impl McpServerManager {
 
 pub static MCP_SERVERS: LazyLock<Mutex<McpServerManager>> =
     LazyLock::new(|| Mutex::new(McpServerManager::new()));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(id: &str, enabled: bool) -> McpServerConfig {
+        McpServerConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            transport: "stdio".to_string(),
+            command: Some("test".to_string()),
+            args: Some(Vec::new()),
+            baseUrl: None,
+            apiKey: None,
+            enabled,
+            trustLevel: Some("untrusted".to_string()),
+            allowLocalNetwork: None,
+        }
+    }
+
+    fn handle(id: &str, enabled: bool, generation: u64) -> McpServerHandle {
+        let (request_tx, _request_rx) = tokio::sync::mpsc::channel(1);
+        McpServerHandle {
+            tools: Vec::new(),
+            cancel_token: tokio_util::sync::CancellationToken::new(),
+            request_tx: Some(request_tx),
+            config: config(id, enabled),
+            env_secrets: HashMap::new(),
+            connection_generation: generation,
+        }
+    }
+
+    #[test]
+    fn revoked_generation_cannot_restore_a_server() {
+        let mut manager = McpServerManager::new();
+        manager.set_explicitly_enabled("server", true);
+        let stale_generation = manager.begin_connection("server");
+
+        manager.set_explicitly_enabled("server", false);
+
+        assert!(!manager.complete_connection(
+            "server".to_string(),
+            stale_generation,
+            handle("server", true, stale_generation),
+        ));
+        assert!(manager.executable_request_tx("server").is_err());
+        assert!(!manager.servers.contains_key("server"));
+    }
+
+    #[test]
+    fn execution_requires_config_and_explicit_enablement() {
+        let mut manager = McpServerManager::new();
+        manager.set_explicitly_enabled("server", true);
+        let generation = manager.begin_connection("server");
+        assert!(manager.complete_connection(
+            "server".to_string(),
+            generation,
+            handle("server", false, generation),
+        ));
+        assert!(manager.executable_request_tx("server").is_err());
+
+        manager.set_explicitly_enabled("server", false);
+        assert!(manager.executable_request_tx("server").is_err());
+    }
+}

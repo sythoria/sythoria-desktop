@@ -116,7 +116,7 @@ src-tauri/src/
 - **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, default 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), active stream listener Map (`activeStreamIds`).
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
-- **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
+- **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, `enabledServerIds`, connection generations that prevent stale connection publication, transactional async disable/delete, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
 - **useUIStore**: `view`, `theme`, `sidebarOpen`, `sidebarCollapsed`, encrypted `sidebarWidth` / auxiliary-panel layout, `loading`, `toasts`, `showRenameModal`, `logBuffer`, `logFilterSource`, `logFilterLevel`, `activeSection` (selected settings panel), background tasks, `pendingToolConfirmations` (confirmations for dangerous tool execution), and the signed Tauri updater flow (`checkForUpdates()`, `installUpdate()`, download progress).
 - **useProjectStore**: `projects`, `activeProjectId`, `isProjectsEnabled`, `defaultPermission`, `activeWorktreePath`, `activeWorktreeBranch`, `init()`, `addProject()`, `updateProject()`, `deleteProject()`, `setActiveProject()`, `setWorktree()`, `persistProjects()`.
 - **useKeybindStore**: `keybinds`, `zoomLevel` (clamped 0.5–2.0), `isRecording` (keycombo recording state), `initKeybinds()`, `setKeycombo()`, `resetKeycombo()`, `zoomIn()`, `zoomOut()`, `zoomReset()`, `startRecording()`.
@@ -246,44 +246,44 @@ export interface ModelConfig {
 
 ## Tauri Commands
 
-| Command                                                         | Purpose                                             |
-| --------------------------------------------------------------- | --------------------------------------------------- |
-| `load_config` / `save_config`                                   | Encrypted model configs (`models.enc`)              |
-| `load_encrypted_preferences` / `mutate_encrypted_preferences`   | Read or atomically mutate encrypted preferences     |
-| `load_network_config` / `save_network_config`                   | Authenticated network policy (`network.enc`)        |
-| `load_search_config` / `save_search_config`                     | Encrypted search configs (`search.enc`)             |
-| `load_api_keys` / `save_api_keys_cmd`                           | API keys → OS keychain (keyring)                    |
-| `load_search_api_keys` / `save_search_api_keys_cmd`             | Search API keys → OS keychain                       |
-| `load_encrypted_conversations` / `save_encrypted_conversations` | Read/write encrypted chat snapshots                 |
-| `clear_encrypted_conversations`                                 | Delete chat ciphertext and its keychain key         |
-| `chat_completion` / `chat_stream`                               | Standard or streaming text generation               |
-| `cancel_chat_stream`                                            | Cancel active stream via `streamId`                 |
-| `chat_completion_tools` / `chat_stream_tools`                   | Completion/Streaming with tool calls enabled        |
-| `generate_title`                                                | Auto-generate conversation title                    |
-| `check_api` / `check_ollama`                                    | Health checks on AI backends                        |
-| `web_search` / `fetch_url_content`                              | Native search presets and web page readers          |
-| `ws_connect` / `ws_send` / `ws_disconnect`                      | WebSocket connection commands                       |
-| `load_mcp_config` / `save_mcp_config`                           | Encrypted MCP server configs (`mcp.enc`)            |
-| `mcp_start_server` / `mcp_stop_server`                          | Spawn stdio MCP client or connect to SSE/HTTP       |
-| `mcp_check_command`                                             | Probes command/args resolution on path              |
-| `mcp_list_tools` / `mcp_call_tool`                              | MCP tool discoverability and execution              |
-| `select_file_and_get_token`                                     | Open dialog to import file, returns secure token    |
-| `read_file_from_token`                                          | Read local file contents via secure token payload   |
-| `download_whisper_model` / `cancel_whisper_download`            | Handle Whisper GGUF asset downloading               |
-| `check_downloaded_whisper_models`                               | Lists cached local Whisper files                    |
-| `transcribe_audio`                                              | Transcribes recorded audio buffer via whisper.cpp   |
-| `load_projects` / `save_projects`                               | Workspace configs storage                           |
-| `set_active_project` / `set_project_path_override`              | Maps workspace and branch context overrides         |
-| `git_detect_repo` / `git_get_status`                            | Identifies local repositories and dirty tracking    |
-| `git_create_commit` / `git_undo_last_commit`                    | Creates commits, commits with AI msgs, soft-resets  |
-| `git_worktree_create` / `git_worktree_apply`                    | Create isolated workspace paths or apply changes    |
-| `git_worktree_discard`                                          | Prunes isolated branches and deletes worktree dirs  |
-| `project_read` / `project_write` / `project_edit`               | Workspace-scoped file tools                         |
-| `project_list_dir` / `project_grep` / `project_glob`            | Workspace directory traversal and search tools      |
-| `project_bash`                                                  | Execute system shells inside worktree directory     |
-| `capture_screen` / `list_appshots`                              | Take screenshots, query galleries                   |
-| `has_screen_capture_permission`                                 | Check macOS screen recording permissions            |
-| `wipe_config_files`                                             | Ordered keychain, encrypted-chat, and settings wipe |
+| Command                                                           | Purpose                                             |
+| ----------------------------------------------------------------- | --------------------------------------------------- |
+| `load_config` / `save_config`                                     | Encrypted model configs (`models.enc`)              |
+| `load_encrypted_preferences` / `mutate_encrypted_preferences`     | Read or atomically mutate encrypted preferences     |
+| `load_network_config` / `save_network_config`                     | Authenticated network policy (`network.enc`)        |
+| `load_search_config` / `save_search_config`                       | Encrypted search configs (`search.enc`)             |
+| `load_api_keys` / `save_api_keys_cmd`                             | API keys → OS keychain (keyring)                    |
+| `load_search_api_keys` / `save_search_api_keys_cmd`               | Search API keys → OS keychain                       |
+| `load_encrypted_conversations` / `save_encrypted_conversations`   | Read/write encrypted chat snapshots                 |
+| `clear_encrypted_conversations`                                   | Delete chat ciphertext and its keychain key         |
+| `chat_completion` / `chat_stream`                                 | Standard or streaming text generation               |
+| `cancel_chat_stream`                                              | Cancel active stream via `streamId`                 |
+| `chat_completion_tools` / `chat_stream_tools`                     | Completion/Streaming with tool calls enabled        |
+| `generate_title`                                                  | Auto-generate conversation title                    |
+| `check_api` / `check_ollama`                                      | Health checks on AI backends                        |
+| `web_search` / `fetch_url_content`                                | Native search presets and web page readers          |
+| `ws_connect` / `ws_send` / `ws_disconnect`                        | WebSocket connection commands                       |
+| `load_mcp_config` / `save_mcp_config`                             | Encrypted MCP server configs (`mcp.enc`)            |
+| `mcp_start_server` / `mcp_stop_server` / `mcp_set_server_enabled` | Spawn, stop, or revoke MCP server execution         |
+| `mcp_check_command`                                               | Probes command/args resolution on path              |
+| `mcp_list_tools` / `mcp_call_tool`                                | MCP tool discoverability and execution              |
+| `select_file_and_get_token`                                       | Open dialog to import file, returns secure token    |
+| `read_file_from_token`                                            | Read local file contents via secure token payload   |
+| `download_whisper_model` / `cancel_whisper_download`              | Handle Whisper GGUF asset downloading               |
+| `check_downloaded_whisper_models`                                 | Lists cached local Whisper files                    |
+| `transcribe_audio`                                                | Transcribes recorded audio buffer via whisper.cpp   |
+| `load_projects` / `save_projects`                                 | Workspace configs storage                           |
+| `set_active_project` / `set_project_path_override`                | Maps workspace and branch context overrides         |
+| `git_detect_repo` / `git_get_status`                              | Identifies local repositories and dirty tracking    |
+| `git_create_commit` / `git_undo_last_commit`                      | Creates commits, commits with AI msgs, soft-resets  |
+| `git_worktree_create` / `git_worktree_apply`                      | Create isolated workspace paths or apply changes    |
+| `git_worktree_discard`                                            | Prunes isolated branches and deletes worktree dirs  |
+| `project_read` / `project_write` / `project_edit`                 | Workspace-scoped file tools                         |
+| `project_list_dir` / `project_grep` / `project_glob`              | Workspace directory traversal and search tools      |
+| `project_bash`                                                    | Execute system shells inside worktree directory     |
+| `capture_screen` / `list_appshots`                                | Take screenshots, query galleries                   |
+| `has_screen_capture_permission`                                   | Check macOS screen recording permissions            |
+| `wipe_config_files`                                               | Ordered keychain, encrypted-chat, and settings wipe |
 
 ## Storage
 
