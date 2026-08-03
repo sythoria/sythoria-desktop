@@ -125,3 +125,8 @@ Requests still leave your machine when you use a hosted model, search provider, 
 | `cd src-tauri && cargo test` | Run the Rust tests                             |
 
 For branch conventions, platform setup, and pull request checks, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Sythoria is available under the [MIT License](LICENSE). Third-party components remain subject to their respective
+licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

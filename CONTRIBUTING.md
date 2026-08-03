@@ -15,6 +15,7 @@ This guide outlines our development workflow, coding standards, and the process 
 5. [Coding Guidelines & Standards](#coding-guidelines--standards)
 6. [Testing & Verification](#testing--verification)
 7. [Submitting a Pull Request](#submitting-a-pull-request)
+8. [Contribution Licensing](#contribution-licensing)
 
 ---
 
@@ -179,5 +180,15 @@ cargo test
    - Mention any related issues (e.g., `Closes #12`).
    - If your changes affect the UI, include before/after screenshots or GIFs.
 5. **Participate in Code Review**: Address reviewer feedback and make updates to your branch as needed.
+
+## Contribution Licensing
+
+Sythoria is distributed under the [MIT License](LICENSE). By intentionally submitting a contribution for inclusion in
+this repository, you agree to license that contribution under the same MIT terms and represent that you have the
+right to do so. You retain copyright in your contribution; no copyright assignment is required.
+
+If your contribution includes or adapts third-party material, identify its source and license in the pull request and
+preserve any required copyright, attribution, or notice text. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for
+the project's direct dependency notice summary.
 
 Thank you for contributing to Sythoria! 🚀

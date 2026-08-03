@@ -88,6 +88,8 @@ src/
     ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
 docs/
   updater-releases.md   # Updater signing, local-build, release, and test guide
+LICENSE                 # MIT license for Sythoria source and distributions
+THIRD_PARTY_NOTICES.md  # Direct dependency license summary and notice guidance
 src-tauri/src/
   main.rs               # sythoria_lib::run()
   lib.rs                # Tauri commands, AppError, initialization, network policy, window/tray event hooks
@@ -321,3 +323,4 @@ export interface ModelConfig {
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
 - **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
 - **Internationalization (i18n)**: Implements dynamic locale switching for BCP 47 language keys (`en`, `es`, `fr`, `de`, `zh`, `ja`) with an automatic English fallback. State is saved persistently and updates `document.documentElement.lang`. Dictionaries are structured as modular files under `src/utils/i18n/` to keep code footprint minimal and simplify adding new locales.
+- **Licensing**: Sythoria is MIT-licensed. Contributions are accepted under the same terms, and third-party license information is summarized in `THIRD_PARTY_NOTICES.md`.

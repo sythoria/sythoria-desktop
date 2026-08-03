@@ -3,6 +3,7 @@ name = "sythoria"
 version = "0.4.1"
 description = "Desktop UI for LLMs"
 authors = ["xNOTHINGx", "DenysHandziichuk"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
