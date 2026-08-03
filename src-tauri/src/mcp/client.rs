@@ -10,31 +10,41 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::process::Command;
 
-fn is_env_key_allowed(key: &str) -> bool {
-    let key_upper = key.to_uppercase();
-    if matches!(
-        key_upper.as_str(),
-        "PATH"
-            | "HOME"
-            | "USER"
-            | "SHELL"
-            | "LANG"
-            | "LC_ALL"
-            | "LOGNAME"
-            | "PWD"
-            | "TERM"
-            | "TMPDIR"
-            | "TEMP"
-            | "TMP"
-    ) {
-        return true;
-    }
-    key_upper.ends_with("_API_KEY")
-        || key_upper.ends_with("_TOKEN")
-        || key_upper.ends_with("_SECRET")
-        || key_upper.ends_with("_PASSWORD")
-        || key_upper.ends_with("_URL")
-        || key_upper.ends_with("_URI")
+/// Parent-process variables required by common cross-platform runtimes and
+/// package-manager launchers. Everything else must be explicitly configured on
+/// the individual MCP server; in particular, proxy, cloud, signing, and agent
+/// socket variables are intentionally not inherited.
+const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
+    // Unix runtime and locale discovery.
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    // Windows runtime, executable, profile, and temporary-directory discovery.
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+];
+
+fn is_explicit_env_key_allowed(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 #[derive(Clone)]
@@ -144,6 +154,15 @@ async fn find_executable(name: &str) -> String {
 fn create_shell_command(program: &str, args: &[String]) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
+
+    // MCP stdio servers are renderer-configurable executables. Do not let them
+    // implicitly inherit credentials or ambient desktop integration sockets.
+    cmd.env_clear();
+    for key in MCP_RUNTIME_ENV_ALLOWLIST {
+        if let Some(value) = std::env::var_os(key) {
+            cmd.env(key, value);
+        }
+    }
 
     let current_path = std::env::var_os("PATH").unwrap_or_default();
     let paths = std::env::split_paths(&current_path);
@@ -380,7 +399,7 @@ pub async fn connect_server(
                 .stderr(std::process::Stdio::inherit());
 
             for (key, value) in &env_secrets {
-                if is_env_key_allowed(key) {
+                if is_explicit_env_key_allowed(key) {
                     cmd.env(key, value);
                 } else {
                     log::warn!("Filtered out disallowed environment variable: {}", key);
@@ -883,6 +902,68 @@ mod tests {
             .map(|a| a.to_string_lossy().to_string())
             .collect();
         assert_eq!(args, vec!["hello", "world"]);
+
+        let configured_env: HashMap<_, _> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect();
+        assert!(configured_env.contains_key(std::ffi::OsStr::new("PATH")));
+        assert!(!configured_env.contains_key(std::ffi::OsStr::new("AWS_SECRET_ACCESS_KEY")));
+        assert!(!configured_env.contains_key(std::ffi::OsStr::new("SSH_AUTH_SOCK")));
+    }
+
+    #[test]
+    fn explicit_server_environment_keys_are_portable_identifiers() {
+        assert!(is_explicit_env_key_allowed("GITHUB_PERSONAL_ACCESS_TOKEN"));
+        assert!(is_explicit_env_key_allowed("custom_value"));
+        assert!(!is_explicit_env_key_allowed(""));
+        assert!(!is_explicit_env_key_allowed("9INVALID"));
+        assert!(!is_explicit_env_key_allowed("INVALID=VALUE"));
+        assert!(!is_explicit_env_key_allowed("INVALID-VALUE"));
+    }
+
+    #[tokio::test]
+    async fn sanitized_environment_supports_node_package_launchers_when_installed() {
+        if let Some(node) = resolve_executable_via_shell("node").await {
+            let ambient_key = std::env::vars_os().find_map(|(key, value)| {
+                let normalized = key.to_string_lossy().to_ascii_uppercase();
+                (!value.is_empty()
+                    && normalized != "PATH"
+                    && !MCP_RUNTIME_ENV_ALLOWLIST.contains(&normalized.as_str()))
+                .then_some(key)
+            });
+            if let Some(ambient_key) = ambient_key {
+                let output = create_shell_command(
+                    &node,
+                    &[
+                        "-e".to_string(),
+                        "process.stdout.write(Object.prototype.hasOwnProperty.call(process.env, process.argv[1]) ? 'present' : 'absent')"
+                            .to_string(),
+                        ambient_key.to_string_lossy().into_owned(),
+                    ],
+                )
+                .output()
+                .await
+                .expect("launch Node environment probe");
+                assert_eq!(String::from_utf8_lossy(&output.stdout), "absent");
+            }
+        }
+
+        for launcher in ["node", "npm", "npx"] {
+            let Some(resolved) = resolve_executable_via_shell(launcher).await else {
+                continue;
+            };
+            let output = create_shell_command(&resolved, &["--version".to_string()])
+                .output()
+                .await
+                .unwrap_or_else(|error| panic!("failed to launch {launcher}: {error}"));
+            assert!(
+                output.status.success(),
+                "{launcher} failed with sanitized environment: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     #[tokio::test]
