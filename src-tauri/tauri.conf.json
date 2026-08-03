@@ -39,7 +39,8 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": [
-      "appimage",
+      "deb",
+      "rpm",
       "app",
       "dmg",
       "nsis"
