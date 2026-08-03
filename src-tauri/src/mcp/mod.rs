@@ -25,6 +25,8 @@ pub struct McpToolInfo {
     pub name: String,
     pub description: String,
     pub inputSchema: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readOnlyHint: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +264,7 @@ mod tests {
                 name: "test_tool".to_string(),
                 description: "Test tool".to_string(),
                 inputSchema: serde_json::json!({ "type": "object" }),
+                readOnlyHint: None,
             }],
             cancel_token: tokio_util::sync::CancellationToken::new(),
             request_tx: Some(request_tx),

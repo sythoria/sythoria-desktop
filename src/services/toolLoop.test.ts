@@ -6,7 +6,9 @@ import {
   TOOL_DEFINITIONS,
   TOOL_SYSTEM_PROMPT,
   assertUsableFinishReason,
+  buildToolDefinitions,
   parseToolArguments,
+  scheduleToolExecution,
   sendWithToolLoop,
   type ToolLoopSlice,
 } from "./toolLoop";
@@ -148,6 +150,56 @@ describe("TOOL_DEFINITIONS", () => {
       expect(tool.function.parameters.required!.length).toBeGreaterThan(0);
     }
   });
+
+  it("declares tool effects and treats unannotated MCP tools as mutations", () => {
+    expect(TOOL_DEFINITIONS.every((tool) => tool.effect)).toBe(true);
+    const [unknownEffect] = buildToolDefinitions(
+      [
+        {
+          name: "change",
+          namespacedName: "server__change",
+          description: "Changes data",
+          inputSchema: {},
+          serverId: "server-1",
+          serverName: "Server",
+        },
+      ],
+      false,
+    ).filter((tool) => tool.function.name === "server__change");
+    expect(unknownEffect.effect).toEqual({ mode: "mutation", resource: "mcp-server" });
+  });
+});
+
+describe("tool effect scheduling", () => {
+  it("runs reads concurrently but keeps mutations exclusive and ordered per resource", async () => {
+    const events: string[] = [];
+    let releaseFirstRead!: () => void;
+    const firstReadBlocked = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve;
+    });
+    const resourceKey = `project:test-${Date.now()}`;
+
+    const firstRead = scheduleToolExecution({ mode: "read", resourceKey }, async () => {
+      events.push("read-1-start");
+      await firstReadBlocked;
+      events.push("read-1-end");
+    });
+    const secondRead = scheduleToolExecution({ mode: "read", resourceKey }, async () => {
+      events.push("read-2");
+    });
+    const firstMutation = scheduleToolExecution({ mode: "mutation", resourceKey }, async () => {
+      events.push("mutation-1");
+    });
+    const secondMutation = scheduleToolExecution({ mode: "mutation", resourceKey }, async () => {
+      events.push("mutation-2");
+    });
+
+    await secondRead;
+    expect(events).toEqual(["read-1-start", "read-2"]);
+    releaseFirstRead();
+    await Promise.all([firstRead, firstMutation, secondMutation]);
+    expect(events).toEqual(["read-1-start", "read-2", "read-1-end", "mutation-1", "mutation-2"]);
+  });
 });
 
 describe("tool response validation", () => {
@@ -273,12 +325,14 @@ describe("sendWithToolLoop", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
       projectId: project.id,
+      conversationId: "conv-read",
       worktreePath: null,
-      branchName: null,
+      branch: null,
     });
     expect(invokeMock).not.toHaveBeenCalledWith("git_worktree_create", expect.anything());
     expect(invokeMock).toHaveBeenCalledWith("project_read", {
       projectId: project.id,
+      runToken: undefined,
       path: "README.md",
       offset: null,
       limit: null,

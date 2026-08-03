@@ -154,8 +154,21 @@ function isFileWriteTool(
   return { isWrite: false };
 }
 
+type ToolEffectResource = "none" | "conversation" | "project" | "mcp-server";
+
+interface ToolEffectMetadata {
+  mode: "read" | "mutation";
+  resource: ToolEffectResource;
+}
+
+export interface ResolvedToolEffect {
+  mode: ToolEffectMetadata["mode"];
+  resourceKey: string | null;
+}
+
 interface ToolDefinition {
   type: "function";
+  effect: ToolEffectMetadata;
   function: {
     name: string;
     description: string;
@@ -170,6 +183,7 @@ interface ToolDefinition {
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
+    effect: { mode: "read", resource: "none" },
     function: {
       name: "search_query",
       description:
@@ -183,6 +197,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function",
+    effect: { mode: "read", resource: "none" },
     function: {
       name: "fetch_url",
       description:
@@ -202,6 +217,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function",
+    effect: { mode: "mutation", resource: "conversation" },
     function: {
       name: "invoke_subagent",
       description:
@@ -228,6 +244,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function",
+    effect: { mode: "read", resource: "conversation" },
     function: {
       name: "wait_subagents",
       description:
@@ -248,6 +265,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function",
+    effect: { mode: "mutation", resource: "conversation" },
     function: {
       name: "send_message",
       description: "Sends a message to an active subagent.",
@@ -263,6 +281,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     type: "function",
+    effect: { mode: "read", resource: "none" },
     function: {
       name: "read_skill",
       description: "Reads the content of a specific skill by its ID.",
@@ -277,7 +296,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
+export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
   const tools = TOOL_DEFINITIONS.filter((t) => {
     if (!includeSearch && (t.function.name === "search_query" || t.function.name === "fetch_url")) {
       return false;
@@ -288,6 +307,10 @@ function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
     const inputSchema = (mcpTool.inputSchema ?? { properties: {} }) as Record<string, unknown>;
     tools.push({
       type: "function",
+      effect: {
+        mode: mcpTool.readOnlyHint === true ? "read" : "mutation",
+        resource: "mcp-server",
+      },
       function: {
         name: mcpTool.namespacedName,
         description: `[MCP: ${mcpTool.serverName}] ${mcpTool.description}`,
@@ -308,6 +331,7 @@ function buildProjectToolDefinitions(project: Project | null) {
 
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_read",
       description:
@@ -335,6 +359,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   });
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_grep",
       description:
@@ -363,6 +388,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   });
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_glob",
       description:
@@ -382,6 +408,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   });
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_git_status",
       description: "Get the current git status of the project.",
@@ -390,6 +417,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   });
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_list_dir",
       description: "Lists the files and directories inside a specific directory path within the project.",
@@ -407,6 +435,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   });
   tools.push({
     type: "function",
+    effect: { mode: "read", resource: "project" },
     function: {
       name: "project_git_diff",
       description: "Get the git diff of the project (unstaged and staged changes).",
@@ -418,6 +447,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   if (project.permissions === "write" || project.permissions === "full") {
     tools.push({
       type: "function",
+      effect: { mode: "mutation", resource: "project" },
       function: {
         name: "project_write",
         description:
@@ -434,6 +464,7 @@ function buildProjectToolDefinitions(project: Project | null) {
     });
     tools.push({
       type: "function",
+      effect: { mode: "mutation", resource: "project" },
       function: {
         name: "project_edit",
         description:
@@ -466,6 +497,7 @@ function buildProjectToolDefinitions(project: Project | null) {
     });
     tools.push({
       type: "function",
+      effect: { mode: "mutation", resource: "project" },
       function: {
         name: "project_git_commit",
         description: "Stage and commit changes in the project.",
@@ -489,6 +521,7 @@ function buildProjectToolDefinitions(project: Project | null) {
   if (project.permissions === "full") {
     tools.push({
       type: "function",
+      effect: { mode: "mutation", resource: "project" },
       function: {
         name: "project_bash",
         description:
@@ -510,6 +543,81 @@ function buildProjectToolDefinitions(project: Project | null) {
   }
 
   return tools;
+}
+
+interface ToolResourceQueue {
+  mutationTail: Promise<void>;
+  activeReads: Set<Promise<unknown>>;
+  pendingMutations: number;
+}
+
+const toolResourceQueues = new Map<string, ToolResourceQueue>();
+
+function resolveToolEffect(
+  definition: ToolDefinition,
+  args: Record<string, unknown>,
+  convId: string,
+  project: Project | null,
+  projectRun: ProjectRunContext | null,
+  mcpTools: McpTool[],
+): ResolvedToolEffect {
+  let resourceKey: string | null = null;
+  switch (definition.effect.resource) {
+    case "conversation":
+      resourceKey = `conversation:${typeof args.conversationId === "string" ? args.conversationId : convId}`;
+      break;
+    case "project":
+      if (project) {
+        resourceKey = `project:${project.id}:${projectRun?.worktreePath ?? project.path}`;
+      }
+      break;
+    case "mcp-server": {
+      const mcpTool = mcpTools.find((tool) => tool.namespacedName === definition.function.name);
+      resourceKey = mcpTool ? `mcp-server:${mcpTool.serverId}` : `mcp-tool:${definition.function.name}`;
+      break;
+    }
+  }
+  return { mode: definition.effect.mode, resourceKey };
+}
+
+export async function scheduleToolExecution<T>(effect: ResolvedToolEffect, execute: () => Promise<T>): Promise<T> {
+  if (!effect.resourceKey) return execute();
+
+  let queue = toolResourceQueues.get(effect.resourceKey);
+  if (!queue) {
+    queue = { mutationTail: Promise.resolve(), activeReads: new Set(), pendingMutations: 0 };
+    toolResourceQueues.set(effect.resourceKey, queue);
+  }
+
+  if (effect.mode === "read") {
+    const run = queue.mutationTail.then(execute);
+    queue.activeReads.add(run);
+    const releaseRead = () => {
+      queue!.activeReads.delete(run);
+      if (queue!.activeReads.size === 0 && queue!.pendingMutations === 0) {
+        toolResourceQueues.delete(effect.resourceKey!);
+      }
+    };
+    void run.then(releaseRead, releaseRead);
+    return run;
+  }
+
+  const priorMutation = queue.mutationTail;
+  const priorReads = [...queue.activeReads];
+  queue.pendingMutations++;
+  const run = Promise.allSettled([priorMutation, ...priorReads]).then(execute);
+  queue.mutationTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  const releaseMutation = () => {
+    queue!.pendingMutations--;
+    if (queue!.activeReads.size === 0 && queue!.pendingMutations === 0) {
+      toolResourceQueues.delete(effect.resourceKey!);
+    }
+  };
+  void run.then(releaseMutation, releaseMutation);
+  return run;
 }
 
 export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
@@ -1049,10 +1157,11 @@ async function runWithToolLoop(
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
-    const allTools = [
+    const toolDefinitions = [
       ...buildToolDefinitions(useMcp ? mcpTools : [], useSearch),
       ...buildProjectToolDefinitions(project),
     ];
+    const apiTools = toolDefinitions.map(({ effect: _effect, ...definition }) => definition);
 
     const getRelativePath = (p: string) => {
       if (project && p.startsWith(project.path)) {
@@ -1165,7 +1274,7 @@ async function runWithToolLoop(
       const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
         messages: apiMessages,
-        tools: JSON.stringify(allTools),
+        tools: JSON.stringify(apiTools),
         temperature: requestTemp,
         maxTokens,
         thinkingLevel: modelConfig.thinkingLevel ?? "auto",
@@ -1262,7 +1371,9 @@ async function runWithToolLoop(
         const toolCallDataList = msg.tool_calls.map((toolCall) => {
           const rawName = toolCall.function.name;
           const fnName = toKnownToolName(rawName);
-          const fnArgs = parseToolArguments(toolCall, allTools);
+          const fnArgs = parseToolArguments(toolCall, toolDefinitions);
+          const definition = toolDefinitions.find((candidate) => candidate.function.name === rawName)!;
+          const effect = resolveToolEffect(definition, fnArgs, convId, project, projectRun, mcpTools);
           const toolCallMsgId = generateId();
           const isProjectTool = fnName.startsWith("project_");
 
@@ -1298,6 +1409,7 @@ async function runWithToolLoop(
             toolCallMsgId,
             toolCallMsg,
             toolDesc,
+            effect,
           };
         });
 
@@ -1340,7 +1452,7 @@ async function runWithToolLoop(
           generationByConversation: setConversationGeneration(state, convId, stepState, generationLabel),
         }));
 
-        const toolCallPromises = toolCallDataList.map(async (td) => {
+        const executeToolCall = async (td: (typeof toolCallDataList)[number]) => {
           const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
 
           const uiStore = useUIStore.getState();
@@ -1904,7 +2016,10 @@ async function runWithToolLoop(
             images,
             isError,
           };
-        });
+        };
+        const toolCallPromises = toolCallDataList.map((td) =>
+          scheduleToolExecution(td.effect, () => executeToolCall(td)),
+        );
 
         // Wait for all tool completions
         const results = await Promise.all(toolCallPromises);

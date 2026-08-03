@@ -303,7 +303,12 @@ export const useMcpStore = create<McpState>((set, get) => ({
         return;
       }
 
-      const tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] = JSON.parse(raw);
+      const tools: {
+        name: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+        readOnlyHint?: boolean;
+      }[] = JSON.parse(raw);
 
       const sanitizedName = sanitizeName(config.name);
       const mcpTools: McpTool[] = tools.map((t) => ({
@@ -311,6 +316,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         namespacedName: `${sanitizedName}__${t.name}`,
         description: t.description,
         inputSchema: t.inputSchema,
+        readOnlyHint: t.readOnlyHint,
         serverId: id,
         serverName: config.name,
       }));

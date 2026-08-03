@@ -197,6 +197,7 @@ export interface McpTool {
   namespacedName: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  readOnlyHint?: boolean;
   serverId: string;
   serverName: string;
 }

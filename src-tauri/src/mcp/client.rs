@@ -64,6 +64,10 @@ fn convert_tool(t: &rmcp::model::Tool) -> McpToolInfo {
         name: t.name.to_string(),
         description: t.description.clone().unwrap_or_default().to_string(),
         inputSchema: serde_json::Value::Object(schema_obj),
+        readOnlyHint: t
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.read_only_hint),
     }
 }
 
