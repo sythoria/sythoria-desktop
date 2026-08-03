@@ -624,21 +624,92 @@ pub async fn git_checkout_branch(
     branch: String,
 ) -> Result<(), AppError> {
     let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false)?;
-    let repo_path_str = repo_path.to_string_lossy().into_owned();
 
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(&repo_path_str)
-        .arg("checkout")
-        .arg("--")
+    switch_branch_in_repository(&repo_path, &branch).await
+}
+
+fn git_switch_is_unavailable(stderr: &[u8]) -> bool {
+    let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    message.contains("is not a git command") || message.contains("unknown subcommand: 'switch'")
+}
+
+async fn switch_branch_in_repository(repo_path: &Path, branch: &str) -> Result<(), AppError> {
+    let validation = Command::new("git")
+        .arg("check-ref-format")
+        .arg("--branch")
         .arg(branch)
         .output()
         .await
-        .map_err(|e| AppError::GitError(format!("Failed to checkout branch: {}", e)))?;
+        .map_err(|e| AppError::GitError(format!("Failed to validate branch name: {e}")))?;
 
-    if !output.status.success() {
+    if !validation.status.success() {
+        return Err(AppError::GitError(format!(
+            "Invalid Git branch name: {branch}"
+        )));
+    }
+
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("status")
+        .arg("--porcelain=v1")
+        .arg("--untracked-files=normal")
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to inspect repository state: {e}")))?;
+
+    if !status.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to inspect repository state: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        )));
+    }
+
+    if !status.stdout.is_empty() {
         return Err(AppError::GitError(
-            String::from_utf8_lossy(&output.stderr).to_string(),
+            "Cannot switch branches while the repository has staged, unstaged, or untracked changes. Commit or stash them first."
+                .to_string(),
+        ));
+    }
+
+    // `git switch` attaches a detached HEAD to the requested branch. Git versions
+    // older than 2.23 do not provide it, so fall back only when the subcommand is
+    // unavailable. The branch has already passed Git's ref-name validation.
+    let switch_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("switch")
+        .arg(branch)
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to switch branch: {e}")))?;
+
+    if switch_output.status.success() {
+        return Ok(());
+    }
+
+    if !git_switch_is_unavailable(&switch_output.stderr) {
+        return Err(AppError::GitError(
+            String::from_utf8_lossy(&switch_output.stderr)
+                .trim()
+                .to_string(),
+        ));
+    }
+
+    let checkout_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("checkout")
+        .arg(branch)
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to switch branch with legacy Git: {e}")))?;
+
+    if !checkout_output.status.success() {
+        return Err(AppError::GitError(
+            String::from_utf8_lossy(&checkout_output.stderr)
+                .trim()
+                .to_string(),
         ));
     }
 
@@ -873,7 +944,7 @@ async fn cleanup_worktree_internal(
 mod tests {
     use super::{
         apply_worktree_changes, create_commit_in_repository, parse_changed_paths,
-        resolve_git_relative_path,
+        resolve_git_relative_path, switch_branch_in_repository,
     };
     use std::path::Path;
     use std::process::Command as StdCommand;
@@ -961,6 +1032,55 @@ mod tests {
         assert!(parse_changed_paths(b"A\0").is_err());
         assert!(parse_changed_paths(b"R100\0old.txt\0new.txt\0").is_err());
         assert!(parse_changed_paths(b"A\0../outside\0").is_ok());
+    }
+
+    #[tokio::test]
+    async fn branch_switch_validates_names_and_attaches_detached_head() {
+        let fixture = TestRepository::new();
+        run_git(&fixture.repo, &["branch", "feature/valid-branch"]);
+        run_git(&fixture.repo, &["checkout", "--detach"]);
+
+        switch_branch_in_repository(&fixture.repo, "feature/valid-branch")
+            .await
+            .expect("switch from detached HEAD");
+
+        let branch = StdCommand::new("git")
+            .arg("-C")
+            .arg(&fixture.repo)
+            .args(["branch", "--show-current"])
+            .output()
+            .expect("read current branch");
+        assert_eq!(
+            String::from_utf8_lossy(&branch.stdout).trim(),
+            "feature/valid-branch"
+        );
+
+        assert!(switch_branch_in_repository(&fixture.repo, "../invalid")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn branch_switch_reports_dirty_state_before_switching() {
+        let fixture = TestRepository::new();
+        run_git(&fixture.repo, &["branch", "feature/clean-target"]);
+        std::fs::write(fixture.repo.join("modified.txt"), b"dirty\n").expect("dirty fixture");
+
+        let error = switch_branch_in_repository(&fixture.repo, "feature/clean-target")
+            .await
+            .expect_err("dirty repository must not switch");
+
+        assert!(error.to_string().contains("Commit or stash"));
+        let branch = StdCommand::new("git")
+            .arg("-C")
+            .arg(&fixture.repo)
+            .args(["branch", "--show-current"])
+            .output()
+            .expect("read current branch");
+        assert_ne!(
+            String::from_utf8_lossy(&branch.stdout).trim(),
+            "feature/clean-target"
+        );
     }
 
     #[tokio::test]
