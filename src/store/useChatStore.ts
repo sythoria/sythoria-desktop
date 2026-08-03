@@ -52,7 +52,12 @@ import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
-import { sendWithToolLoop, waitForConversationToolLoops } from "../services/toolLoop";
+import {
+  cancelConversationGenerationQueue,
+  enqueueConversationGeneration,
+  sendWithToolLoop,
+  waitForConversationToolLoops,
+} from "../services/toolLoop";
 import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
@@ -1131,6 +1136,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   stopStreaming: async (targetConvId, persist = true) => {
     const requestedConvId = typeof targetConvId === "string" ? targetConvId : undefined;
     const targetConvIds = requestedConvId ? collectConversationTreeIds(get().conversations, [requestedConvId]) : null;
+    cancelConversationGenerationQueue(targetConvIds ?? get().conversations.map((conversation) => conversation.id));
 
     const uiStore = useUIStore.getState();
     const pendingConfirmationIds = uiStore.pendingToolConfirmations
@@ -1661,7 +1667,6 @@ async function runNormal(
 
   const streamId = generateId();
   const modelStore = useModelStore.getState();
-  modelStore.setActiveStreamId(streamId, convId);
 
   logInfo("chat", `Sending message to ${modelConfig.name}`, {
     details: `Model: ${modelConfig.modelId}, API: ${modelConfig.apiBase}, Stream ID: ${streamId}`,
@@ -1671,6 +1676,7 @@ async function runNormal(
 
   try {
     cleanupStream = await modelStore.ensureStreamListeners(
+      streamId,
       convId,
       ({ kind, content }) => {
         set((state) => {
@@ -1765,6 +1771,7 @@ async function runNormal(
         });
       },
     );
+    modelStore.setActiveStreamId(streamId, convId);
 
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages: { role: string; content: string | unknown[] }[] =
@@ -1864,7 +1871,7 @@ function sendNormal(
   set: (fn: (state: ChatState) => Partial<ChatState>) => void,
   get: () => ChatState,
 ): Promise<void> {
-  const run = runNormal(convId, modelConfig, temperature, set, get);
+  const run = enqueueConversationGeneration(convId, () => runNormal(convId, modelConfig, temperature, set, get));
   const conversationRuns = activeNormalRuns.get(convId) ?? new Set<Promise<void>>();
   conversationRuns.add(run);
   activeNormalRuns.set(convId, conversationRuns);

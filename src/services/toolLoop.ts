@@ -961,6 +961,38 @@ function triggerParentResume(
 }
 
 const activeToolLoopRuns = new Map<string, Set<Promise<void>>>();
+const conversationGenerationTails = new Map<string, Promise<void>>();
+const conversationGenerationEpochs = new Map<string, number>();
+
+export function cancelConversationGenerationQueue(conversationIds: Iterable<string>): void {
+  for (const conversationId of conversationIds) {
+    conversationGenerationEpochs.set(conversationId, (conversationGenerationEpochs.get(conversationId) ?? 0) + 1);
+  }
+}
+
+export function enqueueConversationGeneration<T>(conversationId: string, execute: () => Promise<T>): Promise<T> {
+  const epoch = conversationGenerationEpochs.get(conversationId) ?? 0;
+  const previous = conversationGenerationTails.get(conversationId) ?? Promise.resolve();
+  const run = previous
+    .catch(() => undefined)
+    .then(() => {
+      if ((conversationGenerationEpochs.get(conversationId) ?? 0) !== epoch) {
+        throw new Error("Queued generation was cancelled before it started.");
+      }
+      return execute();
+    });
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  conversationGenerationTails.set(conversationId, tail);
+  void tail.then(() => {
+    if (conversationGenerationTails.get(conversationId) === tail) {
+      conversationGenerationTails.delete(conversationId);
+    }
+  });
+  return run;
+}
 
 async function runWithToolLoop(
   initialRunContext: ConversationRunContext,
@@ -994,88 +1026,78 @@ async function runWithToolLoop(
   let projectCapability: ProjectRunContext | null = null;
   const collectedSources: { title: string; url: string }[] = [];
 
-  const streamDoneResolves = new Map<string, () => void>();
-  let cleanupStream: (() => void) | null = null;
-
   try {
     logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
     const conv = get().conversations.find((c) => c.id === convId);
 
     const modelStore = useModelStore.getState();
-    cleanupStream = await modelStore.ensureStreamListeners(
-      convId,
-      ({ kind, content }) => {
-        set((state) => {
-          const isReasoning = kind === "reasoning";
-          const now = Date.now();
-          const nextStart = { ...(state.activeStreamThinkingStart ?? {}) };
-          const nextEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
-          if (isReasoning) nextStart[convId] ||= now;
-          else if (nextStart[convId] && !nextEnd[convId]) nextEnd[convId] = now;
+    const handleStreamChunk = ({ kind, content }: { kind: "content" | "reasoning"; content: string }) => {
+      set((state) => {
+        const isReasoning = kind === "reasoning";
+        const now = Date.now();
+        const nextStart = { ...(state.activeStreamThinkingStart ?? {}) };
+        const nextEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
+        if (isReasoning) nextStart[convId] ||= now;
+        else if (nextStart[convId] && !nextEnd[convId]) nextEnd[convId] = now;
 
-          return {
-            generationState: isReasoning ? "thinking" : "responding",
-            generationLabel: isReasoning ? "Thinking" : "Responding",
-            activeStreamThinkingStart: nextStart,
-            activeStreamThinkingEnd: nextEnd,
-            ...(isReasoning
-              ? {
-                  activeStreamReasoning: {
-                    ...state.activeStreamReasoning,
-                    [convId]: (state.activeStreamReasoning?.[convId] || "") + content,
-                  },
-                }
-              : {
-                  activeStreamContent: {
-                    ...state.activeStreamContent,
-                    [convId]: (state.activeStreamContent?.[convId] || "") + content,
-                  },
-                }),
-          };
+        return {
+          generationState: isReasoning ? "thinking" : "responding",
+          generationLabel: isReasoning ? "Thinking" : "Responding",
+          activeStreamThinkingStart: nextStart,
+          activeStreamThinkingEnd: nextEnd,
+          ...(isReasoning
+            ? {
+                activeStreamReasoning: {
+                  ...state.activeStreamReasoning,
+                  [convId]: (state.activeStreamReasoning?.[convId] || "") + content,
+                },
+              }
+            : {
+                activeStreamContent: {
+                  ...state.activeStreamContent,
+                  [convId]: (state.activeStreamContent?.[convId] || "") + content,
+                },
+              }),
+        };
+      });
+    };
+    const handleStreamDone = () => {
+      set((state) => {
+        const streamContent = state.activeStreamContent?.[convId] || "";
+        const streamReasoning = state.activeStreamReasoning?.[convId] || "";
+        const conversations = state.conversations.map((c) => {
+          if (c.id !== convId) return c;
+          const updated = [...c.messages];
+          const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
+          if (lastAssistantIdx >= 0) {
+            const idx = updated.length - 1 - lastAssistantIdx;
+            const last = updated[idx];
+            updated[idx] = {
+              ...last,
+              content: last.content + streamContent,
+              reasoningContent: (last.reasoningContent || "") + streamReasoning || undefined,
+              isStreaming: false,
+            };
+          }
+          return { ...c, messages: updated };
         });
-      },
-      () => {
-        set((state) => {
-          const streamContent = state.activeStreamContent?.[convId] || "";
-          const streamReasoning = state.activeStreamReasoning?.[convId] || "";
-          const conversations = state.conversations.map((c) => {
-            if (c.id !== convId) return c;
-            const updated = [...c.messages];
-            const lastAssistantIdx = [...updated].reverse().findIndex((m) => m.role === "assistant");
-            if (lastAssistantIdx >= 0) {
-              const idx = updated.length - 1 - lastAssistantIdx;
-              const last = updated[idx];
-              updated[idx] = {
-                ...last,
-                content: last.content + streamContent,
-                reasoningContent: (last.reasoningContent || "") + streamReasoning || undefined,
-                isStreaming: false,
-              };
-            }
-            return { ...c, messages: updated };
-          });
-          const nextActiveStreamContent = { ...(state.activeStreamContent ?? {}) };
-          delete nextActiveStreamContent[convId];
-          const nextActiveStreamReasoning = { ...(state.activeStreamReasoning ?? {}) };
-          delete nextActiveStreamReasoning[convId];
-          const nextActiveStreamThinkingStart = { ...(state.activeStreamThinkingStart ?? {}) };
-          delete nextActiveStreamThinkingStart[convId];
-          const nextActiveStreamThinkingEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
-          delete nextActiveStreamThinkingEnd[convId];
-          return {
-            conversations,
-            activeStreamContent: nextActiveStreamContent,
-            activeStreamReasoning: nextActiveStreamReasoning,
-            activeStreamThinkingStart: nextActiveStreamThinkingStart,
-            activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
-          };
-        });
-        if (streamDoneResolves.has(convId)) {
-          streamDoneResolves.get(convId)!();
-          streamDoneResolves.delete(convId);
-        }
-      },
-    );
+        const nextActiveStreamContent = { ...(state.activeStreamContent ?? {}) };
+        delete nextActiveStreamContent[convId];
+        const nextActiveStreamReasoning = { ...(state.activeStreamReasoning ?? {}) };
+        delete nextActiveStreamReasoning[convId];
+        const nextActiveStreamThinkingStart = { ...(state.activeStreamThinkingStart ?? {}) };
+        delete nextActiveStreamThinkingStart[convId];
+        const nextActiveStreamThinkingEnd = { ...(state.activeStreamThinkingEnd ?? {}) };
+        delete nextActiveStreamThinkingEnd[convId];
+        return {
+          conversations,
+          activeStreamContent: nextActiveStreamContent,
+          activeStreamReasoning: nextActiveStreamReasoning,
+          activeStreamThinkingStart: nextActiveStreamThinkingStart,
+          activeStreamThinkingEnd: nextActiveStreamThinkingEnd,
+        };
+      });
+    };
 
     if (project) {
       if (project.permissions === "read") {
@@ -1252,11 +1274,16 @@ async function runWithToolLoop(
 
       const stepStartTime = Date.now();
       const streamId = generateId();
-      modelStore.setActiveStreamId(streamId, convId);
 
+      let resolveStreamDone!: () => void;
       const streamDonePromise = new Promise<void>((resolve) => {
-        streamDoneResolves.set(convId, resolve);
+        resolveStreamDone = resolve;
       });
+      const cleanupStepStream = await modelStore.ensureStreamListeners(streamId, convId, handleStreamChunk, () => {
+        handleStreamDone();
+        resolveStreamDone();
+      });
+      modelStore.setActiveStreamId(streamId, convId);
 
       set((state) => ({
         conversations: updateConversationMessages(state.conversations, convId, (msgs) => [
@@ -1282,6 +1309,7 @@ async function runWithToolLoop(
       });
 
       await streamDonePromise;
+      cleanupStepStream();
 
       if (!isConvStreaming(get, convId)) {
         void rawPromise.catch(() => {
@@ -1696,19 +1724,20 @@ async function runWithToolLoop(
                 content: String(msgContent).slice(0, MAX_INPUT_LENGTH),
                 timestamp: new Date(),
               };
-              set((s) => ({
-                conversations: updateConversationMessages(s.conversations, targetId, (msgs) => [...msgs, newMsg]),
-              }));
-
-              sendWithToolLoop(
+              enqueueToolLoopRun(
                 continueConversationRunContext(runContext, targetId, worktree),
                 set,
                 get,
                 performSearch,
                 fetchUrlContent,
+                () => {
+                  set((s) => ({
+                    conversations: updateConversationMessages(s.conversations, targetId, (msgs) => [...msgs, newMsg]),
+                  }));
+                },
               ).catch((e) => console.error("Subagent message loop error:", e));
 
-              resultContent = "Message sent.";
+              resultContent = "Message queued for the subagent.";
             } else if (fnName.startsWith("project_")) {
               if (!project) {
                 throw new Error("Project tool called but no project is active.");
@@ -2188,8 +2217,6 @@ async function runWithToolLoop(
       triggerParentResume(updatedConv.parentId, parentMsg, set, get);
     }
   } finally {
-    cleanupStream?.();
-
     if (projectCapability) {
       try {
         await invoke("project_run_end", {
@@ -2218,15 +2245,19 @@ async function runWithToolLoop(
   }
 }
 
-export function sendWithToolLoop(
+function enqueueToolLoopRun(
   initialRunContext: ConversationRunContext,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
+  beforeRun?: () => void,
 ): Promise<void> {
   const conversationId = initialRunContext.conversationId;
-  const run = runWithToolLoop(initialRunContext, set, get, performSearch, fetchUrlContent);
+  const run = enqueueConversationGeneration(conversationId, async () => {
+    beforeRun?.();
+    await runWithToolLoop(initialRunContext, set, get, performSearch, fetchUrlContent);
+  });
   const conversationRuns = activeToolLoopRuns.get(conversationId) ?? new Set<Promise<void>>();
   conversationRuns.add(run);
   activeToolLoopRuns.set(conversationId, conversationRuns);
@@ -2237,6 +2268,16 @@ export function sendWithToolLoop(
   };
   void run.then(releaseRun, releaseRun);
   return run;
+}
+
+export function sendWithToolLoop(
+  initialRunContext: ConversationRunContext,
+  set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
+  get: () => ToolLoopSlice,
+  performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
+  fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
+): Promise<void> {
+  return enqueueToolLoopRun(initialRunContext, set, get, performSearch, fetchUrlContent);
 }
 
 export async function waitForConversationToolLoops(conversationIds: Iterable<string>): Promise<void> {

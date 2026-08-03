@@ -52,6 +52,6 @@ describe("conversation project isolation", () => {
     await useChatStore.getState().resumeConversation(conversation.id);
 
     expect(mocks.sendWithToolLoop).toHaveBeenCalledOnce();
-    expect(mocks.sendWithToolLoop.mock.calls[0][11]).toEqual(projects[0]);
+    expect(mocks.sendWithToolLoop.mock.calls[0][0].project).toEqual(projects[0]);
   });
 });

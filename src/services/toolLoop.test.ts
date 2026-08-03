@@ -7,6 +7,8 @@ import {
   TOOL_SYSTEM_PROMPT,
   assertUsableFinishReason,
   buildToolDefinitions,
+  cancelConversationGenerationQueue,
+  enqueueConversationGeneration,
   parseToolArguments,
   scheduleToolExecution,
   sendWithToolLoop,
@@ -45,7 +47,7 @@ vi.mock("../store/useModelStore", () => ({
     getState: () => ({
       systemPrompt: "",
       maxToolSteps: mockMaxToolSteps,
-      ensureStreamListeners: vi.fn().mockImplementation((_convId, onChunk, onDone) => {
+      ensureStreamListeners: vi.fn().mockImplementation((_streamId, _convId, onChunk, onDone) => {
         mockStreamDone = onDone;
         // Trigger onChunk and onDone asynchronously to simulate completion
         setTimeout(() => {
@@ -199,6 +201,63 @@ describe("tool effect scheduling", () => {
     releaseFirstRead();
     await Promise.all([firstRead, firstMutation, secondMutation]);
     expect(events).toEqual(["read-1-start", "read-2", "read-1-end", "mutation-1", "mutation-2"]);
+  });
+});
+
+describe("conversation generation actor", () => {
+  it("queues follow-up work for the same conversation until the active run completes", async () => {
+    const events: string[] = [];
+    let releaseActive!: () => void;
+    let signalActiveStarted!: () => void;
+    const activeBlocked = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const activeStarted = new Promise<void>((resolve) => {
+      signalActiveStarted = resolve;
+    });
+    const conversationId = `conversation-${Date.now()}`;
+
+    const active = enqueueConversationGeneration(conversationId, async () => {
+      events.push("active-start");
+      signalActiveStarted();
+      await activeBlocked;
+      events.push("active-end");
+    });
+    const followUp = enqueueConversationGeneration(conversationId, async () => {
+      events.push("follow-up");
+    });
+
+    await activeStarted;
+    expect(events).toEqual(["active-start"]);
+    releaseActive();
+    await Promise.all([active, followUp]);
+    expect(events).toEqual(["active-start", "active-end", "follow-up"]);
+  });
+
+  it("drops queued follow-ups when the conversation is stopped", async () => {
+    let releaseActive!: () => void;
+    let signalActiveStarted!: () => void;
+    const activeBlocked = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const activeStarted = new Promise<void>((resolve) => {
+      signalActiveStarted = resolve;
+    });
+    const conversationId = `cancelled-conversation-${Date.now()}`;
+
+    const active = enqueueConversationGeneration(conversationId, async () => {
+      signalActiveStarted();
+      await activeBlocked;
+    });
+    const followUp = enqueueConversationGeneration(conversationId, async () => {
+      throw new Error("follow-up should not execute");
+    });
+
+    await activeStarted;
+    cancelConversationGenerationQueue([conversationId]);
+    releaseActive();
+    await active;
+    await expect(followUp).rejects.toThrow("cancelled before it started");
   });
 });
 
