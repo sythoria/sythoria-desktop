@@ -4,6 +4,7 @@ export type McpToolCaller = (
   serverId: string,
   toolName: string,
   args: Record<string, string>,
+  conversationId: string,
 ) => Promise<McpToolResult>;
 
 export interface ConversationRunContext {

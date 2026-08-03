@@ -98,4 +98,29 @@ describe("useMcpStore capability revocation", () => {
     expect(useMcpStore.getState().availableTools).toEqual([]);
     expect(useMcpStore.getState().serverStatuses[config.id]).toBeUndefined();
   });
+
+  it("cancels only tool calls tracked for the deleted conversation", async () => {
+    let rejectToolCall: ((reason: Error) => void) | undefined;
+    let trackedRequestId = "";
+    mocks.invoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "mcp_call_tool") {
+        trackedRequestId = String(args?.requestId);
+        return new Promise<string>((_resolve, reject) => {
+          rejectToolCall = reject;
+        });
+      }
+      if (command === "mcp_cancel_tool_call") {
+        rejectToolCall?.(new Error("Tool call cancelled"));
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const toolCall = useMcpStore.getState().callTool(config.id, tool.name, {}, "conversation-delete");
+    await vi.waitFor(() => expect(trackedRequestId).toMatch(/^mcp-/));
+    await useMcpStore.getState().cancelConversationToolCalls(["conversation-delete"]);
+
+    await expect(toolCall).resolves.toMatchObject({ isError: true });
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_cancel_tool_call", { requestId: trackedRequestId });
+  });
 });

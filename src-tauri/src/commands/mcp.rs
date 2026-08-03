@@ -2,6 +2,53 @@ use crate::commands::config::get_keychain_secret;
 use crate::mcp;
 use crate::AppError;
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use tokio_util::sync::CancellationToken;
+
+static ACTIVE_TOOL_CALLS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn register_tool_call(request_id: &str) -> Result<CancellationToken, AppError> {
+    let mut active_calls = ACTIVE_TOOL_CALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if active_calls.contains_key(request_id) {
+        return Err(AppError::McpError(format!(
+            "MCP request ID is already active: {request_id}"
+        )));
+    }
+    let token = CancellationToken::new();
+    active_calls.insert(request_id.to_string(), token.clone());
+    Ok(token)
+}
+
+fn cancel_registered_tool_call(request_id: &str) -> bool {
+    let active_calls = ACTIVE_TOOL_CALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    active_calls
+        .get(request_id)
+        .map(|token| {
+            token.cancel();
+            true
+        })
+        .unwrap_or(false)
+}
+
+fn finish_tool_call(request_id: &str) {
+    ACTIVE_TOOL_CALLS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(request_id);
+}
+
+struct ToolCallRegistration(String);
+
+impl Drop for ToolCallRegistration {
+    fn drop(&mut self) {
+        finish_tool_call(&self.0);
+    }
+}
 
 #[tauri::command]
 pub async fn mcp_start_server(
@@ -92,14 +139,24 @@ pub async fn mcp_call_tool(
     server_id: String,
     tool_name: String,
     arguments: String,
+    request_id: Option<String>,
 ) -> Result<String, AppError> {
     crate::ensure_online()?;
     let args: serde_json::Value = serde_json::from_str(&arguments)
         .map_err(|e| AppError::ParseError(format!("Invalid tool arguments JSON: {}", e)))?;
 
+    let registration = match request_id.as_deref() {
+        Some(request_id) => Some((
+            register_tool_call(request_id)?,
+            ToolCallRegistration(request_id.to_string()),
+        )),
+        None => None,
+    };
+    let cancel_token = registration.as_ref().map(|(token, _guard)| token.clone());
+
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(120),
-        mcp::client::call_tool_on_server(&server_id, &tool_name, &args),
+        mcp::client::call_tool_on_server(&server_id, &tool_name, &args, cancel_token),
     )
     .await
     .map_err(|_| AppError::McpError("MCP tool call timed out after 120 seconds".to_string()))?
@@ -109,4 +166,37 @@ pub async fn mcp_call_tool(
     })?;
 
     Ok(serde_json::to_string(&result).unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn mcp_cancel_tool_call(request_id: String) -> Result<bool, AppError> {
+    Ok(cancel_registered_tool_call(&request_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_call_registry_cancels_only_the_requested_call() {
+        let first = register_tool_call("request-first").expect("register first request");
+        let second = register_tool_call("request-second").expect("register second request");
+
+        assert!(cancel_registered_tool_call("request-first"));
+        assert!(first.is_cancelled());
+        assert!(!second.is_cancelled());
+
+        finish_tool_call("request-first");
+        finish_tool_call("request-second");
+        assert!(!cancel_registered_tool_call("request-first"));
+    }
+
+    #[test]
+    fn tool_call_registry_rejects_duplicate_request_ids() {
+        let _token = register_tool_call("request-duplicate").expect("register request");
+        let duplicate = register_tool_call("request-duplicate");
+
+        assert!(duplicate.is_err());
+        finish_tool_call("request-duplicate");
+    }
 }

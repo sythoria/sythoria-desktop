@@ -2213,6 +2213,7 @@ pub fn run() {
             commands::mcp::mcp_list_resources,
             commands::mcp::mcp_list_prompts,
             commands::mcp::mcp_call_tool,
+            commands::mcp::mcp_cancel_tool_call,
             commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,

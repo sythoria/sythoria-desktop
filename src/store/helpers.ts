@@ -46,7 +46,7 @@ export function uiCloseRenameModal() {
 }
 
 export function modelCancelStream() {
-  useModelStore.getState().cancelActiveStream();
+  return useModelStore.getState().cancelActiveStream();
 }
 
 export function modelStopHealthCheck() {

@@ -47,6 +47,7 @@ pub enum McpServerRequest {
     CallTool {
         tool_name: String,
         arguments: serde_json::Value,
+        cancel_token: Option<tokio_util::sync::CancellationToken>,
         reply_tx: tokio::sync::oneshot::Sender<Result<McpToolResult, String>>,
     },
     ListResources {

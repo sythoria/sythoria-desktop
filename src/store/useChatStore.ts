@@ -52,7 +52,7 @@ import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { TITLE_MAX_LENGTH } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
-import { sendWithToolLoop } from "../services/toolLoop";
+import { sendWithToolLoop, waitForConversationToolLoops } from "../services/toolLoop";
 import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
@@ -85,6 +85,47 @@ import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
 
 const processingTokens = new Set<string>();
+const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
+let conversationDeletionTail: Promise<void> = Promise.resolve();
+const activeNormalRuns = new Map<string, Set<Promise<void>>>();
+
+interface ConversationDeletionOptions {
+  preferredActiveId?: string | null;
+  appendPreferredToHistory?: boolean;
+  persist?: boolean;
+}
+
+function collectConversationTreeIds(conversations: Conversation[], rootIds: Iterable<string>): Set<string> {
+  const ids = new Set(rootIds);
+  let foundDescendant = true;
+  while (foundDescendant) {
+    foundDescendant = false;
+    for (const conversation of conversations) {
+      if (conversation.parentId && ids.has(conversation.parentId) && !ids.has(conversation.id)) {
+        ids.add(conversation.id);
+        foundDescendant = true;
+      }
+    }
+  }
+  return ids;
+}
+
+async function awaitBoundedShutdown(tasks: Promise<unknown>[], label: string): Promise<boolean> {
+  if (tasks.length === 0) return true;
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timeoutId = globalThis.setTimeout(() => resolve("timeout"), DELETION_SHUTDOWN_TIMEOUT_MS);
+  });
+  const result = await Promise.race([Promise.allSettled(tasks), timeout]);
+  if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
+  if (result === "timeout") {
+    logWarn("chat", `${label} exceeded the bounded deletion shutdown window`, {
+      details: `${DELETION_SHUTDOWN_TIMEOUT_MS}ms`,
+    });
+    return false;
+  }
+  return result.every((settlement) => settlement.status === "fulfilled" && settlement.value !== false);
+}
 
 function truncateTitle(text: string): string {
   return text.length > TITLE_MAX_LENGTH ? text.slice(0, TITLE_MAX_LENGTH) + "\u2026" : text;
@@ -151,7 +192,13 @@ interface EnabledToolLoopConfig {
   searchApiKey: string;
   mcpTools: McpTool[];
   mcpCallTool:
-    ((serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>) | undefined;
+    | ((
+        serverId: string,
+        toolName: string,
+        args: Record<string, string>,
+        conversationId: string,
+      ) => Promise<McpToolResult>)
+    | undefined;
 }
 
 function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
@@ -165,8 +212,8 @@ function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
   const mcpTools = useMcpStore.getState().getEnabledTools();
   const mcpCallTool =
     mcpTools.length > 0
-      ? (serverId: string, toolName: string, args: Record<string, string>) =>
-          useMcpStore.getState().callTool(serverId, toolName, args)
+      ? (serverId: string, toolName: string, args: Record<string, string>, conversationId: string) =>
+          useMcpStore.getState().callTool(serverId, toolName, args, conversationId)
       : undefined;
 
   return {
@@ -224,19 +271,20 @@ interface ChatState {
   setIsCompareMode: (val: boolean) => boolean;
 
   init: () => Promise<void>;
-  cleanupEmptyConversations: (exceptId?: string | null) => void;
-  setActiveId: (id: string | null, isHistoryMove?: boolean) => void;
+  cleanupEmptyConversations: (exceptId?: string | null) => Promise<void>;
+  setActiveId: (id: string | null, isHistoryMove?: boolean) => Promise<boolean>;
   navigateBack: () => void;
   navigateForward: () => void;
   newChat: () => string;
   newTemporaryChat: () => string;
-  deleteChat: (id: string) => void;
+  deleteChat: (id: string) => Promise<boolean>;
+  deleteConversationTrees: (rootIds: string[], options?: ConversationDeletionOptions) => Promise<boolean>;
   renameChat: (id: string, newTitle: string) => void;
   togglePinChat: (id: string) => void;
   confirmRename: (newTitle: string) => void;
   sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
   retryLastMessage: (convId: string) => Promise<void>;
-  stopStreaming: (convId?: string) => Promise<void>;
+  stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
   persistConversations: () => Promise<void>;
   resumeConversation: (convId: string) => Promise<void>;
@@ -537,45 +585,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  cleanupEmptyConversations: (exceptId?: string | null) => {
-    const { conversations, activeId } = get();
+  cleanupEmptyConversations: async (exceptId?: string | null) => {
+    const { conversations, activeId, isCompareMode, compareIds } = get();
     const keepId = exceptId !== undefined ? exceptId : activeId;
-    const nonEmpty = conversations.filter((c) => {
-      if (c.id.startsWith("compare-")) {
-        return Boolean(c.pendingWorktree) || (get().isCompareMode && get().compareIds.includes(c.id));
-      }
-      return Boolean(c.pendingWorktree) || c.messages.length > 0 || c.id === keepId;
+    const removableIds = new Set(
+      conversations.flatMap((conversation) => {
+        if (conversation.pendingWorktree || conversation.id === keepId) return [];
+        if (conversation.id.startsWith("compare-")) {
+          return isCompareMode && compareIds.includes(conversation.id) ? [] : [conversation.id];
+        }
+        return conversation.messages.length === 0 ? [conversation.id] : [];
+      }),
+    );
+    if (removableIds.size === 0) return;
+    const safeRemovableIds = new Set(
+      [...removableIds].filter((conversationId) =>
+        [...collectConversationTreeIds(conversations, [conversationId])].every((id) => removableIds.has(id)),
+      ),
+    );
+    const rootIds = conversations.flatMap((conversation) => {
+      if (!safeRemovableIds.has(conversation.id)) return [];
+      return conversation.parentId && safeRemovableIds.has(conversation.parentId) ? [] : [conversation.id];
     });
-    if (nonEmpty.length === conversations.length) return;
-
-    const removedConvs = conversations.filter((c) => !nonEmpty.includes(c));
-    removedConvs.forEach((conv) => {
-      if (conv.pendingWorktree && conv.projectId) {
-        const projectId = conv.projectId;
-        const worktreePath = conv.pendingWorktree.path;
-        const branchName = conv.pendingWorktree.branch;
-        import("@tauri-apps/api/core").then(({ invoke }) => {
-          invoke("git_worktree_discard", {
-            projectId,
-            worktreePath,
-            branchName,
-          }).catch((err) => {
-            logError("chat", "Failed to discard worktree on cleanup", { error: err });
-          });
-        });
-      }
-    });
-
-    const activeRemoved = activeId && !nonEmpty.find((c) => c.id === activeId);
-    set({
-      conversations: nonEmpty,
-      ...(activeRemoved ? { activeId: nonEmpty.length > 0 ? nonEmpty[0].id : null } : {}),
-    });
+    if (rootIds.length === 0) return;
+    await get().deleteConversationTrees(rootIds, { preferredActiveId: keepId });
   },
 
   setActiveId: (id, isHistoryMove = false) => {
     const { activeId, navigationHistory, navigationIndex, conversations, compareIds } = get();
-    if (activeId === id) return;
+    if (activeId === id) return Promise.resolve(true);
+
+    const activeConversation = conversations.find((conversation) => conversation.id === activeId);
+    if (activeConversation?.pendingWorktree) {
+      uiToast(
+        `Apply or discard pending workspace changes in “${activeConversation.title}” before switching conversations.`,
+        "error",
+      );
+      return Promise.resolve(false);
+    }
 
     const pendingComparison = compareIds
       .map((compareId) => conversations.find((conversation) => conversation.id === compareId))
@@ -585,30 +632,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
         `Resolve pending workspace changes in “${pendingComparison.title}” before switching conversations.`,
         "error",
       );
-      return;
+      return Promise.resolve(false);
     }
 
-    // Exit compare mode when switching chats to prevent state pollution
+    if (activeConversation?.isTemporary) {
+      return get().deleteConversationTrees([activeConversation.id], {
+        preferredActiveId: id,
+        appendPreferredToHistory: !isHistoryMove,
+      });
+    }
+
+    const newHistory = isHistoryMove
+      ? navigationHistory
+      : id === null
+        ? navigationHistory.slice(0, navigationIndex + 1)
+        : [...navigationHistory.slice(0, navigationIndex + 1), id];
+    const nextNavigationIndex = isHistoryMove ? (id === null ? -1 : newHistory.lastIndexOf(id)) : newHistory.length - 1;
+
     set({
+      activeId: id,
+      navigationHistory: newHistory,
+      navigationIndex: nextNavigationIndex,
       isCompareMode: false,
       compareIds: [],
     });
-
-    get().cleanupEmptyConversations(id);
-
-    if (!isHistoryMove) {
-      const newHistory = navigationHistory.slice(0, navigationIndex + 1);
-      if (id !== null) {
-        newHistory.push(id);
-      }
-      set({
-        activeId: id,
-        navigationHistory: newHistory,
-        navigationIndex: newHistory.length - 1,
-      });
-    } else {
-      set({ activeId: id });
-    }
+    void get().cleanupEmptyConversations(id);
+    return Promise.resolve(true);
   },
 
   navigateBack: () => {
@@ -616,8 +665,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (navigationIndex > 0) {
       const newIndex = navigationIndex - 1;
       const id = navigationHistory[newIndex];
-      set({ navigationIndex: newIndex });
-      get().setActiveId(id, true);
+      void get().setActiveId(id, true);
       uiView("chat");
       uiSidebarOpen(false);
     }
@@ -628,14 +676,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (navigationIndex < navigationHistory.length - 1) {
       const newIndex = navigationIndex + 1;
       const id = navigationHistory[newIndex];
-      set({ navigationIndex: newIndex });
-      get().setActiveId(id, true);
+      void get().setActiveId(id, true);
       uiView("chat");
       uiSidebarOpen(false);
     }
   },
 
   newChat: () => {
+    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
+    if (currentConversation?.pendingWorktree) {
+      uiToast("Apply or discard pending workspace changes before starting another chat.", "error");
+      return currentConversation.id;
+    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = generateId();
@@ -649,13 +701,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projectId: (isProjectsEnabled && activeProjectId) || undefined,
     };
     set((state) => ({ conversations: [conv, ...state.conversations] }));
-    get().setActiveId(id);
+    void get().setActiveId(id);
     uiSidebarOpen(false);
     uiView("chat");
     return id;
   },
 
   newTemporaryChat: () => {
+    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
+    if (currentConversation?.pendingWorktree) {
+      uiToast("Apply or discard pending workspace changes before starting a temporary chat.", "error");
+      return currentConversation.id;
+    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = "temp-" + generateId();
@@ -670,151 +727,215 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isTemporary: true,
     };
     set((state) => ({ conversations: [conv, ...state.conversations] }));
-    get().setActiveId(id);
+    void get().setActiveId(id);
     uiSidebarOpen(false);
     uiView("chat");
     return id;
   },
 
-  deleteChat: (id) => {
-    const conv = get().conversations.find((c) => c.id === id);
-    if (conv?.pendingWorktree && conv.projectId) {
-      const projectId = conv.projectId;
-      const worktreePath = conv.pendingWorktree.path;
-      const branchName = conv.pendingWorktree.branch;
-      import("@tauri-apps/api/core")
-        .then(({ invoke }) => {
-          invoke("git_worktree_discard", {
-            projectId,
-            worktreePath,
-            branchName,
-          }).catch((err) => {
-            logError("chat", "Failed to discard worktree on chat deletion", { error: err });
-          });
-        })
-        .catch((err) => {
-          logError("chat", "Failed to import core Tauri API on chat deletion", { error: err });
-        });
+  deleteChat: (id) => get().deleteConversationTrees([id]),
 
-      const projectStore = useProjectStore.getState();
-      if (projectStore.activeWorktreePath === worktreePath) {
-        projectStore.setWorktree(null, null).catch((err) => {
-          logError("chat", "Failed to clear active worktree path on chat deletion", { error: err });
-        });
-      }
-    }
-
-    set((state) => {
-      const getDescendants = (parentId: string, convs: typeof state.conversations): string[] => {
-        const children = convs.filter((c) => c.parentId === parentId).map((c) => c.id);
-        const descendants = [...children];
-        for (const childId of children) {
-          descendants.push(...getDescendants(childId, convs));
-        }
-        return descendants;
-      };
-
-      const idsToDelete = new Set([id, ...getDescendants(id, state.conversations)]);
-
-      const newHistory = state.navigationHistory.filter((x) => !idsToDelete.has(x));
-      let newIndex = state.navigationIndex;
-      const oldActiveIndex =
-        state.navigationHistory.findIndex((x) => idsToDelete.has(x) && state.activeId === x) !== -1
-          ? state.navigationHistory.indexOf(state.activeId!)
-          : -1;
-
-      if (oldActiveIndex !== -1) {
-        if (newIndex >= oldActiveIndex) {
-          newIndex = Math.max(0, newIndex - 1);
-        }
-      }
-      if (newIndex >= newHistory.length) {
-        newIndex = newHistory.length - 1;
-      }
-      const nextActiveId = idsToDelete.has(state.activeId || "")
-        ? newIndex >= 0
-          ? newHistory[newIndex]
-          : null
-        : state.activeId;
-
-      const nextCompareIds = state.compareIds.filter((x) => !idsToDelete.has(x));
-      const isCompareDeleted = nextCompareIds.length < state.compareIds.length;
-      const isActiveDeleted = idsToDelete.has(state.activeId || "");
-
-      return {
-        conversations: state.conversations.filter((c) => !idsToDelete.has(c.id)),
-        activeId: nextActiveId,
-        navigationHistory: newHistory,
-        navigationIndex: newIndex,
-        compareIds: nextCompareIds,
-        ...(isCompareDeleted && nextCompareIds.length === 0 ? { isCompareMode: false } : {}),
-        ...(isActiveDeleted && state.isCompareMode ? { isCompareMode: false, compareIds: [] } : {}),
-      };
+  deleteConversationTrees: async (rootIds, options = {}) => {
+    const previousDeletion = conversationDeletionTail;
+    let releaseDeletion!: () => void;
+    conversationDeletionTail = new Promise<void>((resolve) => {
+      releaseDeletion = resolve;
     });
-    get().persistConversations();
+    await previousDeletion;
+    try {
+      const initialState = get();
+      let idsToDelete = collectConversationTreeIds(initialState.conversations, rootIds);
+      if (
+        idsToDelete.size === 0 ||
+        !initialState.conversations.some((conversation) => idsToDelete.has(conversation.id))
+      ) {
+        return false;
+      }
+
+      const stopped = await awaitBoundedShutdown(
+        rootIds.map((rootId) => get().stopStreaming(rootId, false)),
+        "Conversation run cancellation",
+      );
+      if (!stopped) {
+        if (options.persist !== false) await get().persistConversations();
+        uiToast("Chat deletion paused because an active run could not be stopped safely. Retry deletion.", "error");
+        return false;
+      }
+      const expandedIds = collectConversationTreeIds(get().conversations, rootIds);
+      const lateDescendantIds = [...expandedIds].filter((conversationId) => !idsToDelete.has(conversationId));
+      if (lateDescendantIds.length > 0) {
+        const lateDescendantsStopped = await awaitBoundedShutdown(
+          lateDescendantIds.map((conversationId) => get().stopStreaming(conversationId, false)),
+          "Late descendant cancellation",
+        );
+        if (!lateDescendantsStopped) {
+          if (options.persist !== false) await get().persistConversations();
+          uiToast(
+            "Chat deletion paused because a descendant run could not be stopped safely. Retry deletion.",
+            "error",
+          );
+          return false;
+        }
+        idsToDelete = collectConversationTreeIds(get().conversations, rootIds);
+      } else {
+        idsToDelete = expandedIds;
+      }
+
+      type WorktreeDeletion = {
+        key: string;
+        projectId: string;
+        path: string;
+        branch: string;
+      };
+      const worktrees = new Map<string, WorktreeDeletion>();
+      const missingProjectWorktrees = new Set<string>();
+      for (const conversation of get().conversations) {
+        if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) continue;
+        const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+        if (!projectId) {
+          missingProjectWorktrees.add(conversation.id);
+          continue;
+        }
+        const key = `${projectId}\u0000${conversation.pendingWorktree.path}\u0000${conversation.pendingWorktree.branch}`;
+        worktrees.set(key, {
+          key,
+          projectId,
+          path: conversation.pendingWorktree.path,
+          branch: conversation.pendingWorktree.branch,
+        });
+      }
+
+      const discardResults = await Promise.all(
+        [...worktrees.values()].map(async (worktree) => {
+          try {
+            await invoke("git_worktree_discard", {
+              projectId: worktree.projectId,
+              worktreePath: worktree.path,
+              branchName: worktree.branch,
+            });
+            try {
+              await invoke("set_project_path_override", { projectId: worktree.projectId, pathOverride: null });
+            } catch (error) {
+              logWarn("git", "Discarded deleted chat worktree but could not clear its project path override", {
+                details: String(error),
+              });
+            }
+            return { ...worktree, discarded: true as const };
+          } catch (error) {
+            logError("chat", "Failed to discard worktree during chat deletion", {
+              error,
+              details: `Worktree: ${worktree.path}`,
+            });
+            return { ...worktree, discarded: false as const };
+          }
+        }),
+      );
+
+      const discardedKeys = new Set(discardResults.filter((result) => result.discarded).map((result) => result.key));
+      if (discardedKeys.size > 0) {
+        set((state) => ({
+          conversations: state.conversations.map((conversation) => {
+            if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) return conversation;
+            const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+            if (!projectId) return conversation;
+            const key = `${projectId}\u0000${conversation.pendingWorktree.path}\u0000${conversation.pendingWorktree.branch}`;
+            return discardedKeys.has(key) ? { ...conversation, pendingWorktree: undefined } : conversation;
+          }),
+        }));
+        const activePath = useProjectStore.getState().activeWorktreePath;
+        if (discardResults.some((result) => result.discarded && result.path === activePath)) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+      }
+
+      const failedWorktreeCount =
+        missingProjectWorktrees.size + discardResults.filter((result) => !result.discarded).length;
+      if (failedWorktreeCount > 0) {
+        if (options.persist !== false) await get().persistConversations();
+        uiToast(
+          `Chat deletion paused because ${failedWorktreeCount} worktree${failedWorktreeCount === 1 ? "" : "s"} could not be discarded. Recovery records were kept for retry.`,
+          "error",
+        );
+        return false;
+      }
+
+      set((state) => {
+        const remainingConversations = state.conversations.filter((conversation) => !idsToDelete.has(conversation.id));
+        let navigationHistory = state.navigationHistory.filter((historyId) => !idsToDelete.has(historyId));
+        const preferredActiveId =
+          options.preferredActiveId &&
+          remainingConversations.some((conversation) => conversation.id === options.preferredActiveId)
+            ? options.preferredActiveId
+            : null;
+        if (options.appendPreferredToHistory && preferredActiveId) {
+          navigationHistory = [...navigationHistory, preferredActiveId];
+        }
+        const activeWasDeleted = Boolean(state.activeId && idsToDelete.has(state.activeId));
+        const fallbackActiveId =
+          [...navigationHistory]
+            .reverse()
+            .find((historyId) => remainingConversations.some((conversation) => conversation.id === historyId)) ??
+          remainingConversations.find((conversation) => !conversation.isSubagent)?.id ??
+          null;
+        const activeId = activeWasDeleted ? (preferredActiveId ?? fallbackActiveId) : state.activeId;
+        const navigationIndex = activeId ? navigationHistory.lastIndexOf(activeId) : -1;
+        const compareIds = state.compareIds.filter((compareId) => !idsToDelete.has(compareId));
+        const generationByConversation = { ...state.generationByConversation };
+        const activeStreamContent = { ...state.activeStreamContent };
+        const activeStreamReasoning = { ...state.activeStreamReasoning };
+        const activeStreamThinkingStart = { ...state.activeStreamThinkingStart };
+        const activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
+        const activeStreamStartTime = { ...state.activeStreamStartTime };
+        for (const deletedId of idsToDelete) {
+          delete generationByConversation[deletedId];
+          delete activeStreamContent[deletedId];
+          delete activeStreamReasoning[deletedId];
+          delete activeStreamThinkingStart[deletedId];
+          delete activeStreamThinkingEnd[deletedId];
+          delete activeStreamStartTime[deletedId];
+        }
+        const isStreaming = Object.values(generationByConversation).some((generation) =>
+          isGenerationActive(generation.state),
+        );
+
+        return {
+          conversations: remainingConversations,
+          activeId,
+          navigationHistory,
+          navigationIndex,
+          compareIds,
+          isCompareMode: state.isCompareMode && compareIds.length > 0 && !activeWasDeleted,
+          generationByConversation,
+          activeStreamContent,
+          activeStreamReasoning,
+          activeStreamThinkingStart,
+          activeStreamThinkingEnd,
+          activeStreamStartTime,
+          isStreaming,
+          generationState: isStreaming ? state.generationState : ("idle" as GenerationState),
+          generationLabel: isStreaming ? state.generationLabel : "",
+        };
+      });
+
+      const uiState = useUIStore.getState();
+      if (uiState.activeSubagentId && idsToDelete.has(uiState.activeSubagentId)) {
+        uiState.setActiveSubagentId(null);
+      }
+      if (options.persist !== false) await get().persistConversations();
+      return true;
+    } finally {
+      releaseDeletion();
+    }
   },
 
   deleteProjectChats: async (projectId) => {
-    const projectConvs = get().conversations.filter((c) => c.projectId === projectId);
-    if (projectConvs.length === 0) return;
-
-    for (const conv of projectConvs) {
-      if (conv.pendingWorktree) {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("git_worktree_discard", {
-            projectId,
-            worktreePath: conv.pendingWorktree.path,
-            branchName: conv.pendingWorktree.branch,
-          });
-        } catch (err) {
-          logError("chat", `Failed to discard worktree for chat ${conv.id} on project deletion`, { error: err });
-        }
-      }
-    }
-
-    const projectStore = useProjectStore.getState();
-    const hasActiveWorktreeDeleted = projectConvs.some(
-      (c) => c.pendingWorktree && projectStore.activeWorktreePath === c.pendingWorktree.path,
+    const projectConversations = get().conversations.filter((conversation) => conversation.projectId === projectId);
+    if (projectConversations.length === 0) return;
+    const projectConversationIds = new Set(projectConversations.map((conversation) => conversation.id));
+    const rootIds = projectConversations.flatMap((conversation) =>
+      conversation.parentId && projectConversationIds.has(conversation.parentId) ? [] : [conversation.id],
     );
-    if (hasActiveWorktreeDeleted) {
-      try {
-        await projectStore.setWorktree(null, null);
-      } catch (err) {
-        logError("chat", "Failed to clear active worktree path on project deletion", { error: err });
-      }
-    }
-
-    const convIdsToRemove = new Set(projectConvs.map((c) => c.id));
-
-    set((state) => {
-      const remainingConversations = state.conversations.filter((c) => !convIdsToRemove.has(c.id));
-      const newHistory = state.navigationHistory.filter((id) => !convIdsToRemove.has(id));
-
-      let newIndex = state.navigationIndex;
-      const isActiveDeleted = convIdsToRemove.has(state.activeId || "");
-      if (isActiveDeleted) {
-        newIndex = newHistory.length - 1;
-      } else if (state.activeId) {
-        newIndex = newHistory.indexOf(state.activeId);
-      }
-
-      const nextActiveId = isActiveDeleted ? (newIndex >= 0 ? newHistory[newIndex] : null) : state.activeId;
-      const nextCompareIds = state.compareIds.filter((id) => !convIdsToRemove.has(id));
-      const isCompareDeleted = state.compareIds.some((id) => convIdsToRemove.has(id));
-
-      return {
-        conversations: remainingConversations,
-        activeId: nextActiveId,
-        navigationHistory: newHistory,
-        navigationIndex: newIndex,
-        compareIds: nextCompareIds,
-        ...(isCompareDeleted && nextCompareIds.length === 0 ? { isCompareMode: false } : {}),
-        ...(isActiveDeleted && state.isCompareMode ? { isCompareMode: false, compareIds: [] } : {}),
-      };
-    });
-
-    await get().persistConversations();
+    await get().deleteConversationTrees(rootIds);
   },
 
   renameChat: (id, newTitle) => {
@@ -1007,24 +1128,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await Promise.all(runContexts.map(runForConversation));
   },
 
-  stopStreaming: async (targetConvId) => {
+  stopStreaming: async (targetConvId, persist = true) => {
     const requestedConvId = typeof targetConvId === "string" ? targetConvId : undefined;
-    const targetConvIds = requestedConvId
-      ? (() => {
-          const ids = new Set([requestedConvId]);
-          let foundDescendant = true;
-          while (foundDescendant) {
-            foundDescendant = false;
-            for (const conversation of get().conversations) {
-              if (conversation.parentId && ids.has(conversation.parentId) && !ids.has(conversation.id)) {
-                ids.add(conversation.id);
-                foundDescendant = true;
-              }
-            }
-          }
-          return ids;
-        })()
-      : null;
+    const targetConvIds = requestedConvId ? collectConversationTreeIds(get().conversations, [requestedConvId]) : null;
 
     const uiStore = useUIStore.getState();
     const pendingConfirmationIds = uiStore.pendingToolConfirmations
@@ -1034,13 +1140,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiStore.respondToToolConfirmation(confirmationId, false);
     }
 
-    if (targetConvIds) {
-      for (const convId of targetConvIds) {
-        useModelStore.getState().cancelConversationStream(convId);
-      }
-    } else {
-      modelCancelStream();
-    }
     set((state) => {
       const convs = state.conversations.map((c) => {
         if (targetConvIds && !targetConvIds.has(c.id)) return c;
@@ -1114,6 +1213,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
 
+    const cancellationTasks = targetConvIds
+      ? [
+          ...[...targetConvIds].map((convId) => useModelStore.getState().cancelConversationStream(convId)),
+          useMcpStore.getState().cancelConversationToolCalls([...targetConvIds]),
+          waitForConversationToolLoops(targetConvIds),
+          waitForConversationNormalRuns(targetConvIds),
+        ]
+      : [
+          modelCancelStream(),
+          useMcpStore
+            .getState()
+            .cancelConversationToolCalls(get().conversations.map((conversation) => conversation.id)),
+          waitForConversationToolLoops(get().conversations.map((conversation) => conversation.id)),
+          waitForConversationNormalRuns(get().conversations.map((conversation) => conversation.id)),
+        ];
+    const stopped = await awaitBoundedShutdown(cancellationTasks, "Stream and tool cancellation");
+
     const stillStreaming = Object.values(get().generationByConversation).some((generation) =>
       isGenerationActive(generation.state),
     );
@@ -1121,7 +1237,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiLoading("sendMessage", false);
       uiLoading("toolExecution", false);
     }
-    await get().persistConversations();
+    if (persist) await get().persistConversations();
+    return stopped;
   },
 
   retryLastMessage: async (convId) => {
@@ -1327,7 +1444,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   persistConversations: async () => {
     const { hasStarted } = useUIStore.getState();
     if (!hasStarted) return;
-    get().cleanupEmptyConversations();
     const { conversations } = get();
     const persistentConversations = conversations.filter((c) => !c.isTemporary);
     try {
@@ -1376,21 +1492,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearAllChats: async () => {
-    const { conversations, activeId } = get();
-    get().stopStreaming();
-    set({ conversations: [], activeId: null });
+    const snapshot = get();
+    const conversationIds = new Set(snapshot.conversations.map((conversation) => conversation.id));
+    const rootIds = snapshot.conversations.flatMap((conversation) =>
+      conversation.parentId && conversationIds.has(conversation.parentId) ? [] : [conversation.id],
+    );
+    const deleted = await get().deleteConversationTrees(rootIds, { preferredActiveId: null, persist: false });
+    if (!deleted && snapshot.conversations.length > 0) return;
     try {
       await clearConversations();
       uiToast("All chats cleared", "info");
     } catch {
-      set({ conversations, activeId });
+      set({
+        conversations: snapshot.conversations.map((conversation) => ({
+          ...conversation,
+          pendingWorktree: undefined,
+        })),
+        activeId: snapshot.activeId,
+        navigationHistory: snapshot.navigationHistory,
+        navigationIndex: snapshot.navigationIndex,
+      });
       uiToast("Chat clearing was incomplete. Retry to ensure encrypted files and their key are both removed.", "error");
     }
   },
 
   cleanup: () => {
     modelStopHealthCheck();
-    get().stopStreaming();
+    void get().stopStreaming();
     modelReleaseListeners();
   },
 
@@ -1490,7 +1618,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 }));
 
-async function sendNormal(
+async function runNormal(
   convId: string,
   modelConfig: ModelConfig,
   temperature: number,
@@ -1727,6 +1855,31 @@ async function sendNormal(
     cleanupStream?.();
     uiLoading("sendMessage", false);
   }
+}
+
+function sendNormal(
+  convId: string,
+  modelConfig: ModelConfig,
+  temperature: number,
+  set: (fn: (state: ChatState) => Partial<ChatState>) => void,
+  get: () => ChatState,
+): Promise<void> {
+  const run = runNormal(convId, modelConfig, temperature, set, get);
+  const conversationRuns = activeNormalRuns.get(convId) ?? new Set<Promise<void>>();
+  conversationRuns.add(run);
+  activeNormalRuns.set(convId, conversationRuns);
+  const releaseRun = () => {
+    const currentRuns = activeNormalRuns.get(convId);
+    currentRuns?.delete(run);
+    if (currentRuns?.size === 0) activeNormalRuns.delete(convId);
+  };
+  void run.then(releaseRun, releaseRun);
+  return run;
+}
+
+async function waitForConversationNormalRuns(conversationIds: Iterable<string>): Promise<void> {
+  const runs = [...conversationIds].flatMap((conversationId) => [...(activeNormalRuns.get(conversationId) ?? [])]);
+  await Promise.allSettled(runs);
 }
 
 function generateConversationTitle(

@@ -85,7 +85,7 @@ describe("useModelStore stream listeners", () => {
 
     useModelStore.getState().setActiveStreamId("stream-1", "conversation-1");
     useModelStore.getState().setActiveStreamId("stream-2", "conversation-2");
-    useModelStore.getState().cancelActiveStream();
+    await useModelStore.getState().cancelActiveStream();
 
     expect(eventMocks.invoke).toHaveBeenCalledTimes(2);
     expect(eventMocks.invoke).toHaveBeenCalledWith("cancel_chat_stream", { streamId: "stream-1" });

@@ -841,7 +841,9 @@ function triggerParentResume(parentId: string, parentMsg: Message) {
   }
 }
 
-export async function sendWithToolLoop(
+const activeToolLoopRuns = new Map<string, Set<Promise<void>>>();
+
+async function runWithToolLoop(
   initialRunContext: ConversationRunContext,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
@@ -1412,7 +1414,7 @@ export async function sendWithToolLoop(
                   }
                 }
 
-                const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs);
+                const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs, convId);
                 resultContent = result.content;
                 images = result.images;
                 isError = result.isError;
@@ -2058,4 +2060,30 @@ export async function sendWithToolLoop(
       }
     }
   }
+}
+
+export function sendWithToolLoop(
+  initialRunContext: ConversationRunContext,
+  set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
+  get: () => ToolLoopSlice,
+  performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
+  fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
+): Promise<void> {
+  const conversationId = initialRunContext.conversationId;
+  const run = runWithToolLoop(initialRunContext, set, get, performSearch, fetchUrlContent);
+  const conversationRuns = activeToolLoopRuns.get(conversationId) ?? new Set<Promise<void>>();
+  conversationRuns.add(run);
+  activeToolLoopRuns.set(conversationId, conversationRuns);
+  const releaseRun = () => {
+    const currentRuns = activeToolLoopRuns.get(conversationId);
+    currentRuns?.delete(run);
+    if (currentRuns?.size === 0) activeToolLoopRuns.delete(conversationId);
+  };
+  void run.then(releaseRun, releaseRun);
+  return run;
+}
+
+export async function waitForConversationToolLoops(conversationIds: Iterable<string>): Promise<void> {
+  const runs = [...conversationIds].flatMap((conversationId) => [...(activeToolLoopRuns.get(conversationId) ?? [])]);
+  await Promise.allSettled(runs);
 }

@@ -430,9 +430,15 @@ pub async fn connect_server(
                             match req {
                                 Some(req) => {
                                     match req {
-                                        McpServerRequest::CallTool { tool_name, arguments, reply_tx } => {
+                                        McpServerRequest::CallTool { tool_name, arguments, cancel_token, reply_tx } => {
                                             timeout_sleep = Box::pin(tokio::time::sleep(tokio::time::Duration::from_secs(300)));
-                                            let result = call_tool_via_peer(&peer, &tool_name, &arguments).await;
+                                            let result = match cancel_token {
+                                                Some(cancel_token) => tokio::select! {
+                                                    _ = cancel_token.cancelled() => Err("Tool call cancelled".to_string()),
+                                                    result = call_tool_via_peer(&peer, &tool_name, &arguments) => result,
+                                                },
+                                                None => call_tool_via_peer(&peer, &tool_name, &arguments).await,
+                                            };
                                             let _ = reply_tx.send(result);
                                         }
                                         McpServerRequest::ListResources { reply_tx } => {
@@ -575,8 +581,14 @@ pub async fn connect_server(
                             match req {
                                 Some(req) => {
                                     match req {
-                                        McpServerRequest::CallTool { tool_name, arguments, reply_tx } => {
-                                            let result = call_tool_via_peer(&peer, &tool_name, &arguments).await;
+                                        McpServerRequest::CallTool { tool_name, arguments, cancel_token, reply_tx } => {
+                                            let result = match cancel_token {
+                                                Some(cancel_token) => tokio::select! {
+                                                    _ = cancel_token.cancelled() => Err("Tool call cancelled".to_string()),
+                                                    result = call_tool_via_peer(&peer, &tool_name, &arguments) => result,
+                                                },
+                                                None => call_tool_via_peer(&peer, &tool_name, &arguments).await,
+                                            };
                                             let _ = reply_tx.send(result);
                                         }
                                         McpServerRequest::ListResources { reply_tx } => {
@@ -690,6 +702,7 @@ pub async fn call_tool_on_server(
     server_id: &str,
     tool_name: &str,
     arguments: &serde_json::Value,
+    cancel_token: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<McpToolResult, String> {
     let respawn = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
@@ -712,6 +725,7 @@ pub async fn call_tool_on_server(
         .send(McpServerRequest::CallTool {
             tool_name: tool_name.to_string(),
             arguments: arguments.clone(),
+            cancel_token,
             reply_tx,
         })
         .await

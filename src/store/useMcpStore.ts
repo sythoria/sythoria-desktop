@@ -32,6 +32,23 @@ const debouncedLogEnvUpdate = debounce((name: string) => {
   logInfo("mcp", `MCP env secrets updated for server: "${name}"`, {});
 }, 500);
 
+const activeToolCallIdsByConversation = new Map<string, Set<string>>();
+
+function trackToolCall(conversationId: string, requestId: string): void {
+  const activeIds = activeToolCallIdsByConversation.get(conversationId) ?? new Set<string>();
+  activeIds.add(requestId);
+  activeToolCallIdsByConversation.set(conversationId, activeIds);
+}
+
+function releaseToolCall(conversationId: string, requestId: string): void {
+  const activeIds = activeToolCallIdsByConversation.get(conversationId);
+  if (!activeIds) return;
+  activeIds.delete(requestId);
+  if (activeIds.size === 0) {
+    activeToolCallIdsByConversation.delete(conversationId);
+  }
+}
+
 function sanitizeName(name: string): string {
   return name
     .toLowerCase()
@@ -56,7 +73,13 @@ interface McpState {
   connectServer: (id: string) => Promise<void>;
   disconnectServer: (id: string) => Promise<void>;
   connectAllEnabled: () => Promise<void>;
-  callTool: (serverId: string, toolName: string, args: Record<string, string>) => Promise<McpToolResult>;
+  callTool: (
+    serverId: string,
+    toolName: string,
+    args: Record<string, string>,
+    conversationId?: string,
+  ) => Promise<McpToolResult>;
+  cancelConversationToolCalls: (conversationIds: string[]) => Promise<boolean>;
   toggleServerEnabled: (serverId: string, enabled: boolean) => Promise<void>;
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
@@ -349,11 +372,15 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }
   },
 
-  callTool: async (serverId, toolName, args) => {
+  callTool: async (serverId, toolName, args, conversationId) => {
     const { mcpConfigs, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
     if (!config?.enabled || !enabledServerIds.has(serverId) || serverStatuses[serverId] !== "connected") {
       return { content: "Error: MCP server is disabled or disconnected", isError: true };
+    }
+    const requestId = conversationId ? `mcp-${generateId()}-${Date.now()}` : undefined;
+    if (conversationId && requestId) {
+      trackToolCall(conversationId, requestId);
     }
     try {
       logInfo("mcp", `Calling MCP tool: ${toolName}`, {
@@ -363,6 +390,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         serverId,
         toolName,
         arguments: JSON.stringify(args),
+        ...(requestId ? { requestId } : {}),
       });
       const result = JSON.parse(raw) as McpToolResult;
       if (result.isError) {
@@ -380,7 +408,50 @@ export const useMcpStore = create<McpState>((set, get) => ({
         details: parsed.message,
       });
       return { content: `Error: ${parsed.message}`, isError: true };
+    } finally {
+      if (conversationId && requestId) {
+        releaseToolCall(conversationId, requestId);
+      }
     }
+  },
+
+  cancelConversationToolCalls: async (conversationIds) => {
+    const requestIds = [
+      ...new Set(
+        conversationIds.flatMap((conversationId) => [...(activeToolCallIdsByConversation.get(conversationId) ?? [])]),
+      ),
+    ];
+    if (requestIds.length === 0) return true;
+
+    const cancellationResults = await Promise.all(
+      requestIds.map(async (requestId) => {
+        try {
+          await invoke("mcp_cancel_tool_call", { requestId });
+          return true;
+        } catch (error) {
+          logError("mcp", "Failed to cancel MCP tool call", { error, details: `Request: ${requestId}` });
+          return false;
+        }
+      }),
+    );
+
+    const deadline = Date.now() + 1_500;
+    while (
+      Date.now() < deadline &&
+      conversationIds.some((conversationId) => activeToolCallIdsByConversation.has(conversationId))
+    ) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 20));
+    }
+    const remainingCalls = conversationIds.reduce(
+      (count, conversationId) => count + (activeToolCallIdsByConversation.get(conversationId)?.size ?? 0),
+      0,
+    );
+    if (remainingCalls > 0) {
+      logWarn("mcp", "MCP cancellation exceeded the bounded shutdown window", {
+        details: `${remainingCalls} tool call(s) still settling`,
+      });
+    }
+    return cancellationResults.every(Boolean) && remainingCalls === 0;
   },
 
   toggleServerEnabled: async (serverId, enabled) => {

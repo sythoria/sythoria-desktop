@@ -221,8 +221,8 @@ interface ModelState {
     onDone: () => void,
   ) => Promise<() => void>;
   releaseStreamListeners: () => void;
-  cancelActiveStream: () => void;
-  cancelConversationStream: (convId: string) => void;
+  cancelActiveStream: () => Promise<boolean>;
+  cancelConversationStream: (convId: string) => Promise<boolean>;
 }
 
 export const useModelStore = create<ModelState>((set, get) => ({
@@ -500,15 +500,21 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
   ensureStreamListeners,
   releaseStreamListeners,
-  cancelActiveStream: () => {
+  cancelActiveStream: async () => {
     const cancelledConversationIds = new Set(activeStreams.values());
+    const cancellations: Promise<boolean>[] = [];
     for (const streamId of activeStreams.keys()) {
-      void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
-        logError("stream", "Failed to cancel stream", {
-          error: err,
-          action: "The stream may have already ended. If the UI is stuck, try reloading the app.",
-        });
-      });
+      cancellations.push(
+        invoke("cancel_chat_stream", { streamId })
+          .then(() => true)
+          .catch((err: unknown) => {
+            logError("stream", "Failed to cancel stream", {
+              error: err,
+              action: "The stream may have already ended. If the UI is stuck, try reloading the app.",
+            });
+            return false;
+          }),
+      );
     }
     activeStreams.clear();
     for (const handler of [...activeHandlers]) {
@@ -516,15 +522,22 @@ export const useModelStore = create<ModelState>((set, get) => ({
         handler.onDone();
       }
     }
+    return (await Promise.all(cancellations)).every(Boolean);
   },
-  cancelConversationStream: (convId) => {
+  cancelConversationStream: async (convId) => {
     let hadActiveStream = false;
+    const cancellations: Promise<boolean>[] = [];
     for (const [streamId, cId] of activeStreams.entries()) {
       if (cId === convId) {
         hadActiveStream = true;
-        void invoke("cancel_chat_stream", { streamId }).catch((err: unknown) => {
-          logError("stream", "Failed to cancel stream for conversation", { error: err });
-        });
+        cancellations.push(
+          invoke("cancel_chat_stream", { streamId })
+            .then(() => true)
+            .catch((err: unknown) => {
+              logError("stream", "Failed to cancel stream for conversation", { error: err });
+              return false;
+            }),
+        );
         activeStreams.delete(streamId);
       }
     }
@@ -535,5 +548,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
         }
       }
     }
+    return (await Promise.all(cancellations)).every(Boolean);
   },
 }));
