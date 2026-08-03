@@ -80,16 +80,27 @@ install_appimage() {
     mv ./sythoria.AppImage ~/.local/bin/sythoria
     chmod +x ~/.local/bin/sythoria
 
+    echo "Downloading application icon..."
+    mkdir -p ~/.local/share/icons
+    ICON_PATH="$HOME/.local/share/icons/sythoria.png"
+    curl -fsSL -o "$ICON_PATH" "https://raw.githubusercontent.com/$REPO/main/src-tauri/icons/icon.png" || true
+
     echo "Creating desktop menu entry..."
     mkdir -p ~/.local/share/applications
     cat <<EOF > ~/.local/share/applications/sythoria.desktop
 [Desktop Entry]
 Name=Sythoria
 Exec=$HOME/.local/bin/sythoria
-Icon=sythoria
+Icon=$ICON_PATH
 Type=Application
 Categories=Utility;Chat;
+Terminal=false
 EOF
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database ~/.local/share/applications || true
+    fi
+
     echo "Sythoria installed! You can launch it from your application menu."
 }
 
