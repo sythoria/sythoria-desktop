@@ -18,7 +18,6 @@ use std::sync::RwLock;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkConfig {
-    pub strict_ssl: bool,
     pub blocked_hosts: Vec<String>,
     #[serde(default)]
     pub allowed_local_endpoints: Vec<String>,
@@ -29,7 +28,6 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
-            strict_ssl: true,
             offline_mode: false,
             blocked_hosts: Vec::new(),
             allowed_local_endpoints: Vec::new(),
@@ -40,7 +38,6 @@ impl Default for NetworkConfig {
 impl NetworkConfig {
     fn fail_closed() -> Self {
         Self {
-            strict_ssl: true,
             offline_mode: true,
             blocked_hosts: Self::default().blocked_hosts,
             allowed_local_endpoints: Vec::new(),
@@ -50,10 +47,6 @@ impl NetworkConfig {
 
 pub static NETWORK_CONFIG: LazyLock<RwLock<NetworkConfig>> =
     LazyLock::new(|| RwLock::new(NetworkConfig::default()));
-
-pub fn get_strict_ssl() -> bool {
-    NETWORK_CONFIG.read().map(|c| c.strict_ssl).unwrap_or(true)
-}
 
 pub fn get_offline_mode() -> bool {
     NETWORK_CONFIG
@@ -85,11 +78,7 @@ fn init_network_settings(app: &tauri::AppHandle) {
 }
 
 pub fn client_builder() -> reqwest::ClientBuilder {
-    let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
-    if !get_strict_ssl() {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    builder
+    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
 }
 
 use serde::{Deserialize, Serialize};
@@ -2288,9 +2277,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy_network_config_defaults_to_online_mode() {
+    fn legacy_network_config_ignores_obsolete_tls_override() {
         let config: NetworkConfig =
-            serde_json::from_str(r#"{"strict_ssl":true,"blocked_hosts":["localhost"]}"#).unwrap();
+            serde_json::from_str(r#"{"strict_ssl":false,"blocked_hosts":["localhost"]}"#).unwrap();
 
         assert!(!config.offline_mode);
         assert!(config.allowed_local_endpoints.is_empty());
@@ -2300,7 +2289,6 @@ mod tests {
     fn unauthenticated_network_policy_fails_closed() {
         let config = NetworkConfig::fail_closed();
 
-        assert!(config.strict_ssl);
         assert!(config.offline_mode);
         assert!(config.blocked_hosts.is_empty());
         assert!(config.allowed_local_endpoints.is_empty());

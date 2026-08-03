@@ -332,7 +332,8 @@ export interface ModelConfig {
 - **MCP process environment**: Stdio servers start with a cleared environment. They inherit only the documented runtime allowlist in `mcp/client.rs` plus environment variables explicitly configured for that server.
 - **Encrypted storage**: Settings use per-domain AES-256-GCM keys derived from an OS-keychain master key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
 - **Conversation storage**: Each conversation is an authenticated content-addressed blob behind an encrypted manifest and a separate keychain-backed key; failed saves retain the previous snapshot.
-- **Network fail-closed**: If an existing authenticated network policy cannot be loaded, startup enables strict SSL and offline mode instead of silently reverting to permissive defaults.
+- **Network fail-closed**: If an existing authenticated network policy cannot be loaded, startup enables offline mode instead of silently reverting to permissive defaults.
+- **TLS verification**: Shared HTTP clients always use platform certificate verification and never accept invalid certificates. The updater, model downloads, provider/search/speech traffic, and credential-bearing requests must not add certificate-verification bypasses.
 - **Local endpoint policy**: Loopback, private, shared, link-local, unspecified, and cloud-metadata destinations are enforced natively and cannot be removed from the policy. Intentional local services require exact scheme/host/port grants; editable block rules are additive and always take precedence over grants.
 - **Window state**: Main-window size, position, and maximized state are restored from encrypted preferences. The default window is 1200×780 when no saved geometry exists.
 - **Privacy wipe**: The Rust backend deletes indexed keychain secrets before encrypted files, and frontend persistence is suspended during the wipe to prevent data recreation.

@@ -1866,14 +1866,12 @@ const LEGACY_INTRINSIC_BLOCKED_HOSTS = [
 export const DEFAULT_BLOCKED_HOSTS: string[] = [];
 
 export interface NetworkSettings {
-  strictSsl: boolean;
   blockedHosts: string[];
   allowedLocalEndpoints: string[];
   offlineMode: boolean;
 }
 
 const NetworkSettingsSchema = z.object({
-  strict_ssl: z.boolean(),
   blocked_hosts: z.array(z.string()),
   allowed_local_endpoints: z.array(z.string()).default([]),
   offline_mode: z.boolean().default(false),
@@ -1887,21 +1885,21 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
     let settings: NetworkSettings;
 
     if (raw) {
-      const parsed = NetworkSettingsSchema.parse(JSON.parse(raw));
+      const rawConfig: unknown = JSON.parse(raw);
+      const parsed = NetworkSettingsSchema.parse(rawConfig);
       const customBlockedHosts = parsed.blocked_hosts.filter(
         (host) => !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
       );
       settings = {
-        strictSsl: parsed.strict_ssl,
         blockedHosts: customBlockedHosts,
         allowedLocalEndpoints: parsed.allowed_local_endpoints,
         offlineMode: parsed.offline_mode,
       };
-      if (customBlockedHosts.length !== parsed.blocked_hosts.length) {
+      const hadLegacyTlsOverride = typeof rawConfig === "object" && rawConfig !== null && "strict_ssl" in rawConfig;
+      if (customBlockedHosts.length !== parsed.blocked_hosts.length || hadLegacyTlsOverride) {
         await saveNetworkSettings(settings);
       }
     } else {
-      const legacyStrictSsl = await store.get<unknown>(legacyKeys[0]);
       const legacyBlockedHosts = await store.get<unknown>(legacyKeys[1]);
       const legacyOfflineMode = await store.get<unknown>(legacyKeys[2]);
       let localBlockedHosts: unknown;
@@ -1913,8 +1911,6 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
       }
 
       settings = {
-        strictSsl:
-          typeof legacyStrictSsl === "boolean" ? legacyStrictSsl : localStorage.getItem(legacyKeys[0]) !== "false",
         blockedHosts: Array.isArray(legacyBlockedHosts)
           ? legacyBlockedHosts
               .filter((host): host is string => typeof host === "string")
@@ -1947,7 +1943,6 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
       action: "Review and save Privacy settings to replace the damaged policy.",
     });
     return {
-      strictSsl: true,
       blockedHosts: DEFAULT_BLOCKED_HOSTS,
       allowedLocalEndpoints: [],
       offlineMode: true,
@@ -1968,7 +1963,6 @@ export async function saveNetworkSettings(settings: NetworkSettings): Promise<vo
           pendingNetworkSettings = null;
           await invoke("save_network_config", {
             config: JSON.stringify({
-              strict_ssl: next.strictSsl,
               blocked_hosts: next.blockedHosts,
               allowed_local_endpoints: next.allowedLocalEndpoints,
               offline_mode: next.offlineMode,

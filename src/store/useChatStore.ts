@@ -523,7 +523,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         isLoggingEnabled: hasOnboarded ? loadedIsLoggingEnabled : true,
         showContextWindow: hasOnboarded ? loadedShowContextWindow : false,
         disableBgActivity: hasOnboarded ? loadedDisableBgActivity : false,
-        strictSsl: loadedNetworkSettings.strictSsl,
         blockedHosts: loadedNetworkSettings.blockedHosts,
         allowedLocalEndpoints: loadedNetworkSettings.allowedLocalEndpoints,
         offlineMode: loadedNetworkSettings.offlineMode,

@@ -291,9 +291,6 @@ export const ja = {
   "settings.privacy.disableBg": "バックグラウンドアクティビティの無効化",
   "settings.privacy.disableBgDesc":
     "定期的なネットワーク接続確認やバックグラウンドステータス確認を停止します。UI上のすべてのネットワーク表示や接続ステータスを非表示にします。",
-  "settings.privacy.strictSsl": "厳格な SSL/TLS 検証",
-  "settings.privacy.strictSslDesc":
-    "すべての接続先に有効なSSL証明書を要求します。無効にすると、無効な証明書も許容されます。",
   "settings.privacy.blockedHosts": "ブロック対象の IP / ホスト名",
   "settings.privacy.blockedHostsDesc": "接続を制限するIPアドレスまたはホスト名を指定します（1行に1つ）。",
   "settings.privacy.resetBlockedHostsBtn": "デフォルトにリセット",

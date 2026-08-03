@@ -300,9 +300,6 @@ export const de = {
   "settings.privacy.disableBg": "Hintergrundaktivität deaktivieren",
   "settings.privacy.disableBgDesc":
     "Stoppt regelmäßige Hintergrundkonnektivitätsprüfungen und Statusabfragen. Blendet alle Netzwerkbezeichnungen und Statusindikatoren in der Benutzeroberfläche aus.",
-  "settings.privacy.strictSsl": "Strikte SSL/TLS-Verifizierung",
-  "settings.privacy.strictSslDesc":
-    "Erzwingt gültige SSL-Zertifikate für alle API-Verbindungen und Endpunkte. Wenn deaktiviert, wird die Gültigkeit von Zertifikaten nicht überprüft.",
   "settings.privacy.blockedHosts": "Blockierte IPs / Hostnamen",
   "settings.privacy.blockedHostsDesc":
     "Gib IP-Adressen oder Hostnamen an, die vom Netzwerkzugriff ausgeschlossen sind (einer pro Zeile).",

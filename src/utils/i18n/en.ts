@@ -288,9 +288,6 @@ export const en = {
   "settings.privacy.disableBg": "Disable background activity",
   "settings.privacy.disableBgDesc":
     "Stops periodic background connectivity checks and status polling. Hides all network labels and status indicators in the interface.",
-  "settings.privacy.strictSsl": "Strict SSL/TLS Verification",
-  "settings.privacy.strictSslDesc":
-    "Enforce valid SSL certificates for all API connections and endpoints. If disabled, certificate validity will not be checked.",
   "settings.privacy.blockedHosts": "Blocked IPs / Hostnames",
   "settings.privacy.blockedHostsDesc":
     "Specify IP addresses or hostnames that are restricted from network access (one per line).",

@@ -280,8 +280,6 @@ export const zh = {
   "settings.privacy.networkTitle": "网络设置",
   "settings.privacy.disableBg": "禁用后台活动",
   "settings.privacy.disableBgDesc": "停止定期的后台连接检查和状态轮询。在界面中隐藏所有网络标签和状态指示器。",
-  "settings.privacy.strictSsl": "严格 SSL/TLS 证书验证",
-  "settings.privacy.strictSslDesc": "对所有 API 连接和端点强制执行有效的 SSL 证书。如果禁用，将不检查证书有效性。",
   "settings.privacy.blockedHosts": "阻止的 IP / 主机名",
   "settings.privacy.blockedHostsDesc": "指定限制网络访问的 IP 地址或主机名（每行一个）。",
   "settings.privacy.resetBlockedHostsBtn": "重置为默认值",

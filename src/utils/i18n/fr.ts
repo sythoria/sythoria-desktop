@@ -295,8 +295,6 @@ export const fr = {
   "settings.privacy.networkTitle": "Paramètres Réseau",
   "settings.privacy.disableBg": "Désactiver l'activité réseau en arrière-plan",
   "settings.privacy.disableBgDesc": "Arrête les requêtes réseau et interrogations périodiques en arrière-plan.",
-  "settings.privacy.strictSsl": "Vérification SSL/TLS stricte",
-  "settings.privacy.strictSslDesc": "Force les certificats SSL valides. Si désactivé, le SSL invalide sera accepté.",
   "settings.privacy.blockedHosts": "IP / Noms d'hôtes bloqués",
   "settings.privacy.blockedHostsDesc": "Spécifier les adresses bloquées (une par ligne).",
   "settings.privacy.resetBlockedHostsBtn": "Réinitialiser par défaut",

@@ -299,9 +299,6 @@ export const es = {
   "settings.privacy.disableBg": "Desactivar actividad en segundo plano",
   "settings.privacy.disableBgDesc":
     "Detiene las comprobaciones periódicas de conectividad y estado en segundo plano. Oculta las etiquetas de red y los indicadores de estado.",
-  "settings.privacy.strictSsl": "Verificación SSL/TLS Estricta",
-  "settings.privacy.strictSslDesc":
-    "Exige certificados SSL válidos para todas las conexiones. Si se desactiva, no se comprobará la validez de los certificados.",
   "settings.privacy.blockedHosts": "Hosts / IPs Bloqueados",
   "settings.privacy.blockedHostsDesc": "Especifica direcciones IP o nombres de host restringidos (uno por línea).",
   "settings.privacy.resetBlockedHostsBtn": "Restablecer valores predeterminados",

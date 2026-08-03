@@ -30,8 +30,6 @@ export function PrivacySection() {
 
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const setDisableBgActivity = useUIStore((s) => s.setDisableBgActivity);
-  const strictSsl = useUIStore((s) => s.strictSsl);
-  const setStrictSsl = useUIStore((s) => s.setStrictSsl);
   const blockedHosts = useUIStore((s) => s.blockedHosts);
   const setBlockedHosts = useUIStore((s) => s.setBlockedHosts);
   const allowedLocalEndpoints = useUIStore((s) => s.allowedLocalEndpoints);
@@ -400,13 +398,6 @@ export function PrivacySection() {
             onChange={setDisableBgActivity}
             label={t("settings.privacy.disableBg")}
             description={t("settings.privacy.disableBgDesc")}
-          />
-          <div className="h-px bg-border/50" />
-          <Switch
-            checked={strictSsl}
-            onChange={setStrictSsl}
-            label={t("settings.privacy.strictSsl")}
-            description={t("settings.privacy.strictSslDesc")}
           />
           <div className="h-px bg-border/50" />
           <div className="space-y-1">
