@@ -1,4 +1,4 @@
-use crate::commands::config::get_keychain_secret;
+use crate::commands::config::{get_keychain_secret, load_mcp_env_secrets_for_server};
 use crate::mcp;
 use crate::AppError;
 use ring::digest::{digest, SHA256};
@@ -145,15 +145,12 @@ impl Drop for ToolCallRegistration {
 #[tauri::command]
 pub async fn mcp_start_server(
     config: String,
-    env_secrets: String,
     explicitly_enabled: bool,
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
 ) -> Result<String, AppError> {
     crate::ensure_online()?;
     let mut server_config: mcp::McpServerConfig = serde_json::from_str(&config)
         .map_err(|e| AppError::ParseError(format!("Invalid MCP config JSON: {}", e)))?;
-    let env_map: HashMap<String, String> = serde_json::from_str(&env_secrets)
-        .map_err(|e| AppError::ParseError(format!("Invalid MCP env secrets JSON: {}", e)))?;
     clear_server_tool_approvals(&server_config.id);
 
     {
@@ -161,13 +158,13 @@ pub async fn mcp_start_server(
         manager.set_explicitly_enabled(&server_config.id, explicitly_enabled);
     }
 
-    if server_config.apiKey.as_deref().unwrap_or("").is_empty() {
-        if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
-            if !key.is_empty() {
-                server_config.apiKey = Some(key);
-            }
+    server_config.apiKey = None;
+    if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
+        if !key.is_empty() {
+            server_config.apiKey = Some(key);
         }
     }
+    let env_map = load_mcp_env_secrets_for_server(&app, &server_config.id)?;
 
     let tools = mcp::client::connect_server(&server_config, env_map)
         .await

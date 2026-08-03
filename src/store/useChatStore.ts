@@ -974,7 +974,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (text, attachments) => {
     const { activeId, isCompareMode, compareIds } = get();
-    const { selectedModel, models, temperature, apiKeys, titleConfig } = useModelStore.getState();
+    const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
     const {
       activeProjectId: sendActiveProjectId,
       isProjectsEnabled: sendProjectsEnabled,
@@ -1103,7 +1103,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
 
       if (isFirstForThis && !isTemporary && titleConfig.enabled) {
-        generateConversationTitle(cId, text || fallbackTitle, context.modelConfig, apiKeys, titleConfig, set, get);
+        generateConversationTitle(cId, text || fallbackTitle, context.modelConfig, titleConfig, set, get);
       }
 
       if (context.shouldUseTools) {
@@ -1886,7 +1886,6 @@ function generateConversationTitle(
   convId: string,
   userText: string,
   chatModelConfig: ModelConfig,
-  apiKeys: Record<string, string>,
   titleConfig: TitleGenerationConfig,
   set: (fn: (state: ChatState) => Partial<ChatState>) => void,
   get: () => ChatState,
@@ -1908,16 +1907,10 @@ function generateConversationTitle(
     }
   }
 
-  const apiUrl = titleModelConfig.apiBase;
-  const apiKey = apiKeys[titleModelConfig.id] ?? titleModelConfig.apiKey ?? "";
-  const model = titleModelConfig.modelId;
   const systemPrompt = titleConfig.systemPrompt.replace(/\{\{userMessage\}\}/g, userText);
 
   invoke<string>("generate_title", {
-    apiUrl,
-    apiKey,
-    model,
-    provider: titleModelConfig.provider,
+    configId: titleModelConfig.id,
     userMessage: userText,
     systemPrompt,
   })

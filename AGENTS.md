@@ -326,6 +326,8 @@ export interface ModelConfig {
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
 - **Keychain**: `keyring-core` with platform backends (macOS Keychain, Windows Credential Manager, Linux keyutils).
+- **Renderer secret boundary**: Persisted keychain values are represented in the WebView only by a fixed masked placeholder. Model, search, title-generation, and MCP connection commands resolve actual credentials natively immediately before use; MCP environment values never cross back into the renderer after storage.
+- **Tauri capabilities**: The main window enumerates only the event names, URL schemes, resource cleanup, dialog, updater, logging, and window operations used by the renderer; do not restore broad `core:*:default` or `opener:default` grants.
 - **MCP process environment**: Stdio servers start with a cleared environment. They inherit only the documented runtime allowlist in `mcp/client.rs` plus environment variables explicitly configured for that server.
 - **Encrypted storage**: Settings use per-domain AES-256-GCM keys derived from an OS-keychain master key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
 - **Conversation storage**: Each conversation is an authenticated content-addressed blob behind an encrypted manifest and a separate keychain-backed key; failed saves retain the previous snapshot.

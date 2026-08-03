@@ -273,7 +273,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   connectServer: async (id) => {
-    const { mcpConfigs, envSecrets } = get();
+    const { mcpConfigs } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     if (!config || !config.enabled) return;
 
@@ -288,12 +288,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
     });
 
     try {
-      const configPayload = { ...config };
-      const envForServer = envSecrets[id] ?? {};
+      const configPayload = { ...config, apiKey: undefined };
 
       const raw = await invoke<string>("mcp_start_server", {
         config: JSON.stringify(configPayload),
-        envSecrets: JSON.stringify(envForServer),
         explicitlyEnabled: get().enabledServerIds.has(id),
       });
 

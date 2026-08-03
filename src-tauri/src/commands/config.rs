@@ -4,12 +4,14 @@ use crate::AppError;
 use crate::NetworkConfig;
 use crate::NETWORK_CONFIG;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const KEYCHAIN_SERVICE: &str = "com.sythoria.sythoria-desktop";
 pub const API_KEY_INDEX: &str = "sythoria-api-key-index";
 pub const SEARCH_API_KEY_INDEX: &str = "sythoria-search-api-key-index";
 pub const MCP_ENV_KEY_INDEX: &str = "sythoria-mcp-env-key-index";
 pub const MCP_API_KEY_INDEX: &str = "sythoria-mcp-api-key-index";
+pub const STORED_SECRET_PLACEHOLDER: &str = "••••••••••••";
 const CLOUD_STT_NAMESPACE: &str = "whisper";
 const CLOUD_STT_KEY_ID: &str = "cloud-stt";
 const NETWORK_POLICY_NAMESPACE: &str = "storage-state";
@@ -133,7 +135,10 @@ pub async fn load_secret_map(
     for id in ids {
         match get_keychain_secret(namespace, &id) {
             Ok(secret) if !secret.is_empty() => {
-                keys.insert(id, serde_json::Value::String(secret));
+                keys.insert(
+                    id,
+                    serde_json::Value::String(STORED_SECRET_PLACEHOLDER.to_string()),
+                );
             }
             Ok(_) | Err(AppError::KeyNotFound(_)) => {}
             Err(err) => return Err(err),
@@ -165,6 +170,10 @@ pub async fn save_secret_map(
     for (id, value) in key_map {
         let secret = value.as_str().expect("secret map was validated");
         if secret.is_empty() {
+            continue;
+        }
+        if secret == STORED_SECRET_PLACEHOLDER && existing_ids.contains(id) {
+            ids.push(id.clone());
             continue;
         }
         set_keychain_secret(namespace, id, secret)?;
@@ -339,7 +348,10 @@ pub async fn load_mcp_env_secrets(app: tauri::AppHandle) -> Result<serde_json::V
         for env_key in server_keys {
             match get_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key)) {
                 Ok(secret) if !secret.is_empty() => {
-                    server_map.insert(env_key, serde_json::Value::String(secret));
+                    server_map.insert(
+                        env_key,
+                        serde_json::Value::String(STORED_SECRET_PLACEHOLDER.to_string()),
+                    );
                 }
                 Ok(_) | Err(AppError::KeyNotFound(_)) => {}
                 Err(err) => return Err(err),
@@ -421,6 +433,10 @@ pub async fn save_mcp_env_secrets_cmd(
                 delete_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key))?;
                 continue;
             }
+            if secret == STORED_SECRET_PLACEHOLDER && existing_env_keys.contains(env_key) {
+                env_keys.push(env_key.clone());
+                continue;
+            }
             set_keychain_secret("mcp-env", &format!("{}:{}", server_id, env_key), secret)?;
             env_keys.push(env_key.clone());
         }
@@ -438,6 +454,31 @@ pub async fn save_mcp_env_secrets_cmd(
     }
 
     save_secret_index(&app, MCP_ENV_KEY_INDEX, &server_ids)
+}
+
+pub fn load_mcp_env_secrets_for_server(
+    app: &tauri::AppHandle,
+    server_id: &str,
+) -> Result<HashMap<String, String>, AppError> {
+    let server_index_key = format!("mcp-env:{server_id}");
+    let env_keys = secure_storage::get_preference(app, &server_index_key)?
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(ToString::to_string));
+    let mut secrets = HashMap::new();
+
+    for env_key in env_keys {
+        match get_keychain_secret("mcp-env", &format!("{server_id}:{env_key}")) {
+            Ok(secret) if !secret.is_empty() => {
+                secrets.insert(env_key, secret);
+            }
+            Ok(_) | Err(AppError::KeyNotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(secrets)
 }
 
 #[tauri::command]

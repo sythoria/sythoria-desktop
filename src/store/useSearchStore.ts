@@ -145,7 +145,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       isSearchEnabled: enabled && get().activeSearchId !== null && get().searchConfigs.some((config) => config.enabled),
     }),
 
-  performSearch: async (query, config, apiKey) => {
+  performSearch: async (query, config, _apiKey) => {
     const currentConfig = get().searchConfigs.find((candidate) => candidate.id === config.id);
     if (!currentConfig?.enabled || get().activeSearchId !== config.id || !get().isSearchEnabled) {
       logWarn("search", `Blocked search through disabled config: "${config.name}"`, {});
@@ -155,7 +155,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       logInfo("search", `Searching: "${query}"`, {
         details: `Provider: ${config.provider}, Config: "${config.name}"`,
       });
-      const configPayload = { ...config, apiKey };
+      const configPayload = { ...config, apiKey: undefined };
       const raw = await invoke<string>("web_search", {
         provider: config.provider,
         query,
@@ -256,7 +256,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         details: format ? `Format: ${format}` : undefined,
       });
 
-      const { fetchConfigs, activeFetchId, searchApiKeys } = get();
+      const { fetchConfigs, activeFetchId } = get();
 
       const activeConfig = activeFetchId ? fetchConfigs.find((c) => c.id === activeFetchId && c.enabled) : null;
 
@@ -267,8 +267,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       if (activeConfig) {
         provider = activeConfig.provider;
         configId = activeConfig.id;
-        const key = searchApiKeys[activeConfig.id] || "";
-        configPayload = JSON.stringify({ baseUrl: activeConfig.baseUrl, apiKey: key });
+        configPayload = JSON.stringify({ baseUrl: activeConfig.baseUrl });
       }
 
       const raw = await invoke<string>("fetch_url_content", {

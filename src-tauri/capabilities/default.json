@@ -4,47 +4,43 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "core:event:default",
+    "core:app:allow-version",
     {
       "identifier": "core:event:allow-listen",
       "allow": [
         { "event": "chat-stream-chunk" },
         { "event": "chat-stream-done" },
-        { "event": "ws-error" },
-        { "event": "ws-closed" },
-        { "event": "ws-message" },
         { "event": "tauri://drag-enter" },
         { "event": "tauri://drag-over" },
         { "event": "tauri://drag-leave" },
-        { "event": "tauri://drag-drop" },
         { "event": "sythoria://drag-drop-tokens" },
         { "event": "sythoria://spotlight-shown" },
-        { "event": "sythoria://appshot-requested" }
+        { "event": "sythoria://appshot-requested" },
+        { "event": "whisper-download-progress" },
+        { "event": "menu-new-conversation" },
+        { "event": "menu-create-project" },
+        { "event": "menu-command-palette" },
+        { "event": "menu-check-updates" },
+        { "event": "menu-zoom-in" },
+        { "event": "menu-zoom-out" },
+        { "event": "menu-zoom-reset" }
       ]
     },
+    "core:event:allow-unlisten",
     {
-      "identifier": "core:event:allow-emit",
-      "allow": []
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }, { "url": "mailto:*" }]
     },
-    "opener:default",
     "log:default",
-    "autostart:default",
-    "dialog:default",
+    "dialog:allow-open",
     "process:allow-restart",
     "updater:allow-check",
     "updater:allow-download-and-install",
-    "core:path:default",
+    "core:resources:allow-close",
     "core:window:allow-set-always-on-top",
     "core:window:allow-start-dragging",
     "core:window:allow-close",
     "core:window:allow-minimize",
-    "core:window:allow-maximize",
-    "core:window:allow-unmaximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-show",
-    "core:window:allow-hide",
-    "core:window:allow-set-focus",
-    "core:window:allow-is-visible"
+    "core:window:allow-toggle-maximize"
   ]
 }

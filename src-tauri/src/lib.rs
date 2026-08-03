@@ -913,24 +913,20 @@ async fn web_search(
     ensure_online()?;
     let mut config_json: serde_json::Value = serde_json::from_str(&config)
         .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
+    if let Some(config) = config_json.as_object_mut() {
+        config.remove("apiKey");
+    }
 
     if let Some(id) = config_id {
-        if config_json
-            .get("apiKey")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .is_empty()
-        {
-            match get_search_api_key(&app, &id).await {
-                Ok(key) => {
-                    config_json["apiKey"] = serde_json::Value::String(key);
-                }
-                Err(_) => {
-                    log::warn!(
-                        "No API key found in secure store for search config '{}'",
-                        id
-                    );
-                }
+        match get_search_api_key(&app, &id).await {
+            Ok(key) => {
+                config_json["apiKey"] = serde_json::Value::String(key);
+            }
+            Err(_) => {
+                log::warn!(
+                    "No API key found in secure store for search config '{}'",
+                    id
+                );
             }
         }
     }
@@ -959,24 +955,20 @@ async fn fetch_url_content(
     if let Some(cfg) = config {
         let mut parsed: serde_json::Value = serde_json::from_str(&cfg)
             .map_err(|e| AppError::ParseError(format!("Invalid search config JSON: {}", e)))?;
+        if let Some(config) = parsed.as_object_mut() {
+            config.remove("apiKey");
+        }
 
         if let Some(id) = config_id {
-            if parsed
-                .get("apiKey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .is_empty()
-            {
-                match get_search_api_key(&app, &id).await {
-                    Ok(key) => {
-                        parsed["apiKey"] = serde_json::Value::String(key);
-                    }
-                    Err(_) => {
-                        log::warn!(
-                            "No API key found in secure store for search config '{}'",
-                            id
-                        );
-                    }
+            match get_search_api_key(&app, &id).await {
+                Ok(key) => {
+                    parsed["apiKey"] = serde_json::Value::String(key);
+                }
+                Err(_) => {
+                    log::warn!(
+                        "No API key found in secure store for search config '{}'",
+                        id
+                    );
                 }
             }
         }
@@ -1102,13 +1094,13 @@ async fn ws_authenticate(
 
 #[tauri::command]
 async fn generate_title(
-    api_url: String,
-    api_key: String,
-    model: String,
+    app: tauri::AppHandle,
+    config_id: String,
     user_message: String,
     system_prompt: String,
 ) -> Result<String, AppError> {
     ensure_online()?;
+    let (api_url, api_key, model, _) = get_model_config_and_key(&app, &config_id).await?;
     let client = client_builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
