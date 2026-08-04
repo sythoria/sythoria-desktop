@@ -665,9 +665,6 @@ export const ja = {
   "projectForm.permissionLevel": "既定の権限レベル",
   "projectForm.fullShellConfirm":
     "警告: 完全な Shell は AI にシステム上で任意のコマンドを実行する権限を与えます。信頼できるタスクとプロジェクトでのみ有効にしてください。続行しますか？",
-  "projectForm.modelOverride": "モデルの上書き",
-  "projectForm.modelOverrideDesc": "このワークスペースでモデルを固定",
-  "projectForm.useSystemModel": "システム全体で選択されたモデルを使用",
   "projectForm.promptOverride": "プロジェクト固有のプロンプト",
   "projectForm.promptOverrideDesc": "このプロジェクトで作業するときに挿入",
   "projectForm.excludePatterns": "除外パターン",

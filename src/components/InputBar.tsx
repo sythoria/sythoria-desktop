@@ -682,7 +682,7 @@ export default memo(function InputBar({
 
   const conversationProject = projects.find((project) => project.id === conversation?.projectId);
   const effectiveProject = conversation ? conversationProject : activeProject;
-  const effectiveModelId = effectiveProject?.modelOverride ?? conversation?.model ?? selectedModel;
+  const effectiveModelId = conversation?.model ?? selectedModel;
   const currentModel =
     models.find((m) => m.id === effectiveModelId && m.enabled !== false) ??
     models.find((m) => m.id === selectedModel && m.enabled !== false) ??

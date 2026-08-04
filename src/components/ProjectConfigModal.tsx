@@ -4,12 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { Folder, FolderPlus, ShieldAlert, Info, Sliders, Terminal, GitBranch } from "lucide-react";
 import { useProjectStore } from "../store/useProjectStore";
 import { useUIStore } from "../store/useUIStore";
-import { useModelStore } from "../store/useModelStore";
 import { useGitStore } from "../store/useGitStore";
 import { useChatStore } from "../store/useChatStore";
 import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
-import { Select } from "./ui/Select";
 import type { ProjectPermission } from "../types";
 import { useTranslation } from "../utils/i18n";
 
@@ -23,7 +21,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const { projects, addProject, updateProject, setActiveProject } = useProjectStore();
-  const { models } = useModelStore();
   const gitConfig = useGitStore((s) => s.config);
   const activeConversationHasPendingWorktree = useChatStore((state) => {
     const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);
@@ -41,7 +38,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
     projectToEdit?.excludePatterns?.join(", ") ?? "node_modules, .git, dist, build, target",
   );
   const [systemPromptOverride, setSystemPromptOverride] = useState(projectToEdit?.systemPromptOverride ?? "");
-  const [modelOverride, setModelOverride] = useState(projectToEdit?.modelOverride ?? "");
   const [isAutoCommitEnabled, setIsAutoCommitEnabled] = useState(
     projectToEdit ? (projectToEdit.isAutoCommitEnabled ?? false) : gitConfig.isAutoCommitEnabled,
   );
@@ -102,7 +98,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
       const configData = {
         excludePatterns: parsedExcludes,
         systemPromptOverride: systemPromptOverride.trim() || undefined,
-        modelOverride: modelOverride || undefined,
         isAutoCommitEnabled,
         autoCommitMsgTemplate: autoCommitMsgTemplate.trim() || undefined,
       };
@@ -347,28 +342,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
       {/* Tab 2: AI & Context Settings */}
       {activeTab === "ai" && (
         <div className="space-y-4">
-          {/* Model Override */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label htmlFor="project-model-override-trigger" className="text-xs font-semibold text-text-secondary">
-                {t("projectForm.modelOverride")}
-              </label>
-              <span className="text-[10px] text-text-muted">{t("projectForm.modelOverrideDesc")}</span>
-            </div>
-            <Select
-              id="project-model-override"
-              value={modelOverride}
-              onChange={setModelOverride}
-              options={[
-                { value: "", label: t("projectForm.useSystemModel") },
-                ...models
-                  .filter((model) => model.enabled !== false)
-                  .map((model) => ({ value: model.id, label: `${model.name} (${model.provider})` })),
-              ]}
-              aria-label={t("projectForm.modelOverride")}
-            />
-          </div>
-
           {/* Custom System Prompt */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">

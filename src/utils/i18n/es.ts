@@ -676,9 +676,6 @@ export const es = {
   "projectForm.permissionLevel": "Nivel de permiso predeterminado",
   "projectForm.fullShellConfirm":
     "ADVERTENCIA: Shell completa permite que la IA ejecute comandos arbitrarios en tu sistema. Actívala solo para tareas y proyectos de confianza. ¿Continuar?",
-  "projectForm.modelOverride": "Modelo alternativo",
-  "projectForm.modelOverrideDesc": "Forzar un modelo para este espacio de trabajo",
-  "projectForm.useSystemModel": "Usar el modelo seleccionado del sistema",
   "projectForm.promptOverride": "Instrucciones específicas del proyecto",
   "projectForm.promptOverrideDesc": "Se añaden al trabajar en este proyecto",
   "projectForm.excludePatterns": "Patrones excluidos",

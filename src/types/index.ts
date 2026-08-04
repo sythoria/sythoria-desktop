@@ -101,7 +101,6 @@ export interface Project {
   permissions: ProjectPermission;
   excludePatterns?: string[];
   systemPromptOverride?: string;
-  modelOverride?: string;
   isAutoCommitEnabled?: boolean;
   autoCommitMsgTemplate?: string;
 }

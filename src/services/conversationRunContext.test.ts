@@ -22,8 +22,8 @@ const models: ModelConfig[] = [
 ];
 
 const projects: Project[] = [
-  { id: "project-a", name: "Project A", path: "/projects/a", permissions: "read", modelOverride: "model-a" },
-  { id: "project-b", name: "Project B", path: "/projects/b", permissions: "full", modelOverride: "model-b" },
+  { id: "project-a", name: "Project A", path: "/projects/a", permissions: "read" },
+  { id: "project-b", name: "Project B", path: "/projects/b", permissions: "full" },
 ];
 
 function conversation(projectId: string): Conversation {
@@ -74,20 +74,20 @@ describe("buildConversationRunContext", () => {
       mcpCallTool: undefined,
     });
 
-    mutableProjects[1].modelOverride = "model-a";
-    mutableModels[1].provider = "changed";
+    mutableProjects[1].name = "Changed Project";
+    mutableModels[0].provider = "changed";
 
-    expect(context?.project?.modelOverride).toBe("model-b");
-    expect(context?.modelConfig.provider).toBe("anthropic");
+    expect(context?.project?.name).toBe("Project B");
+    expect(context?.modelConfig.provider).toBe("openai");
     expect(Object.isFrozen(context)).toBe(true);
     expect(Object.isFrozen(context?.project)).toBe(true);
     expect(Object.isFrozen(context?.modelConfig)).toBe(true);
   });
 
-  it("falls back to the conversation model when a project override is unavailable", () => {
+  it("falls back to the selected model when the conversation model is unavailable", () => {
     const context = buildConversationRunContext({
       conversation: conversation("project-b"),
-      models: models.map((model) => (model.id === "model-b" ? { ...model, enabled: false } : model)),
+      models: models.map((model) => (model.id === "model-a" ? { ...model, enabled: false } : model)),
       selectedModel: "model-b",
       temperature: 0.7,
       projects,
@@ -98,6 +98,6 @@ describe("buildConversationRunContext", () => {
       mcpCallTool: undefined,
     });
 
-    expect(context?.modelConfig.id).toBe("model-a");
+    expect(context?.modelConfig.id).toBe("model-b");
   });
 });

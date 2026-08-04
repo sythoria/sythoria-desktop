@@ -13,7 +13,6 @@ const ProjectSchema = z.object({
   permissions: z.enum(["read", "write", "full"]),
   excludePatterns: z.array(z.string()).optional(),
   systemPromptOverride: z.string().optional(),
-  modelOverride: z.string().optional(),
   isAutoCommitEnabled: z.boolean().optional(),
   autoCommitMsgTemplate: z.string().optional(),
 });
@@ -723,7 +722,8 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 
 export async function loadProjects(): Promise<Project[]> {
   try {
-    return await invoke<Project[]>("load_projects");
+    const projects = await invoke<unknown>("load_projects");
+    return ProjectsArraySchema.parse(projects);
   } catch (e) {
     logError("storage", "Failed to load projects", { error: e });
     throw e;
@@ -755,7 +755,7 @@ function startProjectSaveDrain(): Promise<void> {
 
 export async function saveProjects(projects: Project[]): Promise<void> {
   if (persistenceSuspendedForRecovery) return;
-  pendingProjectSave = projects.map((project) => ({
+  pendingProjectSave = ProjectsArraySchema.parse(projects).map((project) => ({
     ...project,
     excludePatterns: project.excludePatterns ? [...project.excludePatterns] : undefined,
   }));

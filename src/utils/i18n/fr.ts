@@ -661,9 +661,6 @@ export const fr = {
   "projectForm.permissionLevel": "Niveau d’autorisation par défaut",
   "projectForm.fullShellConfirm":
     "AVERTISSEMENT : le terminal intégral permet à l’IA d’exécuter des commandes arbitraires. Activez-le uniquement pour des tâches et projets fiables. Continuer ?",
-  "projectForm.modelOverride": "Modèle imposé",
-  "projectForm.modelOverrideDesc": "Imposer un modèle à cet espace de travail",
-  "projectForm.useSystemModel": "Utiliser le modèle sélectionné du système",
   "projectForm.promptOverride": "Instructions propres au projet",
   "projectForm.promptOverrideDesc": "Ajoutées lorsque vous travaillez sur ce projet",
   "projectForm.excludePatterns": "Motifs exclus",

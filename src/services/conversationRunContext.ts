@@ -69,7 +69,6 @@ export function buildConversationRunContext(
       : null,
   );
   const selectedModel =
-    options.models.find((model) => model.id === project?.modelOverride && model.enabled !== false) ??
     options.models.find((model) => model.id === options.conversation.model && model.enabled !== false) ??
     options.models.find((model) => model.id === options.selectedModel && model.enabled !== false) ??
     options.models.find((model) => model.enabled !== false);

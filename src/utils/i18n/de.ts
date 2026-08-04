@@ -682,9 +682,6 @@ export const de = {
   "projectForm.permissionLevel": "Standard-Berechtigungsstufe",
   "projectForm.fullShellConfirm":
     "WARNUNG: Die vollständige Shell erlaubt der KI beliebige Systembefehle. Aktivieren Sie sie nur für vertrauenswürdige Aufgaben und Projekte. Fortfahren?",
-  "projectForm.modelOverride": "Modell überschreiben",
-  "projectForm.modelOverrideDesc": "Modell für diesen Arbeitsbereich erzwingen",
-  "projectForm.useSystemModel": "Systemweit ausgewähltes Modell verwenden",
   "projectForm.promptOverride": "Projektspezifische Anweisungen",
   "projectForm.promptOverrideDesc": "Werden bei der Arbeit in diesem Projekt eingefügt",
   "projectForm.excludePatterns": "Ausschlussmuster",

@@ -665,9 +665,6 @@ export const en = {
   "projectForm.permissionLevel": "Default Permission Level",
   "projectForm.fullShellConfirm":
     "WARNING: Full Shell lets the AI run arbitrary commands on your system. Enable it only for trusted tasks and projects. Continue?",
-  "projectForm.modelOverride": "Model Override",
-  "projectForm.modelOverrideDesc": "Force model for this workspace",
-  "projectForm.useSystemModel": "Use System-wide Selected Model",
   "projectForm.promptOverride": "Project-Specific Prompt Override",
   "projectForm.promptOverrideDesc": "Injected when working in this project",
   "projectForm.excludePatterns": "Exclude Patterns",
