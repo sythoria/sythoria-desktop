@@ -50,6 +50,7 @@ describe("useMcpStore capability revocation", () => {
       mcpApiKeys: {},
       serverStatuses: { [config.id]: "connected" },
       availableTools: [tool],
+      selectedServerIds: new Set([config.id]),
       enabledServerIds: new Set([config.id]),
       connectionGenerations: { [config.id]: 1 },
     });
@@ -76,6 +77,16 @@ describe("useMcpStore capability revocation", () => {
     releaseDisable?.();
     await disabling;
     expect(mocks.invoke).toHaveBeenCalledWith("mcp_stop_server", { serverId: config.id });
+  });
+
+  it("keeps a connected server running when it is removed from the chat", async () => {
+    await useMcpStore.getState().toggleServerSelected(config.id, false);
+
+    expect(useMcpStore.getState().selectedServerIds.has(config.id)).toBe(false);
+    expect(useMcpStore.getState().enabledServerIds.has(config.id)).toBe(true);
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("connected");
+    expect(useMcpStore.getState().availableTools).toEqual([tool]);
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_stop_server", { serverId: config.id });
   });
 
   it("does not publish a late connection after deletion", async () => {

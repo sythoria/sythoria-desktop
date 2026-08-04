@@ -64,6 +64,9 @@ interface McpState {
   mcpApiKeys: Record<string, string>;
   serverStatuses: Record<string, McpServerStatus>;
   availableTools: McpTool[];
+  /** Servers whose tools are available to the current chat composer. */
+  selectedServerIds: Set<string>;
+  /** Servers explicitly enabled for native MCP execution and startup reconnect. */
   enabledServerIds: Set<string>;
   connectionGenerations: Record<string, number>;
 
@@ -81,6 +84,7 @@ interface McpState {
     conversationId?: string,
   ) => Promise<McpToolResult>;
   cancelConversationToolCalls: (conversationIds: string[]) => Promise<boolean>;
+  toggleServerSelected: (serverId: string, selected: boolean) => Promise<void>;
   toggleServerEnabled: (serverId: string, enabled: boolean) => Promise<void>;
   getEnabledTools: () => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
@@ -93,6 +97,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   mcpApiKeys: {},
   serverStatuses: {},
   availableTools: [],
+  selectedServerIds: new Set(),
   enabledServerIds: new Set(),
   connectionGenerations: {},
 
@@ -191,8 +196,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
     if (isBeingDisabled) {
       const nextEnabled = new Set(get().enabledServerIds);
       nextEnabled.delete(id);
+      const nextSelected = new Set(get().selectedServerIds);
+      nextSelected.delete(id);
       set({
         mcpConfigs: updatedConfigs,
+        selectedServerIds: nextSelected,
         enabledServerIds: nextEnabled,
         availableTools: get().availableTools.filter((tool) => tool.serverId !== id),
         serverStatuses: { ...get().serverStatuses, [id]: "disconnected" },
@@ -242,6 +250,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const updatedTools = availableTools.filter((t) => t.serverId !== id);
     const nextEnabled = new Set(get().enabledServerIds);
     nextEnabled.delete(id);
+    const nextSelected = new Set(get().selectedServerIds);
+    nextSelected.delete(id);
 
     const newKeys = { ...mcpApiKeys };
     delete newKeys[id];
@@ -251,6 +261,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       serverStatuses: newStatuses,
       envSecrets: newEnvSecrets,
       availableTools: updatedTools,
+      selectedServerIds: nextSelected,
       enabledServerIds: nextEnabled,
       mcpApiKeys: newKeys,
       connectionGenerations: {
@@ -383,9 +394,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   callTool: async (serverId, toolName, args, conversationId) => {
-    const { mcpConfigs, enabledServerIds, serverStatuses } = get();
+    const { mcpConfigs, selectedServerIds, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
-    if (!config?.enabled || !enabledServerIds.has(serverId) || serverStatuses[serverId] !== "connected") {
+    if (
+      !config?.enabled ||
+      !selectedServerIds.has(serverId) ||
+      !enabledServerIds.has(serverId) ||
+      serverStatuses[serverId] !== "connected"
+    ) {
       return { content: "Error: MCP server is disabled or disconnected", isError: true };
     }
     const requestId = conversationId ? `mcp-${generateId()}-${Date.now()}` : undefined;
@@ -473,6 +489,52 @@ export const useMcpStore = create<McpState>((set, get) => ({
     return cancellationResults.every(Boolean) && remainingCalls === 0;
   },
 
+  toggleServerSelected: async (serverId, selected) => {
+    const { mcpConfigs, enabledServerIds } = get();
+    const config = mcpConfigs.find((candidate) => candidate.id === serverId);
+    if (selected && !config?.enabled) {
+      useUIStore.getState().addToast("Enable this MCP server in Settings before selecting its tools", "error");
+      return;
+    }
+
+    const nextSelected = new Set(get().selectedServerIds);
+    if (!selected) {
+      nextSelected.delete(serverId);
+      // Chat selection only controls which tools reach the model. It must not
+      // stop a server the user explicitly connected or enabled elsewhere.
+      set({ selectedServerIds: nextSelected });
+      return;
+    }
+
+    nextSelected.add(serverId);
+    if (enabledServerIds.has(serverId)) {
+      set({ selectedServerIds: nextSelected });
+      if (get().serverStatuses[serverId] !== "connected") {
+        await get().connectServer(serverId);
+      }
+      return;
+    }
+
+    const nextEnabled = new Set(enabledServerIds);
+    nextEnabled.add(serverId);
+    set({ selectedServerIds: nextSelected, enabledServerIds: nextEnabled });
+    try {
+      await invoke("mcp_set_server_enabled", { serverId, enabled: true });
+      await saveEnabledMcpServers(Array.from(nextEnabled));
+      if (get().serverStatuses[serverId] !== "connected") {
+        await get().connectServer(serverId);
+      }
+    } catch (error) {
+      const rollbackSelected = new Set(get().selectedServerIds);
+      rollbackSelected.delete(serverId);
+      const rollbackEnabled = new Set(get().enabledServerIds);
+      rollbackEnabled.delete(serverId);
+      set({ selectedServerIds: rollbackSelected, enabledServerIds: rollbackEnabled });
+      logError("mcp", `Failed to enable MCP server for chat: "${config?.name ?? serverId}"`, { error });
+      useUIStore.getState().addToast("Could not enable MCP server for this chat", "error");
+    }
+  },
+
   toggleServerEnabled: async (serverId, enabled) => {
     const { enabledServerIds, mcpConfigs } = get();
     const config = mcpConfigs.find((candidate) => candidate.id === serverId);
@@ -487,7 +549,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
       next.delete(serverId);
     }
     if (!enabled) {
+      const nextSelected = new Set(get().selectedServerIds);
+      nextSelected.delete(serverId);
       set({
+        selectedServerIds: nextSelected,
         enabledServerIds: next,
         availableTools: get().availableTools.filter((tool) => tool.serverId !== serverId),
         serverStatuses: { ...get().serverStatuses, [serverId]: "disconnected" },
@@ -511,9 +576,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   getEnabledTools: () => {
-    const { availableTools, enabledServerIds, mcpConfigs, serverStatuses } = get();
+    const { availableTools, selectedServerIds, enabledServerIds, mcpConfigs, serverStatuses } = get();
     return availableTools.filter(
       (tool) =>
+        selectedServerIds.has(tool.serverId) &&
         enabledServerIds.has(tool.serverId) &&
         serverStatuses[tool.serverId] === "connected" &&
         mcpConfigs.some((config) => config.id === tool.serverId && config.enabled),

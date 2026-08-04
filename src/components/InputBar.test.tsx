@@ -36,7 +36,7 @@ const mockMcpServerStatuses: Record<string, McpServerStatus> = {};
 const defaultMcpProps = {
   mcpServers: [],
   mcpServerStatuses: mockMcpServerStatuses,
-  enabledMcpServerIds: new Set<string>(),
+  selectedMcpServerIds: new Set<string>(),
   onToggleMcpServer: vi.fn(),
 };
 

@@ -202,21 +202,21 @@ function App() {
     })),
   );
 
-  const { mcpConfigs, serverStatuses, enabledServerIds, toggleServerEnabled } = useMcpStore(
+  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore(
     useShallow((s) => ({
       mcpConfigs: s.mcpConfigs,
       serverStatuses: s.serverStatuses,
-      enabledServerIds: s.enabledServerIds,
-      toggleServerEnabled: s.toggleServerEnabled,
+      selectedServerIds: s.selectedServerIds,
+      toggleServerSelected: s.toggleServerSelected,
     })),
   );
 
   const handleToggleMcpServer = useCallback(
     (serverId: string) => {
-      const isEnabled = enabledServerIds.has(serverId);
-      void toggleServerEnabled(serverId, !isEnabled);
+      const isSelected = selectedServerIds.has(serverId);
+      void toggleServerSelected(serverId, !isSelected);
     },
-    [enabledServerIds, toggleServerEnabled],
+    [selectedServerIds, toggleServerSelected],
   );
 
   const {
@@ -1406,7 +1406,7 @@ function App() {
                       onToggleSearch={toggleSearchEnabled}
                       mcpServers={mcpConfigs}
                       mcpServerStatuses={serverStatuses}
-                      enabledMcpServerIds={enabledServerIds}
+                      selectedMcpServerIds={selectedServerIds}
                       onToggleMcpServer={handleToggleMcpServer}
                       isStreaming={isPrimaryGenerating}
                       onStop={stopStreaming}

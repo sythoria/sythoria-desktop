@@ -55,7 +55,7 @@ interface InputBarProps {
   onToggleSearch: (enabled: boolean) => void;
   mcpServers: McpServerConfig[];
   mcpServerStatuses: Record<string, McpServerStatus>;
-  enabledMcpServerIds: Set<string>;
+  selectedMcpServerIds: Set<string>;
   onToggleMcpServer: (serverId: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
@@ -74,7 +74,7 @@ export default memo(function InputBar({
   onToggleSearch,
   mcpServers,
   mcpServerStatuses,
-  enabledMcpServerIds,
+  selectedMcpServerIds,
   onToggleMcpServer,
   isStreaming,
   onStop,
@@ -459,9 +459,9 @@ export default memo(function InputBar({
       xlarge: "text-lg",
     }[baseTextSize] || "text-sm";
 
-  const anyToolActive = isSearchEnabled || enabledMcpServerIds.size > 0;
+  const anyToolActive = isSearchEnabled || selectedMcpServerIds.size > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
-  const enabledServers = mcpServers.filter((s) => enabledMcpServerIds.has(s.id));
+  const selectedServers = mcpServers.filter((s) => selectedMcpServerIds.has(s.id));
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
@@ -697,7 +697,7 @@ export default memo(function InputBar({
   const contextBudget = currentModel
     ? resolveContextBudget(
         currentModel,
-        isSearchEnabled || enabledMcpServerIds.size > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
+        isSearchEnabled || selectedMcpServerIds.size > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
       )
     : null;
   const contextSize = contextBudget?.contextTokens;
@@ -945,7 +945,7 @@ export default memo(function InputBar({
                             <>
                               <div className="border-t border-border my-1 -mx-1" />
                               {connectedMcpServers.map((server) => {
-                                const isEnabled = enabledMcpServerIds.has(server.id);
+                                const isSelected = selectedMcpServerIds.has(server.id);
                                 return (
                                   <button
                                     key={server.id}
@@ -953,16 +953,16 @@ export default memo(function InputBar({
                                       onToggleMcpServer(server.id);
                                     }}
                                     className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                                      isEnabled
+                                      isSelected
                                         ? "text-text-primary bg-active"
                                         : "text-text-secondary hover:bg-hover hover:text-text-primary"
                                     }`}
                                     role="menuitemcheckbox"
-                                    aria-checked={isEnabled}
+                                    aria-checked={isSelected}
                                   >
-                                    <Cpu size={15} className={isEnabled ? "text-text-primary" : "text-text-muted"} />
+                                    <Cpu size={15} className={isSelected ? "text-text-primary" : "text-text-muted"} />
                                     <span className="truncate flex-1 text-left">{server.name}</span>
-                                    {isEnabled && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
+                                    {isSelected && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
                                   </button>
                                 );
                               })}
@@ -1178,7 +1178,7 @@ export default memo(function InputBar({
               </div>
 
               {/* Active Tools and Context Row */}
-              {(isProjectsEnabled || isSearchEnabled || enabledServers.length > 0) && (
+              {(isProjectsEnabled || isSearchEnabled || selectedServers.length > 0) && (
                 <div
                   className={`relative flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
@@ -1446,7 +1446,7 @@ export default memo(function InputBar({
                   )}
 
                   {/* MCP Server Pills */}
-                  {enabledServers.map((server) => {
+                  {selectedServers.map((server) => {
                     return (
                       <motion.div
                         key={server.id}
@@ -1497,10 +1497,10 @@ export default memo(function InputBar({
                   <Search size={11} className="text-text-secondary" />
                   Web Search enabled
                 </span>
-              ) : enabledMcpServerIds.size > 0 ? (
+              ) : selectedMcpServerIds.size > 0 ? (
                 <span className="flex items-center justify-center gap-1.5">
                   <Cpu size={11} className="text-text-secondary" />
-                  {t("chat.mcp_servers_enabled", { count: String(enabledMcpServerIds.size) })}
+                  {t("chat.mcp_servers_enabled", { count: String(selectedMcpServerIds.size) })}
                 </span>
               ) : (
                 t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."

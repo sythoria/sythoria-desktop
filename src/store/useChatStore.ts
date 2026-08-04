@@ -531,6 +531,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         envSecrets: loadedMcpEnvSecrets,
         mcpApiKeys: loadedMcpKeys || {},
         serverStatuses: Object.fromEntries(mcpConfigs.map((c) => [c.id, "disconnected" as const])),
+        selectedServerIds: new Set(),
         enabledServerIds: new Set(
           mcpEnabledServers.filter((id) => mcpConfigs.some((config) => config.id === id && config.enabled)),
         ),
