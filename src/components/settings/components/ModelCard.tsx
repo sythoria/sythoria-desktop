@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
 import { motion } from "motion/react";
-import { Trash2, ChevronDown, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Trash2, ChevronDown, AlertCircle } from "lucide-react";
 import { ModelConfig } from "../../../types";
 import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
@@ -22,13 +22,13 @@ const PROVIDER_OPTIONS = PROVIDER_PRESETS.map((preset) => ({
   label: preset.label,
 }));
 
+const STORED_SECRET_PLACEHOLDER = "••••••••••••";
+
 interface ModelCardProps {
   id?: string;
   model: ModelConfig;
   onUpdate: (id: string, updates: Partial<ModelConfig>) => void;
   onDelete: (id: string) => void;
-  showKey: boolean;
-  onToggleKey: (id: string) => void;
   connectionStatus: string;
 }
 
@@ -37,8 +37,6 @@ export const ModelCard = memo(function ModelCard({
   model,
   onUpdate,
   onDelete,
-  showKey,
-  onToggleKey,
   connectionStatus,
 }: ModelCardProps) {
   const { t } = useTranslation();
@@ -46,6 +44,7 @@ export const ModelCard = memo(function ModelCard({
   const keyValidation = validateApiKey(model.apiKey, model.provider);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
+  const hasStoredApiKey = model.apiKey === STORED_SECRET_PLACEHOLDER;
 
   return (
     <motion.div
@@ -218,35 +217,38 @@ export const ModelCard = memo(function ModelCard({
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-text-muted" htmlFor={`model-key-${model.id}`}>
-              {t("settings.models.apiKey")}
-            </label>
-            <div className="relative">
-              <input
-                id={`model-key-${model.id}`}
-                type={showKey ? "text" : "password"}
-                value={model.apiKey}
-                onChange={(e) => onUpdate(model.id, { apiKey: e.target.value })}
-                placeholder={t("settings.models.apiKeyOptional") || "API key (optional for local)"}
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck="false"
-                aria-invalid={!keyValidation.valid}
-                aria-describedby={!keyValidation.valid ? `key-warning-${model.id}` : undefined}
-                className={`w-full h-10 px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
-                  !keyValidation.valid
-                    ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
-                    : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
-                }`}
-              />
-              <button
-                onClick={() => onToggleKey(model.id)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
-                aria-label={showKey ? "Hide API key" : "Show API key"}
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-text-muted" htmlFor={`model-key-${model.id}`}>
+                {t("settings.models.apiKey")}
+              </label>
+              {hasStoredApiKey && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600 dark:text-green-400">
+                  <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                  {t("settings.models.apiKeyAdded")}
+                </span>
+              )}
             </div>
+            <input
+              id={`model-key-${model.id}`}
+              type="password"
+              value={hasStoredApiKey ? "" : model.apiKey}
+              onChange={(e) => onUpdate(model.id, { apiKey: e.target.value })}
+              placeholder={
+                hasStoredApiKey
+                  ? t("settings.models.apiKeyReplace")
+                  : t("settings.models.apiKeyOptional") || "API key (optional for local)"
+              }
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck="false"
+              aria-invalid={!keyValidation.valid}
+              aria-describedby={!keyValidation.valid ? `key-warning-${model.id}` : undefined}
+              className={`w-full h-10 px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
+                !keyValidation.valid
+                  ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
+                  : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+              }`}
+            />
             {!keyValidation.valid && (
               <p
                 id={`key-warning-${model.id}`}

@@ -145,6 +145,8 @@ export const ja = {
   "settings.models.modelId": "モデル ID",
   "settings.models.apiKey": "API キー",
   "settings.models.apiKeyOptional": "API キー (ローカルの場合は任意)",
+  "settings.models.apiKeyAdded": "追加済み",
+  "settings.models.apiKeyReplace": "置き換える新しいキーを入力",
   "settings.models.advanced": "詳細設定",
   "settings.models.noProviders": "モデルプロバイダーが構成されていません。",
   "settings.models.deleteTitle": "モデルプロバイダーを削除",

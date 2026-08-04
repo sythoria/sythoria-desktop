@@ -16,8 +16,6 @@ interface ModelsSectionProps {
   addModel: () => void;
   handleRefreshConnections: () => void;
   loadingCheckConnection: boolean;
-  showKeys: Record<string, boolean>;
-  toggleKeyVisibility: (id: string) => void;
 }
 
 export const ModelsSection = ({
@@ -28,8 +26,6 @@ export const ModelsSection = ({
   addModel,
   handleRefreshConnections,
   loadingCheckConnection,
-  showKeys,
-  toggleKeyVisibility,
 }: ModelsSectionProps) => {
   const { t } = useTranslation();
   const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
@@ -85,8 +81,6 @@ export const ModelsSection = ({
             model={model}
             onUpdate={updateModel}
             onDelete={() => setModelToDelete(model)}
-            showKey={!!showKeys[model.id]}
-            onToggleKey={toggleKeyVisibility}
             connectionStatus={modelStatuses[model.id] ?? "disconnected"}
           />
         ))}

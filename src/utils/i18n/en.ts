@@ -145,6 +145,8 @@ export const en = {
   "settings.models.modelId": "Model ID",
   "settings.models.apiKey": "API Key",
   "settings.models.apiKeyOptional": "API Key (optional for local)",
+  "settings.models.apiKeyAdded": "Added",
+  "settings.models.apiKeyReplace": "Enter a new key to replace",
   "settings.models.advanced": "Advanced Settings",
   "settings.models.noProviders": "No model providers configured.",
   "settings.models.deleteTitle": "Delete Model Provider",

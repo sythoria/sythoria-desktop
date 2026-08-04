@@ -88,15 +88,10 @@ export default function Settings() {
 
   const newChat = useChatStore((s) => s.newChat);
 
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
   const [showFetchKeys, setShowFetchKeys] = useState<Record<string, boolean>>({});
   const [showMcpKeys, setShowMcpKeys] = useState<Record<string, boolean>>({});
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
-
-  const toggleKeyVisibility = (id: string) => {
-    setShowKeys((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   const toggleSearchKeyVisibility = (id: string) => {
     setShowSearchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -231,8 +226,6 @@ export default function Settings() {
                 addModel={addModel}
                 handleRefreshConnections={handleRefreshConnections}
                 loadingCheckConnection={loading.checkConnection}
-                showKeys={showKeys}
-                toggleKeyVisibility={toggleKeyVisibility}
               />
             )}
 

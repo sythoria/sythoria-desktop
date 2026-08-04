@@ -145,6 +145,8 @@ export const de = {
   "settings.models.modelId": "Modell-ID",
   "settings.models.apiKey": "API-Schlüssel",
   "settings.models.apiKeyOptional": "API-Schlüssel (optional für lokale Instanzen)",
+  "settings.models.apiKeyAdded": "Hinzugefügt",
+  "settings.models.apiKeyReplace": "Neuen Schlüssel zum Ersetzen eingeben",
   "settings.models.advanced": "Erweiterte Einstellungen",
   "settings.models.noProviders": "Keine Modellanbieter konfiguriert.",
   "settings.models.deleteTitle": "Modellanbieter löschen",

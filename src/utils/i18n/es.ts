@@ -146,6 +146,8 @@ export const es = {
   "settings.models.modelId": "ID de Modelo",
   "settings.models.apiKey": "Clave API",
   "settings.models.apiKeyOptional": "Clave API (opcional para local)",
+  "settings.models.apiKeyAdded": "Añadida",
+  "settings.models.apiKeyReplace": "Introduce una clave nueva para reemplazarla",
   "settings.models.advanced": "Ajustes Avanzados",
   "settings.models.noProviders": "No hay proveedores de modelos configurados.",
   "settings.models.deleteTitle": "Eliminar Proveedor de Modelos",
