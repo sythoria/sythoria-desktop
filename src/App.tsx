@@ -17,6 +17,8 @@ import {
   Ghost,
   ListTree,
   PanelRight,
+  RotateCcw,
+  ShieldAlert,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import { isGenerationActive, type Conversation } from "./types";
@@ -220,6 +222,7 @@ function App() {
     sidebarCollapsed,
     isLaunchReady,
     isConfigLoaded,
+    startupRecovery,
     view,
     showRenameModal,
     renameCurrentTitle,
@@ -248,6 +251,7 @@ function App() {
       sidebarCollapsed: s.sidebarCollapsed,
       isLaunchReady: s.isLaunchReady,
       isConfigLoaded: s.isConfigLoaded,
+      startupRecovery: s.startupRecovery,
       view: s.view,
       showRenameModal: s.showRenameModal,
       renameCurrentTitle: s.renameCurrentTitle,
@@ -1086,6 +1090,39 @@ function App() {
     },
     [handleScrollSync],
   );
+
+  if (startupRecovery) {
+    return (
+      <div className="flex h-screen w-screen overflow-hidden flex-col bg-transparent">
+        <TitleBar />
+        <main
+          className="glass-loading-screen flex flex-1 items-center justify-center p-6"
+          aria-labelledby="recovery-title"
+        >
+          <section className="glass-panel w-full max-w-lg rounded-2xl border border-border p-6 text-center shadow-xl">
+            <ShieldAlert className="mx-auto mb-4 text-warning" size={32} aria-hidden="true" />
+            <h1 id="recovery-title" className="text-lg font-semibold text-text-primary">
+              Recovery mode
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-text-secondary">{startupRecovery.message}</p>
+            <p className="mt-2 text-xs leading-5 text-text-muted">{startupRecovery.detail}</p>
+            <p className="mt-4 text-xs leading-5 text-text-muted">
+              Persistence is disabled for this session to prevent empty defaults from overwriting your data. Check
+              keychain and file access, then restart Sythoria.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mx-auto mt-5 inline-flex min-h-9 items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+            >
+              <RotateCcw size={15} aria-hidden="true" />
+              Retry startup
+            </button>
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   if (!isConfigLoaded || loading.init) {
     return (

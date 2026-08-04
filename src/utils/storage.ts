@@ -356,6 +356,7 @@ class EncryptedPreferenceStore {
 
 let storeInstance: EncryptedPreferenceStore | null = null;
 let storePromise: Promise<EncryptedPreferenceStore> | null = null;
+let persistenceSuspendedForRecovery = false;
 
 const LEGACY_BOOLEAN_KEYS = new Set([
   ALWAYS_ON_TOP_KEY,
@@ -451,6 +452,7 @@ async function getStore(): Promise<EncryptedPreferenceStore> {
       .then(async (data) => {
         const store = new EncryptedPreferenceStore(data);
         await migrateLegacyLocalStorage(store);
+        if (persistenceSuspendedForRecovery) await store.suspend();
         storeInstance = store;
         return store;
       })
@@ -464,6 +466,23 @@ async function getStore(): Promise<EncryptedPreferenceStore> {
 
 export async function suspendPreferencePersistenceForWipe(): Promise<void> {
   if (storeInstance) await storeInstance.suspend();
+}
+
+export async function verifyEncryptedPreferences(): Promise<void> {
+  await getStore();
+}
+
+export async function suspendPersistenceForRecovery(): Promise<void> {
+  persistenceSuspendedForRecovery = true;
+  pendingConversationSave = null;
+  pendingProjectSave = null;
+  pendingNetworkSettings = null;
+  if (storeInstance) await storeInstance.suspend();
+  await Promise.allSettled(
+    [conversationSavePromise, projectSavePromise, networkSettingsSavePromise].filter(
+      (promise): promise is Promise<void> => promise !== null,
+    ),
+  );
 }
 
 export function resumePreferencePersistenceAfterFailedWipe(): void {
@@ -668,7 +687,7 @@ export function resumeConversationPersistenceAfterFailedWipe(): void {
 }
 
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
-  if (conversationsAreBeingCleared) return;
+  if (conversationsAreBeingCleared || persistenceSuspendedForRecovery) return;
   pendingConversationSave = [...conversations, ...preservedInvalidConversations];
   if (!conversationSavePromise) {
     conversationSavePromise = Promise.resolve()
@@ -735,6 +754,7 @@ function startProjectSaveDrain(): Promise<void> {
 }
 
 export async function saveProjects(projects: Project[]): Promise<void> {
+  if (persistenceSuspendedForRecovery) return;
   pendingProjectSave = projects.map((project) => ({
     ...project,
     excludePatterns: project.excludePatterns ? [...project.excludePatterns] : undefined,
@@ -855,17 +875,19 @@ export function applyZoom(level: number) {
   (document.body.style as CSSStyleDeclaration & { zoom?: string }).zoom = level.toString();
 }
 
-export async function loadApiKeys(): Promise<Record<string, string>> {
+export async function loadApiKeys(options: { critical?: boolean } = {}): Promise<Record<string, string>> {
   try {
     const raw = await invoke<unknown>("load_api_keys");
     const result = ApiKeysSchema.safeParse(raw);
-    if (result.success && Object.keys(result.data).length > 0) return result.data;
+    if (!result.success) throw result.error;
+    if (Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
     logError("storage", "Failed to load API keys from keychain", {
       error: e,
       action:
         "Check that the app has keychain access. You may need to re-enter your API keys in Settings > Model Providers.",
     });
+    if (options.critical) throw e;
   }
 
   try {
@@ -893,11 +915,13 @@ export async function loadApiKeys(): Promise<Record<string, string>> {
       error: e,
       action: "Could not migrate old API keys from store. Re-enter them in Settings > Model Providers.",
     });
+    if (options.critical) throw e;
   }
   return {};
 }
 
 export async function saveApiKeys(keys: Record<string, string>): Promise<boolean> {
+  if (persistenceSuspendedForRecovery) return false;
   try {
     await invoke("save_api_keys_cmd", { keys });
     return true;
@@ -981,6 +1005,7 @@ export async function saveFetchConfigs(configs: import("../types").FetchApiConfi
 }
 
 export async function clearConversations(): Promise<void> {
+  if (persistenceSuspendedForRecovery) return;
   conversationsAreBeingCleared = true;
   try {
     pendingConversationSave = null;
@@ -1046,6 +1071,7 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
 }
 
 export async function saveSearchApiKeys(keys: Record<string, string>): Promise<boolean> {
+  if (persistenceSuspendedForRecovery) return false;
   try {
     await invoke("save_search_api_keys_cmd", { keys });
     return true;
@@ -1360,6 +1386,7 @@ export async function loadMcpApiKeys(): Promise<Record<string, string>> {
 }
 
 export async function saveMcpApiKeys(keys: Record<string, string>): Promise<boolean> {
+  if (persistenceSuspendedForRecovery) return false;
   try {
     await invoke("save_mcp_api_keys_cmd", { keys });
     return true;
@@ -1387,6 +1414,7 @@ export async function loadMcpEnvSecrets(): Promise<Record<string, Record<string,
 }
 
 export async function saveMcpEnvSecrets(secrets: Record<string, Record<string, string>>): Promise<void> {
+  if (persistenceSuspendedForRecovery) return;
   try {
     await invoke("save_mcp_env_secrets_cmd", { secrets });
   } catch (e) {
@@ -1425,6 +1453,7 @@ export async function loadModelConfigs(): Promise<ModelConfig[] | null> {
 }
 
 export async function saveModelConfigs(configs: ModelConfig[]) {
+  if (persistenceSuspendedForRecovery) return;
   try {
     const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
     await invoke("save_config", { config: JSON.stringify(stripped) });
@@ -1997,6 +2026,7 @@ let pendingNetworkSettings: NetworkSettings | null = null;
 let networkSettingsSavePromise: Promise<void> | null = null;
 
 export async function saveNetworkSettings(settings: NetworkSettings): Promise<void> {
+  if (persistenceSuspendedForRecovery) return;
   pendingNetworkSettings = settings;
   if (!networkSettingsSavePromise) {
     networkSettingsSavePromise = Promise.resolve()

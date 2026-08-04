@@ -63,6 +63,7 @@ interface UIState {
   hasStarted: boolean;
   isLaunchReady: boolean;
   isConfigLoaded: boolean;
+  startupRecovery: { message: string; detail: string } | null;
   loading: Record<LoadingKey, boolean>;
   toasts: Toast[];
   showRenameModal: boolean;
@@ -109,6 +110,7 @@ interface UIState {
   initHasStarted: () => Promise<void>;
   setLaunchReady: (ready: boolean) => void;
   setConfigLoaded: (loaded: boolean) => void;
+  setStartupRecovery: (recovery: { message: string; detail: string } | null) => void;
   setLoading: (key: LoadingKey, value: boolean) => void;
   addToast: (message: React.ReactNode, variant?: Toast["variant"]) => void;
   dismissToast: (id: string) => void;
@@ -219,6 +221,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   hasStarted: false,
   isLaunchReady: false,
   isConfigLoaded: false,
+  startupRecovery: null,
   loading: {
     init: true,
     sendMessage: false,
@@ -358,6 +361,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   setLaunchReady: (ready) => set({ isLaunchReady: ready }),
   setConfigLoaded: (loaded) => set({ isConfigLoaded: loaded }),
+  setStartupRecovery: (startupRecovery) => set({ startupRecovery }),
   setLoading: (key, value) => set((s) => ({ loading: { ...s.loading, [key]: value } })),
   addToast: (message, variant = "info") => {
     const id = `toast-${++toastCounter}`;

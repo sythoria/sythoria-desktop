@@ -47,6 +47,8 @@ import {
   loadSelectedModel,
   saveSelectedModel,
   loadUiLayoutSettings,
+  suspendPersistenceForRecovery,
+  verifyEncryptedPreferences,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
@@ -307,6 +309,18 @@ interface ChatState {
 
 let initInProgress = false;
 
+async function loadOptionalStartupValue<T>(label: string, loader: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await loader();
+  } catch (error) {
+    logWarn("storage", `Optional startup load failed: ${label}`, {
+      details: String(error),
+      action: "The related preference will use its default for this session.",
+    });
+    return fallback;
+  }
+}
+
 function setConversationGeneration(
   state: ChatState,
   convId: string,
@@ -365,16 +379,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
     initInProgress = true;
     uiLoading("init", true);
     try {
-      const startupVisualsPromise = Promise.all([loadTheme(), loadHasStarted()]).then(([theme, storedHasStarted]) => {
-        uiTheme(theme);
-        uiLaunchReady(true);
-        return { theme, storedHasStarted };
-      });
+      const startupVisualsPromise = loadOptionalStartupValue(
+        "startup visuals",
+        async () => {
+          const [theme, storedHasStarted] = await Promise.all([loadTheme(), loadHasStarted()]);
+          uiTheme(theme);
+          uiLaunchReady(true);
+          return { theme, storedHasStarted };
+        },
+        { theme: DEFAULT_THEME_CONFIG, storedHasStarted: false },
+      );
+
+      const [loadedModels, loadedConvs, loadedKeys] = await Promise.all([
+        loadModelConfigs(),
+        loadConversations(),
+        loadApiKeys({ critical: true }),
+        verifyEncryptedPreferences(),
+        useProjectStore.getState().init(),
+      ]);
+
       const [
-        loadedModels,
-        loadedConvs,
         loadedStartupVisuals,
-        loadedKeys,
         loadedSearchConfigs,
         loadedFetchConfigs,
         loadedSearchKeys,
@@ -401,36 +426,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedSelectedModel,
         loadedUiLayout,
       ] = await Promise.all([
-        loadModelConfigs(),
-        loadConversations(),
         startupVisualsPromise,
-        loadApiKeys(),
-        loadSearchConfigs(),
-        loadFetchConfigs(),
-        loadSearchApiKeys(),
-        loadTitleConfig(),
-        loadMcpConfigs(),
-        loadMcpEnvSecrets(),
-        loadMcpApiKeys(),
-        loadEnabledMcpServers(),
-        loadAnimationsDisabled(),
-        loadAlwaysOnTop(),
-        loadCloseToTray(),
-        loadLaunchOnStartup(),
-        loadSendMessageShortcut(),
-        loadClearInputOnEscape(),
-        loadBaseTextSize(),
-        loadAutoUpdateChecking(),
-        loadSystemPrompt(),
-        loadShowContextWindow(),
-        loadMaxToolSteps(),
-        loadIsLoggingEnabled(),
-        loadDisableBgActivity(),
-        loadNetworkSettings(),
-        loadLanguage(),
-        loadSelectedModel(),
-        loadUiLayoutSettings(),
-        useProjectStore.getState().init(),
+        loadOptionalStartupValue("search providers", loadSearchConfigs, null),
+        loadOptionalStartupValue("URL fetch providers", loadFetchConfigs, null),
+        loadOptionalStartupValue("search credentials", loadSearchApiKeys, {}),
+        loadOptionalStartupValue("title generation", loadTitleConfig, {
+          enabled: true,
+          modelId: "__same__",
+          systemPrompt: "",
+        }),
+        loadOptionalStartupValue("MCP servers", loadMcpConfigs, null),
+        loadOptionalStartupValue("MCP environment secrets", loadMcpEnvSecrets, {}),
+        loadOptionalStartupValue("MCP credentials", loadMcpApiKeys, {}),
+        loadOptionalStartupValue("enabled MCP servers", loadEnabledMcpServers, []),
+        loadOptionalStartupValue("animation preference", loadAnimationsDisabled, false),
+        loadOptionalStartupValue("always-on-top preference", loadAlwaysOnTop, false),
+        loadOptionalStartupValue("close-to-tray preference", loadCloseToTray, false),
+        loadOptionalStartupValue("launch-on-startup preference", loadLaunchOnStartup, false),
+        loadOptionalStartupValue("send shortcut", loadSendMessageShortcut, "enter" as const),
+        loadOptionalStartupValue("clear-input preference", loadClearInputOnEscape, false),
+        loadOptionalStartupValue("text size", loadBaseTextSize, "medium" as const),
+        loadOptionalStartupValue("update preference", loadAutoUpdateChecking, true),
+        loadOptionalStartupValue("system prompt", loadSystemPrompt, ""),
+        loadOptionalStartupValue("context-window preference", loadShowContextWindow, false),
+        loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, 10),
+        loadOptionalStartupValue("logging preference", loadIsLoggingEnabled, true),
+        loadOptionalStartupValue("background-activity preference", loadDisableBgActivity, false),
+        loadOptionalStartupValue("network policy", loadNetworkSettings, {
+          blockedHosts: [],
+          allowedLocalEndpoints: [],
+          offlineMode: true,
+        }),
+        loadOptionalStartupValue("language", loadLanguage, "en"),
+        loadOptionalStartupValue("selected model", loadSelectedModel, ""),
+        loadOptionalStartupValue("window layout", loadUiLayoutSettings, {}),
       ]);
 
       const { theme: loadedTheme, storedHasStarted } = loadedStartupVisuals;
@@ -582,8 +611,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch (err) {
       const parsed = parseApiError(err);
       logError("chat", "Failed to initialize app", { error: err, action: "Check your settings and restart the app." });
-      uiToast(parsed.message, "error");
-      uiConfigLoaded(true);
+      await suspendPersistenceForRecovery();
+      useUIStore.getState().setStartupRecovery({
+        message: "Sythoria could not safely load encrypted app data. Your existing data has not been changed.",
+        detail: parsed.message,
+      });
       uiLaunchReady(true);
     } finally {
       uiLoading("init", false);
