@@ -148,7 +148,11 @@ export const McpServerCard = memo(function McpServerCard({
           <p className="text-xs text-text-muted mt-0.5">{t("settings.mcp.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
+          <Switch
+            checked={config.enabled}
+            onChange={(checked) => onUpdate(config.id, { enabled: checked })}
+            ariaLabel={`Enable MCP server ${config.name}`}
+          />
           <motion.button
             onClick={() => onDelete(config.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -175,7 +179,7 @@ export const McpServerCard = memo(function McpServerCard({
           onChange={handleTrustChange}
           label={t("settings.mcp.trust")}
           description={t("settings.mcp.trustDesc")}
-          ariaLabel={t("settings.mcp.trust")}
+          ariaLabel={`Trust MCP server ${config.name}`}
         />
         {isTrusted && (
           <div
@@ -467,6 +471,7 @@ export const McpServerCard = memo(function McpServerCard({
                 onUpdate(config.id, { allowLocalNetwork: checked });
               }}
               label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+              ariaLabel={`Allow local network access for MCP server ${config.name}`}
               description={t("settings.network.allowLocalMcpDesc", {
                 defaultValue: "Required for trusted local MCP HTTP servers. Plaintext stays limited to loopback.",
               })}

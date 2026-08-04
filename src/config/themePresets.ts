@@ -165,6 +165,23 @@ export function getContrastColor(hex: string): string {
   return contrastWithBlack >= contrastWithWhite ? "#000000" : "#ffffff";
 }
 
+function relativeLuminance(hex: string): number {
+  const cleanHex = normalizeHex(hex, "#000000").replace("#", "").slice(0, 6);
+  const channels = [0, 2, 4].map((offset) => {
+    const value = parseInt(cleanHex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+export function getContrastRatio(foreground: string, background: string): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 function mixColors(color1: string, color2: string, weight: number): string {
   let c1 = color1.trim().replace("#", "");
   let c2 = color2.trim().replace("#", "");
@@ -206,6 +223,16 @@ function mixColors(color1: string, color2: string, weight: number): string {
   return "#" + (0x1000000 + rClamped * 0x10000 + gClamped * 0x100 + bClamped).toString(16).slice(1);
 }
 
+function ensureContrast(color: string, background: string, minimumRatio: number): string {
+  if (getContrastRatio(color, background) >= minimumRatio) return color;
+  const target = getContrastColor(background);
+  for (let targetWeight = 0.1; targetWeight <= 1; targetWeight += 0.05) {
+    const candidate = mixColors(color, target, 1 - targetWeight);
+    if (getContrastRatio(candidate, background) >= minimumRatio) return candidate;
+  }
+  return target;
+}
+
 export function applyTheme(config: ThemeConfig) {
   if (typeof document === "undefined") return;
 
@@ -219,8 +246,10 @@ export function applyTheme(config: ThemeConfig) {
 
   const colors = isDark ? config.darkTheme : config.lightTheme;
   const bg = normalizeHex(colors.background, isDark ? "#161616" : "#ffffff");
-  const fg = normalizeHex(colors.foreground, isDark ? "#f4f4f5" : "#0f172a");
-  const accent = normalizeHex(colors.accent, isDark ? "#ffffff" : "#0f172a");
+  const requestedForeground = normalizeHex(colors.foreground, isDark ? "#f4f4f5" : "#0f172a");
+  const requestedAccent = normalizeHex(colors.accent, isDark ? "#ffffff" : "#0f172a");
+  const fg = ensureContrast(requestedForeground, bg, 4.5);
+  const accent = ensureContrast(requestedAccent, bg, 3);
   const style = document.documentElement.style;
   const translucentSidebar = config.translucentSidebar ?? true;
 
@@ -241,10 +270,11 @@ export function applyTheme(config: ThemeConfig) {
   const inputColor = isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08);
   style.setProperty("--theme-input", inputColor);
 
-  style.setProperty("--theme-input-border", hexToRgba(fg, 0.12));
+  const borderColor = ensureContrast(mixColors(fg, bg, isDark ? 0.35 : 0.3), bg, 3);
+  style.setProperty("--theme-input-border", borderColor);
   style.setProperty("--theme-accent", accent);
 
-  const accentForeground = getContrastColor(accent);
+  const accentForeground = ensureContrast(getContrastColor(accent), accent, 4.5);
   const accentHoverColor = lightenColor(accent, accentForeground === "#ffffff" ? -8 : 8);
   style.setProperty("--theme-accent-hover", accentHoverColor);
 
@@ -255,16 +285,24 @@ export function applyTheme(config: ThemeConfig) {
 
   style.setProperty("--theme-text-primary", fg);
 
-  const textSecondaryColor = mixColors(fg, bg, isDark ? 0.75 : 0.8);
+  const textSecondaryColor = ensureContrast(mixColors(fg, bg, isDark ? 0.75 : 0.8), bg, 4.5);
   style.setProperty("--theme-text-secondary", textSecondaryColor);
 
-  const textMutedColor = mixColors(fg, bg, isDark ? 0.5 : 0.6);
+  const textMutedColor = ensureContrast(mixColors(fg, bg, isDark ? 0.5 : 0.6), bg, 4.5);
   style.setProperty("--theme-text-muted", textMutedColor);
 
   style.setProperty("--theme-user-bubble", isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08));
   style.setProperty("--theme-hover", hexToRgba(fg, isDark ? 0.06 : 0.04));
   style.setProperty("--theme-active", hexToRgba(fg, isDark ? 0.1 : 0.07));
-  style.setProperty("--theme-border", hexToRgba(fg, 0.12));
+  style.setProperty("--theme-border", borderColor);
+
+  const focusOutline = ensureContrast(accent, bg, 3);
+  style.setProperty("--theme-focus-outline", focusOutline);
+  style.setProperty("--theme-focus-border", focusOutline);
+  style.setProperty("--theme-diff-add-text", isDark ? "#86efac" : "#166534");
+  style.setProperty("--theme-diff-add-bg", isDark ? "#143723" : "#dcfce7");
+  style.setProperty("--theme-diff-delete-text", isDark ? "#fca5a5" : "#991b1b");
+  style.setProperty("--theme-diff-delete-bg", isDark ? "#451a1a" : "#fee2e2");
 
   // Keep modal backdrops in the selected palette instead of falling back to
   // the default light/dark overlay colors.

@@ -808,22 +808,24 @@ export default memo(function InputBar({
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
                                 transition={motionTransitions.content}
-                                onClick={() => {
-                                  const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-                                  if (imgIdx !== -1) {
-                                    setPreviewImageIndex(imgIdx);
-                                  }
-                                }}
-                                className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm cursor-pointer select-none shrink-0"
-                                title={`View ${a.name}`}
+                                className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm select-none shrink-0"
                               >
-                                <img
-                                  src={a.dataUrl}
-                                  alt={a.name}
-                                  className="w-full h-full object-cover select-none transition-transform duration-[var(--motion-duration-content)] group-hover:scale-[1.035]"
-                                />
-                                <span className="sr-only">{a.name}</span>
-                                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
+                                    if (imgIdx !== -1) setPreviewImageIndex(imgIdx);
+                                  }}
+                                  className="h-full w-full cursor-pointer rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-focus"
+                                  aria-label={`Preview ${a.name}`}
+                                >
+                                  <img
+                                    src={a.dataUrl}
+                                    alt=""
+                                    className="w-full h-full object-cover select-none transition-transform duration-[var(--motion-duration-content)] group-hover:scale-[1.035] group-focus-within:scale-[1.035]"
+                                  />
+                                  <div className="pointer-events-none absolute inset-0 bg-black/10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
+                                </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -831,6 +833,7 @@ export default memo(function InputBar({
                                   }}
                                   className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-[color,background-color,border-color,opacity,transform] image-close-btn z-10"
                                   title={t("chat.removeAttachment") || "Remove attachment"}
+                                  aria-label={`${t("chat.removeAttachment") || "Remove attachment"}: ${a.name}`}
                                 >
                                   <X size={12} />
                                 </button>
@@ -862,8 +865,9 @@ export default memo(function InputBar({
                                   e.stopPropagation();
                                   setAttachments((prev) => prev.filter((item) => item.id !== a.id));
                                 }}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                                 title={t("chat.removeAttachment") || "Remove attachment"}
+                                aria-label={`${t("chat.removeAttachment") || "Remove attachment"}: ${a.name}`}
                               >
                                 <X size={12} />
                               </button>
@@ -1025,7 +1029,7 @@ export default memo(function InputBar({
                       </button>
 
                       {/* Hover Details Card */}
-                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-[0.98] translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 pointer-events-none transition-[opacity,transform] duration-[var(--motion-duration-popover)] ease-[var(--motion-ease-enter)] origin-bottom-right z-50">
+                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-[0.98] translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:scale-100 group-focus-within:translate-y-0 pointer-events-none transition-[opacity,transform] duration-[var(--motion-duration-popover)] ease-[var(--motion-ease-enter)] origin-bottom-right z-50">
                         <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
                           <span>Context Window</span>
                           <span className={contextUsageColor}>
@@ -1458,8 +1462,9 @@ export default memo(function InputBar({
                         </span>
                         <button
                           onClick={() => onToggleMcpServer(server.id)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                           title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
+                          aria-label={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
                         >
                           <X size={12} />
                         </button>

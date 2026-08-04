@@ -43,7 +43,11 @@ export const SearchApiCard = memo(function SearchApiCard({
           <p className="text-xs text-text-muted mt-0.5">{t("settings.search.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
+          <Switch
+            checked={config.enabled}
+            onChange={(checked) => onUpdate(config.id, { enabled: checked })}
+            ariaLabel={`Enable search provider ${config.name}`}
+          />
           <motion.button
             onClick={() => onDelete(config.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -149,6 +153,7 @@ export const SearchApiCard = memo(function SearchApiCard({
             onUpdate(config.id, { allowLocalNetwork: checked });
           }}
           label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+          ariaLabel={`Allow local network access for search provider ${config.name}`}
           description={t("settings.network.allowLocalSearchDesc", {
             defaultValue: "Required for a trusted local SearXNG server. Plaintext stays limited to loopback.",
           })}

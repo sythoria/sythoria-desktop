@@ -43,7 +43,11 @@ export const FetchApiCard = memo(function FetchApiCard({
           <p className="text-xs text-text-muted mt-0.5">{t("settings.search.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Switch checked={config.enabled} onChange={(checked) => onUpdate(config.id, { enabled: checked })} />
+          <Switch
+            checked={config.enabled}
+            onChange={(checked) => onUpdate(config.id, { enabled: checked })}
+            ariaLabel={`Enable fetch provider ${config.name}`}
+          />
           <motion.button
             onClick={() => onDelete(config.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -123,6 +127,7 @@ export const FetchApiCard = memo(function FetchApiCard({
             onUpdate(config.id, { allowLocalNetwork: checked });
           }}
           label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+          ariaLabel={`Allow local network access for fetch provider ${config.name}`}
           description={t("settings.network.allowLocalFetchDesc", {
             defaultValue: "Permit a trusted private endpoint. Plaintext stays limited to loopback.",
           })}

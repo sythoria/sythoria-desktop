@@ -61,7 +61,11 @@ export const ModelCard = memo(function ModelCard({
           <p className="text-xs text-text-muted mt-0.5">{t("settings.models.enabledDesc")}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Switch checked={model.enabled !== false} onChange={(checked) => onUpdate(model.id, { enabled: checked })} />
+          <Switch
+            checked={model.enabled !== false}
+            onChange={(checked) => onUpdate(model.id, { enabled: checked })}
+            ariaLabel={`Enable model ${model.name}`}
+          />
           <motion.button
             onClick={() => onDelete(model.id)}
             whileHover={{ scale: motionTokens.scale.pop }}
@@ -188,6 +192,7 @@ export const ModelCard = memo(function ModelCard({
             onUpdate(model.id, { allowLocalNetwork: checked });
           }}
           label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
+          ariaLabel={`Allow local network access for model ${model.name}`}
           description={t("settings.network.allowLocalDesc", {
             defaultValue:
               "Required for trusted loopback providers such as Ollama. Plaintext stays limited to loopback.",
@@ -277,6 +282,7 @@ export const ModelCard = memo(function ModelCard({
                 checked={model.supportsImages !== false}
                 onChange={(checked) => onUpdate(model.id, { supportsImages: checked })}
                 label={t("settings.models.supportsImages") || "Supports Image Inputs"}
+                ariaLabel={`Allow image inputs for model ${model.name}`}
                 description={t("settings.models.supportsImagesDesc") || "Allow sending images/files to this model"}
               />
 

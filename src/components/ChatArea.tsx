@@ -111,7 +111,7 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
           <Terminal size={12} />
           {language}
         </span>
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {isProjectsEnabled && isPreviewable && (
             <motion.button
               onClick={handlePreview}

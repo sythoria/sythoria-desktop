@@ -22,6 +22,7 @@
   --color-surface-elevated: var(--theme-surface);
   --color-popup: var(--theme-popup);
   --color-overlay: var(--theme-overlay);
+  --color-focus: var(--theme-focus-outline);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -75,6 +76,10 @@
     --theme-overlay: rgba(15, 23, 42, 0.15);
     --theme-focus-outline: var(--theme-accent);
     --theme-focus-border: var(--theme-accent);
+    --theme-diff-add-text: #166534;
+    --theme-diff-add-bg: #dcfce7;
+    --theme-diff-delete-text: #991b1b;
+    --theme-diff-delete-bg: #fee2e2;
   }
   /* Dark mode — primary, near-black neutral */
   .dark {
@@ -99,6 +104,10 @@
     --theme-overlay: rgba(0, 0, 0, 0.6);
     --theme-focus-outline: var(--theme-accent);
     --theme-focus-border: var(--theme-accent);
+    --theme-diff-add-text: #86efac;
+    --theme-diff-add-bg: #143723;
+    --theme-diff-delete-text: #fca5a5;
+    --theme-diff-delete-bg: #451a1a;
   }
   * {
     margin: 0;
@@ -141,7 +150,7 @@
     background: var(--theme-text-muted);
   }
   :focus-visible {
-    outline: 1px solid var(--theme-focus-outline);
+    outline: 2px solid var(--theme-focus-outline);
     outline-offset: 2px;
   }
   .chat-focus-scope :focus-visible {
@@ -149,13 +158,13 @@
     outline-offset: 2px;
   }
   .popup-surface :where(button, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):focus-visible {
-    outline: 1px solid var(--theme-focus-outline);
+    outline: 2px solid var(--theme-focus-outline);
     outline-offset: -1px;
     background-color: var(--theme-hover);
     box-shadow: none;
   }
   .menu-trigger:focus-visible {
-    outline: 1px solid var(--theme-focus-outline);
+    outline: 2px solid var(--theme-focus-outline);
     outline-offset: 1px;
     background-color: var(--theme-hover);
     box-shadow: none;
@@ -543,12 +552,12 @@ pre,
   color: #50a14f;
 }
 .hljs-deletion {
-  color: #e45649;
-  background-color: #fde8e8;
+  color: var(--theme-diff-delete-text);
+  background-color: var(--theme-diff-delete-bg);
 }
 .hljs-addition {
-  color: #50a14f;
-  background-color: #e8f5e9;
+  color: var(--theme-diff-add-text);
+  background-color: var(--theme-diff-add-bg);
 }
 /* Syntax highlighting — One Dark (dark mode), kept (reads neutral) */
 .dark .hljs-keyword,
@@ -602,12 +611,12 @@ pre,
   color: #98c379;
 }
 .dark .hljs-deletion {
-  color: #e06c75;
-  background-color: rgba(224, 108, 117, 0.1);
+  color: var(--theme-diff-delete-text);
+  background-color: var(--theme-diff-delete-bg);
 }
 .dark .hljs-addition {
-  color: #98c379;
-  background-color: rgba(152, 195, 121, 0.1);
+  color: var(--theme-diff-add-text);
+  background-color: var(--theme-diff-add-bg);
 }
 .markdown-body ul,
 .markdown-body ol {
@@ -768,6 +777,9 @@ pre,
   }
   .group:hover .image-close-btn {
     opacity: 0.6;
+  }
+  .group:focus-within .image-close-btn {
+    opacity: 1;
   }
   .group:hover .image-close-btn:hover {
     opacity: 1 !important;
