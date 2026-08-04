@@ -209,7 +209,7 @@ export const ConfigurationSection = ({
           <div className="flex justify-between text-[10px] text-text-muted pt-1">
             <span>{t("settings.chat.stepsMin", { defaultValue: "Minimum (1)" })}</span>
             <span>{t("settings.chat.stepsDefault", { defaultValue: "Default (25)" })}</span>
-            <span>{t("settings.chat.stepsMax", { defaultValue: "Maximum (100)" })}</span>
+            <span>{t("settings.chat.stepsMax", { defaultValue: `Maximum (${MAX_TOOL_STEPS_LIMIT})` })}</span>
           </div>
         </div>
       </SettingsPanel>
