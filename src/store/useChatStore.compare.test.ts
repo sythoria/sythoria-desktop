@@ -163,6 +163,66 @@ describe("subagent cancellation", () => {
 });
 
 describe("transactional chat deletion", () => {
+  it("does not start a stream that was cancelled while its listener was being prepared", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const originalEnsureStreamListeners = useModelStore.getState().ensureStreamListeners;
+    const originalCancelConversationStream = useModelStore.getState().cancelConversationStream;
+    const originalCancelConversationToolCalls = useMcpStore.getState().cancelConversationToolCalls;
+    let finishListenerSetup!: (cleanup: () => void) => void;
+    const listenerSetup = new Promise<() => void>((resolve) => {
+      finishListenerSetup = resolve;
+    });
+    const conversation = { ...primaryConversation, id: "cancel-during-stream-setup", messages: [] };
+
+    useModelStore.setState({
+      models: [
+        {
+          id: "model-1",
+          name: "Model",
+          apiBase: "https://example.com/v1/chat/completions",
+          apiKey: "test-key",
+          modelId: "test-model",
+        },
+      ],
+      selectedModel: "model-1",
+      ensureStreamListeners: vi.fn().mockReturnValue(listenerSetup),
+      cancelConversationStream: vi.fn().mockResolvedValue(true),
+    });
+    useMcpStore.setState({ cancelConversationToolCalls: vi.fn().mockResolvedValue(true) });
+    useProjectStore.setState({ isProjectsEnabled: false, activeProjectId: null, projects: [] });
+    useUIStore.setState({ hasStarted: false, pendingToolConfirmations: [] });
+    useChatStore.setState({
+      conversations: [conversation],
+      activeId: conversation.id,
+      isStreaming: false,
+      generationState: "idle",
+      generationLabel: "",
+      generationByConversation: {},
+    });
+    invokeMock.mockResolvedValue(undefined);
+
+    try {
+      expect(await useChatStore.getState().sendMessage("Cancel this response")).toBe("accepted");
+      await vi.waitFor(() => expect(useModelStore.getState().ensureStreamListeners).toHaveBeenCalledTimes(1));
+
+      const deletion = useChatStore.getState().deleteChat(conversation.id);
+      finishListenerSetup(vi.fn());
+
+      await expect(deletion).resolves.toBe(true);
+      expect(invokeMock).not.toHaveBeenCalledWith("chat_stream", expect.anything());
+      expect(useChatStore.getState().conversations).toEqual([]);
+    } finally {
+      useModelStore.setState({
+        ensureStreamListeners: originalEnsureStreamListeners,
+        cancelConversationStream: originalCancelConversationStream,
+        models: [],
+        selectedModel: "",
+      });
+      useMcpStore.setState({ cancelConversationToolCalls: originalCancelConversationToolCalls });
+      invokeMock.mockReset();
+    }
+  });
+
   it("cancels descendants, discards every worktree, then removes and persists the conversation tree", async () => {
     const invokeMock = vi.mocked(invoke);
     const events: string[] = [];

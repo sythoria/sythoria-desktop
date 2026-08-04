@@ -1812,6 +1812,15 @@ async function runNormal(
         });
       },
     );
+
+    // Cancellation can happen while the async listener setup is in flight. Do
+    // not start a native stream after the conversation has already been
+    // stopped; it would not have been included in the cancellation request and
+    // could keep chat deletion paused until it eventually completes.
+    const generation = get().generationByConversation[convId];
+    if (!generation || !isGenerationActive(generation.state)) {
+      return;
+    }
     modelStore.setActiveStreamId(streamId, convId);
 
     const conv = get().conversations.find((c) => c.id === convId);
