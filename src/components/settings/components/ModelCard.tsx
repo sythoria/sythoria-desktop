@@ -81,7 +81,7 @@ export const ModelCard = memo(function ModelCard({
 
       <div className="space-y-3">
         {!disableBgActivity && (
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-2">
             <div
               className={`w-2 h-2 rounded-full ${
                 connectionStatus === "connected"

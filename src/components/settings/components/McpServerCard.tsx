@@ -169,6 +169,14 @@ export const McpServerCard = memo(function McpServerCard({
         </div>
       </div>
 
+      {!disableBgActivity && (
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-2 h-2 rounded-full ${MCP_STATUS_COLORS[status]}`} aria-label={`Status: ${status}`} />
+          <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
+          {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
+        </div>
+      )}
+
       <div
         className={`rounded-lg border p-3 ${
           isTrusted ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-input/40"
@@ -193,14 +201,6 @@ export const McpServerCard = memo(function McpServerCard({
       </div>
 
       <div className="space-y-3">
-        {!disableBgActivity && (
-          <div className="flex items-center gap-2 mb-1">
-            <div className={`w-2 h-2 rounded-full ${MCP_STATUS_COLORS[status]}`} aria-label={`Status: ${status}`} />
-            <span className="text-[11px] text-text-muted capitalize">{MCP_STATUS_LABELS[status]}</span>
-            {status === "connected" && <span className="text-[10px] text-text-muted ml-1">({tools.length} tools)</span>}
-          </div>
-        )}
-
         {config.transport === "stdio" && (
           <div className="space-y-1">
             <label
