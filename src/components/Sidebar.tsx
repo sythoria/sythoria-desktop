@@ -121,6 +121,7 @@ export default memo(function Sidebar({
 }: SidebarProps) {
   const view = useUIStore((s) => s.view);
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
+  const isWindows = typeof window !== "undefined" && window.navigator.userAgent.includes("Windows");
   const setView = useUIStore((s) => s.setView);
   const { t } = useTranslation();
   const activeSection = useUIStore((s) => s.activeSection) as SectionId;
@@ -210,17 +211,24 @@ export default memo(function Sidebar({
     activeResizePointer.current = null;
     setIsResizing(false);
     document.documentElement.classList.remove("sidebar-resizing");
+    document.documentElement.classList.remove("sidebar-translucency-suspended");
     setSidebarWidth(visualSidebarWidthRef.current);
   }, [setSidebarWidth]);
 
-  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    isDragging.current = true;
-    activeResizePointer.current = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsResizing(true);
-    document.documentElement.classList.add("sidebar-resizing");
-  }, []);
+  const startResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      isDragging.current = true;
+      activeResizePointer.current = event.pointerId;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsResizing(true);
+      document.documentElement.classList.add("sidebar-resizing");
+      if (isWindows) {
+        document.documentElement.classList.add("sidebar-translucency-suspended");
+      }
+    },
+    [isWindows],
+  );
 
   const resize = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -270,6 +278,7 @@ export default memo(function Sidebar({
   useEffect(
     () => () => {
       document.documentElement.classList.remove("sidebar-resizing");
+      document.documentElement.classList.remove("sidebar-translucency-suspended");
     },
     [],
   );
@@ -439,7 +448,7 @@ export default memo(function Sidebar({
       x: 0,
       opacity: 1,
       borderRightWidth: 1,
-      ...(isMobile ? {} : { width: visualSidebarWidth }),
+      ...(isMobile || isResizing ? {} : { width: visualSidebarWidth }),
       transition: {
         ...(isResizing ? { type: "tween" as const, duration: 0 } : springs.release),
         opacity: motionTransitions.popoverEnter,

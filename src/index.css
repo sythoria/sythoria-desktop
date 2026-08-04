@@ -350,6 +350,11 @@
     inset -1px 0 0 rgba(255, 255, 255, 0.1),
     8px 0 28px rgba(0, 0, 0, 0.06);
 }
+/* macOS supplies the stable behind-window blur through its native NSVisualEffectView. */
+.platform-macos .glass-sidebar {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .sidebar-translucency-disabled .glass-sidebar,
 .sidebar-translucency-disabled .glass-loading-screen {
   background-image: none;
@@ -368,9 +373,9 @@
   cursor: col-resize !important;
   user-select: none !important;
 }
-/* Keep the filter out of native move and sidebar-resize hot paths. */
+/* Windows WebView can glitch when these filters run in native move and sidebar-resize hot paths. */
 .window-dragging .glass-sidebar,
-.sidebar-resizing .glass-sidebar {
+.sidebar-translucency-suspended .glass-sidebar {
   background-image: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;

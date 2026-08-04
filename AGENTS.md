@@ -344,5 +344,9 @@ export interface ModelConfig {
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
 - **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
+- **macOS sidebar glass**: The native `NSVisualEffectView` supplies the behind-window blur. Keep the sidebar's
+  color/alpha, gradient, and shadow stable during window movement and resizing; do not re-enable a CSS
+  `backdrop-filter` for `.platform-macos .glass-sidebar`. Windows keeps the interaction-time translucency suspension
+  workaround.
 - **Internationalization (i18n)**: Implements dynamic locale switching for BCP 47 language keys (`en`, `es`, `fr`, `de`, `zh`, `ja`) with an automatic English fallback. State is saved persistently and updates `document.documentElement.lang`. Dictionaries are structured as modular files under `src/utils/i18n/` to keep code footprint minimal and simplify adding new locales.
 - **Licensing**: Sythoria is MIT-licensed. Contributions are accepted under the same terms, and third-party license information is summarized in `THIRD_PARTY_NOTICES.md`.

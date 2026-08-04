@@ -5,6 +5,9 @@ import { AppMotionConfig } from "./components/AppMotionConfig";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+const isMac = window.navigator.userAgent.includes("Mac");
+
+document.documentElement.classList.toggle("platform-macos", isMac);
 
 if (prefersDark) {
   document.documentElement.classList.add("dark");

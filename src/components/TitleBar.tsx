@@ -63,6 +63,7 @@ const DropdownItem = ({
 
 export function TitleBar() {
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
+  const isWindows = typeof window !== "undefined" && window.navigator.userAgent.includes("Windows");
 
   const appWindow = getCurrentWindow();
   const appVersion = useAppVersion();
@@ -89,6 +90,8 @@ export function TitleBar() {
   }, []);
 
   useEffect(() => {
+    if (!isWindows) return;
+
     let fallbackTimer = 0;
     const root = document.documentElement;
 
@@ -119,7 +122,7 @@ export function TitleBar() {
       window.removeEventListener("pointercancel", finishWindowDrag, true);
       window.removeEventListener("blur", finishWindowDrag);
     };
-  }, []);
+  }, [isWindows]);
 
   const handleMenuClick = (menu: MenuType) => {
     setActiveMenu(activeMenu === menu ? null : menu);
