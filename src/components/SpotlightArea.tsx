@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from "react";
+import React, { useCallback, useId, useState, useRef } from "react";
 import { Search, Command, Settings } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { motionTransitions } from "../lib/motion-tokens";
@@ -90,6 +90,7 @@ export function SpotlightArea() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const { showSpotlight, setShowSpotlight, setView, setActiveSection } = useUIStore();
   const handleClose = useCallback(() => {
     setQuery("");
@@ -115,10 +116,7 @@ export function SpotlightArea() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      handleClose();
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
     } else if (e.key === "ArrowUp") {
@@ -144,10 +142,11 @@ export function SpotlightArea() {
           onClick={handleClose}
           role="dialog"
           aria-modal="true"
-          aria-label="Search settings"
+          aria-labelledby={titleId}
         >
           <motion.div
             ref={dialogRef}
+            tabIndex={-1}
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.98, transition: motionTransitions.modalExit }}
@@ -156,6 +155,9 @@ export function SpotlightArea() {
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
           >
+            <h2 id={titleId} className="sr-only">
+              Search settings
+            </h2>
             <div className="w-full flex items-center gap-3 px-4 py-3 bg-chat border-b border-border/30">
               <Search size={22} className="text-text-muted shrink-0" />
               <input

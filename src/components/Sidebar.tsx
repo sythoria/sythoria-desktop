@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Pin,
 } from "lucide-react";
-import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect, useId, memo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import type { Conversation } from "../types";
@@ -30,6 +30,7 @@ import { useProjectStore } from "../store/useProjectStore";
 import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } from "./settings/types";
 import { motionTransitions, springs } from "../lib/motion-tokens";
 import { useTranslation } from "../utils/i18n";
+import { useDialogFocus } from "../hooks/useDialogFocus";
 
 const categoryKeys: Record<string, string> = {
   Application: "category.application",
@@ -168,6 +169,13 @@ export default memo(function Sidebar({
   }, []);
 
   const isSidebarCollapsed = isMobile ? !isOpen : isCollapsed;
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mobileSidebarTitleId = useId();
+  useDialogFocus({
+    isOpen: isMobile && isOpen,
+    onClose,
+    containerRef: sidebarRef,
+  });
   const isDragging = useRef(false);
   const activeResizePointer = useRef<number | null>(null);
   const visualSidebarWidthRef = useRef(sidebarWidth);
@@ -467,11 +475,14 @@ export default memo(function Sidebar({
             style={{ backgroundColor: "var(--theme-overlay)" }}
             onClick={onClose}
             aria-hidden="true"
+            data-dialog-backdrop
           />
         )}
       </AnimatePresence>
 
       <motion.aside
+        ref={sidebarRef}
+        tabIndex={isMobile ? -1 : undefined}
         className="absolute inset-y-0 left-0 md:relative z-40 h-full flex flex-col overflow-hidden glass-sidebar border-r border-border"
         initial={isSidebarCollapsed ? "collapsed" : "expanded"}
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
@@ -480,11 +491,16 @@ export default memo(function Sidebar({
           width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth,
           pointerEvents: isSidebarCollapsed ? "none" : "auto",
         }}
-        role="navigation"
-        aria-label="Sidebar navigation"
+        role={isMobile ? "dialog" : "navigation"}
+        aria-modal={isMobile && isOpen ? "true" : undefined}
+        aria-labelledby={isMobile ? mobileSidebarTitleId : undefined}
+        aria-label={isMobile ? undefined : "Sidebar navigation"}
         aria-hidden={isSidebarCollapsed}
         inert={isSidebarCollapsed}
       >
+        <h2 id={mobileSidebarTitleId} className="sr-only">
+          Navigation
+        </h2>
         <div
           className="flex flex-col h-full overflow-hidden shrink-0"
           style={{ width: isMobile ? `min(${visualSidebarWidth}px, calc(100vw - 24px))` : visualSidebarWidth }}

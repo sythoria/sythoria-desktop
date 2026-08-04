@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, useRef } from "react";
+import React, { useCallback, useState, useEffect, useId, useRef } from "react";
 import { Search } from "lucide-react";
 import { useUIStore } from "../store/useUIStore";
 import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
@@ -20,6 +20,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const close = useCallback(() => {
     setSearch("");
     setSelectedIndex(0);
@@ -84,9 +85,6 @@ export function CommandPalette() {
       e.preventDefault();
       filteredCommands[selectedIndex].action();
       close();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
     }
   };
 
@@ -95,13 +93,17 @@ export function CommandPalette() {
       className="fixed inset-0 z-[9999] bg-overlay flex justify-center items-start pt-[15vh] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Command palette"
+      aria-labelledby={titleId}
     >
       <button type="button" className="absolute inset-0" onClick={close} aria-label="Close command palette" />
       <div
         ref={dialogRef}
+        tabIndex={-1}
         className="popup-surface relative w-full max-w-lg border border-border/50 rounded-xl shadow-2xl overflow-hidden flex flex-col"
       >
+        <h2 id={titleId} className="sr-only">
+          Command palette
+        </h2>
         <div className="flex items-center px-4 py-3 border-b border-border/30">
           <Search size={18} className="text-text-muted mr-3" />
           <input

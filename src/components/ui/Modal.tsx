@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useId, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ArrowUpCircle, Download, LoaderCircle } from "lucide-react";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
 import { ToolConfirmation } from "../../store/useUIStore";
 import { useTranslation } from "../../utils/i18n";
-import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 
 interface ModalProps {
   isOpen: boolean;
@@ -17,6 +16,7 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   useDialogFocus({ isOpen, onClose, containerRef: modalRef });
 
   return (
@@ -26,7 +26,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={title}
+          aria-labelledby={titleId}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: motionTransitions.modalExit }}
@@ -44,7 +44,8 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
           />
           <motion.div
             ref={modalRef}
-            className={`relative z-10 w-full ${maxWidth} rounded-xl bg-surface border border-border`}
+            tabIndex={-1}
+            className={`relative z-10 flex max-h-[calc(100dvh-2rem)] w-full ${maxWidth} flex-col rounded-xl bg-surface border border-border`}
             style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -57,7 +58,9 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
             transition={motionTransitions.modalEnter}
           >
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+              <h3 id={titleId} className="text-sm font-semibold text-text-primary">
+                {title}
+              </h3>
               <button
                 onClick={onClose}
                 className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
@@ -66,7 +69,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = "max-w-md" 
                 <X size={16} />
               </button>
             </div>
-            <div className="p-5">{children}</div>
+            <div className="min-h-0 overflow-y-auto p-5">{children}</div>
           </motion.div>
         </motion.div>
       )}
@@ -96,6 +99,7 @@ export function ConfirmModal({
   variant = "default",
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   useDialogFocus({ isOpen, onClose: onCancel, containerRef: modalRef });
 
   if (!isOpen) return null;
@@ -105,7 +109,7 @@ export function ConfirmModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="alertdialog"
       aria-modal="true"
-      aria-label={title}
+      aria-labelledby={titleId}
     >
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -115,11 +119,14 @@ export function ConfirmModal({
       />
       <div
         ref={modalRef}
-        className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border"
+        tabIndex={-1}
+        className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-xl bg-surface border border-border"
         style={{ boxShadow: "var(--shadow-xl)" }}
       >
         <div className="px-5 pt-5 pb-1">
-          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-text-primary">
+            {title}
+          </h3>
           <p className="mt-1.5 text-sm text-text-secondary leading-relaxed">{message}</p>
         </div>
         <div className="flex gap-2 p-4 pt-3">
@@ -155,32 +162,14 @@ interface RenameChatModalProps {
 export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: RenameChatModalProps) {
   const [value, setValue] = useState(currentTitle ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const isEmpty = !value || value.trim().length === 0;
+  useDialogFocus({ isOpen, onClose: onCancel, containerRef: modalRef, initialFocusRef: inputRef });
 
   useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    lockBodyScroll();
-
-    const previouslyFocused = document.activeElement as HTMLElement;
-    requestAnimationFrame(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      unlockBodyScroll();
-      previouslyFocused?.focus();
-    };
-  }, [isOpen, onCancel]);
+    if (isOpen) requestAnimationFrame(() => inputRef.current?.select());
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -195,7 +184,7 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Rename Chat"
+      aria-labelledby={titleId}
     >
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -204,11 +193,15 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
         aria-hidden="true"
       />
       <div
-        className="relative z-10 w-full max-w-sm rounded-xl bg-surface border border-border"
+        ref={modalRef}
+        tabIndex={-1}
+        className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-xl bg-surface border border-border"
         style={{ boxShadow: "var(--shadow-xl)" }}
       >
         <div className="px-5 pt-5 pb-1">
-          <h3 className="text-sm font-semibold text-text-primary">Rename Chat</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-text-primary">
+            Rename Chat
+          </h3>
           <label htmlFor="rename-input" className="sr-only">
             New title
           </label>
@@ -222,7 +215,6 @@ export function RenameChatModal({ isOpen, currentTitle, onConfirm, onCancel }: R
             placeholder="Enter new title"
             onKeyDown={(e) => {
               if (e.key === "Enter") handleConfirm();
-              if (e.key === "Escape") onCancel();
             }}
           />
         </div>
@@ -253,29 +245,15 @@ interface ToolConfirmationModalProps {
 
 export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmationModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!confirmation) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onRespond(confirmation.id, false);
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    lockBodyScroll();
-
-    const previouslyFocused = document.activeElement as HTMLElement;
-    requestAnimationFrame(() => {
-      const firstBtn = modalRef.current?.querySelector<HTMLElement>("button");
-      firstBtn?.focus();
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      unlockBodyScroll();
-      previouslyFocused?.focus();
-    };
+  const titleId = useId();
+  const rejectConfirmation = useCallback(() => {
+    if (confirmation) onRespond(confirmation.id, false);
   }, [confirmation, onRespond]);
+  useDialogFocus({
+    isOpen: Boolean(confirmation),
+    onClose: rejectConfirmation,
+    containerRef: modalRef,
+  });
 
   if (!confirmation) return null;
 
@@ -372,7 +350,7 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="alertdialog"
       aria-modal="true"
-      aria-label="Confirm Tool Execution"
+      aria-labelledby={titleId}
     >
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -382,11 +360,14 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       />
       <div
         ref={modalRef}
-        className="relative z-10 w-full max-w-lg rounded-xl bg-surface border border-border"
+        tabIndex={-1}
+        className="relative z-10 max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl bg-surface border border-border"
         style={{ boxShadow: "var(--shadow-xl)" }}
       >
         <div className="px-6 pt-5 pb-1">
-          <h3 className="text-sm font-semibold text-text-primary">Tool Execution Authorization</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-text-primary">
+            Tool Execution Authorization
+          </h3>
           <p className="mt-1 text-xs text-red-500 font-medium">{warnMessage}</p>
           <div className="mt-3 py-1 border-t border-border">
             <div className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
@@ -439,56 +420,13 @@ export function UpdateModal({
 }: UpdateModalProps) {
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
-
-  const handleTabTrap = useCallback((e: KeyboardEvent) => {
-    if (e.key !== "Tab" || !modalRef.current) return;
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable.length === 0) return;
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (e.shiftKey) {
-      if (document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else {
-      if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isInstalling) onClose();
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    document.addEventListener("keydown", handleTabTrap);
-    lockBodyScroll();
-
-    const previouslyFocused = document.activeElement as HTMLElement;
-    requestAnimationFrame(() => {
-      const firstFocusable = modalRef.current?.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      firstFocusable?.focus();
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.removeEventListener("keydown", handleTabTrap);
-      unlockBodyScroll();
-      previouslyFocused?.focus();
-    };
-  }, [isOpen, isInstalling, onClose, handleTabTrap]);
+  const titleId = useId();
+  useDialogFocus({
+    isOpen,
+    onClose,
+    containerRef: modalRef,
+    closeOnEscape: !isInstalling,
+  });
 
   return (
     <AnimatePresence>
@@ -497,7 +435,7 @@ export function UpdateModal({
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
-          aria-label={t("updates.title")}
+          aria-labelledby={titleId}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: motionTransitions.modalExit }}
@@ -515,7 +453,8 @@ export function UpdateModal({
           />
           <motion.div
             ref={modalRef}
-            className="relative z-10 w-full max-w-lg rounded-2xl bg-surface border border-border"
+            tabIndex={-1}
+            className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-surface border border-border"
             style={{ boxShadow: "var(--shadow-xl)" }}
             initial={{ opacity: 0, scale: motionTokens.scale.subtle, y: motionTokens.distance.sm }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -534,7 +473,9 @@ export function UpdateModal({
                   <ArrowUpCircle size={24} className="animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-text-primary">{t("updates.title")}</h3>
+                  <h3 id={titleId} className="text-base font-bold text-text-primary">
+                    {t("updates.title")}
+                  </h3>
                   <p className="text-xs text-text-muted mt-0.5">{t("updates.newVersion")}</p>
                 </div>
               </div>
@@ -549,7 +490,7 @@ export function UpdateModal({
             </div>
 
             {/* Content Area */}
-            <div className="p-6 space-y-4">
+            <div className="min-h-0 overflow-y-auto p-6 space-y-4">
               {/* Version Info Badge Comparison */}
               <div className="grid grid-cols-2 gap-4 bg-hover/40 border border-border/60 rounded-xl p-3.5">
                 <div className="text-center space-y-1">

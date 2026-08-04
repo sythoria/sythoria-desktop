@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -78,6 +78,7 @@ import { motionTransitions } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 import type { ComparisonColumnHandle } from "./components/ComparisonColumn";
 import { executeCommand } from "./services/commandDispatcher";
+import { useDialogFocus } from "./hooks/useDialogFocus";
 
 import "./index.css";
 
@@ -383,6 +384,17 @@ function App() {
 
   const [syncScrolls, setSyncScrolls] = useState(true);
   const [isArtifactFullScreen, setIsArtifactFullScreen] = useState(false);
+  const artifactDialogRef = useRef<HTMLDivElement>(null);
+  const artifactTitleId = useId();
+  const closeArtifactPreview = useCallback(() => {
+    setActiveArtifact(null);
+    setIsArtifactFullScreen(false);
+  }, [setActiveArtifact]);
+  useDialogFocus({
+    isOpen: Boolean(activeArtifact && isArtifactFullScreen),
+    onClose: closeArtifactPreview,
+    containerRef: artifactDialogRef,
+  });
 
   const compareConversations = useMemo(
     () => compareIds.map((id) => conversations.find((c) => c.id === id)).filter(Boolean) as Conversation[],
@@ -874,7 +886,9 @@ function App() {
       <div className="flex flex-1 flex-col overflow-hidden h-full">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-4">
-            <h3 className="text-sm font-semibold text-text-primary">{activeArtifact.title}</h3>
+            <h3 id={artifactTitleId} className="text-sm font-semibold text-text-primary">
+              {activeArtifact.title}
+            </h3>
             {(activeArtifact.type === "html" || activeArtifact.type === "svg") && (
               <div className="flex items-center gap-2 border-l border-border pl-4">
                 <input
@@ -903,10 +917,7 @@ function App() {
               {isArtifactFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button
-              onClick={() => {
-                setActiveArtifact(null);
-                setIsArtifactFullScreen(false);
-              }}
+              onClick={closeArtifactPreview}
               className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
               aria-label="Close artifact preview"
               title="Close"
@@ -1533,21 +1544,24 @@ function App() {
           <motion.div
             key="artifact-preview-fullscreen"
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-transparent"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={artifactTitleId}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={motionTransitions.modalEnter}
           >
-            <button
+            <div
               className="absolute inset-0 cursor-default"
               style={{ backgroundColor: "var(--theme-overlay)" }}
-              onClick={() => {
-                setActiveArtifact(null);
-                setIsArtifactFullScreen(false);
-              }}
-              aria-label="Close artifact preview"
+              onClick={closeArtifactPreview}
+              aria-hidden="true"
+              data-dialog-backdrop
             />
             <motion.div
+              ref={artifactDialogRef}
+              tabIndex={-1}
               className="relative z-10 flex h-[min(760px,90vh)] w-[min(980px,92vw)] flex-col overflow-hidden rounded-xl border border-border bg-surface"
               style={{ boxShadow: "var(--shadow-xl)" }}
               initial={{ opacity: 0, scale: 0.98, y: 8 }}
