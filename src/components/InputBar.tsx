@@ -36,6 +36,7 @@ import { useAttachments } from "../hooks/useAttachments";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { useChatStore } from "../store/useChatStore";
+import type { SendMessageStatus } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { estimateConversationTokens } from "../utils/tokens";
 import { resolveContextBudget } from "../services/contextAssembler";
@@ -45,7 +46,7 @@ import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
 
 interface InputBarProps {
   models: ModelConfig[];
-  onSend: (message: string, attachments?: Attachment[]) => void;
+  onSend: (message: string, attachments?: Attachment[]) => Promise<SendMessageStatus>;
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
@@ -530,22 +531,27 @@ export default memo(function InputBar({
     setProjectDropdownOpen(false);
   };
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!canSend) return;
-    if (attachments.length > 0) {
-      onSend(trimmed, attachments);
-    } else {
-      onSend(trimmed);
-    }
-    setValue("");
-    setAttachments([]);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  }, [canSend, trimmed, attachments, onSend, setAttachments]);
+    const submittedValue = value;
+    const submittedAttachments = attachments;
+    const status = await onSend(trimmed, submittedAttachments.length > 0 ? submittedAttachments : undefined);
+    if (status !== "accepted") return;
+
+    const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id));
+    setValue((current) => (current === submittedValue ? "" : current));
+    setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
+    window.requestAnimationFrame(() => {
+      if (textareaRef.current && textareaRef.current.value.length === 0) {
+        textareaRef.current.style.height = "auto";
+      }
+    });
+  }, [canSend, value, trimmed, attachments, onSend, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (e.nativeEvent.isComposing) return;
+
       if (plusOpen) {
         if (e.key === "Escape") {
           setPlusOpen(false);
@@ -562,12 +568,12 @@ export default memo(function InputBar({
         if (sendMessageShortcut === "ctrl-enter") {
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            handleSubmit();
+            void handleSubmit();
           }
         } else {
           if (!e.shiftKey) {
             e.preventDefault();
-            handleSubmit();
+            void handleSubmit();
           }
         }
       }
@@ -971,18 +977,6 @@ export default memo(function InputBar({
                     value={value}
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
-                    onPaste={(e) => {
-                      if (disabled || isStreaming) return;
-                      const clipboardData = e.clipboardData;
-                      const types = clipboardData.types;
-                      const isFileOrImage =
-                        types && (types.includes("Files") || Array.from(types).some((t) => t.startsWith("image/")));
-
-                      if (isFileOrImage) {
-                        e.preventDefault();
-                        handleClipboardPaste(clipboardData);
-                      }
-                    }}
                     placeholder={
                       isCompareMode
                         ? t("chat.comparePlaceholder") || "Ask all models..."

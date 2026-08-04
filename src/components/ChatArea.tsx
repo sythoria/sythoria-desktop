@@ -1498,7 +1498,7 @@ const MessageBubble = memo(function MessageBubble({
                   options={parsedQuestion.options}
                   disabled={isAlreadyAnswered}
                   onSubmit={(_val, label) => {
-                    useChatStore.getState().sendMessage(label);
+                    void useChatStore.getState().sendMessage(label);
                   }}
                 />
               )}

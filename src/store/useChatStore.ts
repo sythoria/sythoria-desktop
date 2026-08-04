@@ -103,6 +103,8 @@ interface ConversationDeletionOptions {
   persist?: boolean;
 }
 
+export type SendMessageStatus = "accepted" | "rejected";
+
 function collectConversationTreeIds(conversations: Conversation[], rootIds: Iterable<string>): Set<string> {
   const ids = new Set(rootIds);
   let foundDescendant = true;
@@ -290,7 +292,7 @@ interface ChatState {
   renameChat: (id: string, newTitle: string) => void;
   togglePinChat: (id: string) => void;
   confirmRename: (newTitle: string) => void;
-  sendMessage: (text: string, attachments?: Attachment[]) => Promise<void>;
+  sendMessage: (text: string, attachments?: Attachment[]) => Promise<SendMessageStatus>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
@@ -1023,14 +1025,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (activeId) {
       const activeGen = get().generationByConversation[activeId];
       const isTargetGenerating = isGenerationActive(activeGen?.state);
-      if (isTargetGenerating) return;
+      if (isTargetGenerating) return "rejected";
 
       if (isCompareMode && compareIds.length > 0) {
         const isAnyCompareGenerating = compareIds.some((id) => {
           const gen = get().generationByConversation[id];
           return isGenerationActive(gen?.state);
         });
-        if (isAnyCompareGenerating) return;
+        if (isAnyCompareGenerating) return "rejected";
       }
     }
 
@@ -1041,7 +1043,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       showMissingModelConfig(
         "No model configuration selected — user tried to send message without any model configured",
       );
-      return;
+      return "rejected";
     }
 
     const firstAttachmentName = attachments && attachments.length > 0 ? attachments[0].name : "New chat";
@@ -1100,14 +1102,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (runContexts.length !== conversationIds.length) {
       showMissingModelConfig("No enabled model configuration was available for every conversation in this send");
-      return;
+      return "rejected";
     }
 
     if (attachments?.some((attachment) => attachment.kind === "image")) {
       const unsupportedContext = runContexts.find((context) => !context.attachmentCapabilities.images);
       if (unsupportedContext) {
         uiToast(`${unsupportedContext.modelConfig.name} does not support image attachments.`, "error");
-        return;
+        return "rejected";
       }
     }
 
@@ -1163,7 +1165,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       generationLabel: "Loading",
     });
 
-    await Promise.all(runContexts.map(runForConversation));
+    void Promise.all(runContexts.map(runForConversation)).catch((error) => {
+      logError("chat", "Queued message generation failed", {
+        error,
+        action: "Retry the message after checking the active model and tool configuration.",
+      });
+    });
+    return "accepted";
   },
 
   stopStreaming: async (targetConvId, persist = true) => {
