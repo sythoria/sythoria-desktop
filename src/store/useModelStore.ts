@@ -13,7 +13,7 @@ import {
 } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
-import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
+import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
@@ -241,8 +241,9 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
   setTemperature: (t) => set({ temperature: t }),
   setMaxToolSteps: (t) => {
-    set({ maxToolSteps: t });
-    saveMaxToolSteps(t);
+    const clamped = Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(t)));
+    set({ maxToolSteps: clamped });
+    saveMaxToolSteps(clamped);
   },
 
   updateModels: (models) => {

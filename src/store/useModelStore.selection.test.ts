@@ -3,6 +3,7 @@ import type { ModelConfig } from "../types";
 
 const storageMocks = vi.hoisted(() => ({
   saveSelectedModel: vi.fn(),
+  saveMaxToolSteps: vi.fn(),
 }));
 
 vi.mock("../utils/storage", () => ({
@@ -10,7 +11,7 @@ vi.mock("../utils/storage", () => ({
   saveApiKeys: vi.fn(),
   saveTitleConfig: vi.fn(),
   saveSystemPrompt: vi.fn(),
-  saveMaxToolSteps: vi.fn(),
+  saveMaxToolSteps: storageMocks.saveMaxToolSteps,
   saveSelectedModel: storageMocks.saveSelectedModel,
 }));
 
@@ -46,6 +47,7 @@ const models: ModelConfig[] = [
 describe("useModelStore model selection", () => {
   beforeEach(() => {
     storageMocks.saveSelectedModel.mockReset();
+    storageMocks.saveMaxToolSteps.mockReset();
     useModelStore.setState({
       models,
       selectedModel: "model-1",
@@ -75,5 +77,12 @@ describe("useModelStore model selection", () => {
 
     expect(useModelStore.getState().selectedModel).toBe("model-2");
     expect(storageMocks.saveSelectedModel).toHaveBeenCalledWith("model-2");
+  });
+
+  it("clamps the tool loop to the supported step range", () => {
+    useModelStore.getState().setMaxToolSteps(100);
+
+    expect(useModelStore.getState().maxToolSteps).toBe(25);
+    expect(storageMocks.saveMaxToolSteps).toHaveBeenCalledWith(25);
   });
 });

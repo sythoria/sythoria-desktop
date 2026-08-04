@@ -19,6 +19,7 @@ import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
+import { assembleContext, formatContextDisclosure, type ApiContextMessage } from "./contextAssembler";
 import {
   MAX_SUBAGENTS_PER_CALL,
   MAX_SUBAGENT_DEPTH,
@@ -1025,6 +1026,7 @@ async function runWithToolLoop(
   let wasAborted = false;
   let projectCapability: ProjectRunContext | null = null;
   const collectedSources: { title: string; url: string }[] = [];
+  let contextDisclosureMessageId: string | null = null;
 
   try {
     logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
@@ -1171,7 +1173,7 @@ async function runWithToolLoop(
     logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
     const baseMessages =
       conv?.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
+        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming && !m.excludeFromModelContext)
         .map((m) => ({
           role: m.role,
           content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
@@ -1225,16 +1227,7 @@ async function runWithToolLoop(
       ? `${userSystemPrompt}\n\n${toolSystemPrompt}`
       : toolSystemPrompt;
 
-    const apiMessages: {
-      role: string;
-      content: string | null | unknown[];
-      tool_calls?: unknown[];
-      tool_call_id?: string;
-      name?: string;
-      anthropic_content?: unknown[];
-      reasoning_details?: unknown[];
-      reasoning?: string;
-    }[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
+    const apiMessages: ApiContextMessage[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     const maxToolSteps = useModelStore.getState().maxToolSteps;
 
@@ -1270,7 +1263,32 @@ async function runWithToolLoop(
       }
 
       const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
-      const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
+      const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig, tools: apiTools });
+      const maxTokens = assembledContext.budget.reservedOutputTokens;
+      if (assembledContext.disclosure) {
+        const disclosure = assembledContext.disclosure;
+        contextDisclosureMessageId ??= generateId();
+        const disclosureMessageId = contextDisclosureMessageId;
+        const disclosureContent = formatContextDisclosure(disclosure);
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (messages) => {
+            const existingIndex = messages.findIndex((message) => message.id === disclosureMessageId);
+            const disclosureMessage: Message = {
+              id: disclosureMessageId,
+              role: "assistant",
+              content: disclosureContent,
+              timestamp: new Date(),
+              isSystem: true,
+              excludeFromModelContext: true,
+              contextDisclosure: disclosure,
+            };
+            if (existingIndex < 0) return [...messages, disclosureMessage];
+            const updated = [...messages];
+            updated[existingIndex] = disclosureMessage;
+            return updated;
+          }),
+        }));
+      }
 
       const stepStartTime = Date.now();
       const streamId = generateId();
@@ -1300,7 +1318,7 @@ async function runWithToolLoop(
 
       const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
-        messages: apiMessages,
+        messages: assembledContext.messages,
         tools: JSON.stringify(apiTools),
         temperature: requestTemp,
         maxTokens,

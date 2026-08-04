@@ -4,7 +4,7 @@ import type { Conversation, TitleGenerationConfig, ModelConfig, Project, Project
 import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
 import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
-import { DEFAULT_MAX_TOOL_STEPS } from "../config/constants";
+import { DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -82,6 +82,16 @@ const MessageSchema = z
     timestamp: z.coerce.date(),
     isStreaming: z.boolean().optional(),
     isSystem: z.boolean().optional(),
+    excludeFromModelContext: z.boolean().optional(),
+    contextDisclosure: z
+      .object({
+        omittedMessages: z.number().int().nonnegative(),
+        condensedMessages: z.number().int().nonnegative(),
+        summarizedToolResults: z.number().int().nonnegative(),
+        originalTokens: z.number().int().nonnegative(),
+        assembledTokens: z.number().int().nonnegative(),
+      })
+      .optional(),
     toolCall: ToolCallSchema.optional(),
     toolResult: ToolCallResultSchema.optional(),
     sources: z.array(SourceSchema).optional(),
@@ -1661,7 +1671,9 @@ export async function loadMaxToolSteps(): Promise<number> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(MAX_TOOL_STEPS_KEY);
-    if (typeof raw === "number") return raw;
+    if (typeof raw === "number") {
+      return Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(raw)));
+    }
   } catch (e) {
     logError("storage", "Failed to load max tool steps setting", { error: e });
   }

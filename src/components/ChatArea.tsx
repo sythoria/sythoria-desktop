@@ -1357,6 +1357,15 @@ const MessageBubble = memo(function MessageBubble({
     }[baseTextSize] || "text-sm";
 
   if (isSystem) {
+    if (message.contextDisclosure) {
+      return (
+        <div className="flex items-center my-4 select-none" role="status">
+          <div className="flex-grow border-t border-border/40"></div>
+          <span className="mx-4 max-w-xl text-center text-text-muted text-xs font-medium">{message.content}</span>
+          <div className="flex-grow border-t border-border/40"></div>
+        </div>
+      );
+    }
     const match = message.content.match(/Subagent '([^']+)'/);
     const subagentName = match ? match[1] : "Agent";
     return (

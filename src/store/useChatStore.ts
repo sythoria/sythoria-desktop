@@ -59,6 +59,7 @@ import {
   waitForConversationToolLoops,
 } from "../services/toolLoop";
 import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
+import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
   uiToast,
@@ -1776,7 +1777,7 @@ async function runNormal(
     const conv = get().conversations.find((c) => c.id === convId);
     const apiMessages: { role: string; content: string | unknown[] }[] =
       conv?.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming)
+        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming && !m.excludeFromModelContext)
         .map((m) => ({
           role: m.role,
           content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
@@ -1791,11 +1792,31 @@ async function runNormal(
     }
 
     const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
-    const maxTokens = modelConfig.maxOutputTokens !== undefined ? modelConfig.maxOutputTokens : undefined;
+    const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig });
+    const maxTokens = assembledContext.budget.reservedOutputTokens;
+    if (assembledContext.disclosure) {
+      const disclosure = assembledContext.disclosure;
+      const disclosureMessage: Message = {
+        id: generateId(),
+        role: "assistant",
+        content: formatContextDisclosure(disclosure),
+        timestamp: new Date(),
+        isSystem: true,
+        excludeFromModelContext: true,
+        contextDisclosure: disclosure,
+      };
+      set((state) => ({
+        conversations: updateConversationMessages(state.conversations, convId, (messages) => {
+          const assistantIndex = messages.findIndex((message) => message.id === assistantMsg.id);
+          if (assistantIndex < 0) return [...messages, disclosureMessage];
+          return [...messages.slice(0, assistantIndex), disclosureMessage, ...messages.slice(assistantIndex)];
+        }),
+      }));
+    }
 
     await invoke("chat_stream", {
       configId: modelConfig.id,
-      messages: apiMessages,
+      messages: assembledContext.messages,
       temperature: requestTemp,
       maxTokens,
       thinkingLevel: modelConfig.thinkingLevel ?? "auto",

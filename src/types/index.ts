@@ -26,6 +26,14 @@ export interface Attachment {
   textContent?: string;
 }
 
+export interface ContextDisclosure {
+  omittedMessages: number;
+  condensedMessages: number;
+  summarizedToolResults: number;
+  originalTokens: number;
+  assembledTokens: number;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -35,6 +43,8 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   isSystem?: boolean;
+  excludeFromModelContext?: boolean;
+  contextDisclosure?: ContextDisclosure;
   toolCall?: { id: string; name: string; arguments: Record<string, string> };
   toolResult?: {
     id: string;
