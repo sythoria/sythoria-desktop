@@ -453,8 +453,6 @@ export const es = {
   "settings.appshots.testSuccess": "¡Captura realizada! Guardada en {path}...",
   "settings.appshots.testFailed": "Fallo al realizar captura: {error}",
   "settings.appshots.pathCopied": "Ruta de archivo copiada al portapapeles",
-  "settings.chat.defaultModel": "Modelo de IA Predeterminado",
-  "settings.chat.defaultModelDesc": "Elige el modelo para las nuevas conversaciones",
   "settings.chat.selectModel": "Selecciona un modelo",
   "settings.chat.defaultSearch": "Proveedor de Búsqueda por Defecto",
   "settings.chat.defaultSearchDesc": "Especifica el motor de búsqueda para consultas RAG",

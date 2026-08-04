@@ -458,8 +458,6 @@ export const de = {
   "settings.appshots.testSuccess": "Screenshot aufgenommen! Gespeichert unter {path}...",
   "settings.appshots.testFailed": "Bildschirmaufnahme fehlgeschlagen: {error}",
   "settings.appshots.pathCopied": "Dateipfad in die Zwischenablage kopiert",
-  "settings.chat.defaultModel": "Standard-KI-Modell",
-  "settings.chat.defaultModelDesc": "Wähle das Modell für neue Unterhaltungen",
   "settings.chat.selectModel": "Modell auswählen",
   "settings.chat.defaultSearch": "Standard-Suchanbieter",
   "settings.chat.defaultSearchDesc": "Suchanbieter für RAG-Abfragen festlegen",

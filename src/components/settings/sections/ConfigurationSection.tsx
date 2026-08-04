@@ -8,13 +8,10 @@ import {
   MIN_TOOL_STEPS,
   MAX_TOOL_STEPS_LIMIT,
 } from "../../../config/constants";
-import { ModelConfig, SearchApiConfig } from "../../../types";
+import { SearchApiConfig } from "../../../types";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 
 interface ConfigurationSectionProps {
-  models: ModelConfig[];
-  selectedModel: string;
-  setSelectedModel: (id: string) => void;
   searchConfigs: SearchApiConfig[];
   activeSearchId: string | null;
   setActiveSearchId: (id: string) => void;
@@ -29,9 +26,6 @@ interface ConfigurationSectionProps {
 }
 
 export const ConfigurationSection = ({
-  models,
-  selectedModel,
-  setSelectedModel,
   searchConfigs,
   activeSearchId,
   setActiveSearchId,
@@ -48,7 +42,6 @@ export const ConfigurationSection = ({
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxStepsToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const enabledModels = models.filter((m) => m.enabled !== false);
   const enabledSearchConfigs = searchConfigs.filter((c) => c.enabled);
   const enabledFetchConfigs = fetchConfigs.filter((c) => c.enabled);
 
@@ -90,27 +83,7 @@ export const ConfigurationSection = ({
     <>
       <SettingsSectionHeader title={t("settings.chat.title")} description={t("settings.chat.subtitle")} />
       <SettingsPanel>
-        <div id="setting-configuration-model" className="space-y-2">
-          <label htmlFor="default-model-select-trigger" className="text-sm font-medium text-text-primary block">
-            {t("settings.chat.defaultModel")}
-          </label>
-          <p className="text-xs text-text-muted mb-2">{t("settings.chat.defaultModelDesc")}</p>
-          <Select
-            id="default-model-select"
-            value={selectedModel}
-            onChange={setSelectedModel}
-            options={enabledModels.map((model) => ({
-              value: model.id,
-              label: model.name,
-              description: model.modelId,
-            }))}
-            disabled={enabledModels.length === 0}
-            placeholder="No Model"
-            aria-label="Available models"
-          />
-        </div>
-
-        <div className="space-y-2 pt-2">
+        <div className="space-y-2">
           <label htmlFor="default-search-provider-trigger" className="text-sm font-medium text-text-primary block">
             {t("settings.chat.defaultSearch")}
           </label>

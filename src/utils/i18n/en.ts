@@ -442,8 +442,6 @@ export const en = {
   "settings.appshots.testSuccess": "Screenshot captured! Saved to {path}...",
   "settings.appshots.testFailed": "Screen capture failed: {error}",
   "settings.appshots.pathCopied": "File path copied to clipboard",
-  "settings.chat.defaultModel": "Default AI Model",
-  "settings.chat.defaultModelDesc": "Choose the model for new conversations",
   "settings.chat.selectModel": "Select a model",
   "settings.chat.defaultSearch": "Default Search Provider",
   "settings.chat.defaultSearchDesc": "Specify the search provider for RAG queries",

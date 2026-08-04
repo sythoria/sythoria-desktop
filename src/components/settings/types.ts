@@ -285,14 +285,6 @@ export const SEARCHABLE_SETTINGS: SearchableSetting[] = [
     keywords: ["sidebar", "translucent", "transparency", "blur", "glass", "vibrancy"],
   },
   {
-    id: "setting-configuration-model",
-    label: "Default Model Selector",
-    description: "Select the primary model used for new conversations",
-    sectionId: "configuration",
-    sectionLabel: "Chat Settings",
-    keywords: ["model", "default model", "gpt-4", "claude", "gemini", "active model", "providers"],
-  },
-  {
     id: "setting-configuration-temperature",
     label: "Model Temperature",
     description: "Control the randomness or creativity of model responses",

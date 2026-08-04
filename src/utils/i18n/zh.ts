@@ -427,8 +427,6 @@ export const zh = {
   "settings.appshots.testSuccess": "截图已捕获！保存至 {path}...",
   "settings.appshots.testFailed": "屏幕捕获失败: {error}",
   "settings.appshots.pathCopied": "文件路径已复制到剪贴板",
-  "settings.chat.defaultModel": "默认 AI 模型",
-  "settings.chat.defaultModelDesc": "选择新对话使用的模型",
   "settings.chat.selectModel": "选择一个模型",
   "settings.chat.defaultSearch": "默认搜索引擎",
   "settings.chat.defaultSearchDesc": "为 RAG 查询指定默认搜索服务",

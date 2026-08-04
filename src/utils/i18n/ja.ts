@@ -446,8 +446,6 @@ export const ja = {
   "settings.appshots.testSuccess": "スクリーンショットを撮りました！保存先: {path}...",
   "settings.appshots.testFailed": "キャプチャに失敗しました: {error}",
   "settings.appshots.pathCopied": "パスをクリップボードにコピーしました",
-  "settings.chat.defaultModel": "デフォルトのAIモデル",
-  "settings.chat.defaultModelDesc": "新規会話作成時のモデルを選択します",
   "settings.chat.selectModel": "モデルを選択してください",
   "settings.chat.defaultSearch": "デフォルトの検索プロバイダー",
   "settings.chat.defaultSearchDesc": "RAGクエリで最初に使用される検索サービス",

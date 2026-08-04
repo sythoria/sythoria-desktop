@@ -448,8 +448,6 @@ export const fr = {
   "settings.appshots.testSuccess": "Capture enregistrée sous {path}...",
   "settings.appshots.testFailed": "Échec de l'essai : {error}",
   "settings.appshots.pathCopied": "Chemin copié dans le presse-papiers",
-  "settings.chat.defaultModel": "Modèle par défaut",
-  "settings.chat.defaultModelDesc": "Choix du modèle pour les nouveaux chats",
   "settings.chat.selectModel": "Sélectionner un modèle",
   "settings.chat.defaultSearch": "Recherche par défaut",
   "settings.chat.defaultSearchDesc": "Spécifie le moteur de recherche RAG",
