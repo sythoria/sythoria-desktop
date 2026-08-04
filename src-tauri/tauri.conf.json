@@ -39,6 +39,8 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": [
+      "deb",
+      "rpm",
       "appimage",
       "app",
       "dmg",
