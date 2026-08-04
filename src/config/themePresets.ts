@@ -270,8 +270,7 @@ export function applyTheme(config: ThemeConfig) {
   const inputColor = isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08);
   style.setProperty("--theme-input", inputColor);
 
-  const borderColor = ensureContrast(mixColors(fg, bg, isDark ? 0.35 : 0.3), bg, 3);
-  style.setProperty("--theme-input-border", borderColor);
+  style.setProperty("--theme-input-border", hexToRgba(fg, 0.12));
   style.setProperty("--theme-accent", accent);
 
   const accentForeground = ensureContrast(getContrastColor(accent), accent, 4.5);
@@ -294,11 +293,7 @@ export function applyTheme(config: ThemeConfig) {
   style.setProperty("--theme-user-bubble", isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08));
   style.setProperty("--theme-hover", hexToRgba(fg, isDark ? 0.06 : 0.04));
   style.setProperty("--theme-active", hexToRgba(fg, isDark ? 0.1 : 0.07));
-  style.setProperty("--theme-border", borderColor);
-
-  const focusOutline = ensureContrast(accent, bg, 3);
-  style.setProperty("--theme-focus-outline", focusOutline);
-  style.setProperty("--theme-focus-border", focusOutline);
+  style.setProperty("--theme-border", hexToRgba(fg, 0.12));
   style.setProperty("--theme-diff-add-text", isDark ? "#86efac" : "#166534");
   style.setProperty("--theme-diff-add-bg", isDark ? "#143723" : "#dcfce7");
   style.setProperty("--theme-diff-delete-text", isDark ? "#fca5a5" : "#991b1b");

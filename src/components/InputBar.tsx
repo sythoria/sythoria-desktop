@@ -816,7 +816,7 @@ export default memo(function InputBar({
                                     const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
                                     if (imgIdx !== -1) setPreviewImageIndex(imgIdx);
                                   }}
-                                  className="h-full w-full cursor-pointer rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-focus"
+                                  className="h-full w-full cursor-pointer rounded-xl"
                                   aria-label={`Preview ${a.name}`}
                                 >
                                   <img

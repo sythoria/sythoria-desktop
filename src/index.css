@@ -22,7 +22,6 @@
   --color-surface-elevated: var(--theme-surface);
   --color-popup: var(--theme-popup);
   --color-overlay: var(--theme-overlay);
-  --color-focus: var(--theme-focus-outline);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -150,7 +149,7 @@
     background: var(--theme-text-muted);
   }
   :focus-visible {
-    outline: 2px solid var(--theme-focus-outline);
+    outline: 1px solid var(--theme-focus-outline);
     outline-offset: 2px;
   }
   .chat-focus-scope :focus-visible {
@@ -158,13 +157,13 @@
     outline-offset: 2px;
   }
   .popup-surface :where(button, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):focus-visible {
-    outline: 2px solid var(--theme-focus-outline);
+    outline: 1px solid var(--theme-focus-outline);
     outline-offset: -1px;
     background-color: var(--theme-hover);
     box-shadow: none;
   }
   .menu-trigger:focus-visible {
-    outline: 2px solid var(--theme-focus-outline);
+    outline: 1px solid var(--theme-focus-outline);
     outline-offset: 1px;
     background-color: var(--theme-hover);
     box-shadow: none;
