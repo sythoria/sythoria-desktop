@@ -69,7 +69,7 @@ import { useSearchStore } from "./store/useSearchStore";
 import { useMcpStore } from "./store/useMcpStore";
 import { useUIStore } from "./store/useUIStore";
 import { useProjectStore } from "./store/useProjectStore";
-import { useKeybindStore, matchKeybind } from "./store/useKeybindStore";
+import { findMatchingCommand, useKeybindStore } from "./store/useKeybindStore";
 import { useAppshotStore } from "./store/useAppshotStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
@@ -77,6 +77,7 @@ import { useScrollTracking } from "./hooks/useScrollTracking";
 import { motionTransitions } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 import type { ComparisonColumnHandle } from "./components/ComparisonColumn";
+import { executeCommand } from "./services/commandDispatcher";
 
 import "./index.css";
 
@@ -771,142 +772,29 @@ function App() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && isStreaming) {
-        stopStreaming();
-        return;
-      }
-
+      if (e.defaultPrevented || e.isComposing) return;
       const recording = useKeybindStore.getState().isRecording;
       if (recording) return;
 
-      const active = document.activeElement;
-      let isInputActive = false;
-      if (active) {
-        const tag = active.tagName.toLowerCase();
-        isInputActive = tag === "input" || tag === "textarea" || active.hasAttribute("contenteditable");
+      if (
+        e.key === "Escape" &&
+        document.querySelector('[aria-modal="true"], [role="menu"], [data-escape-layer="true"]')
+      ) {
+        return;
       }
 
-      const keys = useKeybindStore.getState().keybinds;
-
-      if (matchKeybind(e, keys.zoomIn.currentCombo)) {
-        e.preventDefault();
-        useKeybindStore.getState().zoomIn();
-      } else if (matchKeybind(e, keys.zoomOut.currentCombo)) {
-        e.preventDefault();
-        useKeybindStore.getState().zoomOut();
-      } else if (matchKeybind(e, keys.zoomReset.currentCombo)) {
-        e.preventDefault();
-        useKeybindStore.getState().zoomReset();
-      } else if (matchKeybind(e, keys.toggleSidebar.currentCombo)) {
-        e.preventDefault();
-        toggleSidebarCollapsed();
-      } else if (matchKeybind(e, keys.focusInput.currentCombo)) {
-        e.preventDefault();
-        document.getElementById("chat-input")?.focus();
-      } else if (matchKeybind(e, keys.openSearch.currentCombo)) {
-        e.preventDefault();
-        if (sidebarCollapsed) toggleSidebarCollapsed();
-        setView("chat");
-        setTimeout(() => {
-          document.getElementById("sidebar-search")?.focus();
-        }, 50);
-      } else if (matchKeybind(e, keys.newChat.currentCombo)) {
-        e.preventDefault();
-        newChat();
-        setView("chat");
-        setTimeout(() => {
-          document.getElementById("chat-input")?.focus();
-        }, 50);
-      } else if (matchKeybind(e, keys.goBack.currentCombo)) {
-        if (useChatStore.getState().navigationIndex > 0) {
-          e.preventDefault();
-          navigateBack();
-        }
-      } else if (matchKeybind(e, keys.goForward.currentCombo)) {
-        const chatState = useChatStore.getState();
-        if (
-          chatState.navigationIndex < chatState.navigationHistory.length - 1 &&
-          chatState.navigationHistory.length > 0
-        ) {
-          e.preventDefault();
-          navigateForward();
-        }
-      } else if (matchKeybind(e, keys.openFilePicker.currentCombo)) {
-        e.preventDefault();
-        document.getElementById("file-input-element")?.click();
-      } else if (matchKeybind(e, keys.prevChat.currentCombo)) {
-        if (isInputActive) {
-          if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
-        }
-        const currentConversations = useChatStore.getState().conversations;
-        const currentActiveId = useChatStore.getState().activeId;
-        const idx = currentConversations.findIndex((c) => c.id === currentActiveId);
-        if (idx > 0) {
-          e.preventDefault();
-          setActiveId(currentConversations[idx - 1].id);
-        }
-      } else if (matchKeybind(e, keys.nextChat.currentCombo)) {
-        if (isInputActive) {
-          if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
-        }
-        const currentConversations = useChatStore.getState().conversations;
-        const currentActiveId = useChatStore.getState().activeId;
-        const idx = currentConversations.findIndex((c) => c.id === currentActiveId);
-        if (idx >= 0 && idx < currentConversations.length - 1) {
-          e.preventDefault();
-          setActiveId(currentConversations[idx + 1].id);
-        }
-      } else if (matchKeybind(e, keys.openSettings.currentCombo)) {
-        e.preventDefault();
-        setView("settings");
-      } else if (matchKeybind(e, keys.toggleModel.currentCombo)) {
-        e.preventDefault();
-        document.getElementById("model-selector-button")?.click();
-      } else if (matchKeybind(e, keys.commandPalette.currentCombo)) {
-        e.preventDefault();
-        toggleCommandPalette();
-      } else if (matchKeybind(e, keys.renameChat.currentCombo)) {
-        e.preventDefault();
-        if (activeId) {
-          const title = useChatStore.getState().conversations.find((c) => c.id === activeId)?.title || "";
-          openRenameModal(activeId, title);
-        }
-      } else if (matchKeybind(e, keys.exportChat.currentCombo)) {
-        e.preventDefault();
-        if (activeId) {
-          exportChat(activeId);
-        }
-      } else if (matchKeybind(e, keys.togglePinChat.currentCombo)) {
-        e.preventDefault();
-        if (activeId) {
-          togglePinChat(activeId);
-        }
-      } else if (matchKeybind(e, keys.openWorkspaces.currentCombo)) {
-        e.preventDefault();
-        setView("settings");
-        setActiveSection("projects");
-      }
+      const commandId = findMatchingCommand(e, useKeybindStore.getState().keybinds);
+      if (!commandId) return;
+      const executed = executeCommand(commandId, {
+        toggleCompareMode: handleToggleCompareMode,
+        scrollToBottom: handleScrollToBottom,
+      });
+      if (executed) e.preventDefault();
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    isStreaming,
-    stopStreaming,
-    toggleSidebarCollapsed,
-    sidebarCollapsed,
-    setView,
-    newChat,
-    navigateBack,
-    navigateForward,
-    setActiveId,
-    toggleCommandPalette,
-    openRenameModal,
-    exportChat,
-    togglePinChat,
-    setActiveSection,
-    activeId,
-  ]);
+  }, [handleToggleCompareMode, handleScrollToBottom]);
 
   useEffect(() => {
     return () => {

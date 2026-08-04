@@ -8,9 +8,10 @@ export interface KeybindAction {
   description: string;
   defaultCombo: string;
   currentCombo: string;
+  scope?: "global" | "modal" | "native";
 }
 
-export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
+export const COMMAND_REGISTRY = {
   openSearch: {
     id: "openSearch",
     label: "Open Conversation Picker",
@@ -42,6 +43,7 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     description: "Captures the frontmost application and attaches it to the current conversation",
     defaultCombo: "Alt+Shift+S",
     currentCombo: "Alt+Shift+S",
+    scope: "native",
   },
   goBack: {
     id: "goBack",
@@ -138,6 +140,7 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     description: "Navigate to the previous image in the preview viewer",
     defaultCombo: "ArrowLeft",
     currentCombo: "ArrowLeft",
+    scope: "modal",
   },
   nextImage: {
     id: "nextImage",
@@ -146,6 +149,7 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     description: "Navigate to the next image in the preview viewer",
     defaultCombo: "ArrowRight",
     currentCombo: "ArrowRight",
+    scope: "modal",
   },
   stopStreaming: {
     id: "stopStreaming",
@@ -251,15 +255,64 @@ export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = {
     defaultCombo: "Ctrl+Shift+W",
     currentCombo: "Ctrl+Shift+W",
   },
-};
+} satisfies Record<string, KeybindAction>;
+
+export type CommandId = keyof typeof COMMAND_REGISTRY;
+
+export const DEFAULT_KEYBINDS: Record<string, KeybindAction> = Object.fromEntries(
+  Object.entries(COMMAND_REGISTRY).map(([id, command]) => [id, { ...command }]),
+);
+
+export interface KeybindValidationResult {
+  ok: boolean;
+  error?: string;
+}
+
+const RESERVED_COMBOS = new Set(["CTRL+Q", "CTRL+R", "CTRL+T", "CTRL+W", "CTRL+TAB", "ALT+F4", "CTRL+ALT+DELETE"]);
+
+function normalizedCombo(combo: string): string {
+  return combo
+    .split("+")
+    .map((part) => part.trim().toUpperCase())
+    .filter(Boolean)
+    .join("+");
+}
+
+export function validateKeycombo(
+  actionId: string,
+  combo: string,
+  keybinds: Record<string, KeybindAction>,
+): KeybindValidationResult {
+  const parts = combo.split("+").filter(Boolean);
+  const mainKey = parts.at(-1) ?? "";
+  const modifiers = new Set(parts.slice(0, -1).map((part) => part.toLowerCase()));
+  const hasCommandModifier = modifiers.has("ctrl") || modifiers.has("alt");
+  const isPrintable = mainKey === "Space" || mainKey.length === 1;
+
+  if (isPrintable && !hasCommandModifier) {
+    return { ok: false, error: "Printable shortcuts require Ctrl/Cmd or Alt." };
+  }
+  if (RESERVED_COMBOS.has(normalizedCombo(combo))) {
+    return { ok: false, error: "That shortcut is reserved by the operating system or application shell." };
+  }
+
+  const duplicate = Object.values(keybinds).find(
+    (action) => action.id !== actionId && normalizedCombo(action.currentCombo) === normalizedCombo(combo),
+  );
+  if (duplicate) {
+    return { ok: false, error: `Already assigned to ${duplicate.label}.` };
+  }
+  return { ok: true };
+}
 
 interface KeybindsState {
   keybinds: Record<string, KeybindAction>;
   zoomLevel: number;
   isRecording: string | null;
+  validationError: string | null;
 
-  setKeycombo: (actionId: string, combo: string) => void;
-  resetKeycombo: (actionId: string) => void;
+  setKeycombo: (actionId: string, combo: string) => KeybindValidationResult;
+  resetKeycombo: (actionId: string) => KeybindValidationResult;
   resetAllKeybinds: () => void;
 
   setZoomLevel: (level: number) => void;
@@ -276,8 +329,20 @@ export const useKeybindStore = create<KeybindsState>((set, get) => ({
   keybinds: { ...DEFAULT_KEYBINDS },
   zoomLevel: 1.0,
   isRecording: null,
+  validationError: null,
 
   setKeycombo: (actionId, combo) => {
+    const state = get();
+    if (!state.keybinds[actionId]) {
+      const result = { ok: false, error: "Unknown command." };
+      set({ validationError: result.error });
+      return result;
+    }
+    const result = validateKeycombo(actionId, combo, state.keybinds);
+    if (!result.ok) {
+      set({ validationError: result.error ?? "Invalid shortcut." });
+      return result;
+    }
     set((state) => {
       const updatedKeybinds = {
         ...state.keybinds,
@@ -288,11 +353,20 @@ export const useKeybindStore = create<KeybindsState>((set, get) => ({
       };
 
       saveKeybinds(updatedKeybinds as KeybindsData);
-      return { keybinds: updatedKeybinds };
+      return { keybinds: updatedKeybinds, validationError: null };
     });
+    return result;
   },
 
   resetKeycombo: (actionId) => {
+    const state = get();
+    const action = state.keybinds[actionId];
+    if (!action) return { ok: false, error: "Unknown command." };
+    const result = validateKeycombo(actionId, action.defaultCombo, state.keybinds);
+    if (!result.ok) {
+      set({ validationError: result.error ?? "Invalid shortcut." });
+      return result;
+    }
     set((state) => {
       const updatedKeybinds = {
         ...state.keybinds,
@@ -302,8 +376,9 @@ export const useKeybindStore = create<KeybindsState>((set, get) => ({
         },
       };
       saveKeybinds(updatedKeybinds as KeybindsData);
-      return { keybinds: updatedKeybinds };
+      return { keybinds: updatedKeybinds, validationError: null };
     });
+    return result;
   },
 
   resetAllKeybinds: () => {
@@ -339,7 +414,7 @@ export const useKeybindStore = create<KeybindsState>((set, get) => ({
     set({ zoomLevel: 1.0 });
   },
 
-  startRecording: (actionId) => set({ isRecording: actionId }),
+  startRecording: (actionId) => set({ isRecording: actionId, validationError: null }),
   stopRecording: () => set({ isRecording: null }),
 
   initKeybinds: async () => {
@@ -352,10 +427,8 @@ export const useKeybindStore = create<KeybindsState>((set, get) => ({
         const merged = { ...state.keybinds };
         for (const [id, item] of Object.entries(loaded)) {
           if (merged[id]) {
-            merged[id] = {
-              ...merged[id],
-              currentCombo: item.currentCombo,
-            };
+            const validation = validateKeycombo(id, item.currentCombo, merged);
+            if (validation.ok) merged[id] = { ...merged[id], currentCombo: item.currentCombo };
           }
         }
         return { keybinds: merged, zoomLevel: zoom };
@@ -391,4 +464,16 @@ export function matchKeybind(e: KeyboardEvent, combo: string): boolean {
     (mainKey === "=" || mainKey === "+") && (pressedKey === "=" || pressedKey === "+") ? true : pressedKey === mainKey;
 
   return ctrlMatched && altMatched && shiftMatched && keyMatched;
+}
+
+export function findMatchingCommand(
+  event: KeyboardEvent,
+  keybinds: Record<string, KeybindAction>,
+  scope: NonNullable<KeybindAction["scope"]> = "global",
+): CommandId | null {
+  for (const command of Object.values(keybinds)) {
+    if ((command.scope ?? "global") !== scope) continue;
+    if (matchKeybind(event, command.currentCombo)) return command.id as CommandId;
+  }
+  return null;
 }

@@ -9,6 +9,7 @@ export const KeybindsSection = () => {
   const { t } = useTranslation();
   const keybinds = useKeybindStore((s) => s.keybinds);
   const isRecording = useKeybindStore((s) => s.isRecording);
+  const validationError = useKeybindStore((s) => s.validationError);
   const setKeycombo = useKeybindStore((s) => s.setKeycombo);
   const resetKeycombo = useKeybindStore((s) => s.resetKeycombo);
   const resetAllKeybinds = useKeybindStore((s) => s.resetAllKeybinds);
@@ -61,8 +62,8 @@ export const KeybindsSection = () => {
       else if (key === "ArrowRight") keyName = "ArrowRight";
 
       const newCombo = [...mods, keyName].join("+");
-      setKeycombo(isRecording, newCombo);
-      stopRecording();
+      const result = setKeycombo(isRecording, newCombo);
+      if (result.ok) stopRecording();
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
@@ -94,6 +95,11 @@ export const KeybindsSection = () => {
             {t("settings.keybinds.title")}
           </h3>
           <p className="text-xs text-text-muted">{t("settings.keybinds.subtitle")}</p>
+          {validationError && (
+            <p className="mt-1 text-xs text-danger" role="alert">
+              {validationError}
+            </p>
+          )}
         </div>
         <motion.button
           onClick={resetAllKeybinds}

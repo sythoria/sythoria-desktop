@@ -1131,6 +1131,7 @@ export default memo(function InputBar({
                         </span>
                       )}
                       <button
+                        id="voice-input-button"
                         type="button"
                         onClick={handleToggleVoice}
                         disabled={isTranscribing}

@@ -1,9 +1,9 @@
 import React, { useCallback, useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useUIStore } from "../store/useUIStore";
-import { useChatStore } from "../store/useChatStore";
-import { useKeybindStore } from "../store/useKeybindStore";
+import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { executeCommand } from "../services/commandDispatcher";
 
 interface CommandItem {
   id: string;
@@ -14,7 +14,7 @@ interface CommandItem {
 
 export function CommandPalette() {
   const { showCommandPalette, setShowCommandPalette, setView, setActiveSection, checkForUpdates } = useUIStore();
-  const { zoomIn, zoomOut, zoomReset } = useKeybindStore();
+  const keybinds = useKeybindStore((state) => state.keybinds);
 
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -32,15 +32,23 @@ export function CommandPalette() {
     initialFocusRef: inputRef,
   });
 
+  const commandIds: CommandId[] = [
+    "newChat",
+    "openSettings",
+    "openWorkspaces",
+    "toggleSearch",
+    "toggleTheme",
+    "zoomIn",
+    "zoomOut",
+    "zoomReset",
+  ];
   const commands: CommandItem[] = [
-    {
-      id: "new-chat",
-      label: "New Conversation",
-      shortcut: "Ctrl+Shift+O",
-      action: () => {
-        useChatStore.getState().newChat();
-      },
-    },
+    ...commandIds.map((id) => ({
+      id,
+      label: COMMAND_REGISTRY[id].label,
+      shortcut: keybinds?.[id]?.currentCombo ?? COMMAND_REGISTRY[id].currentCombo,
+      action: () => void executeCommand(id),
+    })),
     {
       id: "create-project",
       label: "Create Project",
@@ -48,26 +56,6 @@ export function CommandPalette() {
         setView("settings");
         setActiveSection("projects");
       },
-    },
-    {
-      id: "settings",
-      label: "Open Settings",
-      action: () => setView("settings"),
-    },
-    {
-      id: "zoom-in",
-      label: "Zoom In",
-      action: zoomIn,
-    },
-    {
-      id: "zoom-out",
-      label: "Zoom Out",
-      action: zoomOut,
-    },
-    {
-      id: "zoom-reset",
-      label: "Reset Zoom",
-      action: zoomReset,
     },
     {
       id: "check-updates",

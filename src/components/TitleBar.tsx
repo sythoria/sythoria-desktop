@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
-import { useKeybindStore } from "../store/useKeybindStore";
-import { useChatStore } from "../store/useChatStore";
+import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
 import { useUIStore } from "../store/useUIStore";
 import { useAppVersion } from "../hooks/useAppVersion";
+import { executeCommand } from "../services/commandDispatcher";
 
 type MenuId = "sythoria" | "file" | "view" | "window";
 type MenuType = MenuId | null;
@@ -69,7 +69,7 @@ export function TitleBar() {
   const [activeMenu, setActiveMenu] = useState<MenuType>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const { zoomIn, zoomOut, zoomReset } = useKeybindStore();
+  const keybinds = useKeybindStore((state) => state.keybinds);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -125,10 +125,11 @@ export function TitleBar() {
     setActiveMenu(activeMenu === menu ? null : menu);
   };
 
-  const handleCreateChat = () => {
-    useChatStore.getState().newChat();
-    setActiveMenu(null);
-  };
+  const commandMenuProps = (commandId: CommandId) => ({
+    label: COMMAND_REGISTRY[commandId].label,
+    shortcut: keybinds?.[commandId]?.currentCombo ?? COMMAND_REGISTRY[commandId].currentCombo,
+    onClick: () => void executeCommand(commandId),
+  });
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const menuIds: MenuId[] = ["sythoria", "file", "view", "window"];
@@ -215,12 +216,7 @@ export function TitleBar() {
             role="menu"
             aria-label="File"
           >
-            <DropdownItem
-              label="New Conversation"
-              shortcut="Ctrl+Shift+O"
-              onClick={handleCreateChat}
-              setActiveMenu={setActiveMenu}
-            />
+            <DropdownItem {...commandMenuProps("newChat")} setActiveMenu={setActiveMenu} />
             <DropdownItem
               label="Create Project"
               onClick={() => {
@@ -229,12 +225,7 @@ export function TitleBar() {
               }}
               setActiveMenu={setActiveMenu}
             />
-            <DropdownItem
-              label="Command Palette"
-              shortcut="Ctrl+Shift+P"
-              onClick={() => useUIStore.getState().toggleCommandPalette()}
-              setActiveMenu={setActiveMenu}
-            />
+            <DropdownItem {...commandMenuProps("commandPalette")} setActiveMenu={setActiveMenu} />
           </div>
         )}
 
@@ -245,9 +236,9 @@ export function TitleBar() {
             role="menu"
             aria-label="View"
           >
-            <DropdownItem label="Zoom In" onClick={zoomIn} setActiveMenu={setActiveMenu} />
-            <DropdownItem label="Zoom Out" onClick={zoomOut} setActiveMenu={setActiveMenu} />
-            <DropdownItem label="Reset Zoom" onClick={zoomReset} setActiveMenu={setActiveMenu} />
+            <DropdownItem {...commandMenuProps("zoomIn")} setActiveMenu={setActiveMenu} />
+            <DropdownItem {...commandMenuProps("zoomOut")} setActiveMenu={setActiveMenu} />
+            <DropdownItem {...commandMenuProps("zoomReset")} setActiveMenu={setActiveMenu} />
           </div>
         )}
 
