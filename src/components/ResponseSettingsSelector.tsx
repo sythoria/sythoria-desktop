@@ -272,7 +272,7 @@ export function ResponseSettingsSelector({
                   }}
                   transition={motionTransitions.popoverEnter}
                 >
-                  <div className="max-h-72 overflow-y-auto overscroll-contain pr-0.5">
+                  <div className="max-h-72 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5">
                     {enabledModels.length === 0 ? (
                       <div className="px-3 py-5 text-center text-xs text-text-muted">
                         No models configured. Go to Settings &gt; Models to add one.
