@@ -19,6 +19,7 @@ interface WhisperConfig {
   cloudApiKey: string;
   cloudApiUrl: string;
   cloudModel: string;
+  isLlmPolishEnabled: boolean;
   refinementModelId: string | null;
 }
 
@@ -41,6 +42,7 @@ interface WhisperState extends WhisperConfig {
   ensureCloudApiKeySaved: () => Promise<boolean>;
   setCloudApiUrl: (url: string) => void;
   setCloudModel: (model: string) => void;
+  setIsLlmPolishEnabled: (enabled: boolean) => void;
   setRefinementModelId: (id: string | null) => void;
   downloadModel: (modelId: string) => Promise<void>;
   cancelDownload: () => Promise<void>;
@@ -65,6 +67,7 @@ const DEFAULT_CONFIG: WhisperConfig = {
   cloudApiKey: "",
   cloudApiUrl: "https://api.groq.com/openai/v1/audio/transcriptions",
   cloudModel: "whisper-large-v3",
+  isLlmPolishEnabled: true,
   refinementModelId: null,
 };
 
@@ -81,6 +84,7 @@ const toStoredConfig = (state: WhisperConfig): StoredWhisperConfig => ({
   sttProvider: state.sttProvider,
   cloudApiUrl: state.cloudApiUrl,
   cloudModel: state.cloudModel,
+  isLlmPolishEnabled: state.isLlmPolishEnabled,
   refinementModelId: state.refinementModelId,
 });
 
@@ -222,6 +226,11 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
 
     setCloudModel: (model) => {
       set({ cloudModel: model });
+      saveConfig(get());
+    },
+
+    setIsLlmPolishEnabled: (enabled) => {
+      set({ isLlmPolishEnabled: enabled });
       saveConfig(get());
     },
 

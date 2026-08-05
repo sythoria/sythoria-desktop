@@ -501,6 +501,7 @@ export interface StoredWhisperConfig {
   sttProvider: "local" | "cloud";
   cloudApiUrl: string;
   cloudModel: string;
+  isLlmPolishEnabled: boolean;
   refinementModelId: string | null;
 }
 
@@ -512,6 +513,7 @@ const StoredWhisperConfigSchema = z.object({
   sttProvider: z.enum(["local", "cloud"]).optional(),
   cloudApiUrl: z.string().optional(),
   cloudModel: z.string().optional(),
+  isLlmPolishEnabled: z.boolean().optional(),
   refinementModelId: z.string().nullable().optional(),
 });
 

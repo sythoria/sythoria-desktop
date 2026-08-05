@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
-import { SettingsDisclosure, SettingsSectionHeader, SettingsTogglePanel } from "../components/SettingsPrimitives";
+import { SettingsDisclosure, SettingsSectionHeader, SettingsToggle, SettingsTogglePanel } from "../components/SettingsPrimitives";
 import { useModelStore } from "../../../store/useModelStore";
 
 export function WhisperSection() {
@@ -45,11 +45,13 @@ export function WhisperSection() {
     cloudApiKeyConfigured,
     cloudApiUrl,
     cloudModel,
+    isLlmPolishEnabled,
     refinementModelId,
     setSttProvider,
     setCloudApiKey,
     setCloudApiUrl,
     setCloudModel,
+    setIsLlmPolishEnabled,
     setRefinementModelId,
   } = useWhisperStore();
 
@@ -124,26 +126,33 @@ export function WhisperSection() {
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="voice-refinement-model-trigger"
-            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
-          >
-            <Sparkles size={13} />
-            <span>Refinement Model (Instant LLM Polish)</span>
-          </label>
-          <Select
-            id="voice-refinement-model"
-            value={refinementModelId || ""}
-            onChange={(value) => setRefinementModelId(value || null)}
-            options={[
-              { value: "", label: "Same as Active Chat Model" },
-              ...models.map((model) => ({ value: model.id, label: model.name })),
-            ]}
-            size="compact"
-            aria-label="Refinement model"
-          />
-        </div>
+        <SettingsToggle
+          checked={isLlmPolishEnabled}
+          onChange={setIsLlmPolishEnabled}
+          label={t("settings.voice.llmPolish")}
+          description={t("settings.voice.llmPolishDesc")}
+        >
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="voice-refinement-model-trigger"
+              className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+            >
+              <Sparkles size={13} />
+              <span>{t("settings.voice.refinementModel")}</span>
+            </label>
+            <Select
+              id="voice-refinement-model"
+              value={refinementModelId || ""}
+              onChange={(value) => setRefinementModelId(value || null)}
+              options={[
+                { value: "", label: t("settings.voice.activeChatModel") },
+                ...models.map((model) => ({ value: model.id, label: model.name })),
+              ]}
+              size="compact"
+              aria-label={t("settings.voice.refinementModel")}
+            />
+          </div>
+        </SettingsToggle>
 
         <div className="flex flex-col gap-1.5">
           <div

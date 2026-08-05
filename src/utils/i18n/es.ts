@@ -583,6 +583,10 @@ export const es = {
   "settings.voice.enableDesc": "Agrega un botón de micrófono al cuadro de entrada del chat.",
   "settings.voice.language": "Idioma de Transcripción",
   "settings.voice.languageAuto": "Autodetectar",
+  "settings.voice.llmPolish": "Pulir la transcripción con LLM",
+  "settings.voice.llmPolishDesc": "Elimina muletillas y errores de voz antes de insertar la transcripción.",
+  "settings.voice.refinementModel": "Modelo de refinamiento",
+  "settings.voice.activeChatModel": "Igual que el modelo de chat activo",
   "settings.voice.model": "Modelo Whisper",
   "settings.voice.modelDesc":
     "Selecciona un modelo GGUF. Los modelos pequeños son más rápidos; los grandes son más precisos.",

@@ -137,6 +137,7 @@ export default memo(function InputBar({
     ensureCloudApiKeySaved,
     cloudApiUrl,
     cloudModel,
+    isLlmPolishEnabled,
     refinementModelId,
   } = useWhisperStore();
 
@@ -276,6 +277,8 @@ export default memo(function InputBar({
           const combinedRaw = initialValueRef.current ? `${initialValueRef.current} ${rawText}` : rawText;
           setValue(combinedRaw);
           setVoiceDraft(combinedRaw);
+
+          if (!isLlmPolishEnabled) return;
 
           useUIStore.getState().addToast("Refining speech...", "info");
 

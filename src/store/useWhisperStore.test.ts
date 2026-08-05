@@ -48,4 +48,13 @@ describe("useWhisperStore", () => {
 
     expect(useWhisperStore.getState().cloudApiKeyConfigured).toBe(false);
   });
+
+  it("persists the LLM polish preference", async () => {
+    const { useWhisperStore } = await import("./useWhisperStore");
+
+    useWhisperStore.getState().setIsLlmPolishEnabled(false);
+
+    expect(useWhisperStore.getState().isLlmPolishEnabled).toBe(false);
+    expect(mocks.saveWhisperConfig).toHaveBeenCalledWith(expect.objectContaining({ isLlmPolishEnabled: false }));
+  });
 });
