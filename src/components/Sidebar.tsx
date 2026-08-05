@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Pin,
 } from "lucide-react";
-import { useMemo, useState, useCallback, useRef, useEffect, useId, memo } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect, useId, memo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import type { Conversation } from "../types";
@@ -78,6 +78,7 @@ interface SidebarProps {
   onClose: () => void;
   modelStatuses: ModelStatuses;
   isCollapsed: boolean;
+  isMobile: boolean;
 }
 
 function groupConversations(conversations: Conversation[]) {
@@ -118,6 +119,7 @@ export default memo(function Sidebar({
   onClose,
   modelStatuses,
   isCollapsed,
+  isMobile,
 }: SidebarProps) {
   const view = useUIStore((s) => s.view);
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
@@ -158,18 +160,9 @@ export default memo(function Sidebar({
     }
   }, [zoomLevel]);
 
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
   const isSidebarCollapsed = isMobile ? !isOpen : isCollapsed;
+  const previousSidebarStateRef = useRef({ isMobile, isSidebarCollapsed });
+  const [sidebarMotionKey, setSidebarMotionKey] = useState("sidebar");
   const sidebarRef = useRef<HTMLElement>(null);
   const mobileSidebarTitleId = useId();
   useDialogFocus({
@@ -188,6 +181,14 @@ export default memo(function Sidebar({
     visualSidebarWidthRef.current = sidebarWidth;
     setVisualSidebarWidth(sidebarWidth);
   }, [sidebarWidth]);
+
+  useLayoutEffect(() => {
+    const previous = previousSidebarStateRef.current;
+    if (previous.isSidebarCollapsed && isSidebarCollapsed && previous.isMobile !== isMobile) {
+      setSidebarMotionKey(`collapsed-${isMobile ? "mobile" : "desktop"}`);
+    }
+    previousSidebarStateRef.current = { isMobile, isSidebarCollapsed };
+  }, [isMobile, isSidebarCollapsed]);
 
   const updateVisualSidebarWidth = useCallback((width: number) => {
     const nextWidth = Math.round(clampSidebarWidth(width, window.innerWidth));
@@ -470,17 +471,17 @@ export default memo(function Sidebar({
     expanded: { opacity: 1, x: 0, display: "flex" as const, flexDirection: "column" as const },
     collapsed: { opacity: 0, x: -8, display: "none" as const, flexDirection: "column" as const },
   };
-
   return (
     <>
       <AnimatePresence>
-        {isOpen && (
+        {isMobile && isOpen && (
           <motion.div
+            key="mobile-sidebar-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={motionTransitions.popoverEnter}
-            className="absolute inset-0 z-20 md:hidden backdrop-blur-sm"
+            className="absolute inset-0 z-30 backdrop-blur-md"
             style={{ backgroundColor: "var(--theme-overlay)" }}
             onClick={onClose}
             aria-hidden="true"
@@ -489,10 +490,14 @@ export default memo(function Sidebar({
         )}
       </AnimatePresence>
 
+      {/* Avoid interpolating only between closed desktop and closed mobile states. */}
       <motion.aside
+        key={sidebarMotionKey}
         ref={sidebarRef}
         tabIndex={isMobile ? -1 : undefined}
-        className="absolute inset-y-0 left-0 md:relative z-40 h-full flex flex-col overflow-hidden glass-sidebar border-r border-border"
+        className={`${
+          isMobile ? "absolute inset-y-0 left-0" : "relative"
+        } z-40 h-full flex flex-col overflow-hidden glass-sidebar border-r border-border`}
         initial={isSidebarCollapsed ? "collapsed" : "expanded"}
         animate={isSidebarCollapsed ? "collapsed" : "expanded"}
         variants={sidebarVariants}

@@ -109,7 +109,8 @@ function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
 function App() {
   const { t } = useTranslation();
   const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const previousIsMobileRef = useRef(isMobile);
   const activeListenerIdRef = useRef("");
   const captureAppshotCombo = useKeybindStore((state) => state.keybinds.captureAppshot.currentCombo);
 
@@ -328,6 +329,16 @@ function App() {
     })),
   );
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
+  const isEnteringMobile = isMobile && !previousIsMobileRef.current;
+  const sidebarOpenForViewport = isEnteringMobile ? false : sidebarOpen;
+
+  useEffect(() => {
+    const wasMobile = previousIsMobileRef.current;
+    if (isMobile && !wasMobile) {
+      setSidebarOpen(false);
+    }
+    previousIsMobileRef.current = isMobile;
+  }, [isMobile, setSidebarOpen]);
 
   useEffect(() => {
     if (!hasStarted || !isConfigLoaded) return;
@@ -1058,7 +1069,7 @@ function App() {
       </Suspense>
       <div className="flex flex-1 overflow-hidden relative glass-app-container">
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
-        {!(view === "settings" && (isMobile ? sidebarOpen : !sidebarCollapsed)) && (
+        {!(view === "settings" && (isMobile ? sidebarOpenForViewport : !sidebarCollapsed)) && (
           <div
             className={`absolute top-0 left-0 z-50 flex items-center ${isMac ? "h-14 pl-[90px]" : "h-[32px] pl-4"}`}
             data-tauri-drag-region
@@ -1073,7 +1084,7 @@ function App() {
                 <PanelLeft size={16} />
               </button>
 
-              {!sidebarOpen && (
+              {!sidebarOpenForViewport && (
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className="flex md:hidden p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-hover transition-colors items-center justify-center"
@@ -1145,10 +1156,11 @@ function App() {
           onRenameChat={openRenameModal}
           onExportChat={exportChat}
           onPinChat={togglePinChat}
-          isOpen={sidebarOpen}
+          isOpen={sidebarOpenForViewport}
           onClose={() => setSidebarOpen(false)}
           modelStatuses={modelStatuses}
           isCollapsed={sidebarCollapsed}
+          isMobile={isMobile}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-chat">
