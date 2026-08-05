@@ -1918,7 +1918,10 @@ export async function saveDisableBgActivity(value: boolean): Promise<void> {
   }
 }
 
-const LEGACY_INTRINSIC_BLOCKED_HOSTS = [
+// These are the defaults shown in Privacy settings. The native endpoint policy
+// enforces the corresponding protections independently, so restoring this list
+// never weakens the baseline even if a user later edits it.
+export const DEFAULT_BLOCKED_HOSTS = [
   "localhost",
   "127.0.0.1",
   "0.0.0.0",
@@ -1935,7 +1938,6 @@ const LEGACY_INTRINSIC_BLOCKED_HOSTS = [
   "fc00::/7",
   "fe80::/10",
 ];
-export const DEFAULT_BLOCKED_HOSTS: string[] = [];
 
 export interface NetworkSettings {
   blockedHosts: string[];
@@ -1959,16 +1961,13 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
     if (raw) {
       const rawConfig: unknown = JSON.parse(raw);
       const parsed = NetworkSettingsSchema.parse(rawConfig);
-      const customBlockedHosts = parsed.blocked_hosts.filter(
-        (host) => !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
-      );
       settings = {
-        blockedHosts: customBlockedHosts,
+        blockedHosts: parsed.blocked_hosts,
         allowedLocalEndpoints: parsed.allowed_local_endpoints,
         offlineMode: parsed.offline_mode,
       };
       const hadLegacyTlsOverride = typeof rawConfig === "object" && rawConfig !== null && "strict_ssl" in rawConfig;
-      if (customBlockedHosts.length !== parsed.blocked_hosts.length || hadLegacyTlsOverride) {
+      if (hadLegacyTlsOverride) {
         await saveNetworkSettings(settings);
       }
     } else {
@@ -1984,18 +1983,9 @@ export async function loadNetworkSettings(): Promise<NetworkSettings> {
 
       settings = {
         blockedHosts: Array.isArray(legacyBlockedHosts)
-          ? legacyBlockedHosts
-              .filter((host): host is string => typeof host === "string")
-              .filter(
-                (host) => !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
-              )
+          ? legacyBlockedHosts.filter((host): host is string => typeof host === "string")
           : Array.isArray(localBlockedHosts)
-            ? localBlockedHosts
-                .filter((host): host is string => typeof host === "string")
-                .filter(
-                  (host) =>
-                    !LEGACY_INTRINSIC_BLOCKED_HOSTS.some((legacy) => legacy.toLowerCase() === host.toLowerCase()),
-                )
+            ? localBlockedHosts.filter((host): host is string => typeof host === "string")
             : DEFAULT_BLOCKED_HOSTS,
         allowedLocalEndpoints: [],
         offlineMode:
