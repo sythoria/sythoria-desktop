@@ -20,7 +20,7 @@ interface FormProps {
 function ProjectForm({ id, mode, onClose }: FormProps) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
-  const { projects, addProject, updateProject, setActiveProject } = useProjectStore();
+  const { projects, defaultPermission, addProject, updateProject, setActiveProject } = useProjectStore();
   const gitConfig = useGitStore((s) => s.config);
   const activeConversationHasPendingWorktree = useChatStore((state) => {
     const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);
@@ -32,7 +32,9 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
   // Initialize form state directly on mount
   const [name, setName] = useState(projectToEdit ? projectToEdit.name : "");
   const [path, setPath] = useState(projectToEdit ? projectToEdit.path : "");
-  const [permissions, setPermissions] = useState<ProjectPermission>(projectToEdit ? projectToEdit.permissions : "read");
+  const [permissions, setPermissions] = useState<ProjectPermission>(
+    projectToEdit ? projectToEdit.permissions : defaultPermission,
+  );
   const [creationMode, setCreationMode] = useState<"documents" | "custom">(mode === "edit" ? "custom" : "documents");
   const [excludePatterns, setExcludePatterns] = useState(
     projectToEdit?.excludePatterns?.join(", ") ?? "node_modules, .git, dist, build, target",

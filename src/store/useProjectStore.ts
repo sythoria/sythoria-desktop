@@ -27,7 +27,7 @@ interface ProjectState {
   addProject: (
     name: string,
     path: string,
-    permissions: ProjectPermission,
+    permissions?: ProjectPermission,
     config?: Omit<Partial<Project>, "id" | "name" | "path" | "permissions">,
   ) => string;
   updateProject: (id: string, updates: Partial<Project>) => void;
@@ -85,7 +85,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     saveProjectsDefaultPermission(perm);
   },
 
-  addProject: (name, path, permissions, config) => {
+  addProject: (name, path, permissions = get().defaultPermission, config) => {
     const id = generateId();
     const newProject: Project = { id, name, path, permissions, ...config };
     set((state) => ({ projects: [...state.projects, newProject] }));

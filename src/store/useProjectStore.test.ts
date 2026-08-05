@@ -51,6 +51,15 @@ describe("useProjectStore", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("set_project_path_override", expect.anything());
   });
 
+  it("uses the configured default permission when none is supplied", async () => {
+    useProjectStore.setState({ defaultPermission: "write" });
+
+    useProjectStore.getState().addProject("One", "C:/one");
+
+    await vi.waitFor(() => expect(mocks.saveProjects).toHaveBeenCalledTimes(1));
+    expect(useProjectStore.getState().projects[0].permissions).toBe("write");
+  });
+
   it("clears native selection and associated chats when deleting the active project", async () => {
     const id = useProjectStore.getState().addProject("One", "C:/one", "read");
     useProjectStore.getState().setActiveProject(id);
