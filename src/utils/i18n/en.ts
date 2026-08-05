@@ -144,7 +144,7 @@ export const en = {
   "settings.models.apiBase": "API Base URL",
   "settings.models.modelId": "Model ID",
   "settings.models.apiKey": "API Key",
-  "settings.models.apiKeyOptional": "API Key (optional for local)",
+  "settings.models.apiKeyOptional": "API Key (optional)",
   "settings.models.apiKeyAdded": "Added",
   "settings.models.apiKeyReplace": "Enter a new key to replace",
   "settings.models.advanced": "Advanced Settings",

@@ -146,7 +146,7 @@ export const fr = {
   "settings.models.apiBase": "URL de base de l'API",
   "settings.models.modelId": "ID du modèle",
   "settings.models.apiKey": "Clé API",
-  "settings.models.apiKeyOptional": "Clé API (optionnelle pour local)",
+  "settings.models.apiKeyOptional": "Clé API (facultative)",
   "settings.models.apiKeyAdded": "Ajoutée",
   "settings.models.apiKeyReplace": "Saisissez une nouvelle clé pour la remplacer",
   "settings.models.advanced": "Paramètres avancés",

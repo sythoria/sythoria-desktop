@@ -144,7 +144,7 @@ export const zh = {
   "settings.models.apiBase": "API 接口基址",
   "settings.models.modelId": "模型 ID",
   "settings.models.apiKey": "API 密钥",
-  "settings.models.apiKeyOptional": "API 密钥 (本地运行可选填)",
+  "settings.models.apiKeyOptional": "API 密钥 (可选)",
   "settings.models.apiKeyAdded": "已添加",
   "settings.models.apiKeyReplace": "输入新密钥以替换",
   "settings.models.advanced": "高级设置",

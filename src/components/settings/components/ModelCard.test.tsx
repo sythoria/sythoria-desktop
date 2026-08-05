@@ -58,4 +58,18 @@ describe("ModelCard", () => {
     expect(screen.getByLabelText("API Key")).toHaveValue("");
     expect(screen.getByLabelText("API Key")).toHaveAttribute("placeholder", "Enter a new key to replace");
   });
+
+  it("does not require an API key for a custom endpoint", () => {
+    render(
+      <ModelCard
+        model={model}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        connectionStatus="disconnected"
+      />,
+    );
+
+    expect(screen.getByLabelText("API Key")).toHaveAttribute("placeholder", "API Key (optional)");
+    expect(screen.queryByText("API key is required for this provider")).not.toBeInTheDocument();
+  });
 });

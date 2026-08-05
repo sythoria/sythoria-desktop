@@ -46,6 +46,11 @@ describe("validateApiKey", () => {
     expect(validateApiKey("", "Ollama (Local)")).toEqual({ valid: true });
   });
 
+  it("accepts empty keys for preset provider IDs that do not require authentication", () => {
+    expect(validateApiKey("", "ollama")).toEqual({ valid: true });
+    expect(validateApiKey("", "custom")).toEqual({ valid: true });
+  });
+
   it("accepts empty key for Local provider", () => {
     expect(validateApiKey("", "Local")).toEqual({ valid: true });
   });

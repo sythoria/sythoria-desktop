@@ -4,7 +4,7 @@ import { Trash2, ChevronDown, AlertCircle } from "lucide-react";
 import { ModelConfig } from "../../../types";
 import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
-import { validateApiUrl, validateApiKey } from "../../../utils/validation";
+import { isApiKeyOptionalForProvider, validateApiUrl, validateApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useUIStore } from "../../../store/useUIStore";
@@ -42,6 +42,7 @@ export const ModelCard = memo(function ModelCard({
   const { t } = useTranslation();
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
+  const isApiKeyOptional = isApiKeyOptionalForProvider(model.provider);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const hasStoredApiKey = model.apiKey === STORED_SECRET_PLACEHOLDER;
@@ -236,7 +237,9 @@ export const ModelCard = memo(function ModelCard({
               placeholder={
                 hasStoredApiKey
                   ? t("settings.models.apiKeyReplace")
-                  : t("settings.models.apiKeyOptional") || "API key (optional for local)"
+                  : isApiKeyOptional
+                    ? t("settings.models.apiKeyOptional") || "API Key (optional)"
+                    : t("settings.models.apiKey")
               }
               autoComplete="off"
               autoCorrect="off"

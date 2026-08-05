@@ -125,9 +125,13 @@ export function validateApiUrl(url: string, allowPrivate = true): { valid: boole
   }
 }
 
+export function isApiKeyOptionalForProvider(provider?: string): boolean {
+  const normalizedProvider = provider?.trim().toLowerCase();
+  return ["ollama", "ollama (local)", "local", "custom"].includes(normalizedProvider ?? "");
+}
+
 export function validateApiKey(key: string, provider?: string): { valid: boolean; warning?: string } {
-  const noKeyProviders = ["Ollama (Local)", "Local", "Custom"];
-  if (noKeyProviders.includes(provider ?? "")) {
+  if (isApiKeyOptionalForProvider(provider)) {
     return { valid: true };
   }
   if (!key || key.trim().length === 0) {

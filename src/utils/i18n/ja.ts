@@ -144,7 +144,7 @@ export const ja = {
   "settings.models.apiBase": "API ベース URL",
   "settings.models.modelId": "モデル ID",
   "settings.models.apiKey": "API キー",
-  "settings.models.apiKeyOptional": "API キー (ローカルの場合は任意)",
+  "settings.models.apiKeyOptional": "API キー (任意)",
   "settings.models.apiKeyAdded": "追加済み",
   "settings.models.apiKeyReplace": "置き換える新しいキーを入力",
   "settings.models.advanced": "詳細設定",
