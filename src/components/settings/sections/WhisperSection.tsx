@@ -146,7 +146,9 @@ export function WhisperSection() {
               onChange={(value) => setRefinementModelId(value || null)}
               options={[
                 { value: "", label: t("settings.voice.activeChatModel") },
-                ...models.map((model) => ({ value: model.id, label: model.name })),
+                ...models
+                  .filter((model) => model.enabled !== false)
+                  .map((model) => ({ value: model.id, label: model.name })),
               ]}
               size="compact"
               aria-label={t("settings.voice.refinementModel")}
