@@ -195,7 +195,7 @@ export const ModelCard = memo(function ModelCard({
           ariaLabel={`Allow local network access for model ${model.name}`}
           description={t("settings.network.allowLocalDesc", {
             defaultValue:
-              "Required for trusted loopback providers such as Ollama. Plaintext stays limited to loopback.",
+              "Required with an exact local endpoint grant for trusted local providers such as Ollama or Tailscale services.",
           })}
         />
 

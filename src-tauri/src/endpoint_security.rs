@@ -48,6 +48,7 @@ const LEGACY_INTRINSIC_RULES: &[&str] = &[
 pub struct ValidatedEndpoint {
     pub url: url::Url,
     pub addresses: Vec<SocketAddr>,
+    pub has_exact_local_grant: bool,
 }
 
 fn normalized_host(host: &str) -> String {
@@ -289,6 +290,7 @@ pub async fn validate_outbound_url(
     Ok(ValidatedEndpoint {
         url: parsed,
         addresses,
+        has_exact_local_grant: local_granted,
     })
 }
 
@@ -352,15 +354,30 @@ pub struct ValidatedWebSocketEndpoint {
     pub address: SocketAddr,
 }
 
+fn allows_plaintext_local_transport(
+    allow_local_network: bool,
+    has_exact_local_grant: bool,
+    addresses: &[SocketAddr],
+) -> bool {
+    // A non-loopback local service can use plaintext only when the user has
+    // opted this provider into local-network access *and* approved its exact
+    // origin in the authenticated global policy. Requiring every resolved
+    // address to be local prevents a hostname with mixed public/private DNS
+    // results from using the local exception.
+    allow_local_network
+        && has_exact_local_grant
+        && !addresses.is_empty()
+        && addresses
+            .iter()
+            .all(|address| is_intrinsic_local_ip(address.ip()))
+}
+
 async fn parse_and_resolve(
     raw_url: &str,
     allowed_schemes: &[&str],
-    _allow_local_network: bool,
+    allow_local_network: bool,
     has_secret: bool,
 ) -> Result<(url::Url, String, Vec<SocketAddr>), AppError> {
-    // The authenticated global policy is authoritative for local access. The
-    // legacy per-provider flag remains in command signatures for compatibility,
-    // but it cannot bypass exact-origin grants or additive block rules.
     let validated = validate_outbound_url(raw_url, allowed_schemes).await?;
     let host = validated
         .url
@@ -371,15 +388,16 @@ async fn parse_and_resolve(
         .to_string();
     let is_plaintext = matches!(validated.url.scheme(), "http" | "ws");
     if is_plaintext
-        && !validated
-            .addresses
-            .iter()
-            .all(|address| address.ip().is_loopback())
+        && !allows_plaintext_local_transport(
+            allow_local_network,
+            validated.has_exact_local_grant,
+            &validated.addresses,
+        )
     {
         let reason = if has_secret {
-            "Credentials may only use plaintext transport to an explicitly trusted loopback endpoint"
+            "Credentials may only use plaintext transport to an exact local endpoint grant when this provider allows local network access"
         } else {
-            "Plaintext transport is only allowed for an explicitly trusted loopback endpoint"
+            "Plaintext transport is only allowed for an exact local endpoint grant when this provider allows local network access"
         };
         return Err(AppError::UrlValidationError(reason.to_string()));
     }
@@ -458,6 +476,39 @@ mod tests {
         assert!(validate_local_grant("http://168.63.129.16").is_err());
         assert!(validate_local_grant("http://[fd00:ec2::254]").is_err());
         assert!(validate_local_grant("http://metadata.google.internal").is_err());
+    }
+
+    #[test]
+    fn plaintext_local_transport_requires_both_explicit_opt_ins() {
+        let tailnet_address = SocketAddr::new("100.100.0.12".parse().unwrap(), 8080);
+        let loopback_address = SocketAddr::new("127.0.0.1".parse().unwrap(), 8080);
+        let public_address = SocketAddr::new("203.0.113.12".parse().unwrap(), 8080);
+
+        assert!(allows_plaintext_local_transport(
+            true,
+            true,
+            &[tailnet_address]
+        ));
+        assert!(allows_plaintext_local_transport(
+            true,
+            true,
+            &[loopback_address]
+        ));
+        assert!(!allows_plaintext_local_transport(
+            false,
+            true,
+            &[tailnet_address]
+        ));
+        assert!(!allows_plaintext_local_transport(
+            true,
+            false,
+            &[tailnet_address]
+        ));
+        assert!(!allows_plaintext_local_transport(
+            true,
+            true,
+            &[tailnet_address, public_address]
+        ));
     }
 
     #[test]
