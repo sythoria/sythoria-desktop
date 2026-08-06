@@ -84,9 +84,11 @@ export default memo(function InputBar({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [plusOpen, setPlusOpen] = useState(false);
+  const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const contextDetailsRef = useRef<HTMLDivElement>(null);
 
   const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore();
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
@@ -721,6 +723,35 @@ export default memo(function InputBar({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset =
     percentage === null ? circumference * 0.25 : circumference - (percentage / 100) * circumference;
+
+  const constrainContextDetails = useCallback(() => {
+    const details = contextDetailsRef.current;
+    if (!details) return;
+
+    const viewportPadding = 16;
+    const bounds = details.getBoundingClientRect();
+    setContextDetailsShiftX((currentShift) => {
+      const unshiftedLeft = bounds.left - currentShift;
+      const unshiftedRight = bounds.right - currentShift;
+      let nextShift = 0;
+      if (unshiftedLeft < viewportPadding) {
+        nextShift = viewportPadding - unshiftedLeft;
+      } else if (unshiftedRight > window.innerWidth - viewportPadding) {
+        nextShift = window.innerWidth - viewportPadding - unshiftedRight;
+      }
+      return Math.abs(nextShift - currentShift) < 0.5 ? currentShift : nextShift;
+    });
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(constrainContextDetails);
+    window.addEventListener("resize", constrainContextDetails);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", constrainContextDetails);
+    };
+  }, [constrainContextDetails, currentModel?.id, showContextWindow]);
+
   const composerVisualStateClasses = `${
     conversation?.isTemporary
       ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
@@ -1000,7 +1031,11 @@ export default memo(function InputBar({
 
                   {/* Context Window Radial Indicator */}
                   {showContextWindow && currentModel && !isCompareMode && (
-                    <div className="relative group shrink-0 flex items-center justify-center">
+                    <div
+                      className="relative group shrink-0 flex items-center justify-center"
+                      onMouseEnter={constrainContextDetails}
+                      onFocusCapture={constrainContextDetails}
+                    >
                       <button
                         type="button"
                         className="p-1.5 rounded-lg hover:bg-hover text-text-muted hover:text-text-primary transition-colors flex items-center justify-center cursor-help min-w-[32px] min-h-[32px]"
@@ -1032,82 +1067,88 @@ export default memo(function InputBar({
                       </button>
 
                       {/* Hover Details Card */}
-                      <div className="absolute bottom-full right-0 mb-2 w-64 p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-[0.98] translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:scale-100 group-focus-within:translate-y-0 pointer-events-none transition-[opacity,transform] duration-[var(--motion-duration-popover)] ease-[var(--motion-ease-enter)] origin-bottom-right z-50">
-                        <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
-                          <span>Context Window</span>
-                          <span className={contextUsageColor}>
-                            {percentage === null ? "Unknown" : `${percentage.toFixed(0)}%`}
-                          </span>
-                        </div>
-                        <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
-                          <div
-                            className={`h-full ${percentage === null ? "bg-text-muted" : percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
-                            style={{ width: percentage === null ? "0%" : `${Math.min(percentage, 100)}%` }}
-                          />
-                        </div>
-                        <div className="space-y-1.5 text-[11px] text-text-secondary">
-                          <div className="flex justify-between">
-                            <span>Usage:</span>
-                            <span className="font-semibold font-mono text-text-primary">
-                              {estimatedTokens.toLocaleString()} /{" "}
-                              {contextSizeSet ? `${inputBudget.toLocaleString()} tokens` : "Unknown"}
+                      <div
+                        ref={contextDetailsRef}
+                        className="absolute bottom-full mb-2 w-[min(16rem,calc(100vw-2rem))] pointer-events-none z-50"
+                        style={{ right: -contextDetailsShiftX }}
+                      >
+                        <div className="w-full p-3.5 bg-surface border border-border rounded-xl shadow-xl opacity-0 scale-[0.98] translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:scale-100 group-focus-within:translate-y-0 transition-[opacity,transform] duration-[var(--motion-duration-popover)] ease-[var(--motion-ease-enter)] origin-bottom-right">
+                          <div className="font-semibold text-text-primary mb-1 flex justify-between items-center text-xs">
+                            <span>Context Window</span>
+                            <span className={contextUsageColor}>
+                              {percentage === null ? "Unknown" : `${percentage.toFixed(0)}%`}
                             </span>
                           </div>
-                          {contextSizeSet ? (
-                            <>
-                              <div className="h-px bg-border/40 my-1" />
-                              <div className="flex justify-between">
-                                <span>Context Size:</span>
-                                <span className="font-mono text-text-primary">
-                                  {configuredContextSize.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>System Prompt:</span>
-                                <span className="font-mono text-text-primary">
-                                  {tokenBreakdown.systemPromptTokens.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Messages:</span>
-                                <span className="font-mono text-text-primary">
-                                  {tokenBreakdown.messagesTokens.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Attachments:</span>
-                                <span className="font-mono text-text-primary">
-                                  {tokenBreakdown.attachmentsTokens.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span>Output Reserve:</span>
-                                <span className="font-mono text-text-primary">
-                                  {contextBudget.reservedOutputTokens.toLocaleString()}
-                                </span>
-                              </div>
-                              {contextBudget.reservedToolTokens > 0 && (
+                          <div className="w-full bg-border/40 h-1 rounded-full overflow-hidden mb-3">
+                            <div
+                              className={`h-full ${percentage === null ? "bg-text-muted" : percentage > 90 ? "bg-red-500" : percentage > 75 ? "bg-amber-500" : "bg-accent"}`}
+                              style={{ width: percentage === null ? "0%" : `${Math.min(percentage, 100)}%` }}
+                            />
+                          </div>
+                          <div className="space-y-1.5 text-[11px] text-text-secondary">
+                            <div className="flex justify-between">
+                              <span>Usage:</span>
+                              <span className="font-semibold font-mono text-text-primary">
+                                {estimatedTokens.toLocaleString()} /{" "}
+                                {contextSizeSet ? `${inputBudget.toLocaleString()} tokens` : "Unknown"}
+                              </span>
+                            </div>
+                            {contextSizeSet ? (
+                              <>
+                                <div className="h-px bg-border/40 my-1" />
                                 <div className="flex justify-between">
-                                  <span>Tool Reserve:</span>
+                                  <span>Context Size:</span>
                                   <span className="font-mono text-text-primary">
-                                    {contextBudget.reservedToolTokens.toLocaleString()}
+                                    {configuredContextSize.toLocaleString()}
                                   </span>
                                 </div>
-                              )}
-                              <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
-                                <span>Input Remaining:</span>
-                                <span className="font-semibold font-mono text-text-primary">
-                                  {Math.max(0, inputBudget - estimatedTokens).toLocaleString()}
-                                </span>
-                              </div>
-                            </>
-                          ) : (
-                            <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
-                              Context size is unknown. Requests use a conservative assembly budget until you configure
-                              this model in Settings &gt; Models. Current conservative input budget:{" "}
-                              {inputBudget.toLocaleString()} tokens.
-                            </p>
-                          )}
+                                <div className="flex justify-between">
+                                  <span>System Prompt:</span>
+                                  <span className="font-mono text-text-primary">
+                                    {tokenBreakdown.systemPromptTokens.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Messages:</span>
+                                  <span className="font-mono text-text-primary">
+                                    {tokenBreakdown.messagesTokens.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Attachments:</span>
+                                  <span className="font-mono text-text-primary">
+                                    {tokenBreakdown.attachmentsTokens.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Output Reserve:</span>
+                                  <span className="font-mono text-text-primary">
+                                    {contextBudget.reservedOutputTokens.toLocaleString()}
+                                  </span>
+                                </div>
+                                {contextBudget.reservedToolTokens > 0 && (
+                                  <div className="flex justify-between">
+                                    <span>Tool Reserve:</span>
+                                    <span className="font-mono text-text-primary">
+                                      {contextBudget.reservedToolTokens.toLocaleString()}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between border-t border-border/40 pt-1 mt-1">
+                                  <span>Input Remaining:</span>
+                                  <span className="font-semibold font-mono text-text-primary">
+                                    {Math.max(0, inputBudget - estimatedTokens).toLocaleString()}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
+                                Context size is unknown. Requests use a conservative assembly budget until you configure
+                                this model in Settings &gt; Models. Current conservative input budget:{" "}
+                                {inputBudget.toLocaleString()} tokens.
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
