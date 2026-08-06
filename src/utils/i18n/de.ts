@@ -255,9 +255,9 @@ export const de = {
   "settings.privacy.dataSecurity": "Datensicherheit",
   "settings.privacy.dataSecurityDesc":
     "Sythoria speichert alle Konfigurationen und Nachrichten lokal auf deinem Gerät. Es führt keine Cloud-Backups, Telemetrie-Tracker durch oder sendet Analysedaten.",
-  "settings.privacy.keychainTitle": "Sicherer Schlüsselspeicher-Schutz",
+  "settings.privacy.keychainTitle": "Verschlüsselter Zugangsdaten-Schutz",
   "settings.privacy.keychainDesc":
-    "Deine API-Schlüssel, Suchschlüssel und MCP-Umgebungsvariablen sind in dem sicheren Tresor deines Betriebssystems (macOS Keychain, Windows Credential Manager oder Linux Secret Service/Keyring) gesichert und werden nie im Klartext auf die Festplatte geschrieben.",
+    "Gespeicherte API-Schlüssel und MCP-Umgebungsvariablen werden lokal authentifiziert verschlüsselt. Ein einziger Stammschlüssel bleibt im Anmeldedatentresor des Systems und wird nur von Rust zwischengespeichert; gespeicherte Zugangsdaten gelangen nie im Klartext zurück in die Oberfläche.",
   "settings.privacy.loggingTitle": "Lokale Aktivitätsprotokollierung",
   "settings.privacy.enableLogging": "Lokale Ereignisprotokollierung aktivieren",
   "settings.privacy.enableLoggingDesc":

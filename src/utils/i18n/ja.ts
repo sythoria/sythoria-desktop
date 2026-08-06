@@ -248,9 +248,9 @@ export const ja = {
   "settings.privacy.dataSecurity": "データセキュリティ",
   "settings.privacy.dataSecurityDesc":
     "Sythoriaはすべての設定とメッセージをデバイス内にローカルに保存します。クラウドへのバックアップやテレメトリ追跡、分析データの送信は行いません。",
-  "settings.privacy.keychainTitle": "セキュアキーチェーン保護",
+  "settings.privacy.keychainTitle": "暗号化された認証情報の保護",
   "settings.privacy.keychainDesc":
-    "APIキー、検索キー、およびMCP環境変数は、OSレベルのセキュアな認証情報保管庫（macOSキーチェーン、Windows資格情報マネージャー、Linux Secret Service/Keyring）内に安全に保管され、ディスクにプレーンテキストで書き込まれることはありません。",
+    "保存されたAPIキーとMCP環境変数は、認証付きローカル暗号化で保護されます。OSの認証情報保管庫には単一のルートキーだけが残り、Rustのみがキャッシュします。保存済みの認証情報が平文で画面側へ戻ることはありません。",
   "settings.privacy.loggingTitle": "ローカルアクティビティログ",
   "settings.privacy.enableLogging": "ローカルログ収集を有効にする",
   "settings.privacy.enableLoggingDesc": "体裁やデバッグ情報をセッション中にメモリ上に一時保存します",

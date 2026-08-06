@@ -664,7 +664,7 @@ export async function loadConversations(): Promise<Conversation[]> {
   } catch (e) {
     logError("storage", "Failed to load or migrate encrypted conversations", {
       error: e,
-      action: "The existing data was left untouched. Check OS keychain access, then restart the app.",
+      action: "The existing data was left untouched. Check OS credential-vault access, then restart the app.",
     });
     throw e;
   }
@@ -702,7 +702,7 @@ export async function saveConversations(conversations: Conversation[]): Promise<
       .catch((error) => {
         logError("storage", "Failed to save encrypted conversations", {
           error,
-          action: "Check OS keychain access and available disk space. The previous snapshot remains intact.",
+          action: "Check OS credential-vault access and available disk space. The previous snapshot remains intact.",
         });
         throw error;
       })
@@ -884,10 +884,10 @@ export async function loadApiKeys(options: { critical?: boolean } = {}): Promise
     if (!result.success) throw result.error;
     if (Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load API keys from keychain", {
+    logError("storage", "Failed to load encrypted API keys", {
       error: e,
       action:
-        "Check that the app has keychain access. You may need to re-enter your API keys in Settings > Model Providers.",
+        "Check that the app can access its root key in the OS credential vault. You may need to re-enter your API keys in Settings > Model Providers.",
     });
     if (options.critical) throw e;
   }
@@ -928,7 +928,7 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<boolean
     await invoke("save_api_keys_cmd", { keys });
     return true;
   } catch (e) {
-    logError("storage", "Failed to save API keys to keychain", {
+    logError("storage", "Failed to save encrypted API keys", {
       error: e,
       action: "API keys may not persist. Try re-entering them in Settings > Model Providers.",
     });
@@ -1022,7 +1022,7 @@ export async function clearConversations(): Promise<void> {
   } catch (e) {
     logError("storage", "Failed to clear encrypted conversations", {
       error: e,
-      action: "Some conversations may still be stored. Retry after checking keychain and disk access.",
+      action: "Some conversations may still be stored. Retry after checking credential-vault and disk access.",
     });
     throw e;
   } finally {
@@ -1037,7 +1037,7 @@ export async function loadSearchApiKeys(): Promise<Record<string, string>> {
     const result = ApiKeysSchema.safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load search API keys from keychain", {
+    logError("storage", "Failed to load encrypted search API keys", {
       error: e,
       action: "Re-enter your search API keys in Settings > Web Search.",
     });
@@ -1078,7 +1078,7 @@ export async function saveSearchApiKeys(keys: Record<string, string>): Promise<b
     await invoke("save_search_api_keys_cmd", { keys });
     return true;
   } catch (e) {
-    logError("storage", "Failed to save search API keys to keychain", {
+    logError("storage", "Failed to save encrypted search API keys", {
       error: e,
       action: "Search API keys may not persist. Re-enter them in Settings > Web Search.",
     });
@@ -1306,10 +1306,14 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
       if (result.success) {
         let migrated = migrateMcpConfigs(result.data as import("../types").McpServerConfig[]);
 
-        // Migrate any plaintext apiKeys found in the config file to the keychain
+        // Migrate any plaintext apiKeys found in the config file to native encrypted storage.
         const configsWithApiKeys = migrated.filter((c) => c.apiKey && c.apiKey.trim() !== "");
         if (configsWithApiKeys.length > 0) {
-          logInfo("storage", `Migrating ${configsWithApiKeys.length} plaintext MCP API key(s) to keychain`, {});
+          logInfo(
+            "storage",
+            `Migrating ${configsWithApiKeys.length} plaintext MCP API key(s) to encrypted storage`,
+            {},
+          );
           const currentKeys = await loadMcpApiKeys();
           const updatedKeys = { ...currentKeys };
           for (const c of configsWithApiKeys) {
@@ -1355,7 +1359,7 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
 export async function saveMcpConfigs(configs: import("../types").McpServerConfig[]): Promise<void> {
   if (mcpConfigWritesBlockedBySecretMigration) {
     logWarn("storage", "MCP config save skipped because plaintext-key migration is incomplete", {
-      action: "Restore OS keychain access and restart before changing MCP server settings.",
+      action: "Restore OS credential-vault access and restart before changing MCP server settings.",
     });
     return;
   }
@@ -1379,7 +1383,7 @@ export async function loadMcpApiKeys(): Promise<Record<string, string>> {
     const result = ApiKeysSchema.safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load MCP API keys from keychain", {
+    logError("storage", "Failed to load encrypted MCP API keys", {
       error: e,
       action: "Re-enter your MCP API keys in Settings > MCP Servers.",
     });
@@ -1393,7 +1397,7 @@ export async function saveMcpApiKeys(keys: Record<string, string>): Promise<bool
     await invoke("save_mcp_api_keys_cmd", { keys });
     return true;
   } catch (e) {
-    logError("storage", "Failed to save MCP API keys to keychain", {
+    logError("storage", "Failed to save encrypted MCP API keys", {
       error: e,
       action: "MCP API keys may not persist. Re-enter them in Settings > MCP Servers.",
     });
@@ -1407,7 +1411,7 @@ export async function loadMcpEnvSecrets(): Promise<Record<string, Record<string,
     const result = z.record(z.string(), z.record(z.string(), z.string())).safeParse(raw);
     if (result.success && Object.keys(result.data).length > 0) return result.data;
   } catch (e) {
-    logError("storage", "Failed to load MCP env secrets from keychain", {
+    logError("storage", "Failed to load encrypted MCP environment secrets", {
       error: e,
       action: "MCP environment secrets could not be loaded. Re-enter them in Settings > MCP Servers.",
     });
@@ -1420,7 +1424,7 @@ export async function saveMcpEnvSecrets(secrets: Record<string, Record<string, s
   try {
     await invoke("save_mcp_env_secrets_cmd", { secrets });
   } catch (e) {
-    logError("storage", "Failed to save MCP env secrets to keychain", {
+    logError("storage", "Failed to save encrypted MCP environment secrets", {
       error: e,
       action: "MCP environment secrets may not persist. Re-enter them in Settings > MCP Servers.",
     });

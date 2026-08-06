@@ -245,9 +245,9 @@ export const zh = {
   "settings.privacy.dataSecurity": "数据安全",
   "settings.privacy.dataSecurityDesc":
     "Sythoria 在您的设备上本地存储所有配置和消息。它不运行云备份、遥测跟踪器，也不发送分析数据。",
-  "settings.privacy.keychainTitle": "安全钥匙串保护",
+  "settings.privacy.keychainTitle": "加密凭据保护",
   "settings.privacy.keychainDesc":
-    "您的 API 密钥、搜索密钥和 MCP 环境变量都安全地保存在您系统级的安全凭据库（macOS 钥匙串、Windows 凭据管理器或 Linux Secret Service/Keyring）中，绝不会以明文形式写入磁盘。",
+    "已保存的 API 密钥和 MCP 环境变量使用本地认证加密保护。系统凭据库中仅保留一个根密钥，且只由 Rust 缓存；已保存的明文凭据绝不会返回界面。",
   "settings.privacy.loggingTitle": "本地活动日志",
   "settings.privacy.enableLogging": "启用本地活动日志",
   "settings.privacy.enableLoggingDesc": "在活动会话期间在内存中收集故障排除指标和警告",

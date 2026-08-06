@@ -1,5 +1,6 @@
 use crate::atomic_file::write_atomic;
-use crate::commands::config::{delete_keychain_secret, get_keychain_secret, set_keychain_secret};
+use crate::keyring;
+use crate::secure_storage;
 use crate::AppError;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -15,12 +16,13 @@ use zeroize::Zeroize;
 const STORAGE_DIRECTORY: &str = "conversations";
 const BLOBS_DIRECTORY: &str = "blobs";
 const MANIFEST_FILE: &str = "manifest.enc";
+const LEGACY_KEY_CLEANUP_FILE: &str = "legacy-key-cleanup.pending";
 const STORAGE_VERSION: u8 = 1;
 const ENVELOPE_MAGIC: &[u8; 7] = b"SYTHENC";
 const NONCE_LENGTH: usize = 12;
-const MASTER_KEY_LENGTH: usize = 64;
-const KEYCHAIN_NAMESPACE: &str = "storage";
-const KEYCHAIN_KEY_ID: &str = "conversations-v1";
+const LEGACY_MASTER_KEY_LENGTH: usize = 64;
+const LEGACY_KEYCHAIN_NAMESPACE: &str = "storage";
+const LEGACY_KEYCHAIN_KEY_ID: &str = "conversations-v1";
 const MANIFEST_AAD: &[u8] = b"sythoria:conversations:manifest:v1";
 
 static STORAGE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -38,8 +40,16 @@ struct StorageKeys {
 }
 
 impl StorageKeys {
-    fn from_master(master: &[u8]) -> Result<Self, AppError> {
-        if master.len() != MASTER_KEY_LENGTH {
+    fn from_root(app: &tauri::AppHandle) -> Result<Self, AppError> {
+        let (encryption, content_hash) = secure_storage::derive_conversation_keys(app)?;
+        Ok(Self {
+            encryption,
+            content_hash,
+        })
+    }
+
+    fn from_legacy_master(master: &[u8]) -> Result<Self, AppError> {
+        if master.len() != LEGACY_MASTER_KEY_LENGTH {
             return Err(AppError::ConfigIo(
                 "Conversation encryption key has an invalid length".to_string(),
             ));
@@ -71,51 +81,38 @@ fn storage_directory(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
         .join(STORAGE_DIRECTORY))
 }
 
-fn load_or_create_keys(storage_dir: &Path) -> Result<StorageKeys, AppError> {
-    match get_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID) {
+fn load_legacy_keys() -> Result<Option<StorageKeys>, AppError> {
+    match keyring::get_secret(LEGACY_KEYCHAIN_NAMESPACE, LEGACY_KEYCHAIN_KEY_ID) {
         Ok(mut encoded) => {
             let decoded = BASE64.decode(&encoded);
             encoded.zeroize();
             let mut master = decoded.map_err(|_| {
                 AppError::ConfigIo("Conversation encryption key is not valid base64".to_string())
             })?;
-            let keys = StorageKeys::from_master(&master);
+            let keys = StorageKeys::from_legacy_master(&master);
             master.zeroize();
-            keys
+            keys.map(Some)
         }
-        Err(AppError::KeyNotFound(_)) => {
-            if storage_dir.join(MANIFEST_FILE).exists() {
-                return Err(AppError::ConfigIo(
-                    "Encrypted conversations exist, but their key is missing from the OS keychain"
-                        .to_string(),
-                ));
-            }
-
-            let random = rand::SystemRandom::new();
-            let mut master = [0_u8; MASTER_KEY_LENGTH];
-            rand::SecureRandom::fill(&random, &mut master).map_err(|_| {
-                AppError::ConfigIo("Failed to generate conversation encryption key".to_string())
-            })?;
-            let mut encoded = BASE64.encode(master);
-            let save_result = set_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID, &encoded);
-            encoded.zeroize();
-            if let Err(error) = save_result {
-                master.zeroize();
-                return Err(error);
-            }
-            let keys = StorageKeys::from_master(&master);
-            master.zeroize();
-            keys
-        }
+        Err(AppError::KeyNotFound(_)) => Ok(None),
         Err(error) => Err(error),
     }
 }
 
-fn load_existing_keys(storage_dir: &Path) -> Result<Option<StorageKeys>, AppError> {
-    if !storage_dir.join(MANIFEST_FILE).exists() {
-        return Ok(None);
+fn retry_legacy_key_cleanup(storage_dir: &Path) {
+    let marker = storage_dir.join(LEGACY_KEY_CLEANUP_FILE);
+    if !marker.exists() {
+        return;
     }
-    load_or_create_keys(storage_dir).map(Some)
+    match keyring::delete_secret(LEGACY_KEYCHAIN_NAMESPACE, LEGACY_KEYCHAIN_KEY_ID) {
+        Ok(()) => {
+            if let Err(error) = fs::remove_file(marker) {
+                log::warn!("Could not clear the conversation key migration marker: {error}");
+            }
+        }
+        Err(error) => {
+            log::warn!("Could not remove migrated conversation Keychain key: {error}");
+        }
+    }
 }
 
 fn encrypt(plaintext: &[u8], aad: &[u8], key_bytes: &[u8; 32]) -> Result<Vec<u8>, AppError> {
@@ -173,7 +170,9 @@ fn decrypt(envelope: &[u8], aad: &[u8], key_bytes: &[u8; 32]) -> Result<Vec<u8>,
                     .to_string(),
             )
         })?;
-    Ok(plaintext.to_vec())
+    let plaintext = plaintext.to_vec();
+    ciphertext.zeroize();
+    Ok(plaintext)
 }
 
 fn content_id(plaintext: &[u8], key_bytes: &[u8; 32]) -> String {
@@ -203,14 +202,18 @@ fn save_snapshot(
 
     let mut blob_ids = Vec::with_capacity(conversations.len());
     for conversation in conversations {
-        let plaintext = serde_json::to_vec(conversation).map_err(|error| {
+        let mut plaintext = serde_json::to_vec(conversation).map_err(|error| {
             AppError::ParseError(format!("Failed to serialize conversation: {error}"))
         })?;
         let blob_id = content_id(&plaintext, &keys.content_hash);
         let blob_path = blobs_dir.join(format!("{blob_id}.enc"));
         if !blob_path.exists() {
-            let encrypted = encrypt(&plaintext, &blob_aad(&blob_id), &keys.encryption)?;
+            let encrypted = encrypt(&plaintext, &blob_aad(&blob_id), &keys.encryption);
+            plaintext.zeroize();
+            let encrypted = encrypted?;
             write_atomic(&blob_path, &encrypted)?;
+        } else {
+            plaintext.zeroize();
         }
         blob_ids.push(blob_id);
     }
@@ -219,12 +222,14 @@ fn save_snapshot(
         storage_version: STORAGE_VERSION,
         blobs: blob_ids,
     };
-    let manifest_plaintext = serde_json::to_vec(&manifest).map_err(|error| {
+    let mut manifest_plaintext = serde_json::to_vec(&manifest).map_err(|error| {
         AppError::ParseError(format!(
             "Failed to serialize conversation manifest: {error}"
         ))
     })?;
-    let encrypted_manifest = encrypt(&manifest_plaintext, MANIFEST_AAD, &keys.encryption)?;
+    let encrypted_manifest = encrypt(&manifest_plaintext, MANIFEST_AAD, &keys.encryption);
+    manifest_plaintext.zeroize();
+    let encrypted_manifest = encrypted_manifest?;
     write_atomic(&storage_dir.join(MANIFEST_FILE), &encrypted_manifest)?;
 
     let referenced: HashSet<String> = manifest.blobs.into_iter().collect();
@@ -255,11 +260,13 @@ fn load_snapshot(
     keys: &StorageKeys,
 ) -> Result<Vec<serde_json::Value>, AppError> {
     let encrypted_manifest = fs::read(storage_dir.join(MANIFEST_FILE))?;
-    let manifest_plaintext = decrypt(&encrypted_manifest, MANIFEST_AAD, &keys.encryption)?;
-    let manifest: ConversationManifest =
-        serde_json::from_slice(&manifest_plaintext).map_err(|error| {
+    let mut manifest_plaintext = decrypt(&encrypted_manifest, MANIFEST_AAD, &keys.encryption)?;
+    let manifest =
+        serde_json::from_slice::<ConversationManifest>(&manifest_plaintext).map_err(|error| {
             AppError::ParseError(format!("Failed to parse conversation manifest: {error}"))
-        })?;
+        });
+    manifest_plaintext.zeroize();
+    let manifest = manifest?;
     if manifest.storage_version != STORAGE_VERSION {
         return Err(AppError::ConfigIo(format!(
             "Unsupported conversation storage version {}",
@@ -279,10 +286,12 @@ fn load_snapshot(
                 .join(BLOBS_DIRECTORY)
                 .join(format!("{blob_id}.enc")),
         )?;
-        let plaintext = decrypt(&encrypted_blob, &blob_aad(&blob_id), &keys.encryption)?;
+        let mut plaintext = decrypt(&encrypted_blob, &blob_aad(&blob_id), &keys.encryption)?;
         let conversation = serde_json::from_slice(&plaintext).map_err(|error| {
             AppError::ParseError(format!("Failed to parse encrypted conversation: {error}"))
-        })?;
+        });
+        plaintext.zeroize();
+        let conversation = conversation?;
         conversations.push(conversation);
     }
     Ok(conversations)
@@ -296,10 +305,27 @@ pub fn load_encrypted_conversations(
         .lock()
         .map_err(|_| AppError::ConfigIo("Conversation storage lock is poisoned".to_string()))?;
     let storage_dir = storage_directory(&app)?;
-    let Some(keys) = load_existing_keys(&storage_dir)? else {
+    if !storage_dir.join(MANIFEST_FILE).exists() {
         return Ok(None);
-    };
-    load_snapshot(&storage_dir, &keys).map(Some)
+    }
+
+    let root_keys = StorageKeys::from_root(&app)?;
+    match load_snapshot(&storage_dir, &root_keys) {
+        Ok(conversations) => {
+            retry_legacy_key_cleanup(&storage_dir);
+            Ok(Some(conversations))
+        }
+        Err(root_error) => {
+            let Some(legacy_keys) = load_legacy_keys()? else {
+                return Err(root_error);
+            };
+            let conversations = load_snapshot(&storage_dir, &legacy_keys)?;
+            write_atomic(&storage_dir.join(LEGACY_KEY_CLEANUP_FILE), b"pending")?;
+            save_snapshot(&storage_dir, &conversations, &root_keys)?;
+            retry_legacy_key_cleanup(&storage_dir);
+            Ok(Some(conversations))
+        }
+    }
 }
 
 #[tauri::command(async)]
@@ -311,7 +337,7 @@ pub fn save_encrypted_conversations(
         .lock()
         .map_err(|_| AppError::ConfigIo("Conversation storage lock is poisoned".to_string()))?;
     let storage_dir = storage_directory(&app)?;
-    let keys = load_or_create_keys(&storage_dir)?;
+    let keys = StorageKeys::from_root(&app)?;
     save_snapshot(&storage_dir, &conversations, &keys)
 }
 
@@ -324,7 +350,7 @@ pub fn clear_encrypted_conversations(app: tauri::AppHandle) -> Result<(), AppErr
     if storage_dir.exists() {
         fs::remove_dir_all(&storage_dir)?;
     }
-    delete_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID)
+    keyring::delete_secret(LEGACY_KEYCHAIN_NAMESPACE, LEGACY_KEYCHAIN_KEY_ID)
 }
 
 pub fn wipe_encrypted_conversations(app: &tauri::AppHandle) -> Result<(), AppError> {
@@ -335,7 +361,7 @@ pub fn wipe_encrypted_conversations(app: &tauri::AppHandle) -> Result<(), AppErr
     if storage_dir.exists() {
         fs::remove_dir_all(&storage_dir)?;
     }
-    delete_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID)
+    keyring::delete_secret(LEGACY_KEYCHAIN_NAMESPACE, LEGACY_KEYCHAIN_KEY_ID)
 }
 
 #[cfg(test)]
@@ -400,6 +426,29 @@ mod tests {
             1
         );
 
+        fs::remove_dir_all(directory).expect("remove fixture directory");
+    }
+
+    #[test]
+    fn snapshot_can_be_transactionally_reencrypted_with_derived_keys() {
+        let directory = fixture_directory();
+        let conversations = vec![json!({"id": "one", "messages": [{"content": "migrate"}]})];
+        let legacy_keys = fixture_keys();
+        let root_derived_keys = StorageKeys {
+            encryption: [17_u8; 32],
+            content_hash: [19_u8; 32],
+        };
+
+        save_snapshot(&directory, &conversations, &legacy_keys).expect("save legacy snapshot");
+        assert!(load_snapshot(&directory, &root_derived_keys).is_err());
+
+        let recovered = load_snapshot(&directory, &legacy_keys).expect("load legacy snapshot");
+        save_snapshot(&directory, &recovered, &root_derived_keys).expect("reencrypt snapshot");
+
+        assert_eq!(
+            load_snapshot(&directory, &root_derived_keys).expect("load migrated snapshot"),
+            conversations
+        );
         fs::remove_dir_all(directory).expect("remove fixture directory");
     }
 

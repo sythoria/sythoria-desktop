@@ -1276,19 +1276,20 @@ struct CloudWhisperResponse {
 
 #[tauri::command]
 pub async fn transcribe_audio_cloud(
-    _app: AppHandle,
+    app: AppHandle,
     api_url: String,
     model: String,
     language: Option<String>,
     recording_session_id: String,
 ) -> Result<String, AppError> {
     crate::ensure_online()?;
-    let api_key = crate::commands::config::get_cloud_stt_api_key().map_err(|err| match err {
-        AppError::KeyNotFound(_) => {
-            AppError::ConfigIo("Cloud speech-to-text API key is not configured".to_string())
-        }
-        other => other,
-    })?;
+    let api_key =
+        crate::commands::config::get_cloud_stt_api_key(&app).map_err(|err| match err {
+            AppError::KeyNotFound(_) => {
+                AppError::ConfigIo("Cloud speech-to-text API key is not configured".to_string())
+            }
+            other => other,
+        })?;
     let (samples, sample_rate) = recorded_audio_for_session(&recording_session_id)?;
 
     if samples.is_empty() {

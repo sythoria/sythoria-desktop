@@ -9,6 +9,18 @@ use rmcp::ClientHandler;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::process::Command;
+use zeroize::Zeroize;
+
+struct SensitiveEnvironment(HashMap<String, String>);
+
+impl Drop for SensitiveEnvironment {
+    fn drop(&mut self) {
+        for value in self.0.values_mut() {
+            value.zeroize();
+        }
+        self.0.clear();
+    }
+}
 
 /// Parent-process variables required by common cross-platform runtimes and
 /// package-manager launchers. Everything else must be explicitly configured on
@@ -369,6 +381,7 @@ pub async fn connect_server(
     config: &McpServerConfig,
     env_secrets: HashMap<String, String>,
 ) -> Result<Vec<McpToolInfo>, String> {
+    let env_secrets = SensitiveEnvironment(env_secrets);
     if !config.enabled {
         return Err(format!("MCP server '{}' is disabled", config.id));
     }
@@ -402,7 +415,7 @@ pub async fn connect_server(
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
 
-            for (key, value) in &env_secrets {
+            for (key, value) in &env_secrets.0 {
                 if is_explicit_env_key_allowed(key) {
                     cmd.env(key, value);
                 } else {
@@ -505,7 +518,7 @@ pub async fn connect_server(
                 cancel_token,
                 request_tx: Some(request_tx),
                 config: config.clone(),
-                env_secrets: env_secrets.clone(),
+                env_secrets: env_secrets.0.clone(),
                 connection_generation,
             };
 
@@ -621,7 +634,7 @@ pub async fn connect_server(
                 cancel_token,
                 request_tx: Some(request_tx),
                 config: config.clone(),
-                env_secrets: env_secrets.clone(),
+                env_secrets: env_secrets.0.clone(),
                 connection_generation,
             };
 

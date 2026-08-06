@@ -1,4 +1,4 @@
-use crate::commands::config::{get_keychain_secret, load_mcp_env_secrets_for_server};
+use crate::commands::config::{get_mcp_api_key, load_mcp_env_secrets_for_server};
 use crate::mcp;
 use crate::AppError;
 use ring::digest::{digest, SHA256};
@@ -7,6 +7,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tauri_plugin_dialog::DialogExt;
 use tokio_util::sync::CancellationToken;
+use zeroize::Zeroize;
 
 static ACTIVE_TOOL_CALLS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -159,19 +160,21 @@ pub async fn mcp_start_server(
     }
 
     server_config.apiKey = None;
-    if let Ok(key) = get_keychain_secret("mcp", &server_config.id) {
+    if let Some(key) = get_mcp_api_key(&app, &server_config.id)? {
         if !key.is_empty() {
             server_config.apiKey = Some(key);
         }
     }
     let env_map = load_mcp_env_secrets_for_server(&app, &server_config.id)?;
 
-    let tools = mcp::client::connect_server(&server_config, env_map)
-        .await
-        .map_err(|e| {
-            log::error!("MCP server start failed: {}", e);
-            AppError::McpError(e)
-        })?;
+    let tools = mcp::client::connect_server(&server_config, env_map).await;
+    if let Some(api_key) = server_config.apiKey.as_mut() {
+        api_key.zeroize();
+    }
+    let tools = tools.map_err(|e| {
+        log::error!("MCP server start failed: {}", e);
+        AppError::McpError(e)
+    })?;
 
     Ok(serde_json::to_string(&tools).unwrap_or_default())
 }

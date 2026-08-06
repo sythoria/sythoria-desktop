@@ -188,7 +188,7 @@ export function PrivacySection() {
       failures.push(error instanceof Error ? error.message : String(error));
     }
 
-    // Rust owns the ordered keychain -> encrypted chat -> store -> config wipe
+    // Rust owns the ordered legacy-vault -> encrypted data -> root-key wipe.
     // so secret indices cannot disappear before their credentials are removed.
     try {
       await invoke("wipe_config_files");
@@ -221,7 +221,7 @@ export function PrivacySection() {
     <div id="setting-privacy-network" className="space-y-6">
       <SettingsSectionHeader title={t("settings.privacy.title")} description={t("settings.privacy.subtitle")} />
 
-      {/* 1. Keychain and Local Storage Status */}
+      {/* 1. Credential encryption and local storage status */}
       <SettingsPanel>
         <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t("settings.privacy.dataSecurity")}

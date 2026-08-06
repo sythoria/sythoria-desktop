@@ -1018,7 +1018,7 @@ function App() {
             <p className="mt-2 text-xs leading-5 text-text-muted">{startupRecovery.detail}</p>
             <p className="mt-4 text-xs leading-5 text-text-muted">
               Persistence is disabled for this session to prevent empty defaults from overwriting your data. Check
-              keychain and file access, then restart Sythoria.
+              credential-vault and file access, then restart Sythoria.
             </p>
             <button
               type="button"

@@ -22,7 +22,7 @@ describe("useWhisperStore", () => {
     mocks.saveWhisperConfig.mockClear();
   });
 
-  it("initializes download state and keychain presence from native storage", async () => {
+  it("initializes download state and encrypted credential presence from native storage", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "has_cloud_stt_api_key") return true;
       if (command === "check_downloaded_whisper_models") return ["ggml-tiny.en.bin"];
@@ -39,7 +39,7 @@ describe("useWhisperStore", () => {
     expect(mocks.listen).toHaveBeenCalledWith("whisper-download-progress", expect.any(Function));
   });
 
-  it("rolls back configured state when a keychain write fails", async () => {
+  it("rolls back configured state when an encrypted credential write fails", async () => {
     mocks.invoke.mockRejectedValueOnce(new Error("keychain locked"));
     const { useWhisperStore } = await import("./useWhisperStore");
     useWhisperStore.setState({ cloudApiKey: "secret", cloudApiKeyConfigured: false });

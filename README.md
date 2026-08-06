@@ -47,7 +47,7 @@ Model presets can be modified. You can override the endpoint URL, model ID, cont
 
 Sythoria operates within the following boundaries:
 
-- **API Keys**: Stored in the operating system keychain. Sythoria does not sync keys to an external server.
+- **API Keys**: Stored in authenticated local encryption derived from one root key in the operating system credential vault. Decryption stays in Rust, and Sythoria does not sync keys to an external server.
 - **Prompt Routing**: The Rust backend connects directly to the provider endpoint you configure.
 - **Telemetry**: The application does not collect analytics or tracking data.
 - **Workspace Security**: Project edits and commits require explicit user approval unless `full` access is granted. Shell commands always require a native confirmation dialog.

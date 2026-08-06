@@ -248,9 +248,9 @@ export const en = {
   "settings.privacy.dataSecurity": "Data Security",
   "settings.privacy.dataSecurityDesc":
     "Sythoria stores all configurations and messages locally on your device. It does not run cloud backups, telemetry trackers, or send analytics data.",
-  "settings.privacy.keychainTitle": "Secure Keychain Protection",
+  "settings.privacy.keychainTitle": "Encrypted Credential Protection",
   "settings.privacy.keychainDesc":
-    "Your API keys, Search keys, and MCP environmental variables are secured inside your OS-level secure credential vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service/Keyring) and are never written to disk in plaintext.",
+    "Saved API keys and MCP environment variables are kept in authenticated local encryption. One root key stays in the OS credential vault and is cached only by Rust; saved plaintext credentials never return to the interface.",
   "settings.privacy.loggingTitle": "Local Activity Logging",
   "settings.privacy.enableLogging": "Enable local event logging",
   "settings.privacy.enableLoggingDesc":

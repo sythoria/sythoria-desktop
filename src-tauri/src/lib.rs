@@ -4,10 +4,12 @@ mod atomic_file;
 pub mod commands;
 mod endpoint_security;
 mod git;
+mod keyring;
 mod mcp;
 pub mod project;
 mod project_tools;
 mod search;
+mod secret_storage;
 mod secure_storage;
 mod skills;
 mod stream_parser;
@@ -386,8 +388,8 @@ impl From<search::SearchError> for AppError {
 }
 
 async fn get_search_api_key(app: &tauri::AppHandle, config_id: &str) -> Result<String, AppError> {
-    let _ = app;
-    commands::config::get_keychain_secret("search", config_id)
+    commands::config::get_search_api_key(app, config_id)?
+        .ok_or_else(|| AppError::KeyNotFound(format!("No search API key found for '{config_id}'")))
 }
 
 use commands::config::get_model_config_and_key;
@@ -1855,7 +1857,7 @@ fn create_macos_menu(app: &tauri::App<tauri::Wry>) -> tauri::Result<tauri::menu:
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    commands::config::init_keyring_store();
+    keyring::init_store();
     let project_registry = project::ProjectRegistry::new();
     let file_token_registry = FileTokenRegistry::new();
     let app = tauri::Builder::default()

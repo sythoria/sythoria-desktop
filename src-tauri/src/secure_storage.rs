@@ -1,5 +1,5 @@
 use crate::atomic_file::write_atomic;
-use crate::commands::config::{delete_keychain_secret, get_keychain_secret, set_keychain_secret};
+use crate::keyring::{delete_secret, get_secret, set_secret};
 use crate::AppError;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -23,6 +23,8 @@ const MAX_PREFERENCE_KEYS: usize = 4096;
 const MAX_PREFERENCE_KEY_BYTES: usize = 256;
 const KEYCHAIN_NAMESPACE: &str = "storage";
 const KEYCHAIN_KEY_ID: &str = "settings-master-v1";
+const CONVERSATION_ENCRYPTION_CONTEXT: &[u8] = b"sythoria:conversations:encryption:key:v2";
+const CONVERSATION_CONTENT_HASH_CONTEXT: &[u8] = b"sythoria:conversations:content-hash:key:v2";
 
 static STORAGE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static MASTER_KEY_CACHE: LazyLock<Mutex<Option<[u8; MASTER_KEY_LENGTH]>>> =
@@ -44,16 +46,18 @@ pub enum StorageDomain {
     Search,
     Mcp,
     Projects,
+    Secrets,
 }
 
 impl StorageDomain {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Preferences,
         Self::Models,
         Self::Network,
         Self::Search,
         Self::Mcp,
         Self::Projects,
+        Self::Secrets,
     ];
 
     fn encrypted_filename(self) -> &'static str {
@@ -64,17 +68,21 @@ impl StorageDomain {
             Self::Search => "search.enc",
             Self::Mcp => "mcp.enc",
             Self::Projects => "projects.enc",
+            Self::Secrets => "secrets.enc",
         }
     }
 
-    fn legacy_filename(self) -> &'static str {
+    fn legacy_filename(self) -> Option<&'static str> {
         match self {
-            Self::Preferences => "sythoria-store.json",
-            Self::Models => "config.json",
-            Self::Network => "network_config.json",
-            Self::Search => "search_config.json",
-            Self::Mcp => "mcp_config.json",
-            Self::Projects => "projects.json",
+            Self::Preferences => Some("sythoria-store.json"),
+            Self::Models => Some("config.json"),
+            Self::Network => Some("network_config.json"),
+            Self::Search => Some("search_config.json"),
+            Self::Mcp => Some("mcp_config.json"),
+            Self::Projects => Some("projects.json"),
+            // Credentials only migrate from native legacy vault entries. Never
+            // accept a plaintext file as a source for persisted secrets.
+            Self::Secrets => None,
         }
     }
 
@@ -86,6 +94,7 @@ impl StorageDomain {
             Self::Search => b"sythoria:settings:search:key:v1",
             Self::Mcp => b"sythoria:settings:mcp:key:v1",
             Self::Projects => b"sythoria:settings:projects:key:v1",
+            Self::Secrets => b"sythoria:settings:secrets:key:v1",
         }
     }
 
@@ -97,6 +106,7 @@ impl StorageDomain {
             Self::Search => b"sythoria:settings:search:file:v1",
             Self::Mcp => b"sythoria:settings:mcp:file:v1",
             Self::Projects => b"sythoria:settings:projects:file:v1",
+            Self::Secrets => b"sythoria:settings:secrets:file:v1",
         }
     }
 }
@@ -119,35 +129,41 @@ fn encrypted_path(app_data_dir: &Path, domain: StorageDomain) -> PathBuf {
     app_data_dir.join(domain.encrypted_filename())
 }
 
-fn legacy_path(app_data_dir: &Path, domain: StorageDomain) -> PathBuf {
-    app_data_dir.join(domain.legacy_filename())
+fn legacy_path(app_data_dir: &Path, domain: StorageDomain) -> Option<PathBuf> {
+    domain
+        .legacy_filename()
+        .map(|filename| app_data_dir.join(filename))
 }
 
 fn any_encrypted_settings_exist(app_data_dir: &Path) -> bool {
     StorageDomain::ALL
         .iter()
         .any(|domain| encrypted_path(app_data_dir, *domain).exists())
+        || app_data_dir
+            .join("conversations")
+            .join("manifest.enc")
+            .exists()
 }
 
 fn load_or_create_master(app_data_dir: &Path) -> Result<[u8; MASTER_KEY_LENGTH], AppError> {
-    if let Some(master) = *MASTER_KEY_CACHE
+    let mut cache = MASTER_KEY_CACHE
         .lock()
-        .map_err(|_| AppError::ConfigIo("Settings key cache lock is poisoned".to_string()))?
-    {
+        .map_err(|_| AppError::ConfigIo("Root key cache lock is poisoned".to_string()))?;
+    if let Some(master) = *cache {
         return Ok(master);
     }
 
-    let master = match get_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID) {
+    let master = match get_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID) {
         Ok(mut encoded) => {
             let decoded = BASE64.decode(&encoded);
             encoded.zeroize();
             let mut decoded = decoded.map_err(|_| {
-                AppError::ConfigIo("Settings encryption key is not valid base64".to_string())
+                AppError::ConfigIo("Root encryption key is not valid base64".to_string())
             })?;
             if decoded.len() != MASTER_KEY_LENGTH {
                 decoded.zeroize();
                 return Err(AppError::ConfigIo(
-                    "Settings encryption key has an invalid length".to_string(),
+                    "Root encryption key has an invalid length".to_string(),
                 ));
             }
             let mut master = [0_u8; MASTER_KEY_LENGTH];
@@ -158,7 +174,7 @@ fn load_or_create_master(app_data_dir: &Path) -> Result<[u8; MASTER_KEY_LENGTH],
         Err(AppError::KeyNotFound(_)) => {
             if any_encrypted_settings_exist(app_data_dir) {
                 return Err(AppError::ConfigIo(
-                    "Encrypted settings exist, but their key is missing from the OS keychain"
+                    "Encrypted application data exists, but its root key is missing from the OS credential vault"
                         .to_string(),
                 ));
             }
@@ -166,10 +182,10 @@ fn load_or_create_master(app_data_dir: &Path) -> Result<[u8; MASTER_KEY_LENGTH],
             let random = rand::SystemRandom::new();
             let mut master = [0_u8; MASTER_KEY_LENGTH];
             rand::SecureRandom::fill(&random, &mut master).map_err(|_| {
-                AppError::ConfigIo("Failed to generate settings encryption key".to_string())
+                AppError::ConfigIo("Failed to generate root encryption key".to_string())
             })?;
             let mut encoded = BASE64.encode(master);
-            let save_result = set_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID, &encoded);
+            let save_result = set_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID, &encoded);
             encoded.zeroize();
             if let Err(error) = save_result {
                 master.zeroize();
@@ -179,19 +195,31 @@ fn load_or_create_master(app_data_dir: &Path) -> Result<[u8; MASTER_KEY_LENGTH],
         }
         Err(error) => return Err(error),
     };
-    *MASTER_KEY_CACHE
-        .lock()
-        .map_err(|_| AppError::ConfigIo("Settings key cache lock is poisoned".to_string()))? =
-        Some(master);
+    *cache = Some(master);
     Ok(master)
 }
 
-fn derive_domain_key(master: &[u8; MASTER_KEY_LENGTH], domain: StorageDomain) -> DomainKey {
+fn derive_context_key(master: &[u8; MASTER_KEY_LENGTH], context: &[u8]) -> [u8; 32] {
     let key = hmac::Key::new(hmac::HMAC_SHA256, master);
-    let tag = hmac::sign(&key, domain.key_context());
+    let tag = hmac::sign(&key, context);
     let mut derived = [0_u8; 32];
     derived.copy_from_slice(tag.as_ref());
-    DomainKey(derived)
+    derived
+}
+
+fn derive_domain_key(master: &[u8; MASTER_KEY_LENGTH], domain: StorageDomain) -> DomainKey {
+    DomainKey(derive_context_key(master, domain.key_context()))
+}
+
+pub(crate) fn derive_conversation_keys(
+    app: &tauri::AppHandle,
+) -> Result<([u8; 32], [u8; 32]), AppError> {
+    let app_data_dir = app_data_directory(app)?;
+    let mut master = load_or_create_master(&app_data_dir)?;
+    let encryption = derive_context_key(&master, CONVERSATION_ENCRYPTION_CONTEXT);
+    let content_hash = derive_context_key(&master, CONVERSATION_CONTENT_HASH_CONTEXT);
+    master.zeroize();
+    Ok((encryption, content_hash))
 }
 
 fn encrypt(plaintext: &[u8], domain: StorageDomain, key: &DomainKey) -> Result<Vec<u8>, AppError> {
@@ -254,7 +282,9 @@ fn decrypt(envelope: &[u8], domain: StorageDomain, key: &DomainKey) -> Result<Ve
                 domain.encrypted_filename()
             ))
         })?;
-    Ok(plaintext.to_vec())
+    let plaintext = plaintext.to_vec();
+    ciphertext.zeroize();
+    Ok(plaintext)
 }
 
 fn save_json_locked<T: Serialize>(
@@ -348,7 +378,8 @@ fn load_json_locked<T: DeserializeOwned + Serialize>(
         if needs_schema_migration {
             save_json_locked(app_data_dir, domain, &value)?;
         }
-        if legacy.exists() {
+        if legacy.as_ref().is_some_and(|path| path.exists()) {
+            let legacy = legacy.expect("legacy path was checked");
             fs::remove_file(&legacy).map_err(|error| {
                 AppError::ConfigIo(format!(
                     "Encrypted settings loaded, but legacy plaintext {} could not be removed: {error}",
@@ -359,6 +390,9 @@ fn load_json_locked<T: DeserializeOwned + Serialize>(
         return Ok(Some(value));
     }
 
+    let Some(legacy) = legacy else {
+        return Ok(None);
+    };
     if !legacy.exists() {
         return Ok(None);
     }
@@ -368,7 +402,7 @@ fn load_json_locked<T: DeserializeOwned + Serialize>(
         plaintext.zeroize();
         return Err(AppError::ConfigIo(format!(
             "{} exceeds the settings migration size limit",
-            domain.legacy_filename()
+            legacy.display()
         )));
     }
     let value =
@@ -409,7 +443,7 @@ pub fn save_json<T: Serialize>(
 pub fn domain_file_exists(app: &tauri::AppHandle, domain: StorageDomain) -> Result<bool, AppError> {
     let app_data_dir = app_data_directory(app)?;
     Ok(encrypted_path(&app_data_dir, domain).exists()
-        || legacy_path(&app_data_dir, domain).exists())
+        || legacy_path(&app_data_dir, domain).is_some_and(|path| path.exists()))
 }
 
 pub fn mutate_preferences(
@@ -479,10 +513,9 @@ pub fn remove_all_settings_files(app: &tauri::AppHandle) -> Result<(), AppError>
     let app_data_dir = app_data_directory(app)?;
     let mut failures = Vec::new();
     for domain in StorageDomain::ALL {
-        for path in [
-            encrypted_path(&app_data_dir, domain),
-            legacy_path(&app_data_dir, domain),
-        ] {
+        let mut paths = vec![encrypted_path(&app_data_dir, domain)];
+        paths.extend(legacy_path(&app_data_dir, domain));
+        for path in paths {
             if path.exists() {
                 if let Err(error) = fs::remove_file(&path) {
                     failures.push(format!("Failed to remove {}: {error}", path.display()));
@@ -513,17 +546,20 @@ pub fn remove_all_settings_files(app: &tauri::AppHandle) -> Result<(), AppError>
     }
     let mut cache = MASTER_KEY_CACHE
         .lock()
-        .map_err(|_| AppError::ConfigIo("Settings key cache lock is poisoned".to_string()))?;
+        .map_err(|_| AppError::ConfigIo("Root key cache lock is poisoned".to_string()))?;
     if let Some(mut master) = cache.take() {
         master.zeroize();
     }
     drop(cache);
-    delete_keychain_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID)
+    delete_secret(KEYCHAIN_NAMESPACE, KEYCHAIN_KEY_ID)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decrypt, derive_domain_key, encrypt, DomainKey, StorageDomain};
+    use super::{
+        decrypt, derive_context_key, derive_domain_key, encrypt, DomainKey, StorageDomain,
+        CONVERSATION_CONTENT_HASH_CONTEXT, CONVERSATION_ENCRYPTION_CONTEXT,
+    };
 
     #[test]
     fn encrypted_settings_roundtrip_without_plaintext() {
@@ -546,6 +582,36 @@ mod tests {
         let key = DomainKey([9_u8; 32]);
         let encrypted = encrypt(b"settings", StorageDomain::Models, &key).expect("encrypt");
         assert!(decrypt(&encrypted, StorageDomain::Projects, &key).is_err());
+    }
+
+    #[test]
+    fn one_root_derives_independent_storage_keys() {
+        let master = [13_u8; 32];
+        let settings = derive_domain_key(&master, StorageDomain::Secrets);
+        let conversation_encryption = derive_context_key(&master, CONVERSATION_ENCRYPTION_CONTEXT);
+        let conversation_hash = derive_context_key(&master, CONVERSATION_CONTENT_HASH_CONTEXT);
+
+        assert_ne!(settings.0, conversation_encryption);
+        assert_ne!(settings.0, conversation_hash);
+        assert_ne!(conversation_encryption, conversation_hash);
+    }
+
+    #[test]
+    fn encrypted_secret_domain_does_not_expose_credentials() {
+        assert_eq!(StorageDomain::Secrets.legacy_filename(), None);
+        let master = [23_u8; 32];
+        let key = derive_domain_key(&master, StorageDomain::Secrets);
+        let plaintext = br#"{"modelApiKeys":{"provider":"sk-sensitive"}}"#;
+
+        let encrypted = encrypt(plaintext, StorageDomain::Secrets, &key).expect("encrypt secrets");
+
+        assert!(!encrypted
+            .windows(b"sk-sensitive".len())
+            .any(|window| window == b"sk-sensitive"));
+        assert_eq!(
+            decrypt(&encrypted, StorageDomain::Secrets, &key).expect("decrypt secrets"),
+            plaintext
+        );
     }
 
     #[test]

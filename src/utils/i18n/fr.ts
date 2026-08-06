@@ -256,9 +256,9 @@ export const fr = {
   "settings.privacy.dataSecurity": "Sécurité des données",
   "settings.privacy.dataSecurityDesc":
     "Sythoria stocke tout localement. Pas de serveurs distants, télémétrie ou tracking cloud.",
-  "settings.privacy.keychainTitle": "Protection du trousseau système",
+  "settings.privacy.keychainTitle": "Protection chiffrée des identifiants",
   "settings.privacy.keychainDesc":
-    "Vos clés et secrets sont stockés de manière sécurisée dans le gestionnaire de mots de passe de l'OS.",
+    "Les clés API et variables MCP enregistrées sont protégées par un chiffrement local authentifié. Une seule clé racine reste dans le coffre du système et n'est mise en cache que par Rust ; les identifiants enregistrés ne sont jamais renvoyés en clair à l'interface.",
   "settings.privacy.loggingTitle": "Journal d'activité local",
   "settings.privacy.enableLogging": "Activer le journal local",
   "settings.privacy.enableLoggingDesc": "Recueillir les indicateurs de diagnostic en mémoire durant la session active",

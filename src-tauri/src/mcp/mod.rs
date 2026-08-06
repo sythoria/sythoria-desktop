@@ -3,6 +3,7 @@ pub mod client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
+use zeroize::Zeroize;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +69,18 @@ pub struct McpServerHandle {
     pub config: McpServerConfig,
     pub env_secrets: HashMap<String, String>,
     pub connection_generation: u64,
+}
+
+impl Drop for McpServerHandle {
+    fn drop(&mut self) {
+        if let Some(api_key) = self.config.apiKey.as_mut() {
+            api_key.zeroize();
+        }
+        for secret in self.env_secrets.values_mut() {
+            secret.zeroize();
+        }
+        self.env_secrets.clear();
+    }
 }
 
 pub struct McpServerManager {

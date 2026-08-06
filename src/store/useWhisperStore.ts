@@ -141,7 +141,7 @@ export const useWhisperStore = create<WhisperState>((set, get) => {
           }
           legacyKeyMigrated = true;
         } catch (err) {
-          logError("general", `Failed to access the cloud speech-to-text keychain entry: ${err}`);
+          logError("general", `Failed to access the encrypted cloud speech-to-text credential: ${err}`);
         }
         const downloaded = await invoke<string[]>("check_downloaded_whisper_models");
         set({

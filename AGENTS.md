@@ -38,7 +38,7 @@ src/
     useChatStore.ts     # Conversations, streaming, generation state, compare/pin/worktree, attachments
     useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
     useSearchStore.ts   # Search configs, search toggle
-    useMcpStore.ts      # MCP server configs, available tools, env secrets keyring, server statuses
+    useMcpStore.ts      # MCP server configs, available tools, masked env-secret state, server statuses
     useUIStore.ts       # View, theme, layout, toasts, logs, tasks, tool confirmations, native app updates
     useProjectStore.ts  # Project configuration, active project, and worktree overrides
     useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
@@ -66,7 +66,7 @@ src/
     useAttachments.ts   # File validation, MIME mapping, and size check utilities
     use-safe-motion.ts  # useSafeMotion, useSafeScale, useSafeSlideX (respects prefers-reduced-motion)
   utils/
-    storage.ts          # Encrypted Rust storage bridge, keychain secrets, Zod validation, and legacy migrations
+    storage.ts          # Encrypted Rust storage bridge, masked secret state, Zod validation, and legacy migrations
     i18n/                 # Modular BCP 47 locales: en.ts, es.ts, fr.ts, de.ts, zh.ts, ja.ts
     i18n.ts               # Consolidates locales and exports type-safe useTranslation() hook
     validation.ts       # Zod schemas, URL validation, API key validation, MCP config validation
@@ -97,7 +97,9 @@ src-tauri/src/
   lib.rs                # Tauri commands, AppError, initialization, network policy, window/tray event hooks
   atomic_file.rs        # Crash-safe temporary-file writes with atomic replacement
   endpoint_security.rs  # Intrinsic outbound-network policy, exact local grants, and endpoint resolution
-  secure_storage.rs     # AES-256-GCM domain storage, key derivation, migration, and preference mutation
+  keyring.rs            # Credential-vault adapter for the cached root key and legacy cleanup
+  secure_storage.rs     # AES-256-GCM domain storage, root/domain key derivation, migration, and preferences
+  secret_storage.rs     # Rust-only encrypted credentials, masked views, and transactional keychain migration
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
   ws_handler.rs         # WebSocket: generation-scoped sessions, cancellation, reconnect backoff (1s–30s, max 5)
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
@@ -106,7 +108,7 @@ src-tauri/src/
   project.rs            # Workspace registration, permissions, worktree mapping, compiled root-relative exclusions
   project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
   commands/
-    config.rs           # Encrypted settings/config commands, keychain secret maps, and full data wipe
+    config.rs           # Encrypted settings/config commands, native secret-store bridges, and full data wipe
     conversations.rs    # Encrypted content-addressed conversation snapshots
   mcp/
     mod.rs              # McpServerConfig, McpToolInfo, McpToolResult, McpServerStatus, McpServerHandle, McpToolRequest, McpServerManager
@@ -267,10 +269,10 @@ export interface ModelConfig {
 | `load_encrypted_preferences` / `mutate_encrypted_preferences`     | Read or atomically mutate encrypted preferences     |
 | `load_network_config` / `save_network_config`                     | Authenticated network policy (`network.enc`)        |
 | `load_search_config` / `save_search_config`                       | Encrypted search configs (`search.enc`)             |
-| `load_api_keys` / `save_api_keys_cmd`                             | API keys → OS keychain (keyring)                    |
-| `load_search_api_keys` / `save_search_api_keys_cmd`               | Search API keys → OS keychain                       |
+| `load_api_keys` / `save_api_keys_cmd`                             | Mask/save encrypted model API keys                  |
+| `load_search_api_keys` / `save_search_api_keys_cmd`               | Mask/save encrypted search API keys                 |
 | `load_encrypted_conversations` / `save_encrypted_conversations`   | Read/write encrypted chat snapshots                 |
-| `clear_encrypted_conversations`                                   | Delete chat ciphertext and its keychain key         |
+| `clear_encrypted_conversations`                                   | Delete conversation ciphertext                      |
 | `chat_completion` / `chat_stream`                                 | Standard or streaming text generation               |
 | `cancel_chat_stream`                                              | Cancel active stream via `streamId`                 |
 | `chat_completion_tools` / `chat_stream_tools`                     | Completion/Streaming with tool calls enabled        |
@@ -301,24 +303,23 @@ export interface ModelConfig {
 | `project_bash`                                                    | Execute system shells inside worktree directory     |
 | `capture_screen` / `list_appshots`                                | Take screenshots, query galleries                   |
 | `has_screen_capture_permission`                                   | Check macOS screen recording permissions            |
-| `wipe_config_files`                                               | Ordered keychain, encrypted-chat, and settings wipe |
+| `wipe_config_files`                                               | Ordered legacy-keychain and encrypted-data wipe     |
 
 ## Storage
 
-| Data             | Location                                                          |
-| ---------------- | ----------------------------------------------------------------- |
-| Conversations    | AES-256-GCM manifest + content-addressed blobs (`conversations/`) |
-| Model configs    | AES-256-GCM authenticated `models.enc` (master in OS keychain)    |
-| API keys         | OS keychain (service: `com.sythoria.sythoria-desktop`)            |
-| Projects         | Authenticated encrypted `projects.enc`                            |
-| Network policy   | Authenticated encrypted `network.enc` + keychain presence marker  |
-| Search configs   | Authenticated encrypted preferences / `search.enc`                |
-| MCP configs      | Authenticated encrypted preferences / `mcp.enc`                   |
-| MCP API keys     | OS keychain (service: `com.sythoria.sythoria-desktop`)            |
-| MCP env secrets  | OS keychain (service: `mcp-env`, per-server keys)                 |
-| Preferences      | Authenticated encrypted `preferences.enc`                         |
-| Whisper Config   | Authenticated encrypted preferences (cloud key in OS keychain)    |
-| UI/window layout | Authenticated encrypted preferences                               |
+| Data                | Location                                                                       |
+| ------------------- | ------------------------------------------------------------------------------ |
+| Conversations       | Root-derived AES-256-GCM manifest + content-addressed blobs (`conversations/`) |
+| Model configs       | Root-derived AES-256-GCM authenticated `models.enc`                            |
+| API/search/MCP keys | Root-derived AES-256-GCM authenticated `secrets.enc`                           |
+| Projects            | Authenticated encrypted `projects.enc`                                         |
+| Network policy      | Authenticated encrypted `network.enc` + encrypted presence marker              |
+| Search configs      | Authenticated encrypted preferences / `search.enc`                             |
+| MCP configs         | Authenticated encrypted preferences / `mcp.enc`                                |
+| MCP env secrets     | Root-derived AES-256-GCM authenticated `secrets.enc`                           |
+| Preferences         | Authenticated encrypted `preferences.enc`                                      |
+| Whisper Config      | Authenticated encrypted preferences + encrypted cloud key                      |
+| UI/window layout    | Authenticated encrypted preferences                                            |
 
 ## Notes
 
@@ -328,17 +329,18 @@ export interface ModelConfig {
 - **Project exclusions**: Project patterns use root-relative Git-ignore semantics, cannot use negation, and are enforced before and after canonicalization as well as during list/grep/glob traversal.
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
-- **Keychain**: `keyring-core` with platform backends (macOS Keychain, Windows Credential Manager, Linux keyutils).
-- **Renderer secret boundary**: Persisted keychain values are represented in the WebView only by a fixed masked placeholder. Model, search, title-generation, and MCP connection commands resolve actual credentials natively immediately before use; MCP environment values never cross back into the renderer after storage.
+- **Credential vault**: `keyring-core` stores one 256-bit root key using the platform backend (macOS Keychain, Windows Credential Manager, Linux Secret Service). Rust caches that root for the process lifetime and derives independent domain keys with HMAC-SHA-256.
+- **Renderer secret boundary**: Persisted encrypted values are represented in the WebView only by a fixed masked placeholder. Model, search, title-generation, speech, and MCP commands decrypt actual credentials natively immediately before use; MCP environment values never cross back into the renderer after storage.
 - **Tauri capabilities**: The main window enumerates only the event names, URL schemes, resource cleanup, dialog, updater, logging, and window operations used by the renderer; do not restore broad `core:*:default` or `opener:default` grants.
 - **MCP process environment**: Stdio servers start with a cleared environment. They inherit only the documented runtime allowlist in `mcp/client.rs` plus environment variables explicitly configured for that server.
-- **Encrypted storage**: Settings use per-domain AES-256-GCM keys derived from an OS-keychain master key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
-- **Conversation storage**: Each conversation is an authenticated content-addressed blob behind an encrypted manifest and a separate keychain-backed key; failed saves retain the previous snapshot.
+- **Encrypted storage**: Settings and credentials use independent AES-256-GCM keys derived from one OS-vault root key. Writes are atomic; legacy plaintext/plugin-store values migrate on read and are removed only after a successful encrypted save.
+- **Secret migration**: Legacy per-credential keychain records are read once, committed atomically to `secrets.enc`, and deleted only after the authenticated replacement reaches disk. Failed cleanup identifiers remain encrypted for retry.
+- **Conversation storage**: Each conversation is an authenticated content-addressed blob behind a root-derived encrypted manifest. Legacy conversation keys migrate transactionally; failed saves retain the previous snapshot.
 - **Network fail-closed**: If an existing authenticated network policy cannot be loaded, startup enables offline mode instead of silently reverting to permissive defaults.
 - **TLS verification**: Shared HTTP clients always use platform certificate verification and never accept invalid certificates. The updater, model downloads, provider/search/speech traffic, and credential-bearing requests must not add certificate-verification bypasses.
 - **Local endpoint policy**: Loopback, private, shared, link-local, unspecified, and cloud-metadata destinations are enforced natively and cannot be removed from the policy. Intentional local services require exact scheme/host/port grants; editable block rules are additive and always take precedence over grants.
 - **Window state**: Main-window size, position, and maximized state are restored from encrypted preferences. The default window is 1200×780 when no saved geometry exists.
-- **Privacy wipe**: The Rust backend deletes indexed keychain secrets before encrypted files, and frontend persistence is suspended during the wipe to prevent data recreation.
+- **Privacy wipe**: The Rust backend removes residual legacy keychain records before encrypted files and the root key; frontend persistence is suspended during the wipe to prevent data recreation.
 - **Logging privacy**: Legacy plaintext log files are removed at startup; runtime Rust logs target stdout at warning level.
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
