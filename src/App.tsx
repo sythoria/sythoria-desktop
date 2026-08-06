@@ -446,11 +446,11 @@ function App() {
 
   const handleToggleTemporaryChat = useCallback(() => {
     if (activeConversation?.isTemporary) {
-      deleteChat(activeConversation.id);
+      newChat();
     } else {
       newTemporaryChat();
     }
-  }, [activeConversation, deleteChat, newTemporaryChat]);
+  }, [activeConversation, newChat, newTemporaryChat]);
 
   const handleToggleCompareMode = useCallback(() => {
     const nextCompareMode = !isCompareMode;

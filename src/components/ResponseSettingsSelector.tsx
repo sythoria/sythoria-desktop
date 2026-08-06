@@ -72,9 +72,7 @@ export function ResponseSettingsSelector({
     const mainPanel = panelRef.current;
     if (mainPanel) {
       const mainBounds = mainPanel.getBoundingClientRect();
-      const compareColumn = mainPanel.closest<HTMLElement>(".comparison-column-panel");
-      const rightBoundary = compareColumn?.getBoundingClientRect().right ?? window.innerWidth;
-      setSubmenuSide(rightBoundary - mainBounds.right >= mainBounds.width ? "right" : "left");
+      setSubmenuSide(window.innerWidth - mainBounds.right >= mainBounds.width ? "right" : "left");
     }
     setPanel(nextPanel);
     if (moveFocus) {

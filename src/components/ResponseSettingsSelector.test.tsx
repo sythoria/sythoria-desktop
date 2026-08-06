@@ -74,7 +74,7 @@ describe("ResponseSettingsSelector", () => {
     expect(modelMenuButton).toHaveFocus();
   });
 
-  it("opens comparison flyouts to the left when the column has insufficient right-side space", async () => {
+  it("allows comparison flyouts to use space beyond their own column", async () => {
     const user = userEvent.setup();
 
     render(
@@ -94,6 +94,30 @@ describe("ResponseSettingsSelector", () => {
     const dialog = screen.getByRole("dialog", { name: /model and thinking settings/i });
     vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue(makeRect(300, 184));
     vi.spyOn(screen.getByTestId("comparison-column"), "getBoundingClientRect").mockReturnValue(makeRect(0, 400));
+
+    await user.hover(screen.getByRole("button", { name: /^model/i }));
+
+    expect(screen.getByRole("group", { name: "Model options" })).toHaveClass("left-full", "-ml-px");
+  });
+
+  it("opens comparison flyouts left when the app viewport has insufficient right-side space", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ResponseSettingsSelector
+        models={models}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={modelStatuses}
+        placement="below"
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /response settings/i }));
+
+    const dialog = screen.getByRole("dialog", { name: /model and thinking settings/i });
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue(makeRect(300, 184));
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(400);
 
     await user.hover(screen.getByRole("button", { name: /^model/i }));
 
