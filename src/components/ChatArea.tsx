@@ -686,7 +686,15 @@ function SubagentToolCard({
 
   return (
     <div className="flex flex-col max-w-full">
-      <div className="flex items-center gap-1.5 text-text-muted select-none">
+      <motion.button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex items-center gap-1.5 text-left text-text-muted select-none hover:text-text-primary transition-colors cursor-pointer"
+        aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
+        aria-expanded={expanded}
+        whileHover={{ x: 2 }}
+        transition={springs.snappy}
+      >
         <Users size={14} className="shrink-0" aria-hidden="true" />
         <span className="text-sm">
           {label}
@@ -694,18 +702,8 @@ function SubagentToolCard({
           {roleLabel && <span className="font-medium text-text-primary ml-1.5">— {roleLabel}</span>}
           {isRunning && <span className="ml-1">{dots}</span>}
         </span>
-
-        <motion.button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-          aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
-          whileHover={{ scale: motionTokens.scale.pop }}
-          whileTap={{ scale: motionTokens.scale.press }}
-          transition={springs.snappy}
-        >
-          <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-        </motion.button>
-      </div>
+        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </motion.button>
 
       <AnimatePresence initial={false}>
         {expanded && conversationId && (
@@ -802,8 +800,16 @@ function ToolCallDisplay({ message }: { message: Message }) {
 
     return (
       <div ref={cardRef} className="flex flex-col max-w-full">
-        {/* Simple inline text with chevron */}
-        <div className="flex items-center gap-1.5 text-text-muted select-none">
+        {/* The complete tool summary is the disclosure control, matching the thinking summary. */}
+        <motion.button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="flex items-center gap-1.5 text-left text-text-muted select-none hover:text-text-primary transition-colors cursor-pointer"
+          aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
+          aria-expanded={expanded}
+          whileHover={{ x: 2 }}
+          transition={springs.snappy}
+        >
           {!nativeInfo && <Wrench size={14} className="shrink-0" aria-hidden="true" />}
 
           {nativeInfo ? (
@@ -858,18 +864,9 @@ function ToolCallDisplay({ message }: { message: Message }) {
           )}
 
           {!isWaitSubagents && (
-            <motion.button
-              onClick={() => setExpanded(!expanded)}
-              className="flex items-center justify-center p-0.5 hover:bg-hover rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-              aria-label={expanded ? t("chat.tools.collapseTooltip") : t("chat.tools.expandTooltip")}
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-            >
-              <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-            </motion.button>
+            <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
           )}
-        </div>
+        </motion.button>
 
         {/* Collapsible Content */}
         <AnimatePresence initial={false}>
@@ -1087,34 +1084,34 @@ function ReasoningBubble({
 
   return (
     <motion.div
-      className="flex items-start gap-1.5 text-text-muted"
+      className="text-text-muted"
       variants={messageVariants}
       initial="hidden"
       animate="visible"
       transition={motionTransitions.content}
     >
-      <Sparkles size={14} className="mt-1 shrink-0" aria-hidden="true" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <motion.button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-sm hover:text-text-primary transition-colors"
-            aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
-            whileHover={{ x: 2 }}
-            transition={springs.snappy}
-          >
-            <span>
-              {thinkingActive
-                ? elapsed !== null
-                  ? `Thinking for ${elapsed}s${dots}`
-                  : `Thinking${dots}`
-                : thinkingDuration !== undefined
-                  ? `Thought for ${thinkingDuration}s`
-                  : "Thought"}
-            </span>
-            <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
-          </motion.button>
-        </div>
+      <motion.button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex items-center gap-1.5 text-left text-sm hover:text-text-primary transition-colors cursor-pointer"
+        aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
+        aria-expanded={expanded}
+        whileHover={{ x: 2 }}
+        transition={springs.snappy}
+      >
+        <Sparkles size={14} className="shrink-0" aria-hidden="true" />
+        <span>
+          {thinkingActive
+            ? elapsed !== null
+              ? `Thinking for ${elapsed}s${dots}`
+              : `Thinking${dots}`
+            : thinkingDuration !== undefined
+              ? `Thought for ${thinkingDuration}s`
+              : "Thought"}
+        </span>
+        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </motion.button>
+      <div className="ml-5 min-w-0">
         <AnimatePresence initial={false}>
           {expanded && (
             <motion.div
