@@ -53,7 +53,7 @@ export interface ToolConfirmation {
   destination?: string;
 }
 
-export type AuxiliaryTab = "review" | "files" | "terminals" | "activity" | "artifacts";
+export type AuxiliaryTab = "review" | "files" | "terminals" | "activity" | "artifacts" | "chat";
 
 interface UIState {
   view: "chat" | "settings";
@@ -165,9 +165,9 @@ interface UIState {
 
   isAuxPanelOpen: boolean;
   isAuxPanelExpanded: boolean;
-  isAuxSummaryPinned: boolean;
-  activeAuxTab: AuxiliaryTab;
-  auxPanelWidth: number;
+  activeAuxTab: AuxiliaryTab | null;
+  activeAuxConversationId: string | null;
+  sideChatConversationId: string | null;
   backgroundTasks: Array<{
     id: string;
     title: string;
@@ -177,9 +177,9 @@ interface UIState {
   }>;
   setAuxPanelOpen: (open: boolean) => void;
   setAuxPanelExpanded: (expanded: boolean) => void;
-  setAuxSummaryPinned: (pinned: boolean) => void;
-  setActiveAuxTab: (tab: AuxiliaryTab) => void;
-  setAuxPanelWidth: (width: number) => void;
+  setActiveAuxTab: (tab: AuxiliaryTab | null) => void;
+  setActiveAuxConversationId: (conversationId: string | null) => void;
+  setSideChatConversationId: (conversationId: string | null) => void;
   addTask: (id: string, title: string, convId: string) => void;
   completeTask: (id: string, status?: "completed" | "error") => void;
   clearTasks: () => void;
@@ -189,19 +189,6 @@ const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 480;
 
-const DEFAULT_AUX_PANEL_WIDTH = 520;
-const MIN_AUX_PANEL_WIDTH = 360;
-const MAX_AUX_PANEL_WIDTH = 680;
-
-function normalizeAuxPanelWidth(value: string | number | null): number {
-  const width = Number(value);
-  if (!Number.isFinite(width) || width < MIN_AUX_PANEL_WIDTH || width > MAX_AUX_PANEL_WIDTH) {
-    return DEFAULT_AUX_PANEL_WIDTH;
-  }
-  return width;
-}
-
-const initialAuxPanelWidth = DEFAULT_AUX_PANEL_WIDTH;
 const initialSidebarWidth = DEFAULT_SIDEBAR_WIDTH;
 let pendingUpdate: Update | null = null;
 
@@ -275,9 +262,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeSubagentId: null,
   isAuxPanelOpen: false,
   isAuxPanelExpanded: false,
-  isAuxSummaryPinned: false,
-  activeAuxTab: "review",
-  auxPanelWidth: initialAuxPanelWidth,
+  activeAuxTab: null,
+  activeAuxConversationId: null,
+  sideChatConversationId: null,
   backgroundTasks: [],
 
   setActiveSubagentId: (activeSubagentId) => {
@@ -302,32 +289,18 @@ export const useUIStore = create<UIState>((set, get) => ({
   setAuxPanelOpen: (isAuxPanelOpen) =>
     set((state) => {
       if (isAuxPanelOpen && !useProjectStore.getState().isProjectsEnabled) {
-        return { isAuxPanelOpen: false, isAuxPanelExpanded: false };
+        return { isAuxPanelOpen: false, isAuxPanelExpanded: false, activeAuxConversationId: null };
       }
-      const auxPanelWidth = isAuxPanelOpen ? state.auxPanelWidth : normalizeAuxPanelWidth(state.auxPanelWidth);
-      if (!isAuxPanelOpen) persistUiLayout({ auxPanelWidth });
       return {
         isAuxPanelOpen,
         isAuxPanelExpanded: isAuxPanelOpen ? state.isAuxPanelExpanded : false,
-        auxPanelWidth,
+        activeAuxConversationId: isAuxPanelOpen ? state.activeAuxConversationId : null,
       };
     }),
-  setAuxPanelExpanded: (isAuxPanelExpanded) =>
-    set((state) => {
-      const auxPanelWidth = normalizeAuxPanelWidth(state.auxPanelWidth);
-      persistUiLayout({ auxPanelWidth });
-      return { isAuxPanelExpanded, auxPanelWidth };
-    }),
-  setAuxSummaryPinned: (isAuxSummaryPinned) => {
-    persistUiLayout({ isAuxSummaryPinned });
-    set({ isAuxSummaryPinned });
-  },
+  setAuxPanelExpanded: (isAuxPanelExpanded) => set({ isAuxPanelExpanded }),
   setActiveAuxTab: (activeAuxTab) => set({ activeAuxTab }),
-  setAuxPanelWidth: (auxPanelWidth) => {
-    const width = Math.max(MIN_AUX_PANEL_WIDTH, Math.min(MAX_AUX_PANEL_WIDTH, auxPanelWidth));
-    persistUiLayout({ auxPanelWidth: width });
-    set({ auxPanelWidth: width });
-  },
+  setActiveAuxConversationId: (activeAuxConversationId) => set({ activeAuxConversationId }),
+  setSideChatConversationId: (sideChatConversationId) => set({ sideChatConversationId }),
   addTask: (id, title, convId) =>
     set((s) => ({
       backgroundTasks: [
