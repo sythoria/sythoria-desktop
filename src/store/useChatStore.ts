@@ -287,12 +287,13 @@ interface ChatState {
   navigateForward: () => void;
   newChat: () => string;
   newTemporaryChat: () => string;
+  newSideChat: () => string | null;
   deleteChat: (id: string) => Promise<boolean>;
   deleteConversationTrees: (rootIds: string[], options?: ConversationDeletionOptions) => Promise<boolean>;
   renameChat: (id: string, newTitle: string) => void;
   togglePinChat: (id: string) => void;
   confirmRename: (newTitle: string) => void;
-  sendMessage: (text: string, attachments?: Attachment[]) => Promise<SendMessageStatus>;
+  sendMessage: (text: string, attachments?: Attachment[], conversationId?: string) => Promise<SendMessageStatus>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
@@ -566,8 +567,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         offlineMode: loadedNetworkSettings.offlineMode,
         language: hasOnboarded ? loadedLanguage : "en",
         sidebarWidth: Math.max(180, Math.min(480, loadedUiLayout.sidebarWidth ?? 260)),
-        auxPanelWidth: Math.max(360, Math.min(680, loadedUiLayout.auxPanelWidth ?? 520)),
-        isAuxSummaryPinned: loadedUiLayout.isAuxSummaryPinned ?? false,
       });
       if (typeof document !== "undefined") {
         document.documentElement.lang = hasOnboarded ? loadedLanguage : "en";
@@ -771,6 +770,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void get().setActiveId(id);
     uiSidebarOpen(false);
     uiView("chat");
+    return id;
+  },
+
+  newSideChat: () => {
+    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
+    if (currentConversation?.pendingWorktree) {
+      uiToast("Apply or discard pending workspace changes before starting a side chat.", "error");
+      return null;
+    }
+    const { selectedModel, models } = useModelStore.getState();
+    const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
+    const id = "side-" + generateId();
+    const modelConfig = models.find((model) => model.id === selectedModel);
+    const conversation: Conversation = {
+      id,
+      title: "Side chat",
+      timestamp: new Date(),
+      messages: [],
+      model: modelConfig?.id || selectedModel,
+      projectId: (isProjectsEnabled && activeProjectId) || undefined,
+      isTemporary: true,
+    };
+    set((state) => ({ conversations: [conversation, ...state.conversations] }));
     return id;
   },
 
@@ -1013,7 +1035,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiCloseRenameModal();
   },
 
-  sendMessage: async (text, attachments) => {
+  sendMessage: async (text, attachments, requestedConversationId) => {
     const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
     const {
@@ -1023,12 +1045,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } = useProjectStore.getState();
     const toolLoop = getEnabledToolLoopConfig();
 
-    if (activeId) {
-      const activeGen = get().generationByConversation[activeId];
+    const requestedConversation = requestedConversationId
+      ? get().conversations.find((conversation) => conversation.id === requestedConversationId)
+      : undefined;
+    if (requestedConversationId && !requestedConversation) return "rejected";
+    const targetConversationId = requestedConversation?.id || activeId;
+    const targetModelId = requestedConversation?.model || selectedModel;
+    const useCompareMode = !requestedConversationId && isCompareMode;
+
+    if (targetConversationId) {
+      const activeGen = get().generationByConversation[targetConversationId];
       const isTargetGenerating = isGenerationActive(activeGen?.state);
       if (isTargetGenerating) return "rejected";
 
-      if (isCompareMode && compareIds.length > 0) {
+      if (useCompareMode && compareIds.length > 0) {
         const isAnyCompareGenerating = compareIds.some((id) => {
           const gen = get().generationByConversation[id];
           return isGenerationActive(gen?.state);
@@ -1037,10 +1067,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    let convId = activeId;
-    let activeCompareIds = [...compareIds];
+    let convId = targetConversationId;
+    let activeCompareIds = useCompareMode ? [...compareIds] : [];
 
-    if (!resolveModelConfig(models, selectedModel)) {
+    if (!resolveModelConfig(models, targetModelId)) {
       showMissingModelConfig(
         "No model configuration selected — user tried to send message without any model configured",
       );
@@ -1051,13 +1081,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const initialTitle = text ? truncateTitle(text) : firstAttachmentName;
     if (!convId) {
       const id = generateId();
-      const modelConfig = models.find((m) => m.id === selectedModel);
+      const modelConfig = models.find((m) => m.id === targetModelId);
       const conv: Conversation = {
         id,
         title: initialTitle,
         timestamp: new Date(),
         messages: [],
-        model: modelConfig?.id || selectedModel,
+        model: modelConfig?.id || targetModelId,
         projectId: (sendProjectsEnabled && sendActiveProjectId) || undefined,
       };
       set((state) => ({
@@ -1067,7 +1097,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       convId = id;
     }
 
-    if (isCompareMode && activeCompareIds.length === 0) {
+    if (useCompareMode && activeCompareIds.length === 0) {
       const id = generateId();
       const secondaryModel = models.find((m) => m.id !== selectedModel && m.enabled !== false)?.id || selectedModel;
       const conv: Conversation = {
@@ -1085,14 +1115,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeCompareIds = [id];
     }
 
-    const conversationIds = [convId, ...(isCompareMode ? activeCompareIds : [])];
+    const conversationIds = [convId, ...(useCompareMode ? activeCompareIds : [])];
     const runContexts = conversationIds.flatMap((conversationId) => {
       const conversation = get().conversations.find((candidate) => candidate.id === conversationId);
       if (!conversation) return [];
       const context = buildConversationRunContext({
         conversation,
         models,
-        selectedModel,
+        selectedModel: targetModelId,
         temperature,
         projects: sendProjects,
         projectsEnabled: sendProjectsEnabled,
