@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../store/useChatStore";
@@ -34,7 +34,7 @@ describe("TerminalPane", () => {
   });
 });
 
-describe("pinned workspace summary", () => {
+describe("workspace panel", () => {
   beforeEach(() => {
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_get_status") {
@@ -62,9 +62,9 @@ describe("pinned workspace summary", () => {
 
     useUIStore.setState({
       isAuxPanelOpen: true,
-      isAuxPanelExpanded: false,
-      isAuxSummaryPinned: true,
-      activeAuxTab: "review",
+      activeAuxTab: null,
+      activeAuxConversationId: null,
+      sideChatConversationId: null,
       backgroundTasks: [
         {
           id: "task-1",
@@ -106,32 +106,39 @@ describe("pinned workspace summary", () => {
 
   afterEach(() => {
     invokeMock.mockReset();
-    useUIStore.getState().setAuxSummaryPinned(false);
   });
 
-  it("renders live workspace details and can be unpinned", async () => {
+  it("renders the Codex-style launcher and opens a full panel view", async () => {
     render(<AuxiliaryPanel />);
 
-    const summary = screen.getByLabelText("Pinned workspace summary");
-    await within(summary).findByText("main");
-    expect(within(summary).getByText("Environment")).toBeInTheDocument();
-    expect(within(summary).getByText("Sythoria")).toBeInTheDocument();
-    expect(within(summary).getByText("npm run typecheck")).toBeInTheDocument();
-    expect(within(summary).getByText("Reference")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Workspace panel launcher" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Terminal/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Browser/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Files/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Side chat/ })).toBeInTheDocument();
 
-    fireEvent.click(within(summary).getByTitle("Unpin summary"));
-
-    await waitFor(() => expect(screen.queryByLabelText("Pinned workspace summary")).not.toBeInTheDocument());
-    expect(useUIStore.getState().isAuxSummaryPinned).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    expect(await screen.findByText("1 file changed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close Review" })).toBeInTheDocument();
   });
 
-  it("keeps the expand control but removes the redundant close control", () => {
-    useUIStore.setState({ isAuxSummaryPinned: false, activeAuxTab: "terminals" });
+  it("opens a temporary side chat and supports the launcher shortcuts", async () => {
     render(<AuxiliaryPanel />);
 
-    fireEvent.click(screen.getByTitle("Expand workspace sidebar"));
-    expect(useUIStore.getState().isAuxPanelExpanded).toBe(true);
-    expect(screen.getByTitle("Minimize workspace sidebar")).toBeInTheDocument();
-    expect(screen.queryByTitle("Close workspace sidebar")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    expect(useUIStore.getState().activeAuxTab).toBe("files");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close Files" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Side chat/ }));
+    await vi.waitFor(() => expect(useUIStore.getState().sideChatConversationId).toBeTruthy());
+    expect(useUIStore.getState().activeAuxTab).toBe("chat");
+    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
+    expect(
+      useChatStore
+        .getState()
+        .conversations.find((conversation) => conversation.id === useUIStore.getState().sideChatConversationId)
+        ?.isTemporary,
+    ).toBe(true);
   });
 });
