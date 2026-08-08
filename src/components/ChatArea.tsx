@@ -29,12 +29,11 @@ import {
   Atom,
   Palette,
   Eye,
-  GitBranch,
-  Trash2,
   Ghost,
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
+  Undo2,
   Users,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
@@ -45,6 +44,7 @@ import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
+import { fileNameFromPath, parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -1692,7 +1692,7 @@ function ChatAreaBase({
               <>
                 {pendingWorktree && conversationId && (
                   <div className="py-6">
-                    <PendingWorktreeCard
+                    <WorkspaceChangeSummary
                       conversationId={conversationId}
                       pendingWorktree={pendingWorktree}
                       onApply={applyPendingWorktree}
@@ -1838,7 +1838,7 @@ function NonVirtualizedChatArea({
           />
         ))}
         {pendingWorktree && conversationId && (
-          <PendingWorktreeCard
+          <WorkspaceChangeSummary
             conversationId={conversationId}
             pendingWorktree={pendingWorktree}
             onApply={onApply}
@@ -1851,7 +1851,7 @@ function NonVirtualizedChatArea({
   );
 }
 
-function PendingWorktreeCard({
+function WorkspaceChangeSummary({
   conversationId,
   pendingWorktree,
   onApply,
@@ -1862,11 +1862,11 @@ function PendingWorktreeCard({
   onApply: (id: string) => void | Promise<void>;
   onDiscard: (id: string) => void | Promise<void>;
 }) {
-  const [diffFiles, setDiffFiles] = useState<string[]>([]);
+  const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
   const [statusState, setStatusState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const [statusError, setStatusError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
   const conversationProjectId = useChatStore(
     (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
   );
@@ -1886,14 +1886,47 @@ function PendingWorktreeCard({
       }
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const status = await invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
-          projectId: recoveryProjectId,
-          worktreePath: pendingWorktree.path,
-        });
+        const [status, diff] = await Promise.all([
+          invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
+            projectId: recoveryProjectId,
+            worktreePath: pendingWorktree.path,
+          }),
+          invoke<string>("git_diff_changes", {
+            projectId: recoveryProjectId,
+            worktreePath: pendingWorktree.path,
+          }),
+        ]);
         if (!active) return;
-        const files = [...new Set([...(status.unstagedFiles || []), ...(status.stagedFiles || [])])];
+        const filesByPath = new Map<string, DiffFile>();
+        for (const file of parseGitDiff(diff)) {
+          const previous = filesByPath.get(file.path);
+          filesByPath.set(
+            file.path,
+            previous
+              ? {
+                  ...file,
+                  additions: previous.additions + file.additions,
+                  deletions: previous.deletions + file.deletions,
+                  lines: [...previous.lines, ...file.lines],
+                }
+              : file,
+          );
+        }
+        for (const path of [...new Set([...(status.unstagedFiles || []), ...(status.stagedFiles || [])])]) {
+          if (!filesByPath.has(path)) {
+            filesByPath.set(path, {
+              path,
+              oldPath: path,
+              status: "modified",
+              additions: 0,
+              deletions: 0,
+              lines: [],
+            });
+          }
+        }
+        const files = [...filesByPath.values()];
         setDiffFiles(files);
-        setStatusState(files.length > 0 ? "ready" : "empty");
+        setStatusState(files.length === 0 ? "empty" : "ready");
       } catch (error) {
         if (!active) return;
         console.error("Failed to load worktree git status:", error);
@@ -1907,95 +1940,118 @@ function PendingWorktreeCard({
     };
   }, [pendingWorktree.path, pendingWorktree.branch, recoveryProjectId, refreshKey]);
 
-  const runAction = async (action: (id: string) => void | Promise<void>) => {
-    setActionLoading(true);
+  const runAction = async (kind: "apply" | "discard", action: (id: string) => void | Promise<void>) => {
+    setActionLoading(kind);
     try {
       await action(conversationId);
     } finally {
-      setActionLoading(false);
+      setActionLoading(null);
     }
   };
 
+  const openReview = () => {
+    const ui = useUIStore.getState();
+    ui.setActiveAuxConversationId(conversationId);
+    ui.setActiveAuxTab("review");
+    ui.setAuxPanelOpen(true);
+  };
+
+  const additions = diffFiles.reduce((total, file) => total + file.additions, 0);
+  const deletions = diffFiles.reduce((total, file) => total + file.deletions, 0);
+  const onlyFile = diffFiles.length === 1 ? diffFiles[0] : undefined;
+  const changeVerb = onlyFile
+    ? onlyFile.status === "added"
+      ? "Created"
+      : onlyFile.status === "deleted"
+        ? "Deleted"
+        : onlyFile.status === "renamed"
+          ? "Renamed"
+          : "Edited"
+    : "Edited";
+  const summaryTitle = onlyFile
+    ? `${changeVerb} ${fileNameFromPath(onlyFile.path)}`
+    : diffFiles.length > 1
+      ? `Edited ${diffFiles.length} files`
+      : "Workspace changes ready";
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.98 }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
       transition={motionTransitions.content}
-      className="p-4 rounded-xl border border-border bg-surface/60 backdrop-blur-md flex flex-col gap-3 shadow-md mx-auto max-w-3xl w-full"
+      className="mx-auto mt-5 flex w-full max-w-3xl items-center gap-3 rounded-xl border border-border/60 bg-surface/65 px-3 py-2.5 shadow-sm"
       role="region"
-      aria-label="Pending agent workspace changes"
+      aria-label="Workspace change summary"
     >
-      <div className="flex items-center justify-between border-b border-border/50 pb-2">
-        <div className="flex items-center gap-2 text-text-primary font-semibold text-xs">
-          <GitBranch size={14} className="text-accent shrink-0" />
-          <span>Agent Workspace Sandboxed Changes</span>
-        </div>
-        <span className="text-[10px] text-text-muted bg-hover px-2 py-0.5 rounded-full font-mono shrink-0">
-          {pendingWorktree.branch}
-        </span>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-chat/50 text-text-muted">
+        {statusState === "loading" ? (
+          <Loader2 size={15} className="animate-spin" aria-label="Loading workspace changes" />
+        ) : (
+          <FileTextIcon size={15} aria-hidden="true" />
+        )}
       </div>
-      <p className="text-xs text-text-muted">
-        The agent has completed changes inside an isolated Git worktree. Review the modified files below:
-      </p>
-      {statusState === "loading" && (
-        <div className="flex items-center gap-2 text-xs text-text-muted" role="status">
-          <Loader2 size={13} className="animate-spin" aria-hidden="true" />
-          Loading changed files…
-        </div>
-      )}
-      {statusState === "ready" && (
-        <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto bg-chat/30 p-2 rounded-lg border border-border/30">
-          {diffFiles.map((file) => (
-            <div key={file} className="flex items-center gap-2 text-xs text-text-secondary font-mono truncate">
-              <FileTextIcon size={12} className="text-text-muted shrink-0" />
-              <span className="truncate">{file}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {statusState === "empty" && (
-        <div className="flex items-start gap-2 text-xs text-text-muted bg-chat/30 p-2 rounded-lg border border-border/30">
-          <GitBranch size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
-          <span>
-            No uncommitted file list is available. The branch may contain committed or binary-only changes; recovery
-            actions remain available.
-          </span>
-        </div>
-      )}
-      {statusState === "error" && (
-        <div className="flex items-center justify-between gap-3 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
-          <div className="flex items-start gap-2 text-xs text-red-400" role="alert">
-            <AlertTriangle size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
-            <span>{statusError}</span>
+      <div className="min-w-0 flex-1">
+        <p
+          className="truncate text-xs font-semibold text-text-primary"
+          title={onlyFile?.path || pendingWorktree.branch}
+        >
+          {statusState === "loading" ? "Loading workspace changes..." : summaryTitle}
+        </p>
+        {statusState === "ready" && (
+          <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
+            <span className="text-emerald-500">+{additions}</span>
+            <span className="text-red-400">−{deletions}</span>
+            {diffFiles.length > 1 && <span className="font-sans text-text-muted">across {diffFiles.length} files</span>}
+          </p>
+        )}
+        {statusState === "empty" && (
+          <p className="mt-0.5 truncate text-[11px] text-text-muted">Committed or binary-only changes</p>
+        )}
+        {statusState === "error" && (
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-red-400" role="alert">
+            <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
+            <span className="truncate">{statusError}</span>
           </div>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {statusState === "error" && (
           <button
             type="button"
             onClick={() => setRefreshKey((key) => key + 1)}
-            className="shrink-0 px-2 py-1 rounded-md border border-red-500/30 text-xs text-red-300 hover:bg-red-500/10"
+            className="rounded-md px-2 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10"
           >
-            Retry status
+            Retry
           </button>
-        </div>
-      )}
-      <div className="flex items-center gap-2 justify-end pt-2">
+        )}
         <button
           type="button"
-          onClick={() => runAction(onDiscard)}
-          disabled={actionLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-text-secondary bg-hover hover:bg-hover-active border border-border hover:border-text-muted rounded-lg transition-colors cursor-pointer"
+          onClick={() => void runAction("discard", onDiscard)}
+          disabled={actionLoading !== null}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
+          title="Discard the isolated workspace changes"
         >
-          <Trash2 size={12} className="text-red-500 shrink-0" />
-          <span>Discard Changes</span>
+          {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+          <span>Undo</span>
         </button>
         <button
           type="button"
-          onClick={() => runAction(onApply)}
-          disabled={actionLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-foreground bg-accent hover:bg-accent-active border border-accent rounded-lg transition-[color,background-color,border-color,box-shadow,transform] shadow-sm cursor-pointer hover:shadow"
+          onClick={openReview}
+          disabled={actionLoading !== null}
+          className="inline-flex items-center gap-1 rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover disabled:opacity-50"
         >
-          <Check size={12} className="shrink-0" />
-          <span>Apply to Workspace</span>
+          <span>Review</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => void runAction("apply", onApply)}
+          disabled={actionLoading !== null}
+          className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
+          title="Apply the isolated changes to the project"
+        >
+          {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+          <span>Apply</span>
         </button>
       </div>
     </motion.div>
