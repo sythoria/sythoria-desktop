@@ -15,7 +15,6 @@ import {
   Minimize2,
   ArrowLeft,
   Ghost,
-  ListTree,
   PanelRight,
   RotateCcw,
   ShieldAlert,
@@ -243,8 +242,6 @@ function App() {
     autoUpdateChecking,
     isAuxPanelOpen,
     isAuxPanelExpanded,
-    isAuxSummaryPinned,
-    auxPanelWidth,
     showCommandPalette,
     showSpotlight,
     showProjectConfigModal,
@@ -272,15 +269,11 @@ function App() {
       autoUpdateChecking: s.autoUpdateChecking,
       isAuxPanelOpen: s.isAuxPanelOpen,
       isAuxPanelExpanded: s.isAuxPanelExpanded,
-      isAuxSummaryPinned: s.isAuxSummaryPinned,
-      auxPanelWidth: s.auxPanelWidth,
       showCommandPalette: s.showCommandPalette,
       showSpotlight: s.showSpotlight,
       showProjectConfigModal: s.showProjectConfigModal,
     })),
   );
-  const isAuxPanelLayoutChange = false;
-
   const {
     setSidebarOpen,
     toggleSidebarCollapsed,
@@ -297,8 +290,9 @@ function App() {
     installUpdate,
     toggleCommandPalette,
     setAuxPanelOpen,
-    setAuxSummaryPinned,
-    setAuxPanelWidth,
+    setAuxPanelExpanded,
+    setActiveAuxTab,
+    setActiveAuxConversationId,
   } = useUIStore(
     useShallow((s) => ({
       setSidebarOpen: s.setSidebarOpen,
@@ -316,8 +310,9 @@ function App() {
       installUpdate: s.installUpdate,
       toggleCommandPalette: s.toggleCommandPalette,
       setAuxPanelOpen: s.setAuxPanelOpen,
-      setAuxSummaryPinned: s.setAuxSummaryPinned,
-      setAuxPanelWidth: s.setAuxPanelWidth,
+      setAuxPanelExpanded: s.setAuxPanelExpanded,
+      setActiveAuxTab: s.setActiveAuxTab,
+      setActiveAuxConversationId: s.setActiveAuxConversationId,
     })),
   );
 
@@ -329,8 +324,7 @@ function App() {
     })),
   );
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
-  const isEnteringMobile = isMobile && !previousIsMobileRef.current;
-  const sidebarOpenForViewport = isEnteringMobile ? false : sidebarOpen;
+  const sidebarOpenForViewport = sidebarOpen;
 
   useEffect(() => {
     const wasMobile = previousIsMobileRef.current;
@@ -1057,8 +1051,8 @@ function App() {
   }
 
   const showAuxiliaryPanel = isProjectsEnabled && isAuxPanelOpen;
-  const chatColumnWidth =
-    showAuxiliaryPanel && !isAuxPanelExpanded && !isMobile ? `calc(100% - ${auxPanelWidth}px)` : "100%";
+  const isWorkspacePanelFull = showAuxiliaryPanel && (isAuxPanelExpanded || isMobile);
+  const sideChatWidth = typeof window === "undefined" ? 386 : Math.min(386, window.innerWidth * 0.42);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden flex-col bg-transparent">
@@ -1285,38 +1279,37 @@ function App() {
                     >
                       <Split size={16} />
                     </button>
-                    {isProjectsEnabled && (
+                    {showAuxiliaryPanel && !isMobile && (
                       <button
-                        onClick={() => {
-                          if (!isAuxPanelOpen) {
-                            setAuxPanelOpen(true);
-                            if (!isAuxSummaryPinned) setAuxSummaryPinned(true);
-                            return;
-                          }
-                          setAuxSummaryPinned(!isAuxSummaryPinned);
-                        }}
-                        className={`p-1.5 rounded-md transition-colors cursor-pointer ${
-                          isAuxSummaryPinned
-                            ? "text-accent bg-accent/10 hover:bg-accent/15"
-                            : "text-text-muted hover:text-text-secondary hover:bg-hover"
-                        }`}
-                        aria-pressed={isAuxSummaryPinned}
-                        aria-label={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
-                        title={isAuxSummaryPinned ? "Unpin workspace summary" : "Pin workspace summary"}
+                        type="button"
+                        onClick={() => setAuxPanelExpanded(!isAuxPanelExpanded)}
+                        className="p-1.5 rounded-md text-text-muted transition-colors hover:bg-hover hover:text-text-secondary"
+                        aria-label={
+                          isAuxPanelExpanded ? "Restore workspace panel with side chat" : "Expand workspace panel"
+                        }
+                        title={isAuxPanelExpanded ? "Restore workspace panel with side chat" : "Expand workspace panel"}
                       >
-                        <ListTree size={16} />
+                        {isAuxPanelExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                       </button>
                     )}
                     {isProjectsEnabled && (
                       <button
-                        onClick={() => setAuxPanelOpen(!isAuxPanelOpen)}
+                        onClick={() => {
+                          if (isAuxPanelOpen) {
+                            setAuxPanelOpen(false);
+                            return;
+                          }
+                          setActiveAuxConversationId(null);
+                          setActiveAuxTab(null);
+                          setAuxPanelOpen(true);
+                        }}
                         className={`p-1.5 rounded-md transition-colors cursor-pointer ${
                           isAuxPanelOpen
                             ? "text-accent bg-accent/10 hover:bg-accent/15"
                             : "text-text-muted hover:text-text-secondary hover:bg-hover"
                         }`}
-                        aria-label={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
-                        title={isAuxPanelOpen ? "Close auxiliary panel" : "Open auxiliary panel"}
+                        aria-label={isAuxPanelOpen ? "Close workspace panel" : "Open workspace panel"}
+                        title={isAuxPanelOpen ? "Close workspace panel" : "Open workspace panel"}
                       >
                         <PanelRight size={16} />
                       </button>
@@ -1327,11 +1320,13 @@ function App() {
                 <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
                   {/* Left Column */}
                   <motion.div
-                    className="min-w-0 min-h-0 flex flex-col relative"
+                    className="min-w-0 min-h-0 flex flex-col relative overflow-hidden"
                     style={{ flex: "0 0 auto" }}
                     initial={false}
-                    animate={{ width: chatColumnWidth }}
-                    transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
+                    animate={{ width: showAuxiliaryPanel ? (isWorkspacePanelFull ? 0 : sideChatWidth) : "100%" }}
+                    transition={motionTransitions.panelEnter}
+                    aria-hidden={isWorkspacePanelFull}
+                    inert={isWorkspacePanelFull ? true : undefined}
                   >
                     <Suspense
                       fallback={
@@ -1427,75 +1422,22 @@ function App() {
                     />
                   </motion.div>
 
-                  {/* Right Column: Unified HTML Auxiliary Pane */}
                   <AnimatePresence>
                     {showAuxiliaryPanel && (
                       <motion.div
-                        key="auxiliary-pane-split"
-                        className={`absolute right-0 z-20 border-l border-border bg-surface flex flex-col h-full min-h-0 ${
-                          isAuxPanelExpanded
-                            ? "inset-0 z-40 rounded-none shadow-2xl"
-                            : "inset-y-0 min-w-[360px] max-w-[70vw] rounded-l-xl shadow-lg"
-                        }`}
-                        style={{ width: isAuxPanelExpanded ? "100%" : auxPanelWidth }}
-                        initial={{ x: "100%", opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        exit={{
-                          x: "100%",
-                          opacity: 0,
-                          transition: isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelExit,
-                        }}
-                        transition={isAuxPanelLayoutChange ? { duration: 0 } : motionTransitions.panelEnter}
+                        key="workspace-panel"
+                        className="relative z-20 flex min-h-0 min-w-0 flex-1 flex-col border-l border-border/50 bg-chat"
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 8, transition: motionTransitions.panelExit }}
+                        transition={motionTransitions.panelEnter}
                       >
-                        {!isAuxPanelExpanded && (
-                          // The adjustable separator follows the WAI-ARIA window-splitter pattern.
-                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-                          <div
-                            role="separator"
-                            aria-orientation="vertical"
-                            aria-label="Resize workspace sidebar"
-                            aria-valuemin={360}
-                            aria-valuemax={680}
-                            aria-valuenow={Math.round(auxPanelWidth)}
-                            tabIndex={0}
-                            className="group absolute inset-y-0 -left-1 z-30 w-2 cursor-col-resize touch-none select-none focus-visible:outline-none"
-                            onKeyDown={(event) => {
-                              const direction = event.key === "ArrowLeft" ? 1 : event.key === "ArrowRight" ? -1 : 0;
-                              if (!direction && event.key !== "Home" && event.key !== "End") return;
-                              event.preventDefault();
-                              const step = event.shiftKey ? 24 : 8;
-                              setAuxPanelWidth(
-                                event.key === "Home"
-                                  ? 360
-                                  : event.key === "End"
-                                    ? 680
-                                    : auxPanelWidth + direction * step,
-                              );
-                            }}
-                            onPointerDown={(event) => {
-                              event.preventDefault();
-                              const target = event.currentTarget;
-                              target.setPointerCapture(event.pointerId);
-                              const handleMove = (moveEvent: PointerEvent) => {
-                                setAuxPanelWidth(window.innerWidth - moveEvent.clientX);
-                              };
-                              const handleUp = () => {
-                                window.removeEventListener("pointermove", handleMove);
-                                window.removeEventListener("pointerup", handleUp);
-                              };
-                              window.addEventListener("pointermove", handleMove);
-                              window.addEventListener("pointerup", handleUp);
-                            }}
-                          >
-                            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-focus-visible:opacity-60" />
-                          </div>
-                        )}
                         <Suspense
                           fallback={
                             <div
                               className="flex h-full items-center justify-center"
                               role="status"
-                              aria-label="Loading workspace"
+                              aria-label="Loading workspace panel"
                             >
                               <Spinner size="md" />
                             </div>
