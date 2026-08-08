@@ -5,20 +5,34 @@ import { useChatStore } from "../store/useChatStore";
 import { validateFile, readFileAsAttachment, isImageFile } from "../utils/attachments";
 import { useModelStore } from "../store/useModelStore";
 
-export function useAttachments() {
-  const attachments = useChatStore((s) => s.draftAttachments);
+export function useAttachments(isolated = false) {
+  const sharedAttachments = useChatStore((s) => s.draftAttachments);
+  const [localAttachments, setLocalAttachments] = useState<Attachment[]>([]);
+  const localAttachmentsRef = useRef<Attachment[]>([]);
+  const attachments = isolated ? localAttachments : sharedAttachments;
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  const setAttachments = useCallback((updater: Attachment[] | ((prev: Attachment[]) => Attachment[])) => {
-    const chatStore = useChatStore.getState();
-    if (typeof updater === "function") {
-      chatStore.setDraftAttachments(updater(chatStore.draftAttachments));
-    } else {
-      chatStore.setDraftAttachments(updater);
-    }
-  }, []);
+  const setAttachments = useCallback(
+    (updater: Attachment[] | ((prev: Attachment[]) => Attachment[])) => {
+      if (isolated) {
+        setLocalAttachments((current) => {
+          const next = typeof updater === "function" ? updater(current) : updater;
+          localAttachmentsRef.current = next;
+          return next;
+        });
+        return;
+      }
+      const chatStore = useChatStore.getState();
+      if (typeof updater === "function") {
+        chatStore.setDraftAttachments(updater(chatStore.draftAttachments));
+      } else {
+        chatStore.setDraftAttachments(updater);
+      }
+    },
+    [isolated],
+  );
 
   const handleAddFiles = useCallback(
     (files: File[]) => {
@@ -29,7 +43,7 @@ export function useAttachments() {
         const currentModel = modelStore.models.find((m) => m.id === modelStore.selectedModel);
 
         for (const file of files) {
-          const currentAttachments = useChatStore.getState().draftAttachments;
+          const currentAttachments = isolated ? localAttachmentsRef.current : useChatStore.getState().draftAttachments;
           // Check for duplicate by name and size
           const isDuplicate = currentAttachments.some((a) => a.name === file.name && a.size === file.size);
           if (isDuplicate) {
@@ -63,7 +77,7 @@ export function useAttachments() {
       attachmentQueueRef.current = queued.catch(() => undefined);
       return queued;
     },
-    [setAttachments],
+    [isolated, setAttachments],
   );
 
   const handleFileChange = useCallback(
