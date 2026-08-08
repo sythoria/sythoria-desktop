@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 import { AnimatePresence, motion } from "motion/react";
+import ReactMarkdown from "react-markdown";
 import {
   Activity,
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
   Bot,
   Check,
   CheckCircle2,
@@ -11,22 +13,18 @@ import {
   ChevronRight,
   Circle,
   ClipboardCheck,
-  Code2,
   File,
   FileCode2,
   FileText,
   Folder,
   FolderOpen,
+  Globe2,
   GitBranch,
-  GitCommitHorizontal,
-  HardDrive,
-  Link2,
+  ExternalLink,
   Loader2,
-  Maximize2,
-  Paperclip,
-  Minimize2,
-  PinOff,
+  MessageSquare,
   Play,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -40,9 +38,15 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } fr
 import { motionTransitions } from "../lib/motion-tokens";
 import { useChatStore } from "../store/useChatStore";
 import { GitStatus } from "../store/useGitStore";
+import { useMcpStore } from "../store/useMcpStore";
+import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
+import { useSearchStore } from "../store/useSearchStore";
 import { AuxiliaryTab, useUIStore } from "../store/useUIStore";
-import type { Conversation, Project } from "../types";
+import { isGenerationActive, type UrlContent } from "../types";
+import { openExternalUrl } from "../utils/externalUrl";
+import ChatArea from "./ChatArea";
+import InputBar from "./InputBar";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
 interface TerminalEntry {
@@ -65,13 +69,27 @@ interface NumberedDiffLine {
   kind: "added" | "deleted" | "hunk" | "meta" | "context";
 }
 
-const tabs: Array<{ id: AuxiliaryTab; label: string; icon: typeof ClipboardCheck }> = [
-  { id: "review", label: "Review", icon: ClipboardCheck },
-  { id: "files", label: "Files", icon: FileCode2 },
+const panelLaunchItems: Array<{
+  id: AuxiliaryTab;
+  label: string;
+  icon: typeof ClipboardCheck;
+  shortcut?: string;
+}> = [
+  { id: "review", label: "Review", icon: ClipboardCheck, shortcut: "Ctrl+Shift+G" },
   { id: "terminals", label: "Terminal", icon: TerminalSquare },
-  { id: "activity", label: "Activity", icon: Activity },
-  { id: "artifacts", label: "Preview", icon: Code2 },
+  { id: "artifacts", label: "Browser", icon: Globe2, shortcut: "Ctrl+T" },
+  { id: "files", label: "Files", icon: FolderOpen, shortcut: "Ctrl+P" },
+  { id: "chat", label: "Side chat", icon: MessageSquare, shortcut: "Ctrl+Alt+S" },
 ];
+
+const panelTitles: Record<AuxiliaryTab, { label: string; icon: typeof ClipboardCheck }> = {
+  review: { label: "Review", icon: ClipboardCheck },
+  terminals: { label: "Terminal", icon: TerminalSquare },
+  artifacts: { label: "Browser", icon: Globe2 },
+  files: { label: "Files", icon: FolderOpen },
+  activity: { label: "Activity", icon: Activity },
+  chat: { label: "Side chat", icon: MessageSquare },
+};
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -310,7 +328,13 @@ function ReviewPane({
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border/40 md:max-h-none md:w-[38%] md:border-b-0 md:border-r">
+          <div className="min-h-0 flex-1 overflow-auto bg-chat/45">
+            {selectedFile && <DiffView file={selectedFile} />}
+          </div>
+          <div className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0">
+            <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+              Changed files
+            </div>
             {files.map((file) => (
               <button
                 key={file.path}
@@ -330,9 +354,6 @@ function ReviewPane({
                 </div>
               </button>
             ))}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto bg-chat/45">
-            {selectedFile && <DiffView file={selectedFile} />}
           </div>
         </div>
       )}
@@ -502,24 +523,12 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/50 bg-input/40 px-2.5 py-1.5 focus-within:border-accent/60">
-          <Search size={12} className="text-text-muted" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter files"
-            className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted"
-          />
-          {query && (
-            <button onClick={() => setQuery("")} className="text-text-muted hover:text-text-primary">
-              <X size={11} />
-            </button>
-          )}
-        </div>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4 text-xs text-text-muted">
+        <span className="font-mono">/</span>
+        <span className="truncate">{selectedPath || "Workspace"}</span>
         <button
           onClick={() => void loadRoot()}
-          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+          className="ml-auto rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
           title="Refresh files"
         >
           <RefreshCw size={13} />
@@ -528,34 +537,52 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
       {error ? (
         <EmptyState icon={AlertCircle} title="Couldn’t browse project" detail={error} />
       ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="w-[38%] min-w-[145px] overflow-y-auto border-r border-border/40 py-1">
-            {loading && entries.length === 0 ? (
-              <PanelSpinner label="Loading files…" />
-            ) : (
-              filteredEntries.map((entry) => (
-                <FileTreeRow
-                  key={entry.path}
-                  entry={entry}
-                  depth={0}
-                  projectId={projectId}
-                  worktreePath={worktreePath}
-                  expanded={expanded}
-                  onToggle={(path) =>
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(path)) next.delete(path);
-                      else next.add(path);
-                      return next;
-                    })
-                  }
-                  onSelect={(path) => void selectFile(path)}
-                  selectedPath={selectedPath}
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <div className="order-2 flex max-h-[42%] min-h-0 w-full shrink-0 flex-col border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[220px] md:border-l md:border-t-0">
+            <div className="flex shrink-0 items-center gap-2 p-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/50 bg-input/40 px-2.5 py-1.5 focus-within:border-accent/60">
+                <Search size={12} className="text-text-muted" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Filter files…"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted"
                 />
-              ))
-            )}
+                {query && (
+                  <button onClick={() => setQuery("")} className="text-text-muted hover:text-text-primary">
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto py-1">
+              {loading && entries.length === 0 ? (
+                <PanelSpinner label="Loading files…" />
+              ) : (
+                filteredEntries.map((entry) => (
+                  <FileTreeRow
+                    key={entry.path}
+                    entry={entry}
+                    depth={0}
+                    projectId={projectId}
+                    worktreePath={worktreePath}
+                    expanded={expanded}
+                    onToggle={(path) =>
+                      setExpanded((current) => {
+                        const next = new Set(current);
+                        if (next.has(path)) next.delete(path);
+                        else next.add(path);
+                        return next;
+                      })
+                    }
+                    onSelect={(path) => void selectFile(path)}
+                    selectedPath={selectedPath}
+                  />
+                ))
+              )}
+            </div>
           </div>
-          <div className="flex min-w-0 flex-1 flex-col bg-chat/40">
+          <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col bg-chat/40">
             {selectedPath ? (
               <>
                 <div className="flex shrink-0 items-center justify-between border-b border-border/40 px-3 py-2">
@@ -891,211 +918,249 @@ function ArtifactPane() {
   );
 }
 
-function PinnedSummary({
-  projectId,
-  project,
-  worktreePath,
-  conversation,
-}: {
-  projectId: string | null;
-  project?: Project;
-  worktreePath?: string;
-  conversation?: Conversation;
-}) {
-  const [status, setStatus] = useState<GitStatus | null>(null);
-  const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const tasks = useUIStore((s) => s.backgroundTasks);
-  const setActiveTab = useUIStore((s) => s.setActiveAuxTab);
-  const setPinned = useUIStore((s) => s.setAuxSummaryPinned);
-
-  const refresh = useCallback(async () => {
-    if (!projectId) {
-      setStatus(null);
-      setDiffFiles([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [nextStatus, diff] = await Promise.all([
-        invoke<GitStatus>("git_get_status", { projectId, worktreePath: worktreePath || null }),
-        invoke<string>("git_diff_changes", { projectId, worktreePath: worktreePath || null }),
-      ]);
-      setStatus(nextStatus);
-      setDiffFiles(parseGitDiff(diff));
-    } catch {
-      setStatus(null);
-      setDiffFiles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, worktreePath]);
-
-  useEffect(() => {
-    queueMicrotask(() => void refresh());
-  }, [refresh]);
-
-  const additions = diffFiles.reduce((total, file) => total + file.additions, 0);
-  const deletions = diffFiles.reduce((total, file) => total + file.deletions, 0);
-  const changedFiles = new Set([
-    ...diffFiles.map((file) => file.path),
-    ...(status?.stagedFiles || []),
-    ...(status?.unstagedFiles || []),
-  ]).size;
-  const branch = conversation?.pendingWorktree?.branch || status?.branch || "No branch";
-  const recentTasks = tasks.slice(0, 3);
-
-  const sourceMap = new Map<string, { title: string; url?: string; isAttachment: boolean }>();
-  for (const message of conversation?.messages || []) {
-    for (const source of message.sources || []) {
-      sourceMap.set(source.url, { title: source.title, url: source.url, isAttachment: false });
-    }
-    for (const attachment of message.attachments || []) {
-      sourceMap.set(`attachment:${attachment.id}`, { title: attachment.name, isAttachment: true });
-    }
+function normalizeBrowserUrl(value: string): string | null {
+  const input = value.trim();
+  if (!input) return null;
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(input) ? input : `https://${input}`);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
   }
-  const sources = [...sourceMap.values()].slice(-3).reverse();
+}
+
+function BrowserPane() {
+  const artifact = useUIStore((state) => state.activeArtifact);
+  const fetchUrlContent = useSearchStore((state) => state.fetchUrlContent);
+  const [draftUrl, setDraftUrl] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [page, setPage] = useState<UrlContent | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const currentUrl = historyIndex >= 0 ? history[historyIndex] : "";
+
+  const fetchPage = useCallback(
+    async (url: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const nextPage = await fetchUrlContent(url, "markdown");
+        setPage(nextPage);
+        if (nextPage.status === "error") setError(nextPage.error || "This page could not be loaded.");
+      } catch (nextError) {
+        setPage(null);
+        setError(errorMessage(nextError));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchUrlContent],
+  );
+
+  const navigate = useCallback(
+    (value: string) => {
+      const url = normalizeBrowserUrl(value);
+      if (!url) {
+        setError("Enter a valid HTTP or HTTPS URL.");
+        return;
+      }
+      const nextHistory = [...history.slice(0, historyIndex + 1), url];
+      setHistory(nextHistory);
+      setHistoryIndex(nextHistory.length - 1);
+      setDraftUrl(url);
+      void fetchPage(url);
+    },
+    [fetchPage, history, historyIndex],
+  );
+
+  const moveHistory = (nextIndex: number) => {
+    const url = history[nextIndex];
+    if (!url) return;
+    setHistoryIndex(nextIndex);
+    setDraftUrl(url);
+    void fetchPage(url);
+  };
+
+  if (artifact) return <ArtifactPane />;
 
   return (
-    <motion.aside
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: "auto" }}
-      exit={{ opacity: 0, height: 0 }}
-      transition={motionTransitions.content}
-      className="shrink-0 overflow-hidden border-b border-border/40 bg-chat/35"
-      aria-label="Pinned workspace summary"
-    >
-      <div className="max-h-[360px] overflow-y-auto p-3">
-        <div className="rounded-2xl border border-border/50 bg-surface/80 px-3.5 py-3 shadow-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-text-muted">Environment</span>
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => void refresh()}
-                disabled={loading}
-                className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-50"
-                title="Refresh summary"
-              >
-                <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-              </button>
-              <button
-                onClick={() => setPinned(false)}
-                className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
-                title="Unpin summary"
-              >
-                <PinOff size={12} />
-              </button>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setActiveTab("review")}
-            className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1.5 text-left text-xs text-text-secondary hover:bg-hover/60"
-          >
-            <ClipboardCheck size={13} className="shrink-0 text-text-muted" />
-            <span className="min-w-0 flex-1">Changes</span>
-            <span className="font-mono text-[11px]">
-              <span className="text-emerald-500">+{additions}</span>
-              <span className="ml-1.5 text-red-400">−{deletions}</span>
-            </span>
-          </button>
-          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
-            <HardDrive size={13} className="shrink-0 text-text-muted" />
-            <span className="min-w-0 flex-1 truncate">{project?.name || "No local project"}</span>
-            {changedFiles > 0 && <span className="text-[10px] text-text-muted">{changedFiles} files</span>}
-          </div>
-          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
-            <GitBranch size={13} className="shrink-0 text-text-muted" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{branch}</span>
-            {worktreePath && (
-              <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-accent">
-                Isolated
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2.5 px-1 py-1.5 text-xs text-text-secondary">
-            <GitCommitHorizontal size={13} className="shrink-0 text-text-muted" />
-            <span className="min-w-0 flex-1">Workspace permission</span>
-            <span className="text-[10px] capitalize text-text-muted">{project?.permissions || "none"}</span>
-          </div>
-
-          <div className="my-3 border-t border-border/40" />
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-text-muted">Background processes</span>
-            <button
-              onClick={() => setActiveTab("activity")}
-              className="rounded p-1 text-text-muted hover:bg-hover hover:text-text-primary"
-              title="Open activity"
-            >
-              <Activity size={11} />
-            </button>
-          </div>
-          {recentTasks.length === 0 ? (
-            <p className="px-1 py-1 text-[11px] text-text-muted/70">No recent processes</p>
-          ) : (
-            <div className="space-y-0.5">
-              {recentTasks.map((task) => (
-                <button
-                  key={task.id}
-                  onClick={() => setActiveTab("activity")}
-                  className="flex w-full items-center gap-2.5 rounded-md px-1 py-1.5 text-left text-[11px] text-text-secondary hover:bg-hover/60"
-                >
-                  <TerminalSquare size={12} className="shrink-0 text-text-muted" />
-                  <span className="min-w-0 flex-1 truncate font-mono">{task.title}</span>
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      task.status === "running"
-                        ? "animate-pulse bg-accent"
-                        : task.status === "error"
-                          ? "bg-red-500"
-                          : "bg-emerald-500"
-                    }`}
-                  />
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="my-3 border-t border-border/40" />
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-text-muted">Sources</span>
-            <span className="text-[10px] text-text-muted">{sourceMap.size}</span>
-          </div>
-          {sources.length === 0 ? (
-            <p className="px-1 py-1 text-[11px] text-text-muted/70">No sources attached</p>
-          ) : (
-            <div className="space-y-0.5">
-              {sources.map((source) =>
-                source.url ? (
+    <div className="flex h-full min-h-0 flex-col">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          navigate(draftUrl);
+        }}
+        className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border/40 px-3"
+      >
+        <button
+          type="button"
+          onClick={() => moveHistory(historyIndex - 1)}
+          disabled={historyIndex <= 0}
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-30"
+          aria-label="Back"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => moveHistory(historyIndex + 1)}
+          disabled={historyIndex < 0 || historyIndex >= history.length - 1}
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-30"
+          aria-label="Forward"
+        >
+          <ArrowRight size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => currentUrl && void fetchPage(currentUrl)}
+          disabled={!currentUrl || loading}
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-30"
+          aria-label="Reload"
+        >
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+        </button>
+        <div className="mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/50 bg-input/40 px-2.5 py-1.5 focus-within:border-accent/60">
+          <Globe2 size={12} className="shrink-0 text-text-muted" />
+          <input
+            value={draftUrl}
+            onChange={(event) => setDraftUrl(event.target.value)}
+            placeholder="Enter a URL"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted"
+          />
+        </div>
+        <button
+          type="submit"
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
+          aria-label="Open URL"
+        >
+          <ArrowRight size={14} />
+        </button>
+        <button
+          type="button"
+          disabled={!currentUrl}
+          onClick={() => currentUrl && void openExternalUrl(currentUrl, { confirmInsecure: true })}
+          className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary disabled:opacity-30"
+          aria-label="Open in system browser"
+          title="Open in system browser"
+        >
+          <ExternalLink size={13} />
+        </button>
+      </form>
+      <div className="relative min-h-0 flex-1 overflow-auto">
+        {loading && !page ? (
+          <PanelSpinner label="Loading page…" />
+        ) : !currentUrl ? (
+          <EmptyState icon={Globe2} title="Start browsing" detail="Enter a URL to open a page." />
+        ) : error ? (
+          <EmptyState icon={AlertCircle} title="Couldn’t open page" detail={error} />
+        ) : page ? (
+          <article className="markdown-body mx-auto w-full max-w-4xl px-6 py-8 text-sm text-text-primary">
+            {page.title && <h1>{page.title}</h1>}
+            <ReactMarkdown
+              components={{
+                a: ({ href, children }) => (
                   <a
-                    key={source.url}
-                    href={normalizeExternalUrl(source.url)?.href}
-                    target="_blank"
-                    rel="noreferrer"
+                    href={href}
                     onClick={(event) => {
                       event.preventDefault();
-                      void openExternalUrl(source.url!, { confirmInsecure: true });
+                      if (!href) return;
+                      try {
+                        navigate(new URL(href, currentUrl).href);
+                      } catch {
+                        setError("This link is not a valid web address.");
+                      }
                     }}
-                    className="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-[11px] text-text-secondary hover:bg-hover/60 hover:text-text-primary"
                   >
-                    <Link2 size={12} className="shrink-0 text-text-muted" />
-                    <span className="truncate">{source.title}</span>
+                    {children}
                   </a>
-                ) : (
-                  <div
-                    key={source.title}
-                    className="flex items-center gap-2.5 rounded-md px-1 py-1.5 text-[11px] text-text-secondary"
-                  >
-                    <Paperclip size={12} className="shrink-0 text-text-muted" />
-                    <span className="truncate">{source.title}</span>
-                  </div>
                 ),
-              )}
-            </div>
-          )}
-        </div>
+              }}
+            >
+              {page.content}
+            </ReactMarkdown>
+          </article>
+        ) : null}
       </div>
-    </motion.aside>
+    </div>
+  );
+}
+
+function SideChatPane({ conversationId }: { conversationId: string | null }) {
+  const conversation = useChatStore((state) =>
+    state.conversations.find((candidate) => candidate.id === conversationId),
+  );
+  const sendMessage = useChatStore((state) => state.sendMessage);
+  const retryLastMessage = useChatStore((state) => state.retryLastMessage);
+  const stopStreaming = useChatStore((state) => state.stopStreaming);
+  const generation = useChatStore((state) =>
+    conversationId ? state.generationByConversation[conversationId] : undefined,
+  );
+  const { models, selectedModel, modelStatuses } = useModelStore();
+  const { isSearchEnabled, toggleSearchEnabled } = useSearchStore();
+  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore();
+  const isStreaming = isGenerationActive(generation?.state);
+  const messages = conversation?.messages || [];
+
+  const setConversationModel = (modelId: string) => {
+    if (!conversationId || isStreaming) return;
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((item) =>
+        item.id === conversationId ? { ...item, model: modelId } : item,
+      ),
+    }));
+  };
+
+  if (!conversationId || !conversation) {
+    return (
+      <EmptyState
+        icon={MessageSquare}
+        title="Side chat unavailable"
+        detail="Resolve pending workspace changes, then open Side chat again."
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="relative min-h-0 flex-1">
+        {messages.length === 0 ? (
+          <EmptyState
+            icon={MessageSquare}
+            title="Side chat"
+            detail="This conversation is temporary and disappears when you close the app."
+          />
+        ) : (
+          <ChatArea
+            messages={messages}
+            conversationId={conversationId}
+            pendingWorktree={conversation.pendingWorktree}
+            onRetry={() => void retryLastMessage(conversationId)}
+          />
+        )}
+      </div>
+      <InputBar
+        models={models}
+        onSend={(message, attachments) => sendMessage(message, attachments, conversationId)}
+        selectedModel={conversation.model || selectedModel}
+        onModelChange={setConversationModel}
+        disabled={models.length === 0}
+        modelStatuses={modelStatuses}
+        isSearchEnabled={isSearchEnabled}
+        onToggleSearch={toggleSearchEnabled}
+        mcpServers={mcpConfigs}
+        mcpServerStatuses={serverStatuses}
+        selectedMcpServerIds={selectedServerIds}
+        onToggleMcpServer={(serverId) => void toggleServerSelected(serverId, !selectedServerIds.has(serverId))}
+        isStreaming={isStreaming}
+        onStop={() => void stopStreaming(conversationId)}
+        centered={false}
+        conversationId={conversationId}
+        idPrefix="side-chat"
+        isolatedAttachments
+      />
+    </div>
   );
 }
 
@@ -1103,105 +1168,162 @@ export function AuxiliaryPanel() {
   const activeTab = useUIStore((s) => s.activeAuxTab);
   const setActiveTab = useUIStore((s) => s.setActiveAuxTab);
   const setOpen = useUIStore((s) => s.setAuxPanelOpen);
-  const isPanelExpanded = useUIStore((s) => s.isAuxPanelExpanded);
-  const setPanelExpanded = useUIStore((s) => s.setAuxPanelExpanded);
-  const isSummaryPinned = useUIStore((s) => s.isAuxSummaryPinned);
   const activeArtifact = useUIStore((s) => s.activeArtifact);
-  const activeId = useChatStore((s) => s.activeId);
-  const activeConversation = useChatStore((s) =>
-    s.conversations.find((conversation) => conversation.id === s.activeId),
+  const activeAuxConversationId = useUIStore((s) => s.activeAuxConversationId);
+  const sideChatConversationId = useUIStore((s) => s.sideChatConversationId);
+  const setSideChatConversationId = useUIStore((s) => s.setSideChatConversationId);
+  const currentActiveId = useChatStore((s) => s.activeId);
+  const newSideChat = useChatStore((s) => s.newSideChat);
+  const sideChatExists = useChatStore((s) =>
+    s.conversations.some((conversation) => conversation.id === sideChatConversationId),
   );
+  const activeConversation = useChatStore(
+    (s) =>
+      s.conversations.find((conversation) => conversation.id === activeAuxConversationId) ??
+      s.conversations.find((conversation) => conversation.id === s.activeId),
+  );
+  const activeId = activeConversation?.id ?? currentActiveId;
   const { activeProjectId, projects, activeWorktreePath } = useProjectStore();
   const projectId = activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
+  const activePanel = activeTab ? panelTitles[activeTab] : null;
+  const ActivePanelIcon = activePanel?.icon;
 
   useEffect(() => {
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+    if (activeTab !== "chat" || (sideChatConversationId && sideChatExists)) return;
+    const conversationId = newSideChat();
+    if (conversationId) setSideChatConversationId(conversationId);
+  }, [activeTab, newSideChat, setSideChatConversationId, sideChatConversationId, sideChatExists]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (activeTab) setActiveTab(null);
+        else setOpen(false);
+        return;
+      }
+
+      const commandKey = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (commandKey && event.shiftKey && key === "g") {
+        event.preventDefault();
+        setActiveTab("review");
+      } else if (commandKey && !event.shiftKey && !event.altKey && key === "t") {
+        event.preventDefault();
+        setActiveTab("artifacts");
+      } else if (commandKey && !event.shiftKey && !event.altKey && key === "p") {
+        event.preventDefault();
+        setActiveTab("files");
+      } else if (commandKey && event.altKey && key === "s") {
+        event.preventDefault();
+        setActiveTab("chat");
+      }
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [setOpen]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTab, setActiveTab, setOpen]);
+
+  const openPanel = (id: AuxiliaryTab) => setActiveTab(id);
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-surface" aria-label="Workspace sidebar">
-      <header className="shrink-0 border-b border-border/50">
-        <div className="flex h-11 items-center justify-between gap-3 px-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent">
-              <Code2 size={13} />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-text-primary">Workspace</p>
-              <p className="truncate text-[9px] text-text-muted">
-                {project?.name || "No project"}
-                {worktreePath ? " - isolated" : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPanelExpanded(!isPanelExpanded)}
-              className="rounded-md p-1.5 text-text-muted hover:bg-hover hover:text-text-primary"
-              title={isPanelExpanded ? "Minimize workspace sidebar" : "Expand workspace sidebar"}
-              aria-label={isPanelExpanded ? "Minimize workspace sidebar" : "Expand workspace sidebar"}
-            >
-              {isPanelExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-            </button>
-          </div>
-        </div>
-        <nav className="flex items-center gap-0.5 overflow-x-auto px-2" aria-label="Workspace views">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`relative flex shrink-0 items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium transition-colors ${activeTab === id ? "text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
-              aria-current={activeTab === id ? "page" : undefined}
-            >
-              <Icon size={12} />
-              <span>{label}</span>
-              {id === "artifacts" && activeArtifact && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
-              {activeTab === id && <span className="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent" />}
-            </button>
-          ))}
-        </nav>
-      </header>
-      {isSummaryPinned && (
-        <PinnedSummary
-          projectId={projectId}
-          project={project}
-          worktreePath={worktreePath}
-          conversation={activeConversation}
-        />
-      )}
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <AnimatePresence mode="wait" initial={false}>
+    <section className="flex h-full min-h-0 flex-col bg-chat" aria-label="Workspace panel">
+      <AnimatePresence mode="wait" initial={false}>
+        {activeTab === null ? (
           <motion.div
-            key={activeTab}
-            className="absolute inset-0 flex flex-col"
-            initial={{ opacity: 0, x: 5 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -5, transition: motionTransitions.popoverExit }}
+            key="workspace-launcher"
+            className="flex min-h-0 flex-1 items-center justify-center px-6 pb-[8vh]"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4, transition: motionTransitions.popoverExit }}
             transition={motionTransitions.popoverEnter}
           >
-            {activeTab === "review" && (
-              <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
-            )}
-            {activeTab === "files" && <FilesPane projectId={projectId} worktreePath={worktreePath} />}
-            {activeTab === "terminals" && (
-              <TerminalPane
-                projectId={projectId}
-                projectPath={project?.path}
-                worktreePath={worktreePath}
-                canExecute={project?.permissions === "full"}
-              />
-            )}
-            {activeTab === "activity" && <ActivityPane activeId={activeId} />}
-            {activeTab === "artifacts" && <ArtifactPane />}
+            <nav className="w-full max-w-[540px] space-y-1" aria-label="Workspace panel launcher">
+              {panelLaunchItems.map(({ id, label, icon: Icon, shortcut }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => openPanel(id)}
+                  className="group flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-transparent bg-surface/55 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:border-border/60 hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                >
+                  <Icon
+                    size={13}
+                    className="shrink-0 text-text-muted transition-colors group-hover:text-text-secondary"
+                  />
+                  <span className="min-w-0 flex-1">{label}</span>
+                  {id === "artifacts" && activeArtifact && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" title="Preview available" />
+                  )}
+                  {shortcut && (
+                    <kbd
+                      aria-hidden="true"
+                      className="rounded-full bg-chat/60 px-1.5 py-0.5 font-sans text-[10px] text-text-muted"
+                    >
+                      {shortcut}
+                    </kbd>
+                  )}
+                </button>
+              ))}
+            </nav>
           </motion.div>
-        </AnimatePresence>
-      </div>
+        ) : (
+          <motion.div
+            key={activeTab}
+            className="flex min-h-0 flex-1 flex-col"
+            initial={{ opacity: 0, x: 6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6, transition: motionTransitions.popoverExit }}
+            transition={motionTransitions.popoverEnter}
+          >
+            <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/40 px-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab(null)}
+                className="order-3 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                aria-label={`Close ${activePanel?.label || "tab"}`}
+                title="Close tab"
+              >
+                <X size={11} />
+              </button>
+              {ActivePanelIcon && <ActivePanelIcon size={13} className="shrink-0 text-text-muted" />}
+              <div className="min-w-0 rounded-lg bg-surface/80 py-1 pr-2">
+                <p className="truncate text-xs font-medium text-text-primary">{activePanel?.label}</p>
+                <p className="truncate text-[9px] text-text-muted">
+                  {project?.name || "No project"}
+                  {worktreePath ? " · isolated" : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab(null)}
+                className="order-4 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                aria-label="Open another workspace tool"
+                title="Open another workspace tool"
+              >
+                <Plus size={13} />
+              </button>
+            </header>
+            <div className="relative min-h-0 flex-1 overflow-hidden">
+              {activeTab === "review" && (
+                <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
+              )}
+              {activeTab === "files" && <FilesPane projectId={projectId} worktreePath={worktreePath} />}
+              {activeTab === "terminals" && (
+                <TerminalPane
+                  projectId={projectId}
+                  projectPath={project?.path}
+                  worktreePath={worktreePath}
+                  canExecute={project?.permissions === "full"}
+                />
+              )}
+              {activeTab === "activity" && <ActivityPane activeId={activeId} />}
+              {activeTab === "artifacts" && <BrowserPane />}
+              {activeTab === "chat" && <SideChatPane conversationId={sideChatConversationId} />}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }
