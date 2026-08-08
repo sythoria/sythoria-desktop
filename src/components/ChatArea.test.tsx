@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import ChatArea from "./ChatArea";
 import type { Conversation, Message } from "../types";
 import { useChatStore } from "../store/useChatStore";
+import { useProjectStore } from "../store/useProjectStore";
+import { useUIStore } from "../store/useUIStore";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -162,7 +164,11 @@ describe("ChatArea", () => {
   });
 
   it("keeps recovery actions visible when the worktree status is empty", async () => {
-    invokeMock.mockResolvedValue({ unstagedFiles: [], stagedFiles: [] });
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") return { unstagedFiles: [], stagedFiles: [] } as never;
+      if (command === "git_diff_changes") return "" as never;
+      return undefined as never;
+    });
     const pendingWorktree = {
       path: "/worktrees/run-a",
       branch: "sythoria-agent-a",
@@ -194,9 +200,10 @@ describe("ChatArea", () => {
       />,
     );
 
-    expect(await screen.findByText(/No uncommitted file list is available/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply to Workspace" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Discard Changes" })).toBeEnabled();
+    expect(await screen.findByText(/Committed or binary-only changes/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
     expect(invokeMock).toHaveBeenCalledWith("git_get_status", {
       projectId: "project-a",
       worktreePath: "/worktrees/run-a",
@@ -237,8 +244,68 @@ describe("ChatArea", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/file list could not be loaded/i);
-    expect(screen.getByRole("button", { name: "Retry status" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Apply to Workspace" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Discard Changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+  });
+
+  it("renders a Codex-style inline change summary and opens review", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") {
+        return { unstagedFiles: ["src/App.tsx"], stagedFiles: [] } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1 +1 @@
+-old
++new` as never;
+      }
+      return undefined as never;
+    });
+    const pendingWorktree = {
+      path: "/worktrees/run-c",
+      branch: "sythoria-agent-c",
+      commitScope: {
+        projectId: "project-c",
+        projectRoot: "/projects/c",
+        modelId: "model-c",
+      },
+    };
+    useProjectStore.setState({ isProjectsEnabled: true });
+    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: "files", activeAuxConversationId: null });
+    useChatStore.setState({
+      conversations: [
+        {
+          id: "changed-chat",
+          title: "Changed chat",
+          timestamp: new Date(),
+          messages: [makeMessage({ role: "assistant", content: "Implemented the change." })],
+          model: "model-c",
+          pendingWorktree,
+        },
+      ],
+    });
+
+    render(
+      <ChatArea
+        messages={[makeMessage({ role: "assistant", content: "Implemented the change." })]}
+        {...defaultProps}
+        conversationId="changed-chat"
+        pendingWorktree={pendingWorktree}
+      />,
+    );
+
+    const summary = await screen.findByRole("region", { name: "Workspace change summary" });
+    expect(summary).toHaveTextContent("Edited App.tsx");
+    expect(summary).toHaveTextContent("+1");
+    expect(summary).toHaveTextContent("−1");
+
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(useUIStore.getState().activeAuxTab).toBe("review");
+    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
+    expect(useUIStore.getState().activeAuxConversationId).toBe("changed-chat");
   });
 });
