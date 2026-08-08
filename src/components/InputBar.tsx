@@ -61,6 +61,9 @@ interface InputBarProps {
   onStop?: () => void;
   centered?: boolean;
   isCompareMode?: boolean;
+  conversationId?: string;
+  idPrefix?: string;
+  isolatedAttachments?: boolean;
 }
 
 export default memo(function InputBar({
@@ -80,9 +83,13 @@ export default memo(function InputBar({
   onStop,
   centered = false,
   isCompareMode = false,
+  conversationId,
+  idPrefix,
+  isolatedAttachments = false,
 }: InputBarProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
+  const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,7 +104,7 @@ export default memo(function InputBar({
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
   const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
-    useAttachments();
+    useAttachments(isolatedAttachments);
 
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
@@ -116,7 +123,8 @@ export default memo(function InputBar({
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
   const showContextWindow = useUIStore((s) => s.showContextWindow);
-  const activeConversationId = useChatStore((s) => s.activeId);
+  const storeActiveConversationId = useChatStore((s) => s.activeId);
+  const activeConversationId = conversationId || storeActiveConversationId;
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
   const hasPendingWorktree = Boolean(conversation?.pendingWorktree);
   const setConversationProject = useChatStore((s) => s.setConversationProject);
@@ -776,7 +784,7 @@ export default memo(function InputBar({
           </div>
         ) : (
           <>
-            <label htmlFor="chat-input" className="sr-only">
+            <label htmlFor={elementId("chat-input")} className="sr-only">
               Message
             </label>
             <div
@@ -801,7 +809,7 @@ export default memo(function InputBar({
             >
               {/* Hidden input element */}
               <input
-                id="file-input-element"
+                id={elementId("file-input-element")}
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileChange}
@@ -1010,7 +1018,7 @@ export default memo(function InputBar({
                   <div className="flex-1" aria-hidden="true" />
 
                   <textarea
-                    id="chat-input"
+                    id={elementId("chat-input")}
                     ref={textareaRef}
                     value={value}
                     onChange={handleChange}
@@ -1022,7 +1030,7 @@ export default memo(function InputBar({
                     }
                     rows={1}
                     disabled={disabled}
-                    aria-describedby={isOverLimit ? "input-limit-error" : "input-hint"}
+                    aria-describedby={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
                     aria-invalid={isOverLimit}
                     className={`order-first mb-1 basis-full min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
                       voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
@@ -1161,7 +1169,7 @@ export default memo(function InputBar({
                       selectedModel={selectedModel}
                       onModelChange={onModelChange}
                       modelStatuses={modelStatuses}
-                      buttonId="model-selector-button"
+                      buttonId={elementId("model-selector-button")}
                     />
                   )}
 
@@ -1179,7 +1187,7 @@ export default memo(function InputBar({
                         </span>
                       )}
                       <button
-                        id="voice-input-button"
+                        id={elementId("voice-input-button")}
                         type="button"
                         onClick={handleToggleVoice}
                         disabled={isTranscribing}
@@ -1520,7 +1528,7 @@ export default memo(function InputBar({
             </div>
 
             <p
-              id={isOverLimit ? "input-limit-error" : "input-hint"}
+              id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
               className="mt-2 text-center text-[11px] text-text-muted"
             >
               {isOverLimit ? (
