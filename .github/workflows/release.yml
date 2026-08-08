@@ -46,7 +46,7 @@ jobs:
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           args: ""
-          uploadPlainBinary: true
+          uploadPlainBinary: false
 
   build-macos:
     runs-on: macos-latest
