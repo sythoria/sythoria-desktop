@@ -564,31 +564,19 @@ export function removeLegacyWhisperConfig(): void {
 
 export interface UiLayoutSettings {
   sidebarWidth: number;
-  auxPanelWidth: number;
-  isAuxSummaryPinned: boolean;
 }
 
 export async function loadUiLayoutSettings(): Promise<Partial<UiLayoutSettings>> {
   const store = await getStore();
-  const [sidebarWidth, auxPanelWidth, isAuxSummaryPinned] = await Promise.all([
-    store.get(SIDEBAR_WIDTH_KEY),
-    store.get(AUX_PANEL_WIDTH_KEY),
-    store.get(AUX_SUMMARY_PINNED_KEY),
-  ]);
+  const sidebarWidth = await store.get(SIDEBAR_WIDTH_KEY);
   return {
     ...(typeof sidebarWidth === "number" ? { sidebarWidth } : {}),
-    ...(typeof auxPanelWidth === "number" ? { auxPanelWidth } : {}),
-    ...(typeof isAuxSummaryPinned === "boolean" ? { isAuxSummaryPinned } : {}),
   };
 }
 
 export async function saveUiLayoutSettings(settings: Partial<UiLayoutSettings>): Promise<void> {
   const store = await getStore();
   if (settings.sidebarWidth !== undefined) await store.set(SIDEBAR_WIDTH_KEY, settings.sidebarWidth);
-  if (settings.auxPanelWidth !== undefined) await store.set(AUX_PANEL_WIDTH_KEY, settings.auxPanelWidth);
-  if (settings.isAuxSummaryPinned !== undefined) {
-    await store.set(AUX_SUMMARY_PINNED_KEY, settings.isAuxSummaryPinned);
-  }
   await store.save();
 }
 
