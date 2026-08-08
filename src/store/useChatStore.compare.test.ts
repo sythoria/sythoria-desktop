@@ -86,6 +86,17 @@ describe("compare mode chat transitions", () => {
     expect(state.conversations.some((conversation) => conversation.id === temporaryId)).toBe(false);
     expect(state.conversations.find((conversation) => conversation.id === regularId)?.isTemporary).not.toBe(true);
   });
+
+  it("creates a temporary side chat without replacing the active conversation", () => {
+    const sideChatId = useChatStore.getState().newSideChat();
+    const state = useChatStore.getState();
+
+    expect(sideChatId).toBeTruthy();
+    expect(state.activeId).toBe(primaryConversation.id);
+    expect(state.conversations.find((conversation) => conversation.id === sideChatId)?.isTemporary).toBe(true);
+    expect(state.conversations.find((conversation) => conversation.id === sideChatId)?.title).toBe("Side chat");
+    useChatStore.setState({ isCompareMode: false, compareIds: [] });
+  });
 });
 
 describe("subagent cancellation", () => {
