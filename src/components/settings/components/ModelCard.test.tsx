@@ -19,14 +19,7 @@ describe("ModelCard", () => {
     const user = userEvent.setup();
     const onUpdate = vi.fn();
 
-    render(
-      <ModelCard
-        model={model}
-        onUpdate={onUpdate}
-        onDelete={vi.fn()}
-        connectionStatus="disconnected"
-      />,
-    );
+    render(<ModelCard model={model} onUpdate={onUpdate} onDelete={vi.fn()} connectionStatus="disconnected" />);
 
     await user.click(screen.getByRole("button", { name: "Provider Preset" }));
     expect(screen.getByRole("listbox", { name: "Provider Preset" })).toBeInTheDocument();
@@ -36,7 +29,7 @@ describe("ModelCard", () => {
     expect(onUpdate).toHaveBeenCalledWith("model-1", {
       provider: "openai",
       apiBase: "https://api.openai.com/v1/chat/completions",
-      modelId: "gpt-4o",
+      modelId: "gpt-5.6-sol",
       name: "OpenAI",
       allowLocalNetwork: false,
     });
@@ -60,14 +53,7 @@ describe("ModelCard", () => {
   });
 
   it("does not require an API key for a custom endpoint", () => {
-    render(
-      <ModelCard
-        model={model}
-        onUpdate={vi.fn()}
-        onDelete={vi.fn()}
-        connectionStatus="disconnected"
-      />,
-    );
+    render(<ModelCard model={model} onUpdate={vi.fn()} onDelete={vi.fn()} connectionStatus="disconnected" />);
 
     expect(screen.getByLabelText("API Key")).toHaveAttribute("placeholder", "API Key (optional)");
     expect(screen.queryByText("API key is required for this provider")).not.toBeInTheDocument();
