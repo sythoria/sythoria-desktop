@@ -357,7 +357,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       name: "New Model",
       apiBase: "https://api.openai.com/v1/chat/completions",
       apiKey: "",
-      modelId: "gpt-4o",
+      modelId: "gpt-5.6-sol",
       provider: "OpenAI",
       enabled: true,
       allowLocalNetwork: false,
