@@ -37,6 +37,7 @@ describe("TerminalPane", () => {
 describe("workspace panel", () => {
   beforeEach(() => {
     invokeMock.mockImplementation(async (command) => {
+      if (command === "project_browse_begin") return "browser-run-token" as never;
       if (command === "git_get_status") {
         return {
           isRepo: true,

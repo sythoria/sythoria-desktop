@@ -25,8 +25,13 @@ fn get_and_validate_project(
 ) -> Result<ValidatedProjectAccess, AppError> {
     // Native run capabilities authorize an immutable project/worktree pair.
     // The currently visible project is intentionally irrelevant to an active run.
-    let capability_root =
-        crate::project::validate_project_run(state, run_token, project_id, worktree_path)?;
+    let capability_root = crate::project::validate_project_run_access(
+        state,
+        run_token,
+        project_id,
+        worktree_path,
+        required_permission == "write",
+    )?;
 
     let projects_guard = state
         .projects
@@ -221,11 +226,12 @@ pub async fn project_bash(
     worktree_path: Option<String>,
 ) -> Result<String, AppError> {
     // Validate the immutable run capability and retrieve its project config.
-    let capability_root = crate::project::validate_project_run(
+    let capability_root = crate::project::validate_project_run_access(
         &state,
         &run_token,
         &project_id,
         worktree_path.as_deref(),
+        true,
     )?;
     let mut project = {
         let projects_guard = state

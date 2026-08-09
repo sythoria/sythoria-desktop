@@ -28,8 +28,14 @@ fn get_and_validate_git_project(
     run_token: Option<&str>,
 ) -> Result<PathBuf, AppError> {
     let capability_root = if let Some(token) = run_token {
-        crate::project::validate_project_run(state, token, project_id, worktree_path)
-            .map_err(|e| AppError::GitError(e.to_string()))?
+        crate::project::validate_project_run_access(
+            state,
+            token,
+            project_id,
+            worktree_path,
+            write_required,
+        )
+        .map_err(|e| AppError::GitError(e.to_string()))?
     } else if let Some(path) = worktree_path.filter(|_| !write_required && allow_worktree_override)
     {
         let project = state

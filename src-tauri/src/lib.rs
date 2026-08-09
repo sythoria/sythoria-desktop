@@ -2218,6 +2218,7 @@ pub fn run() {
             project::save_projects,
             project::set_active_project,
             project::project_run_begin,
+            project::project_browse_begin,
             project::project_run_end,
             git::git_detect_repo,
             git::git_get_status,

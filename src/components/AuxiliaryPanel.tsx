@@ -365,6 +365,7 @@ function FileTreeRow({
   entry,
   depth,
   projectId,
+  runToken,
   worktreePath,
   expanded,
   onToggle,
@@ -374,6 +375,7 @@ function FileTreeRow({
   entry: FileTreeEntry;
   depth: number;
   projectId: string;
+  runToken: string;
   worktreePath?: string;
   expanded: Set<string>;
   onToggle: (path: string) => void;
@@ -386,7 +388,12 @@ function FileTreeRow({
 
   useEffect(() => {
     if (!entry.isDirectory || !isOpen || children) return;
-    invoke<string[]>("project_list_dir", { projectId, path: entry.path, worktreePath: worktreePath || null })
+    invoke<string[]>("project_list_dir", {
+      projectId,
+      runToken,
+      path: entry.path,
+      worktreePath: worktreePath || null,
+    })
       .then((items) =>
         setChildren(
           items.map((name) => ({
@@ -397,7 +404,7 @@ function FileTreeRow({
         ),
       )
       .catch(() => setChildren([]));
-  }, [children, entry.isDirectory, entry.path, isOpen, projectId, worktreePath]);
+  }, [children, entry.isDirectory, entry.path, isOpen, projectId, runToken, worktreePath]);
 
   return (
     <>
@@ -436,6 +443,7 @@ function FileTreeRow({
             entry={child}
             depth={depth + 1}
             projectId={projectId}
+            runToken={runToken}
             worktreePath={worktreePath}
             expanded={expanded}
             onToggle={onToggle}
@@ -447,7 +455,17 @@ function FileTreeRow({
   );
 }
 
-function FilesPane({ projectId, worktreePath }: { projectId: string | null; worktreePath?: string }) {
+function FilesPane({
+  projectId,
+  conversationId,
+  worktreePath,
+  worktreeBranch,
+}: {
+  projectId: string | null;
+  conversationId: string | null;
+  worktreePath?: string;
+  worktreeBranch?: string;
+}) {
   const [entries, setEntries] = useState<FileTreeEntry[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -455,14 +473,61 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runToken, setRunToken] = useState<string | null>(null);
+  const browserConversationId = conversationId || (projectId ? `auxiliary-files:${projectId}` : null);
+
+  useEffect(() => {
+    if (!projectId || !browserConversationId) {
+      setRunToken(null);
+      return;
+    }
+
+    let cancelled = false;
+    let acquiredToken: string | null = null;
+    setRunToken(null);
+    setEntries([]);
+    setError(null);
+
+    void invoke<string>("project_browse_begin", {
+      projectId,
+      conversationId: browserConversationId,
+      worktreePath: worktreePath || null,
+      branch: worktreePath ? worktreeBranch || null : null,
+    })
+      .then((token) => {
+        acquiredToken = token;
+        if (cancelled) {
+          void invoke("project_run_end", {
+            runToken: token,
+            conversationId: browserConversationId,
+          });
+        } else {
+          setRunToken(token);
+        }
+      })
+      .catch((nextError) => {
+        if (!cancelled) setError(errorMessage(nextError));
+      });
+
+    return () => {
+      cancelled = true;
+      if (acquiredToken) {
+        void invoke("project_run_end", {
+          runToken: acquiredToken,
+          conversationId: browserConversationId,
+        });
+      }
+    };
+  }, [browserConversationId, projectId, worktreeBranch, worktreePath]);
 
   const loadRoot = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId || !runToken) return;
     setLoading(true);
     setError(null);
     try {
       const items = await invoke<string[]>("project_list_dir", {
         projectId,
+        runToken,
         path: ".",
         worktreePath: worktreePath || null,
       });
@@ -478,7 +543,7 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
     } finally {
       setLoading(false);
     }
-  }, [projectId, worktreePath]);
+  }, [projectId, runToken, worktreePath]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -490,7 +555,7 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
   }, [loadRoot]);
 
   const selectFile = async (path: string) => {
-    if (!projectId) return;
+    if (!projectId || !runToken) return;
     setSelectedPath(path);
     setContent("");
     setLoading(true);
@@ -498,6 +563,7 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
       setContent(
         await invoke<string>("project_read", {
           projectId,
+          runToken,
           path,
           offset: 1,
           limit: 2000,
@@ -559,12 +625,14 @@ function FilesPane({ projectId, worktreePath }: { projectId: string | null; work
               {loading && entries.length === 0 ? (
                 <PanelSpinner label="Loading files…" />
               ) : (
+                runToken &&
                 filteredEntries.map((entry) => (
                   <FileTreeRow
                     key={entry.path}
                     entry={entry}
                     depth={0}
                     projectId={projectId}
+                    runToken={runToken}
                     worktreePath={worktreePath}
                     expanded={expanded}
                     onToggle={(path) =>
@@ -1185,10 +1253,11 @@ export function AuxiliaryPanel() {
       s.conversations.find((conversation) => conversation.id === s.activeId),
   );
   const activeId = activeConversation?.id ?? currentActiveId;
-  const { activeProjectId, projects, activeWorktreePath } = useProjectStore();
+  const { activeProjectId, projects, activeWorktreePath, activeWorktreeBranch } = useProjectStore();
   const projectId = activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
+  const worktreeBranch = activeConversation?.pendingWorktree?.branch || activeWorktreeBranch || undefined;
   const displayedTabs = activeTab && !openTabs.includes(activeTab) ? [...openTabs, activeTab] : openTabs;
 
   useEffect(() => {
@@ -1337,7 +1406,14 @@ export function AuxiliaryPanel() {
               {activeTab === "review" && (
                 <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
               )}
-              {activeTab === "files" && <FilesPane projectId={projectId} worktreePath={worktreePath} />}
+              {activeTab === "files" && (
+                <FilesPane
+                  projectId={projectId}
+                  conversationId={activeId}
+                  worktreePath={worktreePath}
+                  worktreeBranch={worktreeBranch}
+                />
+              )}
               {activeTab === "terminals" && (
                 <TerminalPane
                   projectId={projectId}

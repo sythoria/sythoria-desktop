@@ -46,6 +46,7 @@ struct ProjectRunCapability {
     project_id: String,
     worktree_path: Option<PathBuf>,
     branch: Option<String>,
+    read_only: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -402,9 +403,86 @@ pub(crate) fn register_project_run(
                 project_id: project_id.to_string(),
                 worktree_path: canonical_worktree,
                 branch: verified_branch,
+                read_only: false,
             },
         );
     Ok(token)
+}
+
+fn register_project_browser(
+    state: &ProjectRegistry,
+    project_id: &str,
+    conversation_id: &str,
+    worktree_path: Option<&str>,
+    branch: Option<&str>,
+) -> Result<String, AppError> {
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+        .get(project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::AppPath("Access denied: Project not found in registry".to_string())
+        })?;
+
+    let (canonical_worktree, verified_branch) = match worktree_path {
+        Some(path) => {
+            let verified = validate_owned_worktree(&project, path, branch)?;
+            (Some(verified.path), Some(verified.branch))
+        }
+        None => {
+            if branch.is_some() {
+                return Err(AppError::AppPath(
+                    "A worktree branch cannot be supplied without a worktree path".to_string(),
+                ));
+            }
+            (None, None)
+        }
+    };
+
+    let token = uuid::Uuid::new_v4().to_string();
+    state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
+        .insert(
+            token.clone(),
+            ProjectRunCapability {
+                conversation_id: conversation_id.to_string(),
+                project_id: project_id.to_string(),
+                worktree_path: canonical_worktree,
+                branch: verified_branch,
+                read_only: true,
+            },
+        );
+    Ok(token)
+}
+
+pub(crate) fn validate_project_run_access(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+    requested_worktree: Option<&str>,
+    write_required: bool,
+) -> Result<Option<PathBuf>, AppError> {
+    if write_required {
+        let capabilities = state
+            .run_capabilities
+            .lock()
+            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+        let capability = capabilities.get(run_token).ok_or_else(|| {
+            AppError::AppPath(
+                "Access denied: Project run capability is invalid or expired".to_string(),
+            )
+        })?;
+        if capability.read_only {
+            return Err(AppError::AppPath(
+                "Access denied: Project browser capability is read-only".to_string(),
+            ));
+        }
+    }
+    validate_project_run(state, run_token, project_id, requested_worktree)
 }
 
 pub(crate) fn validate_project_run(
@@ -473,6 +551,23 @@ pub(crate) fn project_run_begin(
     branch: Option<String>,
 ) -> Result<String, AppError> {
     register_project_run(
+        &state,
+        &project_id,
+        &conversation_id,
+        worktree_path.as_deref(),
+        branch.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub(crate) fn project_browse_begin(
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
+    conversation_id: String,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+) -> Result<String, AppError> {
+    register_project_browser(
         &state,
         &project_id,
         &conversation_id,
@@ -604,8 +699,7 @@ mod tests {
     use super::{
         is_sythoria_agent_branch, parse_git_worktrees, register_project_run,
         sythoria_worktree_root, validate_owned_worktree, validate_project_path,
-        validate_project_run, Project, ProjectExclusions,
-        ProjectPermission, ProjectRegistry,
+        validate_project_run, Project, ProjectExclusions, ProjectPermission, ProjectRegistry,
     };
     use std::fs;
     use std::path::PathBuf;
