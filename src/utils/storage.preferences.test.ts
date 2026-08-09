@@ -49,12 +49,13 @@ describe("encrypted preferences", () => {
   it("persists new preferences only through the encrypted backend", async () => {
     const { saveUiLayoutSettings } = await import("./storage");
 
-    await saveUiLayoutSettings({ sidebarWidth: 320 });
+    await saveUiLayoutSettings({ sidebarWidth: 320, auxPanelWidth: 440 });
 
     expect(localStorage.length).toBe(0);
     expect(invokeMock).toHaveBeenCalledWith("mutate_encrypted_preferences", {
       sets: {
         "sythoria-sidebar-width": 320,
+        "sythoria-aux-panel-width": 440,
       },
       deletes: [],
       clear: false,

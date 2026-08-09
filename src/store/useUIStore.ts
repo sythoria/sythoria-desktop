@@ -37,7 +37,12 @@ import {
   LIGHT_PRESETS,
   DARK_PRESETS,
 } from "../config/themePresets";
-import { DEFAULT_SIDEBAR_WIDTH } from "../config/constants";
+import {
+  DEFAULT_AUX_PANEL_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_AUX_PANEL_WIDTH,
+  MIN_AUX_PANEL_WIDTH,
+} from "../config/constants";
 import { useModelStore } from "./useModelStore";
 import { useProjectStore } from "./useProjectStore";
 export type { ThemeConfig, CustomThemeConfig };
@@ -141,6 +146,8 @@ interface UIState {
   setLanguage: (value: string) => void;
   sidebarWidth: number;
   setSidebarWidth: (width: number) => void;
+  auxPanelWidth: number;
+  setAuxPanelWidth: (width: number) => void;
   activeArtifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null;
   setActiveArtifact: (artifact: { title: string; content: string; type: "html" | "svg" | "mermaid" } | null) => void;
   openProjectConfigModal: (mode: "create" | "edit", id?: string | null) => void;
@@ -246,6 +253,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   offlineMode: false,
   language: "en",
   sidebarWidth: initialSidebarWidth,
+  auxPanelWidth: DEFAULT_AUX_PANEL_WIDTH,
   activeArtifact: null,
   pendingToolConfirmations: [],
   isCheckingUpdates: false,
@@ -278,6 +286,11 @@ export const useUIStore = create<UIState>((set, get) => ({
     const normalizedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, sidebarWidth));
     persistUiLayout({ sidebarWidth: normalizedWidth });
     set({ sidebarWidth: normalizedWidth });
+  },
+  setAuxPanelWidth: (auxPanelWidth) => {
+    const normalizedWidth = Math.max(MIN_AUX_PANEL_WIDTH, Math.min(MAX_AUX_PANEL_WIDTH, auxPanelWidth));
+    persistUiLayout({ auxPanelWidth: normalizedWidth });
+    set({ auxPanelWidth: normalizedWidth });
   },
   setActiveArtifact: (activeArtifact) => {
     const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;

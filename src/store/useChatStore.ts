@@ -52,7 +52,12 @@ import {
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
-import { TITLE_MAX_LENGTH } from "../config/constants";
+import {
+  DEFAULT_AUX_PANEL_WIDTH,
+  MAX_AUX_PANEL_WIDTH,
+  MIN_AUX_PANEL_WIDTH,
+  TITLE_MAX_LENGTH,
+} from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
 import {
   cancelConversationGenerationQueue,
@@ -567,6 +572,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         offlineMode: loadedNetworkSettings.offlineMode,
         language: hasOnboarded ? loadedLanguage : "en",
         sidebarWidth: Math.max(180, Math.min(480, loadedUiLayout.sidebarWidth ?? 260)),
+        auxPanelWidth: Math.max(
+          MIN_AUX_PANEL_WIDTH,
+          Math.min(MAX_AUX_PANEL_WIDTH, loadedUiLayout.auxPanelWidth ?? DEFAULT_AUX_PANEL_WIDTH),
+        ),
       });
       if (typeof document !== "undefined") {
         document.documentElement.lang = hasOnboarded ? loadedLanguage : "en";

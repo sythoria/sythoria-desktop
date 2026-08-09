@@ -392,7 +392,9 @@
 }
 
 .sidebar-resizing,
-.sidebar-resizing * {
+.sidebar-resizing *,
+.aux-panel-resizing,
+.aux-panel-resizing * {
   cursor: col-resize !important;
   user-select: none !important;
 }

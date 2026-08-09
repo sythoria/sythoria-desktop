@@ -1,4 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -73,13 +84,30 @@ import { useAppshotStore } from "./store/useAppshotStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
-import { motionTransitions } from "./lib/motion-tokens";
+import { motionTransitions, springs } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
 import type { ComparisonColumnHandle } from "./components/ComparisonColumn";
 import { executeCommand } from "./services/commandDispatcher";
 import { useDialogFocus } from "./hooks/useDialogFocus";
+import { DEFAULT_AUX_PANEL_WIDTH, MAX_AUX_PANEL_WIDTH, MIN_AUX_PANEL_WIDTH } from "./config/constants";
 
 import "./index.css";
+
+interface AuxiliaryPanelBounds {
+  min: number;
+  max: number;
+}
+
+function getAuxiliaryPanelBounds(containerWidth: number): AuxiliaryPanelBounds {
+  const safeWidth = Math.max(0, containerWidth);
+  const min = Math.min(300, Math.max(MIN_AUX_PANEL_WIDTH, Math.floor(safeWidth * 0.4)));
+  const max = Math.max(min, Math.min(MAX_AUX_PANEL_WIDTH, Math.floor(safeWidth * 0.48)));
+  return { min, max };
+}
+
+function clampAuxiliaryPanelWidth(width: number, bounds: AuxiliaryPanelBounds): number {
+  return Math.max(bounds.min, Math.min(bounds.max, width));
+}
 
 function getSafeSrcDoc(content: string, allowNetwork: boolean): string {
   const connectSrc = allowNetwork ? "*" : "'none'";
@@ -242,6 +270,7 @@ function App() {
     autoUpdateChecking,
     isAuxPanelOpen,
     isAuxPanelExpanded,
+    auxPanelWidth,
     showCommandPalette,
     showSpotlight,
     showProjectConfigModal,
@@ -269,6 +298,7 @@ function App() {
       autoUpdateChecking: s.autoUpdateChecking,
       isAuxPanelOpen: s.isAuxPanelOpen,
       isAuxPanelExpanded: s.isAuxPanelExpanded,
+      auxPanelWidth: s.auxPanelWidth,
       showCommandPalette: s.showCommandPalette,
       showSpotlight: s.showSpotlight,
       showProjectConfigModal: s.showProjectConfigModal,
@@ -291,6 +321,7 @@ function App() {
     toggleCommandPalette,
     setAuxPanelOpen,
     setAuxPanelExpanded,
+    setAuxPanelWidth,
     setActiveAuxTab,
     setActiveAuxConversationId,
   } = useUIStore(
@@ -311,6 +342,7 @@ function App() {
       toggleCommandPalette: s.toggleCommandPalette,
       setAuxPanelOpen: s.setAuxPanelOpen,
       setAuxPanelExpanded: s.setAuxPanelExpanded,
+      setAuxPanelWidth: s.setAuxPanelWidth,
       setActiveAuxTab: s.setActiveAuxTab,
       setActiveAuxConversationId: s.setActiveAuxConversationId,
     })),
@@ -325,6 +357,149 @@ function App() {
   );
   const [allowArtifactNetwork, setAllowArtifactNetwork] = useState(false);
   const sidebarOpenForViewport = sidebarOpen;
+  const showAuxiliaryPanel = isProjectsEnabled && isAuxPanelOpen;
+  const isWorkspacePanelFull = showAuxiliaryPanel && (isAuxPanelExpanded || isMobile);
+  const workspaceSplitRef = useRef<HTMLDivElement>(null);
+  const auxResizePointerRef = useRef<number | null>(null);
+  const isAuxPanelResizingRef = useRef(false);
+  const visualAuxPanelWidthRef = useRef(auxPanelWidth);
+  const [visualAuxPanelWidth, setVisualAuxPanelWidth] = useState(auxPanelWidth);
+  const [isAuxPanelResizing, setIsAuxPanelResizing] = useState(false);
+  const [workspaceSplitWidth, setWorkspaceSplitWidth] = useState(() =>
+    typeof window === "undefined" ? 1200 : window.innerWidth,
+  );
+  const [auxPanelBounds, setAuxPanelBounds] = useState(() =>
+    getAuxiliaryPanelBounds(typeof window === "undefined" ? 1200 : window.innerWidth),
+  );
+
+  const updateVisualAuxPanelWidth = useCallback((width: number) => {
+    const containerWidth = workspaceSplitRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    const bounds = getAuxiliaryPanelBounds(containerWidth);
+    const nextWidth = Math.round(clampAuxiliaryPanelWidth(width, bounds));
+    visualAuxPanelWidthRef.current = nextWidth;
+    setWorkspaceSplitWidth(containerWidth);
+    setAuxPanelBounds(bounds);
+    setVisualAuxPanelWidth(nextWidth);
+  }, []);
+
+  useEffect(() => {
+    if (isAuxPanelResizingRef.current) return;
+    updateVisualAuxPanelWidth(auxPanelWidth);
+  }, [auxPanelWidth, updateVisualAuxPanelWidth]);
+
+  useEffect(() => {
+    const split = workspaceSplitRef.current;
+    if (!split) return;
+    const fitPanelToAvailableSpace = () => {
+      if (!isAuxPanelResizingRef.current) updateVisualAuxPanelWidth(auxPanelWidth);
+    };
+    fitPanelToAvailableSpace();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fitPanelToAvailableSpace);
+    observer?.observe(split);
+    window.addEventListener("resize", fitPanelToAvailableSpace);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitPanelToAvailableSpace);
+    };
+  }, [auxPanelWidth, hasStarted, isConfigLoaded, showAuxiliaryPanel, updateVisualAuxPanelWidth, view]);
+
+  const stopAuxPanelResize = useCallback(() => {
+    if (!isAuxPanelResizingRef.current) return;
+    isAuxPanelResizingRef.current = false;
+    auxResizePointerRef.current = null;
+    setIsAuxPanelResizing(false);
+    document.documentElement.classList.remove("aux-panel-resizing");
+    setAuxPanelWidth(visualAuxPanelWidthRef.current);
+  }, [setAuxPanelWidth]);
+
+  const startAuxPanelResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    isAuxPanelResizingRef.current = true;
+    auxResizePointerRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsAuxPanelResizing(true);
+    document.documentElement.classList.add("aux-panel-resizing");
+  }, []);
+
+  const resizeAuxPanel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isAuxPanelResizingRef.current || auxResizePointerRef.current !== event.pointerId) return;
+      const rightEdge = workspaceSplitRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+      updateVisualAuxPanelWidth(rightEdge - event.clientX);
+    },
+    [updateVisualAuxPanelWidth],
+  );
+
+  const endAuxPanelResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (auxResizePointerRef.current !== event.pointerId) return;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      stopAuxPanelResize();
+    },
+    [stopAuxPanelResize],
+  );
+
+  const handleAuxPanelResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const direction = event.key === "ArrowLeft" ? 1 : event.key === "ArrowRight" ? -1 : 0;
+      if (!direction && event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      const step = event.shiftKey ? 24 : 8;
+      const nextWidth =
+        event.key === "Home"
+          ? auxPanelBounds.min
+          : event.key === "End"
+            ? auxPanelBounds.max
+            : visualAuxPanelWidthRef.current + direction * step;
+      updateVisualAuxPanelWidth(nextWidth);
+      setAuxPanelWidth(clampAuxiliaryPanelWidth(nextWidth, auxPanelBounds));
+    },
+    [auxPanelBounds, setAuxPanelWidth, updateVisualAuxPanelWidth],
+  );
+
+  const resetAuxPanelWidth = useCallback(() => {
+    updateVisualAuxPanelWidth(DEFAULT_AUX_PANEL_WIDTH);
+    setAuxPanelWidth(DEFAULT_AUX_PANEL_WIDTH);
+  }, [setAuxPanelWidth, updateVisualAuxPanelWidth]);
+
+  useEffect(() => {
+    if (!isAuxPanelResizing) return;
+    window.addEventListener("blur", stopAuxPanelResize);
+    return () => window.removeEventListener("blur", stopAuxPanelResize);
+  }, [isAuxPanelResizing, stopAuxPanelResize]);
+
+  useEffect(
+    () => () => {
+      document.documentElement.classList.remove("aux-panel-resizing");
+    },
+    [],
+  );
+
+  const auxiliaryPanelTargetWidth = isWorkspacePanelFull ? workspaceSplitWidth : visualAuxPanelWidth;
+  const auxiliaryPanelVariants = {
+    expanded: {
+      x: 0,
+      opacity: 1,
+      width: auxiliaryPanelTargetWidth,
+      borderLeftWidth: 1,
+      transition: {
+        ...(isAuxPanelResizing ? { type: "tween" as const, duration: 0 } : springs.release),
+        opacity: motionTransitions.popoverEnter,
+      },
+    },
+    collapsed: {
+      x: 8,
+      opacity: 0,
+      width: 0,
+      borderLeftWidth: 0,
+      transition: {
+        ...(isAuxPanelResizing ? { type: "tween" as const, duration: 0 } : springs.release),
+        opacity: motionTransitions.popoverExit,
+      },
+    },
+  };
 
   useEffect(() => {
     const wasMobile = previousIsMobileRef.current;
@@ -1050,10 +1225,6 @@ function App() {
     return <StartScreen onStart={() => setHasStarted(true)} />;
   }
 
-  const showAuxiliaryPanel = isProjectsEnabled && isAuxPanelOpen;
-  const isWorkspacePanelFull = showAuxiliaryPanel && (isAuxPanelExpanded || isMobile);
-  const sideChatWidth = typeof window === "undefined" ? 386 : Math.min(386, window.innerWidth * 0.42);
-
   return (
     <div className="flex h-screen w-screen overflow-hidden flex-col bg-transparent">
       <TitleBar />
@@ -1317,14 +1488,10 @@ function App() {
                   </div>
                 </header>
 
-                <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
+                <div ref={workspaceSplitRef} className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
                   {/* Left Column */}
                   <motion.div
-                    className="min-w-0 min-h-0 flex flex-col relative overflow-hidden"
-                    style={{ flex: "0 0 auto" }}
-                    initial={false}
-                    animate={{ width: showAuxiliaryPanel ? (isWorkspacePanelFull ? 0 : sideChatWidth) : "100%" }}
-                    transition={motionTransitions.panelEnter}
+                    className="min-w-0 min-h-0 flex flex-1 flex-col relative overflow-hidden"
                     aria-hidden={isWorkspacePanelFull}
                     inert={isWorkspacePanelFull ? true : undefined}
                   >
@@ -1426,25 +1593,51 @@ function App() {
                     {showAuxiliaryPanel && (
                       <motion.div
                         key="workspace-panel"
-                        className="relative z-20 flex min-h-0 min-w-0 flex-1 flex-col border-l border-border/50 bg-chat"
-                        initial={{ opacity: 0, x: 8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 8, transition: motionTransitions.panelExit }}
-                        transition={motionTransitions.panelEnter}
+                        className="relative z-20 flex min-h-0 min-w-0 shrink-0 flex-col border-l border-border/50 bg-chat"
+                        initial="collapsed"
+                        animate="expanded"
+                        exit="collapsed"
+                        variants={auxiliaryPanelVariants}
                       >
-                        <Suspense
-                          fallback={
-                            <div
-                              className="flex h-full items-center justify-center"
-                              role="status"
-                              aria-label="Loading workspace panel"
-                            >
-                              <Spinner size="md" />
-                            </div>
-                          }
-                        >
-                          <AuxiliaryPanel />
-                        </Suspense>
+                        {!isWorkspacePanelFull && (
+                          // The adjustable separator follows the WAI-ARIA window-splitter pattern.
+                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+                          <div
+                            className="group absolute -left-1 top-0 z-40 hidden h-full w-2 cursor-col-resize touch-none select-none focus-visible:outline-none md:block"
+                            role="separator"
+                            aria-label="Resize workspace panel"
+                            aria-orientation="vertical"
+                            aria-valuemin={auxPanelBounds.min}
+                            aria-valuemax={auxPanelBounds.max}
+                            aria-valuenow={Math.round(visualAuxPanelWidth)}
+                            tabIndex={0}
+                            title="Drag to resize; double-click to reset"
+                            onPointerDown={startAuxPanelResize}
+                            onPointerMove={resizeAuxPanel}
+                            onPointerUp={endAuxPanelResize}
+                            onPointerCancel={endAuxPanelResize}
+                            onLostPointerCapture={stopAuxPanelResize}
+                            onKeyDown={handleAuxPanelResizeKeyDown}
+                            onDoubleClick={resetAuxPanelWidth}
+                          >
+                            <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-40 group-active:opacity-70 group-focus-visible:opacity-60" />
+                          </div>
+                        )}
+                        <div className="h-full shrink-0 overflow-hidden" style={{ width: auxiliaryPanelTargetWidth }}>
+                          <Suspense
+                            fallback={
+                              <div
+                                className="flex h-full items-center justify-center"
+                                role="status"
+                                aria-label="Loading workspace panel"
+                              >
+                                <Spinner size="md" />
+                              </div>
+                            }
+                          >
+                            <AuxiliaryPanel />
+                          </Suspense>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>

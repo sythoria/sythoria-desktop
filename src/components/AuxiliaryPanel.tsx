@@ -1276,28 +1276,32 @@ export function AuxiliaryPanel() {
             exit={{ opacity: 0, x: -6, transition: motionTransitions.popoverExit }}
             transition={motionTransitions.popoverEnter}
           >
-            <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/40 px-2">
-              <button
-                type="button"
-                onClick={() => setActiveTab(null)}
-                className="order-3 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
-                aria-label={`Close ${activePanel?.label || "tab"}`}
-                title="Close tab"
-              >
-                <X size={11} />
-              </button>
-              {ActivePanelIcon && <ActivePanelIcon size={13} className="shrink-0 text-text-muted" />}
-              <div className="min-w-0 rounded-lg bg-surface/80 py-1 pr-2">
+            <header className="flex h-11 shrink-0 items-center border-b border-border/40 px-2">
+              <div className="relative flex h-full min-w-0 flex-1 items-center gap-2 px-2 after:absolute after:inset-x-1 after:bottom-0 after:h-px after:bg-accent/80">
+                {ActivePanelIcon && <ActivePanelIcon size={13} className="shrink-0 text-text-muted" />}
                 <p className="truncate text-xs font-medium text-text-primary">{activePanel?.label}</p>
-                <p className="truncate text-[9px] text-text-muted">
+                <span className="text-[10px] text-text-muted" aria-hidden="true">
+                  /
+                </span>
+                <p className="min-w-0 truncate text-[10px] text-text-muted">
                   {project?.name || "No project"}
                   {worktreePath ? " · isolated" : ""}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(null)}
+                  className="ml-auto shrink-0 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+                  aria-label={`Close ${activePanel?.label || "tab"}`}
+                  title="Close tab"
+                >
+                  <X size={11} />
+                </button>
               </div>
+              <div className="mx-1 h-4 w-px bg-border/50" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => setActiveTab(null)}
-                className="order-4 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+                className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
                 aria-label="Open another workspace tool"
                 title="Open another workspace tool"
               >
