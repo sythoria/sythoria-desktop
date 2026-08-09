@@ -1166,7 +1166,9 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
 
 export function AuxiliaryPanel() {
   const activeTab = useUIStore((s) => s.activeAuxTab);
+  const openTabs = useUIStore((s) => s.openAuxTabs);
   const setActiveTab = useUIStore((s) => s.setActiveAuxTab);
+  const closeTab = useUIStore((s) => s.closeAuxTab);
   const setOpen = useUIStore((s) => s.setAuxPanelOpen);
   const activeArtifact = useUIStore((s) => s.activeArtifact);
   const activeAuxConversationId = useUIStore((s) => s.activeAuxConversationId);
@@ -1187,8 +1189,7 @@ export function AuxiliaryPanel() {
   const projectId = activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
-  const activePanel = activeTab ? panelTitles[activeTab] : null;
-  const ActivePanelIcon = activePanel?.icon;
+  const displayedTabs = activeTab && !openTabs.includes(activeTab) ? [...openTabs, activeTab] : openTabs;
 
   useEffect(() => {
     if (activeTab !== "chat" || (sideChatConversationId && sideChatExists)) return;
@@ -1229,6 +1230,62 @@ export function AuxiliaryPanel() {
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-chat" aria-label="Workspace panel">
+      {displayedTabs.length > 0 && (
+        <header className="flex h-11 shrink-0 items-center border-b border-border/40 px-2">
+          <div
+            className="flex h-full min-w-0 flex-1 items-center overflow-x-auto"
+            role="tablist"
+            aria-label="Workspace tabs"
+          >
+            {displayedTabs.map((tab) => {
+              const panel = panelTitles[tab];
+              const PanelIcon = panel.icon;
+              const isActive = activeTab === tab;
+
+              return (
+                <div
+                  key={tab}
+                  className={`relative flex h-full shrink-0 items-center border-r border-border/30 px-1 ${
+                    isActive ? "after:absolute after:inset-x-1 after:bottom-0 after:h-px after:bg-accent/80" : ""
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActiveTab(tab)}
+                    className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${
+                      isActive ? "text-text-primary" : "text-text-muted hover:bg-hover hover:text-text-secondary"
+                    }`}
+                  >
+                    <PanelIcon size={13} className="shrink-0" />
+                    <span>{panel.label}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => closeTab(tab)}
+                    className="shrink-0 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+                    aria-label={`Close ${panel.label}`}
+                    title={`Close ${panel.label}`}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mx-1 h-4 w-px shrink-0 bg-border/50" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => setActiveTab(null)}
+            className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+            aria-label="Add workspace tab"
+            title="Add workspace tab"
+          >
+            <Plus size={13} />
+          </button>
+        </header>
+      )}
       <AnimatePresence mode="wait" initial={false}>
         {activeTab === null ? (
           <motion.div
@@ -1276,38 +1333,6 @@ export function AuxiliaryPanel() {
             exit={{ opacity: 0, x: -6, transition: motionTransitions.popoverExit }}
             transition={motionTransitions.popoverEnter}
           >
-            <header className="flex h-11 shrink-0 items-center border-b border-border/40 px-2">
-              <div className="relative flex h-full min-w-0 flex-1 items-center gap-2 px-2 after:absolute after:inset-x-1 after:bottom-0 after:h-px after:bg-accent/80">
-                {ActivePanelIcon && <ActivePanelIcon size={13} className="shrink-0 text-text-muted" />}
-                <p className="truncate text-xs font-medium text-text-primary">{activePanel?.label}</p>
-                <span className="text-[10px] text-text-muted" aria-hidden="true">
-                  /
-                </span>
-                <p className="min-w-0 truncate text-[10px] text-text-muted">
-                  {project?.name || "No project"}
-                  {worktreePath ? " · isolated" : ""}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab(null)}
-                  className="ml-auto shrink-0 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
-                  aria-label={`Close ${activePanel?.label || "tab"}`}
-                  title="Close tab"
-                >
-                  <X size={11} />
-                </button>
-              </div>
-              <div className="mx-1 h-4 w-px bg-border/50" aria-hidden="true" />
-              <button
-                type="button"
-                onClick={() => setActiveTab(null)}
-                className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
-                aria-label="Open another workspace tool"
-                title="Open another workspace tool"
-              >
-                <Plus size={13} />
-              </button>
-            </header>
             <div className="relative min-h-0 flex-1 overflow-hidden">
               {activeTab === "review" && (
                 <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />

@@ -174,6 +174,7 @@ interface UIState {
   isAuxPanelOpen: boolean;
   isAuxPanelExpanded: boolean;
   activeAuxTab: AuxiliaryTab | null;
+  openAuxTabs: AuxiliaryTab[];
   activeAuxConversationId: string | null;
   sideChatConversationId: string | null;
   backgroundTasks: Array<{
@@ -186,6 +187,7 @@ interface UIState {
   setAuxPanelOpen: (open: boolean) => void;
   setAuxPanelExpanded: (expanded: boolean) => void;
   setActiveAuxTab: (tab: AuxiliaryTab | null) => void;
+  closeAuxTab: (tab: AuxiliaryTab) => void;
   setActiveAuxConversationId: (conversationId: string | null) => void;
   setSideChatConversationId: (conversationId: string | null) => void;
   addTask: (id: string, title: string, convId: string) => void;
@@ -271,6 +273,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isAuxPanelOpen: false,
   isAuxPanelExpanded: false,
   activeAuxTab: null,
+  openAuxTabs: [],
   activeAuxConversationId: null,
   sideChatConversationId: null,
   backgroundTasks: [],
@@ -279,7 +282,8 @@ export const useUIStore = create<UIState>((set, get) => ({
     const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;
     set({ activeSubagentId: isProjectsEnabled ? activeSubagentId : null });
     if (isProjectsEnabled && activeSubagentId) {
-      set({ activeAuxTab: "activity", isAuxPanelOpen: true });
+      get().setActiveAuxTab("activity");
+      set({ isAuxPanelOpen: true });
     }
   },
   setSidebarWidth: (sidebarWidth) => {
@@ -296,7 +300,8 @@ export const useUIStore = create<UIState>((set, get) => ({
     const isProjectsEnabled = useProjectStore.getState().isProjectsEnabled;
     set({ activeArtifact: isProjectsEnabled ? activeArtifact : null });
     if (isProjectsEnabled && activeArtifact) {
-      set({ activeAuxTab: "artifacts", isAuxPanelOpen: true });
+      get().setActiveAuxTab("artifacts");
+      set({ isAuxPanelOpen: true });
     }
   },
   setAuxPanelOpen: (isAuxPanelOpen) =>
@@ -311,7 +316,26 @@ export const useUIStore = create<UIState>((set, get) => ({
       };
     }),
   setAuxPanelExpanded: (isAuxPanelExpanded) => set({ isAuxPanelExpanded }),
-  setActiveAuxTab: (activeAuxTab) => set({ activeAuxTab }),
+  setActiveAuxTab: (activeAuxTab) =>
+    set((state) => ({
+      activeAuxTab,
+      openAuxTabs:
+        activeAuxTab && !state.openAuxTabs.includes(activeAuxTab)
+          ? [...state.openAuxTabs, activeAuxTab]
+          : state.openAuxTabs,
+    })),
+  closeAuxTab: (tab) =>
+    set((state) => {
+      const tabIndex = state.openAuxTabs.indexOf(tab);
+      const openAuxTabs = state.openAuxTabs.filter((openTab) => openTab !== tab);
+
+      if (state.activeAuxTab !== tab) return { openAuxTabs };
+
+      return {
+        openAuxTabs,
+        activeAuxTab: openAuxTabs[Math.min(Math.max(tabIndex, 0), openAuxTabs.length - 1)] ?? null,
+      };
+    }),
   setActiveAuxConversationId: (activeAuxConversationId) => set({ activeAuxConversationId }),
   setSideChatConversationId: (sideChatConversationId) => set({ sideChatConversationId }),
   addTask: (id, title, convId) =>

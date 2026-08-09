@@ -63,6 +63,7 @@ describe("workspace panel", () => {
     useUIStore.setState({
       isAuxPanelOpen: true,
       activeAuxTab: null,
+      openAuxTabs: [],
       activeAuxConversationId: null,
       sideChatConversationId: null,
       backgroundTasks: [
@@ -140,5 +141,19 @@ describe("workspace panel", () => {
         .conversations.find((conversation) => conversation.id === useUIStore.getState().sideChatConversationId)
         ?.isTemporary,
     ).toBe(true);
+  });
+
+  it("adds a workspace tab without replacing the existing tab", async () => {
+    render(<AuxiliaryPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    expect(await screen.findByRole("tab", { name: "Review" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add workspace tab" }));
+    fireEvent.click(screen.getByRole("button", { name: /Files/ }));
+
+    expect(screen.getByRole("tab", { name: "Review" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
+    expect(useUIStore.getState().openAuxTabs).toEqual(["review", "files"]);
   });
 });
