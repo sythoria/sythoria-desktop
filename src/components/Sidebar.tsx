@@ -23,7 +23,7 @@ import { STATUS_COLORS } from "../types";
 import type { ModelStatuses, ConnectionStatus } from "../types";
 import { ConfirmModal } from "./ui/Modal";
 import { useDebounce } from "../hooks/useDebounce";
-import { COLLAPSED_SIDEBAR_WIDTH } from "../config/constants";
+import { COLLAPSED_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "../config/constants";
 import { useUIStore } from "../store/useUIStore";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useProjectStore } from "../store/useProjectStore";
@@ -267,6 +267,11 @@ export default memo(function Sidebar({
     },
     [setSidebarWidth, updateVisualSidebarWidth],
   );
+
+  const resetSidebarWidth = useCallback(() => {
+    updateVisualSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+    setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+  }, [setSidebarWidth, updateVisualSidebarWidth]);
 
   useEffect(() => {
     if (!isResizing) return;
@@ -1109,12 +1114,14 @@ export default memo(function Sidebar({
             aria-valuemax={getResponsiveMaxSidebarWidth(typeof window === "undefined" ? undefined : window.innerWidth)}
             aria-valuenow={Math.round(visualSidebarWidth)}
             tabIndex={0}
+            title="Double-click to reset sidebar width"
             onPointerDown={startResize}
             onPointerMove={resize}
             onPointerUp={handleResizeEnd}
             onPointerCancel={handleResizeEnd}
             onLostPointerCapture={stopResize}
             onKeyDown={handleResizeKeyDown}
+            onDoubleClick={resetSidebarWidth}
           >
             <span className="pointer-events-none absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent opacity-0 transition-opacity group-hover:opacity-40 group-active:opacity-70 group-focus-visible:opacity-60" />
           </div>

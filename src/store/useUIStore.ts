@@ -37,6 +37,7 @@ import {
   LIGHT_PRESETS,
   DARK_PRESETS,
 } from "../config/themePresets";
+import { DEFAULT_SIDEBAR_WIDTH } from "../config/constants";
 import { useModelStore } from "./useModelStore";
 import { useProjectStore } from "./useProjectStore";
 export type { ThemeConfig, CustomThemeConfig };
@@ -185,7 +186,6 @@ interface UIState {
   clearTasks: () => void;
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 180;
 const MAX_SIDEBAR_WIDTH = 480;
 

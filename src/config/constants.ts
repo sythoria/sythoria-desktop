@@ -7,6 +7,7 @@ export const MAX_TEMPERATURE = 2.0;
 export const MIN_TEMPERATURE = 0.0;
 export const TEMPERATURE_STEP = 0.1;
 export const COLLAPSED_SIDEBAR_WIDTH = 0;
+export const DEFAULT_SIDEBAR_WIDTH = 260;
 export const DEFAULT_MAX_TOOL_STEPS = 25;
 export const MIN_TOOL_STEPS = 1;
 export const MAX_TOOL_STEPS_LIMIT = 25;
