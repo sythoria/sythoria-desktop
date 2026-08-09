@@ -13,6 +13,7 @@ mod secret_storage;
 mod secure_storage;
 mod skills;
 mod stream_parser;
+mod terminal;
 mod ws_handler;
 
 use futures_util::StreamExt;
@@ -1864,6 +1865,7 @@ pub fn run() {
         .manage(project_registry)
         .manage(file_token_registry)
         .manage(ws_handler::WsSession::default())
+        .manage(terminal::TerminalRegistry::default())
         .manage(TrayRuntimeState::default())
         .manage(LaunchRuntimeState::default())
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -2238,6 +2240,10 @@ pub fn run() {
             project_tools::project_grep,
             project_tools::project_glob,
             project_tools::create_project_dir,
+            terminal::terminal_start,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_stop,
             appshots::capture_screen,
             appshots::list_appshots,
             appshots::delete_appshot,

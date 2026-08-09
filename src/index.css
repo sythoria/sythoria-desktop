@@ -1,4 +1,13 @@
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Sythoria Nerd Symbols";
+  src: url("./assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 @theme {
   --color-sidebar: var(--theme-sidebar);
   --color-chat: var(--theme-chat);

@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 import { AnimatePresence, motion } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import {
@@ -11,7 +15,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Circle,
   ClipboardCheck,
   File,
   FileCode2,
@@ -23,7 +26,6 @@ import {
   ExternalLink,
   Loader2,
   MessageSquare,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -34,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motionTransitions } from "../lib/motion-tokens";
 import { useChatStore } from "../store/useChatStore";
 import { GitStatus } from "../store/useGitStore";
@@ -48,13 +50,6 @@ import { openExternalUrl } from "../utils/externalUrl";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
-
-interface TerminalEntry {
-  id: number;
-  command: string;
-  output: string;
-  status: "running" | "success" | "error";
-}
 
 interface FileTreeEntry {
   name: string;
@@ -686,75 +681,117 @@ export function TerminalPane({
   projectId,
   projectPath,
   worktreePath,
-  canExecute,
 }: {
   projectId: string | null;
   projectPath?: string;
   worktreePath?: string;
-  canExecute: boolean;
 }) {
-  const [command, setCommand] = useState("");
-  const [entries, setEntries] = useState<TerminalEntry[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const endRef = useRef<HTMLDivElement | null>(null);
-  const nextId = useRef(0);
-  const running = entries.some((entry) => entry.status === "running");
+  const terminalContainerRef = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const cwd = worktreePath || projectPath;
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [entries]);
+    if (!projectId || !cwd || !terminalContainerRef.current) return;
 
-  const runCommand = async (event: FormEvent) => {
-    event.preventDefault();
-    const nextCommand = command.trim();
-    if (!nextCommand || !projectId || !cwd || running) return;
-    const id = ++nextId.current;
-    setCommand("");
-    setHistoryIndex(-1);
-    setEntries((current) => [
-      ...current,
-      { id, command: nextCommand, output: "Waiting for confirmation…", status: "running" },
-    ]);
-    try {
-      const output = await invoke<string>("project_bash", {
-        projectId,
-        command: nextCommand,
-        cwd,
-        timeout: 120000,
-        runInBackground: false,
-        worktreePath: worktreePath || null,
-      });
-      setEntries((current) =>
-        current.map((entry) =>
-          entry.id === id
-            ? { ...entry, output: output || "Command completed with no output.", status: "success" }
-            : entry,
-        ),
-      );
-    } catch (nextError) {
-      setEntries((current) =>
-        current.map((entry) =>
-          entry.id === id ? { ...entry, output: errorMessage(nextError), status: "error" } : entry,
-        ),
-      );
-    }
-  };
+    const sessionId = crypto.randomUUID();
+    const terminal = new Terminal({
+      cursorBlink: true,
+      cursorStyle: "bar",
+      fontFamily:
+        '"MesloLGS NF", "JetBrainsMono Nerd Font Mono", "Hack Nerd Font Mono", "SFMono-Regular", "Cascadia Code", "Liberation Mono", "Sythoria Nerd Symbols", monospace',
+      fontSize: 12,
+      lineHeight: 1.25,
+      scrollback: 10_000,
+      screenReaderMode: true,
+      theme: {
+        background: "#0b0d10",
+        foreground: "#d1d5db",
+        cursor: "#e5e7eb",
+        selectionBackground: "#2563eb66",
+      },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(terminalContainerRef.current);
 
-  const commandHistory = entries.map((entry) => entry.command);
-  const handleCommandKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    event.preventDefault();
-    if (event.key === "ArrowUp" && commandHistory.length) {
-      const next = historyIndex < 0 ? commandHistory.length - 1 : Math.max(0, historyIndex - 1);
-      setHistoryIndex(next);
-      setCommand(commandHistory[next]);
-    } else if (event.key === "ArrowDown" && historyIndex >= 0) {
-      const next = historyIndex + 1;
-      setHistoryIndex(next >= commandHistory.length ? -1 : next);
-      setCommand(next >= commandHistory.length ? "" : commandHistory[next]);
-    }
-  };
+    let disposed = false;
+    let started = false;
+    let writeQueue = Promise.resolve();
+    let unlistenOutput: UnlistenFn | undefined;
+    let unlistenExit: UnlistenFn | undefined;
+    const fit = () => {
+      if (disposed) return;
+      try {
+        fitAddon.fit();
+        if (started) {
+          void invoke("terminal_resize", { sessionId, cols: terminal.cols, rows: terminal.rows }).catch(() => {});
+        }
+      } catch {
+        // The panel can briefly have zero dimensions while its tab animates in.
+      }
+    };
+    const resizeObserver = new ResizeObserver(fit);
+    resizeObserver.observe(terminalContainerRef.current);
+    requestAnimationFrame(fit);
+
+    const inputDisposable = terminal.onData((data) => {
+      if (!started) return;
+      writeQueue = writeQueue
+        .then(() => invoke<void>("terminal_write", { sessionId, data }))
+        .catch(() => {});
+    });
+
+    const start = async () => {
+      try {
+        [unlistenOutput, unlistenExit] = await Promise.all([
+          listen<{ sessionId: string; data: number[] }>("terminal-output", (event) => {
+            if (event.payload.sessionId === sessionId) terminal.write(new Uint8Array(event.payload.data));
+          }),
+          listen<{ sessionId: string; exitCode: number; signal?: string }>("terminal-exit", (event) => {
+            if (event.payload.sessionId !== sessionId) return;
+            started = false;
+            const reason = event.payload.signal ? `signal ${event.payload.signal}` : `code ${event.payload.exitCode}`;
+            terminal.write(`\r\n\x1b[90m[Shell exited with ${reason}]\x1b[0m\r\n`);
+          }),
+        ]);
+        if (disposed) {
+          unlistenOutput?.();
+          unlistenExit?.();
+          return;
+        }
+        await invoke("terminal_start", {
+          sessionId,
+          projectId,
+          worktreePath: worktreePath || null,
+          cols: terminal.cols,
+          rows: terminal.rows,
+        });
+        if (disposed) {
+          await invoke("terminal_stop", { sessionId }).catch(() => {});
+          return;
+        }
+        started = true;
+        setError(null);
+        fit();
+        terminal.focus();
+      } catch (nextError) {
+        if (!disposed) setError(errorMessage(nextError));
+      }
+    };
+    void start();
+
+    return () => {
+      disposed = true;
+      resizeObserver.disconnect();
+      inputDisposable.dispose();
+      unlistenOutput?.();
+      unlistenExit?.();
+      if (started) {
+        void writeQueue.then(() => invoke("terminal_stop", { sessionId })).catch(() => {});
+      }
+      terminal.dispose();
+    };
+  }, [cwd, projectId, worktreePath]);
 
   if (!projectId || !cwd)
     return (
@@ -766,72 +803,16 @@ export function TerminalPane({
     );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#0b0d10] text-gray-200">
-      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2 font-mono text-[10px] text-gray-500">
-        <div className="flex min-w-0 items-center gap-2">
-          <Circle size={7} className="fill-emerald-500 text-emerald-500" />
-          <span className="truncate">{cwd}</span>
-        </div>
-        <button
-          onClick={() => setEntries([])}
-          className="rounded p-1 text-gray-500 hover:bg-white/10 hover:text-gray-200"
-          title="Clear terminal"
+    <div className="relative h-full min-h-0 bg-[#0b0d10]">
+      <div ref={terminalContainerRef} aria-label="Project terminal" className="h-full min-h-0 p-2" />
+      {error && (
+        <div
+          role="alert"
+          className="absolute inset-x-3 top-3 rounded-md border border-red-500/30 bg-red-950/95 p-3 text-xs text-red-200"
         >
-          <Trash2 size={12} />
-        </button>
-      </div>
-      {!canExecute && (
-        <div className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-          This project needs Full permission before terminal commands can run.
+          {error}
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-5 selection:bg-blue-500/30">
-        {entries.length === 0 && (
-          <div className="text-gray-600">
-            Sythoria workspace terminal
-            <br />
-            Commands require confirmation before execution.
-          </div>
-        )}
-        {entries.map((entry) => (
-          <div key={entry.id} className="mb-4">
-            <div className="flex gap-2 text-gray-200">
-              <span className="select-none text-emerald-400">❯</span>
-              <span className="whitespace-pre-wrap">{entry.command}</span>
-            </div>
-            <pre
-              className={`mt-1 whitespace-pre-wrap break-words ${entry.status === "error" ? "text-red-400" : entry.status === "running" ? "text-amber-300" : "text-gray-400"}`}
-            >
-              {entry.output}
-            </pre>
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-      <form
-        onSubmit={(event) => void runCommand(event)}
-        className="flex shrink-0 items-center gap-2 border-t border-white/10 bg-white/[0.025] px-3 py-2 font-mono"
-      >
-        <span className="text-sm text-emerald-400">❯</span>
-        <input
-          value={command}
-          onChange={(event) => setCommand(event.target.value)}
-          onKeyDown={handleCommandKeyDown}
-          disabled={!canExecute || running}
-          spellCheck={false}
-          autoCapitalize="off"
-          placeholder={canExecute ? "Run a command…" : "Full project permission required"}
-          className="min-w-0 flex-1 bg-transparent text-xs text-gray-100 outline-none placeholder:text-gray-600 disabled:cursor-not-allowed"
-        />
-        <button
-          type="submit"
-          disabled={!command.trim() || !canExecute || running}
-          className="rounded-md bg-white/10 p-1.5 text-gray-300 transition-colors hover:bg-white/15 disabled:opacity-30"
-          title="Run command"
-        >
-          {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-        </button>
-      </form>
     </div>
   );
 }
@@ -1355,80 +1336,87 @@ export function AuxiliaryPanel() {
           </button>
         </header>
       )}
-      <AnimatePresence mode="wait" initial={false}>
-        {activeTab === null ? (
-          <motion.div
-            key="workspace-launcher"
-            className="flex min-h-0 flex-1 items-center justify-center px-6 pb-[8vh]"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4, transition: motionTransitions.popoverExit }}
-            transition={motionTransitions.popoverEnter}
+      <div className="relative min-h-0 flex-1">
+        {openTabs.includes("terminals") && (
+          <div
+            role="tabpanel"
+            aria-label="Terminal"
+            className={`absolute inset-0 ${activeTab === "terminals" ? "visible" : "invisible"}`}
           >
-            <nav className="w-full max-w-[540px] space-y-1" aria-label="Workspace panel launcher">
-              {panelLaunchItems.map(({ id, label, icon: Icon, shortcut }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => openPanel(id)}
-                  className="group flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-transparent bg-surface/55 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:border-border/60 hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-                >
-                  <Icon
-                    size={13}
-                    className="shrink-0 text-text-muted transition-colors group-hover:text-text-secondary"
-                  />
-                  <span className="min-w-0 flex-1">{label}</span>
-                  {id === "artifacts" && activeArtifact && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" title="Preview available" />
-                  )}
-                  {shortcut && (
-                    <kbd
-                      aria-hidden="true"
-                      className="rounded-full bg-chat/60 px-1.5 py-0.5 font-sans text-[10px] text-text-muted"
-                    >
-                      {shortcut}
-                    </kbd>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </motion.div>
-        ) : (
-          <motion.div
-            key={activeTab}
-            className="flex min-h-0 flex-1 flex-col"
-            initial={{ opacity: 0, x: 6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6, transition: motionTransitions.popoverExit }}
-            transition={motionTransitions.popoverEnter}
-          >
-            <div className="relative min-h-0 flex-1 overflow-hidden">
-              {activeTab === "review" && (
-                <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
-              )}
-              {activeTab === "files" && (
-                <FilesPane
-                  projectId={projectId}
-                  conversationId={activeId}
-                  worktreePath={worktreePath}
-                  worktreeBranch={worktreeBranch}
-                />
-              )}
-              {activeTab === "terminals" && (
-                <TerminalPane
-                  projectId={projectId}
-                  projectPath={project?.path}
-                  worktreePath={worktreePath}
-                  canExecute={project?.permissions === "full"}
-                />
-              )}
-              {activeTab === "activity" && <ActivityPane activeId={activeId} />}
-              {activeTab === "artifacts" && <BrowserPane />}
-              {activeTab === "chat" && <SideChatPane conversationId={sideChatConversationId} />}
-            </div>
-          </motion.div>
+            <TerminalPane projectId={projectId} projectPath={project?.path} worktreePath={worktreePath} />
+          </div>
         )}
-      </AnimatePresence>
+        <AnimatePresence mode="wait" initial={false}>
+          {activeTab === null ? (
+            <motion.div
+              key="workspace-launcher"
+              className="absolute inset-0 flex items-center justify-center px-6 pb-[8vh]"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4, transition: motionTransitions.popoverExit }}
+              transition={motionTransitions.popoverEnter}
+            >
+              <nav className="w-full max-w-[540px] space-y-1" aria-label="Workspace panel launcher">
+                {panelLaunchItems.map(({ id, label, icon: Icon, shortcut }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => openPanel(id)}
+                    className="group flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-transparent bg-surface/55 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:border-border/60 hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                  >
+                    <Icon
+                      size={13}
+                      className="shrink-0 text-text-muted transition-colors group-hover:text-text-secondary"
+                    />
+                    <span className="min-w-0 flex-1">{label}</span>
+                    {id === "artifacts" && activeArtifact && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-accent"
+                        aria-hidden="true"
+                        title="Preview available"
+                      />
+                    )}
+                    {shortcut && (
+                      <kbd
+                        aria-hidden="true"
+                        className="rounded-full bg-chat/60 px-1.5 py-0.5 font-sans text-[10px] text-text-muted"
+                      >
+                        {shortcut}
+                      </kbd>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            </motion.div>
+          ) : activeTab !== "terminals" ? (
+            <motion.div
+              key={activeTab}
+              className="absolute inset-0 flex min-h-0 flex-col"
+              initial={{ opacity: 0, x: 6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6, transition: motionTransitions.popoverExit }}
+              transition={motionTransitions.popoverEnter}
+            >
+              <div className="relative min-h-0 flex-1 overflow-hidden">
+                {activeTab === "review" && (
+                  <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
+                )}
+                {activeTab === "files" && (
+                  <FilesPane
+                    projectId={projectId}
+                    conversationId={activeId}
+                    worktreePath={worktreePath}
+                    worktreeBranch={worktreeBranch}
+                  />
+                )}
+                {activeTab === "activity" && <ActivityPane activeId={activeId} />}
+                {activeTab === "artifacts" && <BrowserPane />}
+                {activeTab === "chat" && <SideChatPane conversationId={sideChatConversationId} />}
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
     </section>
   );
 }

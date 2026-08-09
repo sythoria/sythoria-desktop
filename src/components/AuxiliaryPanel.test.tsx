@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../store/useChatStore";
@@ -10,32 +10,63 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async () => vi.fn()),
+}));
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class {
+    fit = vi.fn();
+  },
+}));
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    cols = 80;
+    rows = 24;
+    loadAddon = vi.fn();
+    open = vi.fn();
+    write = vi.fn();
+    focus = vi.fn();
+    dispose = vi.fn();
+    onData = vi.fn(() => ({ dispose: vi.fn() }));
+  },
+}));
+
 const invokeMock = vi.mocked(invoke);
+const originalResizeObserver = globalThis.ResizeObserver;
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 describe("TerminalPane", () => {
-  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-
-  afterEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: originalScrollIntoView,
-    });
+  beforeEach(() => {
+    invokeMock.mockResolvedValue(undefined as never);
+    globalThis.ResizeObserver = ResizeObserverMock;
   });
 
-  it("does not return the WebView scroll result as an effect cleanup", () => {
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: vi.fn(() => ({ webviewResult: true })),
-    });
+  afterEach(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
+    invokeMock.mockReset();
+  });
 
-    const { unmount } = render(<TerminalPane projectId="project-1" projectPath="C:\\workspace" canExecute={true} />);
+  it("starts the default shell directly and stops it on unmount", async () => {
+    const { unmount } = render(<TerminalPane projectId="project-1" projectPath="C:\\workspace" />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("terminal_start", expect.any(Object)));
+    expect(invokeMock).not.toHaveBeenCalledWith("project_bash", expect.any(Object));
 
     expect(() => unmount()).not.toThrow();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("terminal_stop", expect.any(Object)));
   });
 });
 
 describe("workspace panel", () => {
   beforeEach(() => {
+    globalThis.ResizeObserver = ResizeObserverMock;
     invokeMock.mockImplementation(async (command) => {
       if (command === "project_browse_begin") return "browser-run-token" as never;
       if (command === "git_get_status") {
@@ -107,6 +138,7 @@ describe("workspace panel", () => {
   });
 
   afterEach(() => {
+    globalThis.ResizeObserver = originalResizeObserver;
     invokeMock.mockReset();
   });
 
@@ -156,5 +188,21 @@ describe("workspace panel", () => {
     expect(screen.getByRole("tab", { name: "Review" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
     expect(useUIStore.getState().openAuxTabs).toEqual(["review", "files"]);
+  });
+
+  it("keeps the shell session alive while another workspace tab is active", async () => {
+    const { unmount } = render(<AuxiliaryPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Terminal/ }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("terminal_start", expect.any(Object)));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add workspace tab" }));
+    fireEvent.click(screen.getByRole("button", { name: /Files/ }));
+
+    expect(screen.getByRole("tabpanel", { name: "Terminal", hidden: true })).toHaveClass("invisible");
+    expect(invokeMock).not.toHaveBeenCalledWith("terminal_stop", expect.any(Object));
+
+    unmount();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("terminal_stop", expect.any(Object)));
   });
 });

@@ -14,6 +14,7 @@ corresponding package source distributions.
 | Components                                                                                                                                                        | Declared license      |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `@tauri-apps/plugin-log`, `@tauri-apps/plugin-opener`, `@tauri-apps/plugin-process`, `@tauri-apps/plugin-updater` | MIT OR Apache-2.0     |
+| `@xterm/xterm`, `@xterm/addon-fit`                                                                                                                               | MIT                   |
 | `dompurify`                                                                                                                                                       | MPL-2.0 OR Apache-2.0 |
 | `highlight.js`                                                                                                                                                    | BSD-3-Clause          |
 | `lucide-react`                                                                                                                                                    | ISC                   |
@@ -24,11 +25,20 @@ corresponding package source distributions.
 | Components                                                                                                                                                                                                                         | Declared license   |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | `tauri`, Tauri plugins, `serde`, `serde_json`, `reqwest`, `futures-util`, `url`, `chrono`, `uuid`, `thiserror`, `log`, `keyring-core`, `window-vibrancy`, `base64`, `zeroize`, `image`, `regex`, and the platform keyring backends | MIT OR Apache-2.0  |
-| `tokio`, `tokio-util`, `tokio-tungstenite`, `urlencoding`, `which`, `smappservice-rs`                                                                                                                                              | MIT                |
+| `tokio`, `tokio-util`, `tokio-tungstenite`, `urlencoding`, `which`, `smappservice-rs`, `portable-pty`                                                                                                                              | MIT                |
 | `rmcp`, `xcap`, `cpal`                                                                                                                                                                                                             | Apache-2.0         |
 | `ring`                                                                                                                                                                                                                             | Apache-2.0 AND ISC |
 | `ignore`                                                                                                                                                                                                                           | Unlicense OR MIT   |
 | `whisper-rs`                                                                                                                                                                                                                       | Unlicense          |
+
+## Bundled fonts
+
+| Component | Version | Declared license |
+| --------- | ------- | ---------------- |
+| Nerd Fonts Symbols Only Mono (`SymbolsNerdFontMono-Regular.ttf`) | 3.5.0 | MIT |
+
+The Nerd Fonts license text is distributed with the font at
+`src/assets/fonts/NERD_FONTS_LICENSE.txt`.
 
 License texts and package-specific notices are available from each package's source distribution and the canonical
 [SPDX License List](https://spdx.org/licenses/). Distributors should preserve any attribution or notice files shipped

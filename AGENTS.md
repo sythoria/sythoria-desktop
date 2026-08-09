@@ -107,6 +107,7 @@ src-tauri/src/
   git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
   project.rs            # Workspace registration, permissions, worktree mapping, compiled root-relative exclusions
   project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
+  terminal.rs           # User-driven PTY sessions that launch the default shell in a registered project/worktree
   commands/
     config.rs           # Encrypted settings/config commands, native secret-store bridges, and full data wipe
     conversations.rs    # Encrypted content-addressed conversation snapshots
@@ -302,6 +303,7 @@ export interface ModelConfig {
 | `project_read` / `project_write` / `project_edit`                 | Workspace-scoped file tools                         |
 | `project_list_dir` / `project_grep` / `project_glob`              | Workspace directory traversal and search tools      |
 | `project_bash`                                                    | Execute system shells inside worktree directory     |
+| `terminal_start` / `terminal_write` / `terminal_resize` / `terminal_stop` | Run an interactive user-controlled project PTY |
 | `capture_screen` / `list_appshots`                                | Take screenshots, query galleries                   |
 | `has_screen_capture_permission`                                   | Check macOS screen recording permissions            |
 | `wipe_config_files`                                               | Ordered legacy-keychain and encrypted-data wipe     |
@@ -346,6 +348,8 @@ export interface ModelConfig {
 - **ESLint 9 flat config** in `eslint.config.js`.
 - **Prettier**: double quotes, 2-space indent, trailing commas, 120 print width.
 - **Motion system**: Respects `prefers-reduced-motion` and disables animations on low-end devices.
+- **Terminal fonts**: The interactive terminal prefers common installed Nerd Font families and falls back to the
+  bundled `SymbolsNerdFontMono-Regular.ttf` for Powerline and Nerd Font glyph coverage.
 - **macOS sidebar glass**: The native `NSVisualEffectView` supplies the behind-window blur. Keep the sidebar's
   color/alpha, gradient, and shadow stable during window movement and resizing; do not re-enable a CSS
   `backdrop-filter` for `.platform-macos .glass-sidebar`. Windows keeps the interaction-time translucency suspension
