@@ -96,6 +96,7 @@ import { useUIStore } from "./useUIStore";
 import { useProjectStore } from "./useProjectStore";
 import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
+import { collectConversationTreeIds, reduceConversationDeletion } from "./conversationLifecycle";
 
 const processingTokens = new Set<string>();
 const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
@@ -109,21 +110,6 @@ interface ConversationDeletionOptions {
 }
 
 export type SendMessageStatus = "accepted" | "rejected";
-
-function collectConversationTreeIds(conversations: Conversation[], rootIds: Iterable<string>): Set<string> {
-  const ids = new Set(rootIds);
-  let foundDescendant = true;
-  while (foundDescendant) {
-    foundDescendant = false;
-    for (const conversation of conversations) {
-      if (conversation.parentId && ids.has(conversation.parentId) && !ids.has(conversation.id)) {
-        ids.add(conversation.id);
-        foundDescendant = true;
-      }
-    }
-  }
-  return ids;
-}
 
 async function awaitBoundedShutdown(tasks: Promise<unknown>[], label: string): Promise<boolean> {
   if (tasks.length === 0) return true;
@@ -931,63 +917,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return false;
       }
 
-      set((state) => {
-        const remainingConversations = state.conversations.filter((conversation) => !idsToDelete.has(conversation.id));
-        let navigationHistory = state.navigationHistory.filter((historyId) => !idsToDelete.has(historyId));
-        const preferredActiveId =
-          options.preferredActiveId &&
-          remainingConversations.some((conversation) => conversation.id === options.preferredActiveId)
-            ? options.preferredActiveId
-            : null;
-        if (options.appendPreferredToHistory && preferredActiveId) {
-          navigationHistory = [...navigationHistory, preferredActiveId];
-        }
-        const activeWasDeleted = Boolean(state.activeId && idsToDelete.has(state.activeId));
-        const fallbackActiveId =
-          [...navigationHistory]
-            .reverse()
-            .find((historyId) => remainingConversations.some((conversation) => conversation.id === historyId)) ??
-          remainingConversations.find((conversation) => !conversation.isSubagent)?.id ??
-          null;
-        const activeId = activeWasDeleted ? (preferredActiveId ?? fallbackActiveId) : state.activeId;
-        const navigationIndex = activeId ? navigationHistory.lastIndexOf(activeId) : -1;
-        const compareIds = state.compareIds.filter((compareId) => !idsToDelete.has(compareId));
-        const generationByConversation = { ...state.generationByConversation };
-        const activeStreamContent = { ...state.activeStreamContent };
-        const activeStreamReasoning = { ...state.activeStreamReasoning };
-        const activeStreamThinkingStart = { ...state.activeStreamThinkingStart };
-        const activeStreamThinkingEnd = { ...state.activeStreamThinkingEnd };
-        const activeStreamStartTime = { ...state.activeStreamStartTime };
-        for (const deletedId of idsToDelete) {
-          delete generationByConversation[deletedId];
-          delete activeStreamContent[deletedId];
-          delete activeStreamReasoning[deletedId];
-          delete activeStreamThinkingStart[deletedId];
-          delete activeStreamThinkingEnd[deletedId];
-          delete activeStreamStartTime[deletedId];
-        }
-        const isStreaming = Object.values(generationByConversation).some((generation) =>
-          isGenerationActive(generation.state),
-        );
-
-        return {
-          conversations: remainingConversations,
-          activeId,
-          navigationHistory,
-          navigationIndex,
-          compareIds,
-          isCompareMode: state.isCompareMode && compareIds.length > 0 && !activeWasDeleted,
-          generationByConversation,
-          activeStreamContent,
-          activeStreamReasoning,
-          activeStreamThinkingStart,
-          activeStreamThinkingEnd,
-          activeStreamStartTime,
-          isStreaming,
-          generationState: isStreaming ? state.generationState : ("idle" as GenerationState),
-          generationLabel: isStreaming ? state.generationLabel : "",
-        };
-      });
+      set((state) => reduceConversationDeletion(state, idsToDelete, options));
 
       const uiState = useUIStore.getState();
       if (uiState.activeSubagentId && idsToDelete.has(uiState.activeSubagentId)) {

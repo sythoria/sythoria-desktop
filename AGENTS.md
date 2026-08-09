@@ -45,6 +45,7 @@ src/
     useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
     useGitStore.ts      # Git repo detection, commits, AI commit messages, auto-commit
     useWhisperStore.ts  # Whisper voice recording controls, preset downloads, and model management
+    conversationLifecycle.ts # Pure conversation-tree discovery and post-deletion navigation/state reducer
     helpers.ts          # Cross-store action helpers
     index.ts            # Centralized store exports
   services/
@@ -121,7 +122,7 @@ src-tauri/src/
 
 ## State (10 Zustand stores)
 
-- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, history mutation, and persistence. Project reassignment and compare teardown are blocked while their conversations own pending worktrees.
+- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence. Project reassignment and compare teardown are blocked while their conversations own pending worktrees.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, capped at 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), and stream handlers keyed by native `streamId`.
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, ephemeral chat `selectedServerIds`, and persisted `enabledServerIds` for native execution/startup reconnect. Chat selection never stops a connected server; Settings disable/disconnect controls its lifecycle. The store also maintains connection generations that prevent stale connection publication, conversation-scoped active tool-call request IDs, transactional async disable/delete, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `cancelConversationToolCalls()`, `toggleServerSelected()`, `toggleServerEnabled()`, `getEnabledTools()`, `setEnvSecrets()`.
