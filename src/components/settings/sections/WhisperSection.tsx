@@ -18,8 +18,14 @@ import {
 } from "lucide-react";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
-import { SettingsDisclosure, SettingsSectionHeader, SettingsToggle, SettingsTogglePanel } from "../components/SettingsPrimitives";
+import {
+  SettingsDisclosure,
+  SettingsSectionHeader,
+  SettingsToggle,
+  SettingsTogglePanel,
+} from "../components/SettingsPrimitives";
 import { useModelStore } from "../../../store/useModelStore";
+import { useShallow } from "zustand/react/shallow";
 
 export function WhisperSection() {
   const { t } = useTranslation();
@@ -53,7 +59,39 @@ export function WhisperSection() {
     setCloudModel,
     setIsLlmPolishEnabled,
     setRefinementModelId,
-  } = useWhisperStore();
+  } = useWhisperStore(
+    useShallow((state) => ({
+      isVoiceEnabled: state.isVoiceEnabled,
+      selectedModelId: state.selectedModelId,
+      customModelPath: state.customModelPath,
+      language: state.language,
+      downloadedFiles: state.downloadedFiles,
+      isDownloading: state.isDownloading,
+      downloadProgress: state.downloadProgress,
+      downloadingModelId: state.downloadingModelId,
+      toggleVoiceEnabled: state.toggleVoiceEnabled,
+      selectModel: state.selectModel,
+      setCustomModelPath: state.setCustomModelPath,
+      setLanguage: state.setLanguage,
+      downloadModel: state.downloadModel,
+      cancelDownload: state.cancelDownload,
+      deleteModel: state.deleteModel,
+      init: state.init,
+      sttProvider: state.sttProvider,
+      cloudApiKey: state.cloudApiKey,
+      cloudApiKeyConfigured: state.cloudApiKeyConfigured,
+      cloudApiUrl: state.cloudApiUrl,
+      cloudModel: state.cloudModel,
+      isLlmPolishEnabled: state.isLlmPolishEnabled,
+      refinementModelId: state.refinementModelId,
+      setSttProvider: state.setSttProvider,
+      setCloudApiKey: state.setCloudApiKey,
+      setCloudApiUrl: state.setCloudApiUrl,
+      setCloudModel: state.setCloudModel,
+      setIsLlmPolishEnabled: state.setIsLlmPolishEnabled,
+      setRefinementModelId: state.setRefinementModelId,
+    })),
+  );
 
   const models = useModelStore((s) => s.models);
 

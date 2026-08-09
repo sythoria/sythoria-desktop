@@ -16,6 +16,7 @@ import { useAppshotStore } from "../../../store/useAppshotStore";
 import { useKeybindStore } from "../../../store/useKeybindStore";
 import { useUIStore } from "../../../store/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
+import { useShallow } from "zustand/react/shallow";
 
 export function AppshotsSection() {
   const { t } = useTranslation();
@@ -36,7 +37,25 @@ export function AppshotsSection() {
     checkPermission,
     requestPermission,
     openPermissionSettings,
-  } = useAppshotStore();
+  } = useAppshotStore(
+    useShallow((state) => ({
+      config: state.config,
+      recentAppshots: state.recentAppshots,
+      isCapturing: state.isCapturing,
+      loading: state.loading,
+      error: state.error,
+      init: state.init,
+      updateConfig: state.updateConfig,
+      triggerCapture: state.triggerCapture,
+      deleteAppshot: state.deleteAppshot,
+      clearAll: state.clearAll,
+      hasPermission: state.hasPermission,
+      isRequestingPermission: state.isRequestingPermission,
+      checkPermission: state.checkPermission,
+      requestPermission: state.requestPermission,
+      openPermissionSettings: state.openPermissionSettings,
+    })),
+  );
   const addToast = useUIStore((s) => s.addToast);
   const setActiveSection = useUIStore((s) => s.setActiveSection);
   const captureShortcut = useKeybindStore((s) => s.keybinds.captureAppshot.currentCombo);

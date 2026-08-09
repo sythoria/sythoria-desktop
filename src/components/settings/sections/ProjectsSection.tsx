@@ -4,11 +4,21 @@ import { useGitStore } from "../../../store/useGitStore";
 import type { ProjectPermission } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
 import { SettingsSectionHeader, SettingsTogglePanel } from "../components/SettingsPrimitives";
+import { useShallow } from "zustand/react/shallow";
 
 export function ProjectsSection() {
   const { t } = useTranslation();
-  const { isProjectsEnabled, defaultPermission, setIsProjectsEnabled, setDefaultPermission } = useProjectStore();
-  const { config: gitConfig, updateConfig: updateGitConfig } = useGitStore();
+  const { isProjectsEnabled, defaultPermission, setIsProjectsEnabled, setDefaultPermission } = useProjectStore(
+    useShallow((state) => ({
+      isProjectsEnabled: state.isProjectsEnabled,
+      defaultPermission: state.defaultPermission,
+      setIsProjectsEnabled: state.setIsProjectsEnabled,
+      setDefaultPermission: state.setDefaultPermission,
+    })),
+  );
+  const { gitConfig, updateGitConfig } = useGitStore(
+    useShallow((state) => ({ gitConfig: state.config, updateGitConfig: state.updateConfig })),
+  );
 
   const handleToggleDefaultPermission = (perm: ProjectPermission) => {
     if (perm === "full") {

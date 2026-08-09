@@ -10,6 +10,7 @@ import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
 import type { ProjectPermission } from "../types";
 import { useTranslation } from "../utils/i18n";
+import { useShallow } from "zustand/react/shallow";
 
 interface FormProps {
   id: string | null;
@@ -20,7 +21,15 @@ interface FormProps {
 function ProjectForm({ id, mode, onClose }: FormProps) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
-  const { projects, defaultPermission, addProject, updateProject, setActiveProject } = useProjectStore();
+  const { projects, defaultPermission, addProject, updateProject, setActiveProject } = useProjectStore(
+    useShallow((state) => ({
+      projects: state.projects,
+      defaultPermission: state.defaultPermission,
+      addProject: state.addProject,
+      updateProject: state.updateProject,
+      setActiveProject: state.setActiveProject,
+    })),
+  );
   const gitConfig = useGitStore((s) => s.config);
   const activeConversationHasPendingWorktree = useChatStore((state) => {
     const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);

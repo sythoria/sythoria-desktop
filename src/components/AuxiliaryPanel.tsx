@@ -46,6 +46,7 @@ import { useProjectStore } from "../store/useProjectStore";
 import { useSearchStore } from "../store/useSearchStore";
 import { AuxiliaryTab, useUIStore } from "../store/useUIStore";
 import { isGenerationActive, type UrlContent } from "../types";
+import { useShallow } from "zustand/react/shallow";
 import { openExternalUrl } from "../utils/externalUrl";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
@@ -736,9 +737,7 @@ export function TerminalPane({
 
     const inputDisposable = terminal.onData((data) => {
       if (!started) return;
-      writeQueue = writeQueue
-        .then(() => invoke<void>("terminal_write", { sessionId, data }))
-        .catch(() => {});
+      writeQueue = writeQueue.then(() => invoke<void>("terminal_write", { sessionId, data })).catch(() => {});
     });
 
     const start = async () => {
@@ -1146,9 +1145,27 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
   const generation = useChatStore((state) =>
     conversationId ? state.generationByConversation[conversationId] : undefined,
   );
-  const { models, selectedModel, modelStatuses } = useModelStore();
-  const { isSearchEnabled, toggleSearchEnabled } = useSearchStore();
-  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore();
+  const { models, selectedModel, modelStatuses } = useModelStore(
+    useShallow((state) => ({
+      models: state.models,
+      selectedModel: state.selectedModel,
+      modelStatuses: state.modelStatuses,
+    })),
+  );
+  const { isSearchEnabled, toggleSearchEnabled } = useSearchStore(
+    useShallow((state) => ({
+      isSearchEnabled: state.isSearchEnabled,
+      toggleSearchEnabled: state.toggleSearchEnabled,
+    })),
+  );
+  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore(
+    useShallow((state) => ({
+      mcpConfigs: state.mcpConfigs,
+      serverStatuses: state.serverStatuses,
+      selectedServerIds: state.selectedServerIds,
+      toggleServerSelected: state.toggleServerSelected,
+    })),
+  );
   const isStreaming = isGenerationActive(generation?.state);
   const messages = conversation?.messages || [];
 
@@ -1234,7 +1251,14 @@ export function AuxiliaryPanel() {
       s.conversations.find((conversation) => conversation.id === s.activeId),
   );
   const activeId = activeConversation?.id ?? currentActiveId;
-  const { activeProjectId, projects, activeWorktreePath, activeWorktreeBranch } = useProjectStore();
+  const { activeProjectId, projects, activeWorktreePath, activeWorktreeBranch } = useProjectStore(
+    useShallow((state) => ({
+      activeProjectId: state.activeProjectId,
+      projects: state.projects,
+      activeWorktreePath: state.activeWorktreePath,
+      activeWorktreeBranch: state.activeWorktreeBranch,
+    })),
+  );
   const projectId = activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;

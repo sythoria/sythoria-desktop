@@ -4,6 +4,7 @@ import { useUIStore } from "../store/useUIStore";
 import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { executeCommand } from "../services/commandDispatcher";
+import { useShallow } from "zustand/react/shallow";
 
 interface CommandItem {
   id: string;
@@ -13,7 +14,15 @@ interface CommandItem {
 }
 
 export function CommandPalette() {
-  const { showCommandPalette, setShowCommandPalette, setView, setActiveSection, checkForUpdates } = useUIStore();
+  const { showCommandPalette, setShowCommandPalette, setView, setActiveSection, checkForUpdates } = useUIStore(
+    useShallow((state) => ({
+      showCommandPalette: state.showCommandPalette,
+      setShowCommandPalette: state.setShowCommandPalette,
+      setView: state.setView,
+      setActiveSection: state.setActiveSection,
+      checkForUpdates: state.checkForUpdates,
+    })),
+  );
   const keybinds = useKeybindStore((state) => state.keybinds);
 
   const [search, setSearch] = useState("");

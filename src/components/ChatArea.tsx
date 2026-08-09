@@ -1300,25 +1300,28 @@ const MessageBubble = memo(function MessageBubble({
   autoExpandReasoning?: boolean;
   animateEntrance?: boolean;
 }) {
-  const allConversations = useChatStore((s) => s.conversations);
-  const isAnySubagentRunning = useMemo(() => {
-    return allConversations.some((c) => c.parentId === conversationId && c.status === "running");
-  }, [allConversations, conversationId]);
+  const isAnySubagentRunning = useChatStore((s) =>
+    s.conversations.some(
+      (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+    ),
+  );
 
   const isGenerating = useChatStore((s) => {
     if (!conversationId) return false;
     return isGenerationActive(s.generationByConversation[conversationId]?.state);
   });
 
-  const isLastInSequence = useMemo(() => {
+  const isLastInSequence = useChatStore((s) => {
     if (message.role !== "assistant") return false;
-    const conv = conversationId ? allConversations.find((c) => c.id === conversationId) : undefined;
+    const conv = conversationId
+      ? s.conversations.find((conversation) => conversation.id === conversationId)
+      : undefined;
     if (!conv) return false;
     const idx = conv.messages.findIndex((m) => m.id === message.id);
     if (idx === -1) return false;
     const next = conv.messages[idx + 1];
     return !next || next.role === "user";
-  }, [message.id, message.role, conversationId, allConversations]);
+  });
 
   const isSystem = message.isSystem;
   const isUser = message.role === "user" && !isSystem;
@@ -1539,7 +1542,9 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
-  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  const isTemporary = useChatStore(
+    (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
+  );
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
     const element = virtualScrollerRef.current;
@@ -1618,7 +1623,6 @@ function ChatAreaBase({
         <div ref={scrollContainerRef} className="flex-1 min-h-0 bg-chat" role="region" aria-label="No messages yet" />
       );
     }
-    const isTemporary = conversation?.isTemporary === true;
     return (
       <motion.div
         className="flex-1 flex flex-col items-center justify-end select-none relative pb-2 translate-y-[-7vh]"
@@ -1674,7 +1678,7 @@ function ChatAreaBase({
           )}
           components={{
             Header: () =>
-              conversation?.isTemporary ? (
+              isTemporary ? (
                 <div className="max-w-3xl mx-auto w-full px-6 pt-8 pb-2">
                   <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none">
                     <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
@@ -1751,7 +1755,9 @@ function NonVirtualizedChatArea({
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
-  const conversation = useChatStore((s) => s.conversations.find((c) => c.id === conversationId));
+  const isTemporary = useChatStore(
+    (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
+  );
   const fallbackRef = useRef<HTMLDivElement | null>(null);
   const activeRef = scrollContainerRef || fallbackRef;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1817,7 +1823,7 @@ function NonVirtualizedChatArea({
       aria-live="polite"
     >
       <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-0.5">
-        {conversation?.isTemporary && (
+        {isTemporary && (
           <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
             <div>

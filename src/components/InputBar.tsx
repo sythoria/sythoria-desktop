@@ -43,6 +43,7 @@ import { resolveContextBudget } from "../services/contextAssembler";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { useTranslation } from "../utils/i18n";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
+import { useShallow } from "zustand/react/shallow";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -97,7 +98,15 @@ export default memo(function InputBar({
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const contextDetailsRef = useRef<HTMLDivElement>(null);
 
-  const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore();
+  const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore(
+    useShallow((state) => ({
+      projects: state.projects,
+      activeProjectId: state.activeProjectId,
+      setActiveProject: state.setActiveProject,
+      updateProject: state.updateProject,
+      isProjectsEnabled: state.isProjectsEnabled,
+    })),
+  );
   const openProjectConfigModal = useUIStore((s) => s.openProjectConfigModal);
   const addToast = useUIStore((s) => s.addToast);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -149,7 +158,28 @@ export default memo(function InputBar({
     cloudModel,
     isLlmPolishEnabled,
     refinementModelId,
-  } = useWhisperStore();
+  } = useWhisperStore(
+    useShallow((state) => ({
+      isVoiceEnabled: state.isVoiceEnabled,
+      selectedModelId: state.selectedModelId,
+      customModelPath: state.customModelPath,
+      language: state.language,
+      isRecording: state.isRecording,
+      isTranscribing: state.isTranscribing,
+      setIsRecording: state.setIsRecording,
+      setIsTranscribing: state.setIsTranscribing,
+      init: state.init,
+      downloadedFiles: state.downloadedFiles,
+      sttProvider: state.sttProvider,
+      cloudApiKey: state.cloudApiKey,
+      cloudApiKeyConfigured: state.cloudApiKeyConfigured,
+      ensureCloudApiKeySaved: state.ensureCloudApiKeySaved,
+      cloudApiUrl: state.cloudApiUrl,
+      cloudModel: state.cloudModel,
+      isLlmPolishEnabled: state.isLlmPolishEnabled,
+      refinementModelId: state.refinementModelId,
+    })),
+  );
 
   const cancelActiveRefinement = useCallback(() => {
     refinementUnlistenRef.current?.();

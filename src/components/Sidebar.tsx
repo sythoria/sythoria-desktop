@@ -31,6 +31,7 @@ import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } fro
 import { motionTransitions, springs } from "../lib/motion-tokens";
 import { useTranslation } from "../utils/i18n";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useShallow } from "zustand/react/shallow";
 
 const categoryKeys: Record<string, string> = {
   Application: "category.application",
@@ -134,7 +135,15 @@ export default memo(function Sidebar({
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
 
-  const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore();
+  const { projects, deleteProject, activeProjectId, setActiveProject, isProjectsEnabled } = useProjectStore(
+    useShallow((state) => ({
+      projects: state.projects,
+      deleteProject: state.deleteProject,
+      activeProjectId: state.activeProjectId,
+      setActiveProject: state.setActiveProject,
+      isProjectsEnabled: state.isProjectsEnabled,
+    })),
+  );
   const activeConversation = conversations.find((conversation) => conversation.id === activeId);
   const hasPendingWorktree = Boolean(activeConversation?.pendingWorktree);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { motionTransitions } from "../lib/motion-tokens";
 import { useUIStore } from "../store/useUIStore";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useShallow } from "zustand/react/shallow";
 
 interface SettingItem {
   id: string;
@@ -91,7 +92,14 @@ export function SpotlightArea() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const { showSpotlight, setShowSpotlight, setView, setActiveSection } = useUIStore();
+  const { showSpotlight, setShowSpotlight, setView, setActiveSection } = useUIStore(
+    useShallow((state) => ({
+      showSpotlight: state.showSpotlight,
+      setShowSpotlight: state.setShowSpotlight,
+      setView: state.setView,
+      setActiveSection: state.setActiveSection,
+    })),
+  );
   const handleClose = useCallback(() => {
     setQuery("");
     setSelectedIndex(0);

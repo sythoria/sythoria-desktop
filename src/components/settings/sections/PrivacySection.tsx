@@ -20,6 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 import { SettingsPanel, SettingsSectionHeader, SettingsToggle } from "../components/SettingsPrimitives";
+import { useShallow } from "zustand/react/shallow";
 
 export function PrivacySection() {
   const { t } = useTranslation();
@@ -105,17 +106,30 @@ export function PrivacySection() {
   };
 
   const {
-    config: appshotConfig,
+    appshotConfig,
     recentAppshots,
-    init: initAppshot,
-    updateConfig: updateAppshotConfig,
-    clearAll: clearAllAppshots,
-    hasPermission: hasAppshotPermission,
-    isRequestingPermission: isRequestingAppshotPermission,
-    checkPermission: checkAppshotPermission,
-    requestPermission: requestAppshotPermission,
-    openPermissionSettings: openAppshotPermissionSettings,
-  } = useAppshotStore();
+    initAppshot,
+    updateAppshotConfig,
+    clearAllAppshots,
+    hasAppshotPermission,
+    isRequestingAppshotPermission,
+    checkAppshotPermission,
+    requestAppshotPermission,
+    openAppshotPermissionSettings,
+  } = useAppshotStore(
+    useShallow((state) => ({
+      appshotConfig: state.config,
+      recentAppshots: state.recentAppshots,
+      initAppshot: state.init,
+      updateAppshotConfig: state.updateConfig,
+      clearAllAppshots: state.clearAll,
+      hasAppshotPermission: state.hasPermission,
+      isRequestingAppshotPermission: state.isRequestingPermission,
+      checkAppshotPermission: state.checkPermission,
+      requestAppshotPermission: state.requestPermission,
+      openAppshotPermissionSettings: state.openPermissionSettings,
+    })),
+  );
 
   const [isConfirmWipe1Open, setIsConfirmWipe1Open] = useState(false);
   const [isConfirmWipe2Open, setIsConfirmWipe2Open] = useState(false);
