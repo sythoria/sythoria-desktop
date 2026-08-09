@@ -32,13 +32,7 @@ interface ModelCardProps {
   connectionStatus: string;
 }
 
-export const ModelCard = memo(function ModelCard({
-  id,
-  model,
-  onUpdate,
-  onDelete,
-  connectionStatus,
-}: ModelCardProps) {
+export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete, connectionStatus }: ModelCardProps) {
   const { t } = useTranslation();
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
@@ -209,7 +203,7 @@ export const ModelCard = memo(function ModelCard({
               type="text"
               value={model.modelId}
               onChange={(e) => onUpdate(model.id, { modelId: e.target.value })}
-              placeholder="e.g. gpt-4o or meta/llama-3.3-70b-instruct"
+              placeholder="e.g. gpt-5.6-sol or meta/llama-3.3-70b-instruct"
               autoComplete="off"
               autoCorrect="off"
               spellCheck="false"
