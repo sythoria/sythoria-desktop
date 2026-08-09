@@ -770,10 +770,10 @@ export default memo(function InputBar({
 
   return (
     <div
-      className={`transition-[transform,padding] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-standard)] ${
+      className={`chat-composer-dock transition-[transform,padding] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-standard)] ${
         centered
           ? "flex-1 flex flex-col items-center translate-y-[-7vh] pt-4"
-          : "px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
+          : "relative z-20 -mt-24 px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
       }`}
     >
       <div className={`w-full max-w-3xl mx-auto px-2 sm:px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
@@ -804,7 +804,7 @@ export default memo(function InputBar({
               className={`group/input-bar relative flex flex-col items-stretch transition-[transform,border-color,background-color,box-shadow] ${
                 isProjectsEnabled
                   ? ""
-                  : `rounded-3xl border border-input-border bg-input px-4 py-2.5 focus-within:border-accent/60 ${composerVisualStateClasses}`
+                  : `chat-composer-surface rounded-3xl border border-input-border px-4 py-2.5 focus-within:border-accent/60 ${composerVisualStateClasses}`
               } ${isDragging ? "scale-[1.01]" : ""}`}
             >
               {/* Hidden input element */}
@@ -821,8 +821,8 @@ export default memo(function InputBar({
               <div
                 className={
                   isProjectsEnabled
-                    ? `relative z-10 flex flex-col items-stretch rounded-3xl border border-input-border bg-input px-4 py-2.5 transition-[transform,border-color,background-color,box-shadow] after:pointer-events-none after:absolute after:-bottom-px after:left-6 after:right-6 after:h-[2px] ${
-                        conversation?.isTemporary ? "after:bg-accent/[0.03]" : "after:bg-input"
+                    ? `chat-composer-surface relative z-10 flex flex-col items-stretch rounded-3xl border border-input-border px-4 py-2.5 transition-[transform,border-color,background-color,box-shadow] after:pointer-events-none after:absolute after:-bottom-px after:left-6 after:right-6 after:h-[2px] ${
+                        conversation?.isTemporary ? "after:bg-accent/[0.03]" : "after:bg-transparent"
                       } group-focus-within/input-bar:border-accent/60 ${composerVisualStateClasses}`
                     : "contents"
                 }
@@ -1234,7 +1234,7 @@ export default memo(function InputBar({
                 <div
                   className={`relative flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
-                      ? `-mt-px mx-6 min-h-10 w-[calc(100%-3rem)] rounded-b-2xl border-x border-b border-input-border bg-input px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
+                      ? `chat-composer-surface -mt-px mx-6 min-h-10 w-[calc(100%-3rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
                           conversation?.isTemporary
                             ? "border-dashed before:pointer-events-none before:absolute before:inset-0 before:rounded-b-2xl before:bg-accent/[0.03]"
                             : ""

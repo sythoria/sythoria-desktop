@@ -258,6 +258,9 @@ export function applyTheme(config: ThemeConfig) {
   const surfaceColor = isDark ? lightenColor(bg, 6) : bg;
   style.setProperty("--theme-surface", surfaceColor);
 
+  const composerBase = isDark ? surfaceColor : mixColors(bg, fg, 0.97);
+  style.setProperty("--theme-composer", hexToRgba(composerBase, isDark ? 0.9 : 0.92));
+
   // Popups are portaled outside their parent cards, so they need an opaque,
   // palette-derived surface of their own instead of a white/black fallback.
   const popupColor = isDark ? lightenColor(bg, 10) : mixColors(bg, fg, 0.97);
