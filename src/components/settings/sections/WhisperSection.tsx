@@ -138,63 +138,6 @@ export function WhisperSection() {
         contentClassName="space-y-4"
       >
         <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="voice-language-trigger"
-            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
-          >
-            <Globe size={13} />
-            <span>{t("settings.voice.language")}</span>
-          </label>
-          <Select
-            id="voice-language"
-            value={language}
-            onChange={setLanguage}
-            options={[
-              { value: "en", label: t("settings.voice.langEn", { defaultValue: "English (default)" }) },
-              { value: "es", label: t("settings.voice.langEs", { defaultValue: "Spanish" }) },
-              { value: "fr", label: t("settings.voice.langFr", { defaultValue: "French" }) },
-              { value: "de", label: t("settings.voice.langDe", { defaultValue: "German" }) },
-              { value: "it", label: t("settings.voice.langIt", { defaultValue: "Italian" }) },
-              { value: "ja", label: t("settings.voice.langJa", { defaultValue: "Japanese" }) },
-              { value: "zh", label: t("settings.voice.langZh", { defaultValue: "Chinese" }) },
-              { value: "auto", label: t("settings.voice.languageAuto") },
-            ]}
-            size="compact"
-            aria-label={t("settings.voice.language")}
-          />
-        </div>
-
-        <SettingsToggle
-          checked={isLlmPolishEnabled}
-          onChange={setIsLlmPolishEnabled}
-          label={t("settings.voice.llmPolish")}
-          description={t("settings.voice.llmPolishDesc")}
-        >
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="voice-refinement-model-trigger"
-              className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
-            >
-              <Sparkles size={13} />
-              <span>{t("settings.voice.refinementModel")}</span>
-            </label>
-            <Select
-              id="voice-refinement-model"
-              value={refinementModelId || ""}
-              onChange={(value) => setRefinementModelId(value || null)}
-              options={[
-                { value: "", label: t("settings.voice.activeChatModel") },
-                ...models
-                  .filter((model) => model.enabled !== false)
-                  .map((model) => ({ value: model.id, label: model.name })),
-              ]}
-              size="compact"
-              aria-label={t("settings.voice.refinementModel")}
-            />
-          </div>
-        </SettingsToggle>
-
-        <div className="flex flex-col gap-1.5">
           <div
             id="voice-stt-engine-label"
             className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
@@ -275,6 +218,63 @@ export function WhisperSection() {
             </div>
           </div>
         )}
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="voice-language-trigger"
+            className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+          >
+            <Globe size={13} />
+            <span>{t("settings.voice.language")}</span>
+          </label>
+          <Select
+            id="voice-language"
+            value={language}
+            onChange={setLanguage}
+            options={[
+              { value: "en", label: t("settings.voice.langEn", { defaultValue: "English (default)" }) },
+              { value: "es", label: t("settings.voice.langEs", { defaultValue: "Spanish" }) },
+              { value: "fr", label: t("settings.voice.langFr", { defaultValue: "French" }) },
+              { value: "de", label: t("settings.voice.langDe", { defaultValue: "German" }) },
+              { value: "it", label: t("settings.voice.langIt", { defaultValue: "Italian" }) },
+              { value: "ja", label: t("settings.voice.langJa", { defaultValue: "Japanese" }) },
+              { value: "zh", label: t("settings.voice.langZh", { defaultValue: "Chinese" }) },
+              { value: "auto", label: t("settings.voice.languageAuto") },
+            ]}
+            size="compact"
+            aria-label={t("settings.voice.language")}
+          />
+        </div>
+
+        <SettingsToggle
+          checked={isLlmPolishEnabled}
+          onChange={setIsLlmPolishEnabled}
+          label={t("settings.voice.llmPolish")}
+          description={t("settings.voice.llmPolishDesc")}
+        >
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="voice-refinement-model-trigger"
+              className="text-xs font-semibold text-text-secondary flex items-center gap-1.5"
+            >
+              <Sparkles size={13} />
+              <span>{t("settings.voice.refinementModel")}</span>
+            </label>
+            <Select
+              id="voice-refinement-model"
+              value={refinementModelId || ""}
+              onChange={(value) => setRefinementModelId(value || null)}
+              options={[
+                { value: "", label: t("settings.voice.activeChatModel") },
+                ...models
+                  .filter((model) => model.enabled !== false)
+                  .map((model) => ({ value: model.id, label: model.name })),
+              ]}
+              size="compact"
+              aria-label={t("settings.voice.refinementModel")}
+            />
+          </div>
+        </SettingsToggle>
       </SettingsTogglePanel>
 
       <SettingsDisclosure open={isVoiceEnabled && sttProvider === "local"}>
