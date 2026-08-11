@@ -216,7 +216,8 @@ export function PrivacySection() {
       resetPreferenceCacheAfterWipe();
       localStorage.clear();
       clearLogs();
-      useUIStore.setState({ hasStarted: false });
+      useUIStore.setState({ hasStarted: false, animationsDisabled: false });
+      document.documentElement.classList.remove("animations-disabled");
       if (failures.length === 0) {
         window.location.reload();
       } else {
