@@ -1,18 +1,48 @@
 <div align="center">
-  <img src="https://sythoria.com/logonobg.png" alt="Sythoria Logo" width="120" />
 
-# Sythoria
+<h1>
+  Sythoria&nbsp;<img src="./src-tauri/icons/128x128.png" alt="Sythoria app icon" width="72" align="center" />
+</h1>
 
-**The private interface for every model.**
+<p>
+  <a href="https://github.com/sythoria/sythoria-desktop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/sythoria/sythoria-desktop?style=flat&amp;label=release&amp;color=5865f2" /></a>
+  <a href="#installation"><img alt="Supported platforms: Windows, macOS, and Linux" src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-30363d?style=flat&amp;logo=desktop&amp;logoColor=white" /></a>
+  <a href="./src/utils/i18n/"><img alt="Six interface languages" src="https://img.shields.io/badge/interface-6%20languages-30363d?style=flat&amp;logo=googletranslate&amp;logoColor=white" /></a>
+  <a href="./LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-30363d?style=flat&amp;logo=opensourceinitiative&amp;logoColor=white" /></a>
+  <a href="https://github.com/sythoria/sythoria-desktop/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/sythoria/sythoria-desktop?style=flat&amp;label=stars&amp;color=30363d&amp;logo=github" /></a>
+</p>
 
-[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](https://github.com/sythoria/sythoria-desktop/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#getting-started)
-[![Tech Stack](https://img.shields.io/badge/stack-Tauri%20%7C%20Rust%20%7C%20React%20%7C%20TypeScript-purple.svg)](#architecture)
+<p>
+  <a href="#architecture"><img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-30363d?style=flat&amp;logo=tauri&amp;logoColor=24c8db" /></a>
+  <a href="#architecture"><img alt="Rust" src="https://img.shields.io/badge/backend-Rust-30363d?style=flat&amp;logo=rust&amp;logoColor=white" /></a>
+  <a href="#architecture"><img alt="React 19" src="https://img.shields.io/badge/React-19-30363d?style=flat&amp;logo=react&amp;logoColor=61dafb" /></a>
+  <a href="#architecture"><img alt="TypeScript" src="https://img.shields.io/badge/language-TypeScript-30363d?style=flat&amp;logo=typescript&amp;logoColor=3178c6" /></a>
+  <a href="./package.json"><img alt="Coverage enabled" src="https://img.shields.io/badge/coverage-enabled-30363d?style=flat&amp;logo=vitest&amp;logoColor=6e9f18" /></a>
+  <a href="#security-and-privacy"><img alt="Encrypted local storage" src="https://img.shields.io/badge/storage-encrypted%20locally-30363d?style=flat&amp;logo=lock&amp;logoColor=white" /></a>
+</p>
 
-[Download Latest Release](https://github.com/sythoria/sythoria-desktop/releases/latest) •
-[Website](https://sythoria.com) •
-[Documentation](https://sythoria.com/docs)
+<p><strong>The private desktop interface for local and hosted AI models.</strong></p>
+
+<p>
+  Chat with any provider, compare answers side by side, use web and MCP tools, dictate prompts,<br />
+  and let agents work safely inside isolated project worktrees.<br />
+  Your keys, conversations, and settings stay encrypted on your device. No account, hosted model service, or telemetry.
+</p>
+
+<p>
+  <a href="https://github.com/sythoria/sythoria-desktop/releases/latest">Download</a> ·
+  <a href="#installation">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#supported-connections">Connections</a> ·
+  <a href="#security-and-privacy">Security</a> ·
+  <a href="https://sythoria.com/docs">Documentation</a> ·
+  <a href="./CONTRIBUTING.md">Contributing</a>
+</p>
+
+<br />
+
+<img src="./public/Sythoriascreenshot.png" alt="Sythoria desktop app showing a new AI chat and project workspace" width="100%" />
+
 </div>
 
 ---
@@ -43,7 +73,7 @@ The application runs on Tauri, with a Rust backend handling provider requests. T
 
 Model presets can be modified. You can override the endpoint URL, model ID, context size, output limits, temperature, system prompts, and reasoning levels.
 
-## Data Boundaries
+## Security and Privacy
 
 Sythoria operates within the following boundaries:
 
@@ -53,9 +83,9 @@ Sythoria operates within the following boundaries:
 - **Workspace Security**: Project edits and commits require explicit user approval unless `full` access is granted. Shell commands always require a native confirmation dialog.
 - **Network Boundaries**: Outbound endpoints are strictly validated. Private and local IPs are blocked by default and require an explicit per-provider opt-in.
 
-## Getting Started
+## Installation
 
-### Installation (Linux)
+### Linux
 
 Use the universal installer script for Debian, Ubuntu, Fedora, Arch, and other Linux distributions:
 
@@ -64,6 +94,8 @@ curl -fsSL https://raw.githubusercontent.com/sythoria/sythoria-desktop/main/inst
 ```
 
 For **Windows** and **macOS**, download the latest installer from the [Releases page](https://github.com/sythoria/sythoria-desktop/releases/latest).
+
+## Getting Started
 
 ### Local Development
 
