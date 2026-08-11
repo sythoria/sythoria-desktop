@@ -29,6 +29,7 @@ import { SectionId } from "./types";
 import { useTranslation } from "../../utils/i18n";
 
 export default function Settings() {
+  const isMac = typeof window !== "undefined" && window.navigator.userAgent.includes("Mac");
   const models = useModelStore((s) => s.models);
   const temperature = useModelStore((s) => s.temperature);
   const maxToolSteps = useModelStore((s) => s.maxToolSteps);
@@ -146,7 +147,10 @@ export default function Settings() {
 
   return (
     <main className="minimal-focus flex-1 flex flex-col min-w-0 overflow-hidden" aria-label="Settings">
-      <header className="shrink-0 flex items-center justify-end px-4 py-4 md:px-6 h-14" data-tauri-drag-region>
+      <header
+        className="shrink-0 flex items-center justify-end px-4 py-4 md:px-6 h-14"
+        data-tauri-drag-region={isMac ? true : undefined}
+      >
         <motion.button
           onClick={handleCreateChat}
           whileHover={{ scale: motionTokens.scale.pop }}
