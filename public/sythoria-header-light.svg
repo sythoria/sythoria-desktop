@@ -1,9 +1,48 @@
 <svg width="1080" height="272" viewBox="0 0 1080 272" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="icon-bg" x1="24" y1="12" x2="104" y2="116" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1D1938" />
-      <stop offset="1" stop-color="#0F1023" />
+    <linearGradient id="icon-bg" x1="13" y1="7" x2="116" y2="123" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7459D8" stop-opacity="0.62" />
+      <stop offset="0.42" stop-color="#2B2252" stop-opacity="0.92" />
+      <stop offset="1" stop-color="#090B18" stop-opacity="0.98" />
     </linearGradient>
+    <radialGradient id="icon-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(27 18) rotate(45) scale(91)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.48" />
+      <stop offset="0.3" stop-color="#BCAEFF" stop-opacity="0.22" />
+      <stop offset="1" stop-color="#6D4AFF" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="icon-rim" x1="17" y1="7" x2="111" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.72" />
+      <stop offset="0.34" stop-color="#CFC5FF" stop-opacity="0.26" />
+      <stop offset="0.68" stop-color="#765DFF" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#B9AAFF" stop-opacity="0.56" />
+    </linearGradient>
+    <linearGradient id="mark-fill" x1="29" y1="20" x2="85" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7764C9" stop-opacity="0.48" />
+      <stop offset="0.48" stop-color="#302653" stop-opacity="0.7" />
+      <stop offset="1" stop-color="#18182D" stop-opacity="0.86" />
+    </linearGradient>
+    <linearGradient id="mark-stroke" x1="26" y1="22" x2="88" y2="99" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BEB1FF" />
+      <stop offset="0.38" stop-color="#785FFF" />
+      <stop offset="1" stop-color="#4B31D0" />
+    </linearGradient>
+    <linearGradient id="diamond-fill" x1="45" y1="34" x2="67" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C9BDFF" />
+      <stop offset="0.48" stop-color="#9A88ED" />
+      <stop offset="1" stop-color="#705DCC" />
+    </linearGradient>
+    <clipPath id="icon-clip">
+      <rect width="128" height="128" rx="32" />
+    </clipPath>
+    <filter id="glass-shadow" x="-25%" y="-20%" width="150%" height="165%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#05040F" flood-opacity="0.5" />
+    </filter>
+    <filter id="soft-blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="9" />
+    </filter>
+    <filter id="mark-glow" x="-60%" y="-40%" width="220%" height="200%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#8D74FF" flood-opacity="0.48" />
+    </filter>
   </defs>
   <text
     x="255"
@@ -14,11 +53,23 @@
     font-weight="400"
     letter-spacing="-3"
   >Sythoria</text>
-  <g transform="translate(690 68) scale(1.0625)">
+  <g transform="translate(690 68) scale(1.0625)" filter="url(#glass-shadow)">
     <rect width="128" height="128" rx="32" fill="url(#icon-bg)" />
-    <path d="M36 39L64 22L92 39C98 42.5 101 47.5 101 54V83C101 89.5 98 94.5 92 98L64 115L36 98C30 94.5 27 89.5 27 83V54C27 47.5 30 42.5 36 39Z" stroke="#30218F" stroke-width="3" />
-    <path d="M31 35L59 18L87 35C93 38.5 96 43.5 96 50V79C96 85.5 93 90.5 87 94L59 111L31 94C25 90.5 22 85.5 22 79V50C22 43.5 25 38.5 31 35Z" stroke="#4935C4" stroke-width="3" />
-    <path d="M27 32L55 15L83 32C89 35.5 92 40.5 92 47V76C92 82.5 89 87.5 83 91L55 108L27 91C21 87.5 18 82.5 18 76V47C18 40.5 21 35.5 27 32Z" fill="#26213F" stroke="#765DFF" stroke-width="4" />
-    <path d="M55 31L69 58.5L55 86L41 58.5L55 31Z" fill="#8D7DE0" />
+    <g clip-path="url(#icon-clip)">
+      <circle cx="25" cy="14" r="78" fill="url(#icon-glow)" />
+      <ellipse cx="102" cy="112" rx="65" ry="47" fill="#5636D8" fill-opacity="0.25" filter="url(#soft-blur)" />
+      <ellipse cx="36" cy="7" rx="58" ry="23" transform="rotate(-14 36 7)" fill="#FFFFFF" fill-opacity="0.12" filter="url(#soft-blur)" />
+      <path d="M-12 83C24 54 72 52 140 10" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="13" filter="url(#soft-blur)" />
+      <path d="M8 91C43 62 86 55 130 39" stroke="#AFA0FF" stroke-opacity="0.13" stroke-width="1.5" />
+    </g>
+    <rect x="1" y="1" width="126" height="126" rx="31" stroke="url(#icon-rim)" stroke-width="2" />
+    <path d="M18 17C35 5 68 3 91 10" stroke="#FFFFFF" stroke-opacity="0.62" stroke-width="1.8" stroke-linecap="round" />
+    <path d="M112 88C108 106 95 116 78 121" stroke="#B5A7FF" stroke-opacity="0.38" stroke-width="1.5" stroke-linecap="round" />
+    <path d="M36 39L64 22L92 39C98 42.5 101 47.5 101 54V83C101 89.5 98 94.5 92 98L64 115L36 98C30 94.5 27 89.5 27 83V54C27 47.5 30 42.5 36 39Z" stroke="#38269D" stroke-opacity="0.82" stroke-width="3" />
+    <path d="M31 35L59 18L87 35C93 38.5 96 43.5 96 50V79C96 85.5 93 90.5 87 94L59 111L31 94C25 90.5 22 85.5 22 79V50C22 43.5 25 38.5 31 35Z" stroke="#5D46D9" stroke-opacity="0.9" stroke-width="3" />
+    <path d="M27 32L55 15L83 32C89 35.5 92 40.5 92 47V76C92 82.5 89 87.5 83 91L55 108L27 91C21 87.5 18 82.5 18 76V47C18 40.5 21 35.5 27 32Z" fill="url(#mark-fill)" stroke="url(#mark-stroke)" stroke-width="4" />
+    <path d="M23 47C34 30 56 22 75 29" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="1.5" stroke-linecap="round" />
+    <path d="M55 31L69 58.5L55 86L41 58.5L55 31Z" fill="url(#diamond-fill)" filter="url(#mark-glow)" />
+    <path d="M55 35L64 58.5L55 78L48 58.5L55 35Z" fill="#FFFFFF" fill-opacity="0.12" />
   </g>
 </svg>
