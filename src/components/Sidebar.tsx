@@ -535,7 +535,10 @@ export default memo(function Sidebar({
         >
           {/* Header */}
           {view === "settings" ? (
-            <div className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30" data-tauri-drag-region>
+            <div
+              className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30"
+              data-tauri-drag-region={isMac ? true : undefined}
+            >
               <div className={`flex items-center pr-3 gap-2.5 ${isMac ? "h-full pl-[90px]" : "h-[32px] pl-4"}`}>
                 <button
                   onClick={() => setView("chat")}
@@ -550,7 +553,10 @@ export default memo(function Sidebar({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-end px-3 h-14 shrink-0" data-tauri-drag-region>
+            <div
+              className="flex items-center justify-end px-3 h-14 shrink-0"
+              data-tauri-drag-region={isMac ? true : undefined}
+            >
               <div className="flex items-center gap-1">
                 <button
                   onClick={onClose}
