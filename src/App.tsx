@@ -1237,7 +1237,7 @@ function App() {
         {!(view === "settings" && (isMobile ? sidebarOpenForViewport : !sidebarCollapsed)) && (
           <div
             className={`absolute top-0 left-0 z-50 flex items-center ${isMac ? "h-14 pl-[90px]" : "h-[32px] pl-4"}`}
-            data-tauri-drag-region
+            data-tauri-drag-region={isMac ? true : undefined}
           >
             <div className="flex items-center gap-1 h-full">
               <button
@@ -1328,7 +1328,7 @@ function App() {
           isMobile={isMobile}
         />
 
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-chat">
+        <div className="native-backdrop-content flex-1 flex flex-col min-w-0 overflow-hidden relative bg-chat">
           <AnimatePresence mode="wait">
             {view === "settings" ? (
               <motion.div
@@ -1364,10 +1364,10 @@ function App() {
                 transition={motionTransitions.panelEnter}
               >
                 <header
-                  className={`shrink-0 flex items-center justify-between px-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 ${
+                  className={`chat-titlebar shrink-0 flex items-center justify-between px-4 md:px-6 bg-chat/80 backdrop-blur-md relative z-20 ${
                     isMac ? "h-14 py-0" : "py-4 pt-6"
                   }`}
-                  data-tauri-drag-region
+                  data-tauri-drag-region={isMac ? true : undefined}
                 >
                   <div className="flex items-center gap-2 pl-12 md:pl-28 z-20">
                     {activeConversation?.isSubagent && activeConversation.parentId && (
