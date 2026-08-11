@@ -6,8 +6,10 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 const isMac = window.navigator.userAgent.includes("Mac");
+const isWindows = window.navigator.userAgent.includes("Windows");
 
 document.documentElement.classList.toggle("platform-macos", isMac);
+document.documentElement.classList.toggle("platform-windows", isWindows);
 
 if (prefersDark) {
   document.documentElement.classList.add("dark");
