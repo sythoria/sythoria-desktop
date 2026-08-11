@@ -260,6 +260,10 @@ export function applyTheme(config: ThemeConfig) {
 
   const composerBase = isDark ? surfaceColor : mixColors(bg, fg, 0.97);
   style.setProperty("--theme-composer", hexToRgba(composerBase, isDark ? 0.9 : 0.92));
+  // Windows Acrylic is rendered by DWM beneath the transparent WebView. These
+  // tints keep content readable while allowing that native backdrop through.
+  style.setProperty("--theme-windows-backdrop", hexToRgba(bg, isDark ? 0.82 : 0.78));
+  style.setProperty("--theme-windows-composer", hexToRgba(composerBase, isDark ? 0.58 : 0.68));
 
   // Popups are portaled outside their parent cards, so they need an opaque,
   // palette-derived surface of their own instead of a white/black fallback.
@@ -268,6 +272,7 @@ export function applyTheme(config: ThemeConfig) {
 
   const sidebarColor = translucentSidebar ? hexToRgba(bg, isDark ? 0.4 : 0.9) : bg;
   style.setProperty("--theme-sidebar", sidebarColor);
+  style.setProperty("--theme-windows-sidebar", hexToRgba(bg, isDark ? 0.48 : 0.7));
   document.documentElement.classList.toggle("sidebar-translucency-disabled", !translucentSidebar);
 
   const inputColor = isDark ? hexToRgba(fg, 0.06) : hexToRgba(fg, 0.08);
