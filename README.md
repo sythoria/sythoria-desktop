@@ -1,8 +1,9 @@
 <div align="center">
 
-<h1>
-  Sythoria&nbsp;<img src="./src-tauri/icons/128x128.png" alt="Sythoria app icon" width="72" align="center" />
-</h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./public/sythoria-header-dark.svg" />
+  <img src="./public/sythoria-header-light.svg" alt="Sythoria" width="1080" />
+</picture>
 
 <p>
   <a href="https://github.com/sythoria/sythoria-desktop/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/release/sythoria/sythoria-desktop.svg?variant=outline&amp;size=sm&amp;mode=dark&amp;font=geist" /><img alt="Latest release" src="https://www.shieldcn.dev/github/release/sythoria/sythoria-desktop.svg?variant=outline&amp;size=sm&amp;mode=light&amp;font=geist" /></picture></a>
