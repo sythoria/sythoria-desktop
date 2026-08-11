@@ -1963,14 +1963,12 @@ pub fn run() {
             }
 
             #[cfg(target_os = "windows")]
-            if let Err(mica_error) = window_vibrancy::apply_mica(&_window, None) {
+            if let Err(acrylic_error) = window_vibrancy::apply_acrylic(&_window, None) {
                 log::warn!(
-                    "Mica is unavailable; falling back to the legacy Windows blur effect: {mica_error}"
+                    "Native Windows Acrylic is unavailable; falling back to Mica: {acrylic_error}"
                 );
-                if let Err(blur_error) =
-                    window_vibrancy::apply_blur(&_window, Some((18, 18, 18, 125)))
-                {
-                    log::warn!("Could not apply a Windows backdrop effect: {blur_error}");
+                if let Err(mica_error) = window_vibrancy::apply_mica(&_window, None) {
+                    log::warn!("Could not apply a native Windows backdrop effect: {mica_error}");
                 }
             }
 
