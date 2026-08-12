@@ -1046,7 +1046,6 @@ function ReasoningBubble({
   const [prevAutoExpand, setPrevAutoExpand] = useState(autoExpandReasoning);
   const [expanded, setExpanded] = useState(!!autoExpandReasoning);
   const [elapsed, setElapsed] = useState<number | null>(null);
-  const [dots, setDots] = useState(".");
 
   if (autoExpandReasoning !== prevAutoExpand) {
     setPrevAutoExpand(autoExpandReasoning);
@@ -1078,70 +1077,54 @@ function ReasoningBubble({
     return () => clearInterval(interval);
   }, [thinkingActive, startTimestamp]);
 
-  useEffect(() => {
-    if (!thinkingActive) {
-      return;
-    }
-    const interval = setInterval(() => {
-      setDots((prev) => {
-        if (prev === "...") return ".";
-        if (prev === "..") return "...";
-        return "..";
-      });
-    }, 500);
-    return () => clearInterval(interval);
-  }, [thinkingActive]);
-
   return (
-    <motion.div
-      className="text-text-muted"
-      variants={messageVariants}
-      initial="hidden"
-      animate="visible"
-      transition={motionTransitions.content}
-    >
+    <section className="text-text-muted" aria-label="Reasoning activity">
       <motion.button
         type="button"
         onClick={() => setExpanded((current) => !current)}
-        className="flex items-center gap-1.5 text-left text-sm hover:text-text-primary transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-left text-sm select-none hover:text-text-primary transition-colors cursor-pointer"
         aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
         aria-expanded={expanded}
         whileHover={{ x: 2 }}
         transition={springs.snappy}
       >
-        <Sparkles size={14} className="shrink-0" aria-hidden="true" />
+        {thinkingActive ? (
+          <Loader2 size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        ) : (
+          <Sparkles size={14} className="shrink-0" aria-hidden="true" />
+        )}
         <span>
           {thinkingActive
             ? elapsed !== null
-              ? `Thinking for ${elapsed}s${dots}`
-              : `Thinking${dots}`
+              ? `Thinking · ${formatWorkingDuration(elapsed)}`
+              : "Thinking"
             : thinkingDuration !== undefined
               ? `Thought for ${thinkingDuration}s`
               : "Thought"}
         </span>
         <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
       </motion.button>
-      <div className="ml-5 min-w-0">
-        <AnimatePresence initial={false}>
-          {expanded && (
-            <motion.div
-              key="reasoning-content"
-              className="overflow-hidden bg-input/20 border border-border/40 rounded-xl"
-              initial={{ opacity: 0, height: 0, marginTop: 0 }}
-              animate={{ opacity: 1, height: "auto", marginTop: 6 }}
-              exit={{ opacity: 0, height: 0, marginTop: 0 }}
-              transition={motionTransitions.content}
-            >
-              <div className="p-3 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="reasoning-content"
+            className="w-full overflow-hidden pl-5"
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 6 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={motionTransitions.content}
+          >
+            <div className="overflow-hidden rounded-xl border border-border/40 bg-input/20">
+              <div className="max-h-48 overflow-x-auto overflow-y-auto p-3 text-sm text-text-secondary">
                 <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
                   {content || "Thinking..."}
                 </p>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 }
 
