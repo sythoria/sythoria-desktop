@@ -26,7 +26,7 @@ import {
   Search,
   Globe,
   Wrench,
-  ChevronDown,
+  ChevronRight,
   Loader2,
   ExternalLink,
   Sparkles,
@@ -712,7 +712,7 @@ function SubagentToolCard({
           {roleLabel && <span className="font-medium text-text-primary ml-1.5">— {roleLabel}</span>}
           {isRunning && <span className="ml-1">{dots}</span>}
         </span>
-        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
       </motion.button>
 
       <AnimatePresence initial={false}>
@@ -874,7 +874,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
           )}
 
           {!isWaitSubagents && (
-            <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
           )}
         </motion.button>
 
@@ -1102,7 +1102,7 @@ function ReasoningBubble({
               ? `Thought for ${thinkingDuration}s`
               : "Thought"}
         </span>
-        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
       </motion.button>
       <AnimatePresence initial={false}>
         {expanded && (
@@ -1724,9 +1724,9 @@ function ToolActivityDisclosure({
           <Loader2 size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
         )}
         <span>{statusLabel}</span>
-        <ChevronDown
+        <ChevronRight
           size={14}
-          className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`-ml-0.5 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
           aria-hidden="true"
         />
       </button>
@@ -2512,9 +2512,9 @@ function WorkspaceChangeSummary({
                   ? "Show fewer files"
                   : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
               </span>
-              <ChevronDown
+              <ChevronRight
                 size={13}
-                className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+                className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
                 aria-hidden="true"
               />
             </button>
