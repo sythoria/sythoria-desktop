@@ -1194,6 +1194,112 @@ interface ParsedQuestion {
   cleanedContent: string;
 }
 
+interface ToolActivityGroup {
+  kind: "tool-activity";
+  id: string;
+  messages: Message[];
+  finalMessage?: Message;
+  finalReasoning?: {
+    content: string;
+    thinkingDuration?: number;
+  };
+}
+
+type ChatRenderItem = Message | ToolActivityGroup;
+
+function buildChatRenderItems(messages: Message[], isConversationWorking: boolean): ChatRenderItem[] {
+  const items: ChatRenderItem[] = [];
+  let cursor = 0;
+
+  while (cursor < messages.length) {
+    const message = messages[cursor];
+    if (message.role === "user") {
+      items.push(message);
+      cursor += 1;
+      continue;
+    }
+
+    const segmentStart = cursor;
+    while (cursor < messages.length && messages[cursor].role !== "user") cursor += 1;
+    const segment = messages.slice(segmentStart, cursor);
+    let lastToolIndex = -1;
+    for (let index = segment.length - 1; index >= 0; index -= 1) {
+      if (segment[index].role === "tool" && segment[index].toolCall) {
+        lastToolIndex = index;
+        break;
+      }
+    }
+
+    if (lastToolIndex < 0) {
+      items.push(...segment);
+      continue;
+    }
+
+    let finalAssistantIndex = -1;
+    for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
+      const candidate = segment[index];
+      if (
+        candidate.role === "assistant" &&
+        !candidate.isSystem &&
+        (!isConversationWorking || candidate.isStreaming === true)
+      ) {
+        finalAssistantIndex = index;
+      }
+    }
+
+    const activityEnd = finalAssistantIndex >= 0 ? finalAssistantIndex : segment.length;
+    const activityMessages = segment
+      .slice(0, activityEnd)
+      .filter(
+        (candidate) =>
+          candidate.role !== "assistant" ||
+          candidate.isSystem ||
+          candidate.content.trim().length > 0 ||
+          candidate.reasoningContent?.trim(),
+      );
+    const firstTool = activityMessages.find((candidate) => candidate.role === "tool" && !!candidate.toolCall);
+    const finalMessage = finalAssistantIndex >= 0 ? segment[finalAssistantIndex] : undefined;
+    const completedFinalReasoning =
+      finalMessage && !finalMessage.isStreaming
+        ? parseReasoning(finalMessage.content, finalMessage.role, finalMessage.reasoningContent)
+        : undefined;
+    const hasCompletedFinalReasoning = completedFinalReasoning?.hasOpenReasoning === true;
+
+    items.push({
+      kind: "tool-activity",
+      id: `tool-activity-${firstTool?.id ?? activityMessages[0].id}`,
+      messages: activityMessages,
+      finalMessage,
+      finalReasoning: hasCompletedFinalReasoning
+        ? {
+            content: completedFinalReasoning.reasoningContent,
+            thinkingDuration: finalMessage?.thinkingDuration,
+          }
+        : undefined,
+    });
+    if (finalMessage && hasCompletedFinalReasoning) {
+      items.push({
+        ...finalMessage,
+        content: completedFinalReasoning.displayContent,
+        reasoningContent: undefined,
+        thinkingDuration: undefined,
+      });
+      items.push(...segment.slice(activityEnd + 1));
+    } else {
+      items.push(...segment.slice(activityEnd));
+    }
+  }
+
+  return items;
+}
+
+function formatWorkingDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
+}
+
 function parseQuestionBlock(content: string): ParsedQuestion | null {
   const match = content.match(/<question\s+id="([^"]+)"\s+title="([^"]+)">([\s\S]+?)<\/question>/);
   if (!match) return null;
@@ -1568,6 +1674,172 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+function ToolActivityDisclosure({
+  activity,
+  isActive,
+  onRetry,
+  conversationId,
+  pendingWorktree,
+  onApplyWorktree,
+  onDiscardWorktree,
+  autoExpandReasoning,
+  animateMessageIds,
+}: {
+  activity: ToolActivityGroup;
+  isActive: boolean;
+  onRetry?: () => void;
+  conversationId?: string;
+  pendingWorktree?: PendingWorktree;
+  onApplyWorktree?: (id: string) => void | Promise<void>;
+  onDiscardWorktree?: (id: string) => void | Promise<void>;
+  autoExpandReasoning?: boolean;
+  animateMessageIds: ReadonlySet<string>;
+}) {
+  const contentId = useId();
+  const [expanded, setExpanded] = useState(isActive);
+  const startedAt = new Date(activity.messages[0].timestamp).getTime();
+  const completedDuration = activity.finalMessage?.workingDuration;
+  const [elapsed, setElapsed] = useState(() => {
+    if (completedDuration !== undefined) return completedDuration;
+    const endedAt = isActive
+      ? Date.now()
+      : (activity.finalMessage?.timestamp ?? activity.messages[activity.messages.length - 1].timestamp);
+    return Math.max(0, Math.round((new Date(endedAt).getTime() - startedAt) / 1000));
+  });
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [isActive, startedAt]);
+
+  const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
+
+  const statusLabel = isActive
+    ? `Working · ${formatWorkingDuration(displayedElapsed)}`
+    : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
+
+  return (
+    <motion.section
+      className="w-full min-w-0 py-1"
+      aria-label="Tool activity"
+      variants={messageVariants}
+      initial={animateMessageIds.size > 0 ? "hidden" : false}
+      animate="visible"
+      transition={motionTransitions.content}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex min-h-8 w-full items-center gap-2 border-b border-border/50 py-1 text-left text-sm font-medium text-text-muted transition-colors hover:border-border hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+      >
+        {isActive && (
+          <Loader2 size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        )}
+        <span>{statusLabel}</span>
+        <ChevronDown
+          size={14}
+          className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            id={contentId}
+            key="tool-activity-content"
+            className="min-w-0 overflow-hidden pt-1"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={motionTransitions.content}
+          >
+            {activity.messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onRetry={onRetry}
+                conversationId={conversationId}
+                pendingWorktree={pendingWorktree}
+                onApplyWorktree={onApplyWorktree}
+                onDiscardWorktree={onDiscardWorktree}
+                autoExpandReasoning={autoExpandReasoning}
+                animateEntrance={animateMessageIds.has(message.id)}
+              />
+            ))}
+            {activity.finalReasoning && (
+              <ReasoningBubble
+                content={activity.finalReasoning.content}
+                isStreaming={false}
+                isReasoningComplete
+                thinkingDuration={activity.finalReasoning.thinkingDuration}
+                conversationId={conversationId}
+                autoExpandReasoning={autoExpandReasoning}
+              />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.section>
+  );
+}
+
+function ChatRenderItemView({
+  item,
+  activeToolActivityId,
+  onRetry,
+  conversationId,
+  pendingWorktree,
+  onApplyWorktree,
+  onDiscardWorktree,
+  autoExpandReasoning,
+  animateMessageIds,
+}: {
+  item: ChatRenderItem;
+  activeToolActivityId?: string;
+  onRetry?: () => void;
+  conversationId?: string;
+  pendingWorktree?: PendingWorktree;
+  onApplyWorktree?: (id: string) => void | Promise<void>;
+  onDiscardWorktree?: (id: string) => void | Promise<void>;
+  autoExpandReasoning?: boolean;
+  animateMessageIds: ReadonlySet<string>;
+}) {
+  if ("kind" in item) {
+    return (
+      <ToolActivityDisclosure
+        key={`${item.id}-${item.id === activeToolActivityId ? "active" : "complete"}`}
+        activity={item}
+        isActive={item.id === activeToolActivityId}
+        onRetry={onRetry}
+        conversationId={conversationId}
+        pendingWorktree={pendingWorktree}
+        onApplyWorktree={onApplyWorktree}
+        onDiscardWorktree={onDiscardWorktree}
+        autoExpandReasoning={autoExpandReasoning}
+        animateMessageIds={animateMessageIds}
+      />
+    );
+  }
+
+  return (
+    <MessageBubble
+      message={item}
+      onRetry={onRetry}
+      conversationId={conversationId}
+      pendingWorktree={pendingWorktree}
+      onApplyWorktree={onApplyWorktree}
+      onDiscardWorktree={onDiscardWorktree}
+      autoExpandReasoning={autoExpandReasoning}
+      animateEntrance={animateMessageIds.has(item.id)}
+    />
+  );
+}
+
 const VIRTUALIZED_THRESHOLD = 50;
 
 function ChatAreaBase({
@@ -1597,6 +1869,13 @@ function ChatAreaBase({
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
   );
   const hasAssistantMessage = messages.some((message) => message.role === "assistant");
+  const renderItems = useMemo(
+    () => buildChatRenderItems(messages, isConversationWorking),
+    [isConversationWorking, messages],
+  );
+  const activeToolActivityId = isConversationWorking
+    ? [...renderItems].reverse().find((item): item is ToolActivityGroup => "kind" in item)?.id
+    : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
     const element = virtualScrollerRef.current;
@@ -1708,26 +1987,27 @@ function ChatAreaBase({
     );
   }
 
-  if (messages.length >= VIRTUALIZED_THRESHOLD) {
+  if (renderItems.length >= VIRTUALIZED_THRESHOLD) {
     return (
       <div className="flex-1 min-h-0 min-w-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
         <Virtuoso
           ref={virtuosoRef}
-          data={messages}
+          data={renderItems}
           atBottomStateChange={setIsAtBottom}
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
-          itemContent={(index, msg) => (
+          itemContent={(index, item) => (
             <div className={index > 0 ? "mt-0.5" : ""}>
-              <MessageBubble
-                message={msg}
+              <ChatRenderItemView
+                item={item}
+                activeToolActivityId={activeToolActivityId}
                 onRetry={onRetry}
                 conversationId={conversationId}
                 pendingWorktree={pendingWorktree}
                 onApplyWorktree={applyPendingWorktree}
                 onDiscardWorktree={discardPendingWorktree}
                 autoExpandReasoning={autoExpandReasoning}
-                animateEntrance={currentAnimationState.entering.has(msg.id)}
+                animateMessageIds={currentAnimationState.entering}
               />
             </div>
           )}
@@ -1764,6 +2044,8 @@ function ChatAreaBase({
                     />
                   </div>
                 )}
+                {/* Keep the final message scrollable above the composer's 6rem negative-margin overlap. */}
+                <div aria-hidden="true" className="h-32" />
               </>
             ),
           }}
@@ -1775,7 +2057,7 @@ function ChatAreaBase({
 
   return (
     <NonVirtualizedChatArea
-      messages={messages}
+      renderItems={renderItems}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
       pendingWorktree={pendingWorktree}
@@ -1788,12 +2070,13 @@ function ChatAreaBase({
       onScroll={onScroll}
       autoExpandReasoning={autoExpandReasoning}
       animateMessageIds={currentAnimationState.entering}
+      activeToolActivityId={activeToolActivityId}
     />
   );
 }
 
 function NonVirtualizedChatArea({
-  messages,
+  renderItems,
   setIsAtBottom,
   onRetry,
   pendingWorktree,
@@ -1806,8 +2089,9 @@ function NonVirtualizedChatArea({
   onScroll,
   autoExpandReasoning,
   animateMessageIds,
+  activeToolActivityId,
 }: {
-  messages: Message[];
+  renderItems: ChatRenderItem[];
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
   pendingWorktree?: PendingWorktree;
@@ -1820,6 +2104,7 @@ function NonVirtualizedChatArea({
   onScroll?: (scrollTop: number, ratio: number) => void;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
+  activeToolActivityId?: string;
 }) {
   const isTemporary = useChatStore(
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
@@ -1888,7 +2173,7 @@ function NonVirtualizedChatArea({
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-0.5">
+      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 pt-8 pb-32 space-y-0.5">
         {isTemporary && (
           <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
@@ -1899,17 +2184,18 @@ function NonVirtualizedChatArea({
             </div>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
+        {renderItems.map((item) => (
+          <ChatRenderItemView
+            key={item.id}
+            item={item}
+            activeToolActivityId={activeToolActivityId}
             onRetry={onRetry}
             conversationId={conversationId}
             pendingWorktree={pendingWorktree}
             onApplyWorktree={onApply}
             onDiscardWorktree={onDiscard}
             autoExpandReasoning={autoExpandReasoning}
-            animateEntrance={animateMessageIds.has(msg.id)}
+            animateMessageIds={animateMessageIds}
           />
         ))}
         {pendingWorktree && conversationId && isConversationWorking && (

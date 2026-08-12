@@ -862,7 +862,11 @@ function updateConversationMessages(
   });
 }
 
-function setCancelledStatus(set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void, convId: string) {
+function setCancelledStatus(
+  set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
+  convId: string,
+  workingDuration?: number,
+) {
   set((state) => {
     const conv = state.conversations.find((c) => c.id === convId);
     if (!conv) return {};
@@ -874,7 +878,10 @@ function setCancelledStatus(set: (fn: (state: ToolLoopSlice) => Partial<ToolLoop
         nextMessages[idx] = {
           ...nextMessages[idx],
           content: "Cancelled agent execution.",
+          workingDuration,
         };
+      } else if (workingDuration !== undefined) {
+        nextMessages[idx] = { ...nextMessages[idx], workingDuration };
       }
     }
     return {
@@ -1002,6 +1009,8 @@ async function runWithToolLoop(
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>,
   fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>,
 ) {
+  const workingStartedAt = Date.now();
+  let hasUsedTools = false;
   let runContext = initialRunContext;
   const {
     conversationId: convId,
@@ -1239,7 +1248,11 @@ async function runWithToolLoop(
       }
       if (!isConvStreaming(get, convId)) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
-        setCancelledStatus(set, convId);
+        setCancelledStatus(
+          set,
+          convId,
+          hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
+        );
         await get().persistConversations?.();
         wasAborted = true;
         return;
@@ -1334,7 +1347,11 @@ async function runWithToolLoop(
           // Stream cancellation commonly rejects the pending Tauri invocation.
         });
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
-        setCancelledStatus(set, convId);
+        setCancelledStatus(
+          set,
+          convId,
+          hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
+        );
         await get().persistConversations?.();
         wasAborted = true;
         return;
@@ -1380,6 +1397,7 @@ async function runWithToolLoop(
       }
 
       if (hasToolCalls && msg.tool_calls) {
+        hasUsedTools = true;
         apiMessages.push({
           role: "assistant",
           content: msg.content,
@@ -2073,7 +2091,11 @@ async function runWithToolLoop(
 
         if (!isConvStreaming(get, convId)) {
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
-          setCancelledStatus(set, convId);
+          setCancelledStatus(
+            set,
+            convId,
+            hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
+          );
           await get().persistConversations?.();
           wasAborted = true;
           return;
@@ -2131,6 +2153,9 @@ async function runWithToolLoop(
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
+                workingDuration: hasUsedTools
+                  ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000))
+                  : last.workingDuration,
               };
             }
             return updated;
@@ -2178,6 +2203,7 @@ async function runWithToolLoop(
         "I reached the maximum number of tool calls. Let me provide the best answer I can with the information gathered so far.",
       timestamp: new Date(),
       sources: collectedSources.length > 0 ? collectedSources : undefined,
+      workingDuration: hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
     };
 
     set((state) => {
@@ -2204,6 +2230,18 @@ async function runWithToolLoop(
     set((state) => {
       const generationLabel = `Generation failed: ${parsed.message}`;
       let conversations = setAssistantError(state.conversations, convId, err);
+      if (hasUsedTools) {
+        const workingDuration = Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000));
+        conversations = updateConversationMessages(conversations, convId, (messages) => {
+          const updated = [...messages];
+          const reversedAssistantIndex = [...updated].reverse().findIndex((message) => message.role === "assistant");
+          if (reversedAssistantIndex >= 0) {
+            const assistantIndex = updated.length - 1 - reversedAssistantIndex;
+            updated[assistantIndex] = { ...updated[assistantIndex], workingDuration };
+          }
+          return updated;
+        });
+      }
       conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "error" } : c));
       return {
         conversations,

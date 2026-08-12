@@ -62,6 +62,8 @@ export interface Message {
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
   thinkingDuration?: number;
+  /** Total wall-clock time for a tool-assisted turn, stored on its final assistant message. */
+  workingDuration?: number;
 }
 
 export interface PendingWorktree {

@@ -96,6 +96,7 @@ const MessageSchema = z
     sources: z.array(SourceSchema).optional(),
     attachments: z.array(AttachmentSchema).optional(),
     thinkingDuration: z.number().nonnegative().optional(),
+    workingDuration: z.number().nonnegative().optional(),
   })
   .passthrough();
 

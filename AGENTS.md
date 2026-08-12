@@ -211,6 +211,7 @@ export interface Message {
   };
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
+  workingDuration?: number; // Total seconds for a completed tool-assisted turn
 }
 
 export interface PendingWorktree {
