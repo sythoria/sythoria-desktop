@@ -221,7 +221,7 @@ describe("ChatArea", () => {
       <ChatArea messages={activeMessages} {...defaultProps} conversationId={conversation.id} />,
     );
 
-    const activeDisclosure = screen.getByRole("button", { name: /Working · \d+s/i });
+    const activeDisclosure = screen.getByRole("button", { name: /Working for \d+s/i });
     expect(activeDisclosure).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("I’ll inspect the relevant files.")).toBeInTheDocument();
     expect(screen.getByText("The project uses")).toBeInTheDocument();
@@ -314,7 +314,7 @@ describe("ChatArea", () => {
     const { rerender } = render(
       <ChatArea messages={firstStepMessages} {...defaultProps} conversationId={conversation.id} />,
     );
-    const disclosureBefore = screen.getByRole("button", { name: /Working · \d+s/i });
+    const disclosureBefore = screen.getByRole("button", { name: /Working for \d+s/i });
     expect(disclosureBefore).toHaveAttribute("aria-expanded", "true");
 
     const secondTool = makeMessage({
@@ -333,7 +333,7 @@ describe("ChatArea", () => {
     });
     rerender(<ChatArea messages={secondStepMessages} {...defaultProps} conversationId={conversation.id} />);
 
-    const disclosureAfter = screen.getByRole("button", { name: /Working · \d+s/i });
+    const disclosureAfter = screen.getByRole("button", { name: /Working for \d+s/i });
     expect(disclosureAfter).toBe(disclosureBefore);
     expect(disclosureAfter).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("I found the entry point; now I’ll inspect the store.")).toBeInTheDocument();

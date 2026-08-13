@@ -1096,7 +1096,7 @@ function ReasoningBubble({
         <span>
           {thinkingActive
             ? elapsed !== null
-              ? `Thinking · ${formatWorkingDuration(elapsed)}`
+              ? `Thinking for ${formatWorkingDuration(elapsed)}`
               : "Thinking"
             : thinkingDuration !== undefined
               ? `Thought for ${thinkingDuration}s`
@@ -1701,7 +1701,7 @@ function ToolActivityDisclosure({
   const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
 
   const statusLabel = isActive
-    ? `Working · ${formatWorkingDuration(displayedElapsed)}`
+    ? `Working for ${formatWorkingDuration(displayedElapsed)}`
     : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
   const collapsedPreviewMessage = isActive
     ? [...activity.messages]
