@@ -1703,6 +1703,17 @@ function ToolActivityDisclosure({
   const statusLabel = isActive
     ? `Working · ${formatWorkingDuration(displayedElapsed)}`
     : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
+  const collapsedPreviewMessage = isActive
+    ? [...activity.messages]
+        .reverse()
+        .find(
+          (message) =>
+            (message.role === "tool" && !!message.toolCall) ||
+            (message.role === "assistant" &&
+              !message.isSystem &&
+              (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
+        )
+    : undefined;
 
   return (
     <motion.section
@@ -1731,6 +1742,28 @@ function ToolActivityDisclosure({
         />
       </button>
       <AnimatePresence initial={false}>
+        {!expanded && collapsedPreviewMessage && (
+          <motion.div
+            key={`tool-activity-preview-${collapsedPreviewMessage.id}`}
+            className="min-w-0 overflow-hidden py-1 pl-5"
+            data-testid="working-collapsed-preview"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={motionTransitions.content}
+          >
+            <MessageBubble
+              message={collapsedPreviewMessage}
+              onRetry={onRetry}
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApplyWorktree={onApplyWorktree}
+              onDiscardWorktree={onDiscardWorktree}
+              autoExpandReasoning={autoExpandReasoning}
+              animateEntrance={false}
+            />
+          </motion.div>
+        )}
         {expanded && (
           <motion.div
             id={contentId}

@@ -226,6 +226,32 @@ describe("ChatArea", () => {
     expect(screen.getByText("I’ll inspect the relevant files.")).toBeInTheDocument();
     expect(screen.getByText("The project uses")).toBeInTheDocument();
 
+    await userEvent.click(activeDisclosure);
+    expect(activeDisclosure).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(screen.queryByText("I’ll inspect the relevant files.")).not.toBeInTheDocument());
+    expect(screen.getByTestId("working-collapsed-preview")).toHaveClass("pl-5");
+    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("App.tsx");
+
+    const latestThought = makeMessage({
+      id: "working-latest-thought",
+      role: "assistant",
+      content: "I’m checking the component state now.",
+      timestamp: new Date(),
+    });
+    const activeThoughtMessages = [userMessage, narrationMessage, toolMessage, latestThought];
+    useChatStore.setState({
+      conversations: [{ ...conversation, messages: activeThoughtMessages }],
+      generationByConversation: {
+        [conversation.id]: { state: "responding", label: "Responding" },
+      },
+    });
+    rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
+    await waitFor(() => {
+      const previews = screen.getAllByTestId("working-collapsed-preview");
+      expect(previews).toHaveLength(1);
+      expect(previews[0]).toHaveTextContent("I’m checking the component state now.");
+    });
+
     const completedFinal = {
       ...streamingFinal,
       content: "The project uses React.",
