@@ -98,7 +98,9 @@ describe("ChatArea", () => {
     });
     render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
 
-    expect(screen.getByText("Cancelled agent execution.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Cancelled agent execution.");
+    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
     expect(screen.queryByText("Cancelled", { exact: true })).not.toBeInTheDocument();
   });
 

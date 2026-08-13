@@ -1593,7 +1593,11 @@ const MessageBubble = memo(function MessageBubble({
               <div className={`markdown-body ${textSizeClass}`}>
                 {contentToRender.length > 0 ? (
                   contentToRender === "Cancelled agent execution." ? (
-                    <div className="text-text-muted italic text-[13px] my-1 flex items-center gap-1.5 select-none font-medium">
+                    <div
+                      className="text-text-muted italic text-[13px] my-1 flex items-center gap-1.5 select-none font-medium"
+                      role="status"
+                      aria-live="polite"
+                    >
                       Cancelled agent execution.
                     </div>
                   ) : (
