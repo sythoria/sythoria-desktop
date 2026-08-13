@@ -142,6 +142,39 @@ describe("useMcpStore capability revocation", () => {
     );
   });
 
+  it("reconnects and retries once when native MCP state is stale", async () => {
+    let approvalAttempts = 0;
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_request_tool_approval") {
+        approvalAttempts += 1;
+        if (approvalAttempts === 1) {
+          return Promise.reject(new Error("MCP server 'server-1' is not connected"));
+        }
+        return Promise.resolve("replacement-approval");
+      }
+      if (command === "mcp_start_server") {
+        return Promise.resolve(JSON.stringify([{ name: tool.name, description: tool.description, inputSchema: {} }]));
+      }
+      if (command === "mcp_call_tool") {
+        return Promise.resolve(JSON.stringify({ content: "recovered", isError: false }));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await expect(useMcpStore.getState().callTool(config.id, tool.name, {}, "conversation-recovery")).resolves.toEqual({
+      content: "recovered",
+      isError: false,
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_start_server", expect.objectContaining({ explicitlyEnabled: true }));
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      "mcp_call_tool",
+      expect.objectContaining({ approvalCapability: "replacement-approval" }),
+    );
+    expect(approvalAttempts).toBe(2);
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("connected");
+  });
+
   it("disconnects an active server when its trust level changes", async () => {
     await useMcpStore.getState().updateMcpConfig(config.id, { trustLevel: "trusted" });
 
