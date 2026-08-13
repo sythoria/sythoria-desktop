@@ -34,6 +34,18 @@ const debouncedLogEnvUpdate = debounce((name: string) => {
 }, 500);
 
 const activeToolCallIdsByConversation = new Map<string, Set<string>>();
+const staleConnectionRecoveryByServer = new Map<string, Promise<boolean>>();
+
+function isStaleNativeConnectionError(error: unknown): boolean {
+  const parsed = parseApiError(error);
+  const detail = [parsed.raw, parsed.rawDetail, parsed.message].filter(Boolean).join(" ").toLowerCase();
+  return (
+    detail.includes("mcp server") &&
+    (detail.includes("is not connected") ||
+      detail.includes("not found or not connected") ||
+      detail.includes("connection is stale"))
+  );
+}
 
 function trackToolCall(conversationId: string, requestId: string): void {
   const activeIds = activeToolCallIdsByConversation.get(conversationId) ?? new Set<string>();
@@ -413,20 +425,57 @@ export const useMcpStore = create<McpState>((set, get) => ({
         details: `Server: "${config?.name ?? serverId}", ${summarizeToolArguments(args)}`,
       });
       const serializedArguments = JSON.stringify(args);
-      const approvalCapability = await invoke<string | null>("mcp_request_tool_approval", {
-        serverId,
-        toolName,
-        arguments: serializedArguments,
-        conversationId: conversationId ?? null,
-      });
-      const raw = await invoke<string>("mcp_call_tool", {
-        serverId,
-        toolName,
-        arguments: serializedArguments,
-        conversationId: conversationId ?? null,
-        approvalCapability,
-        ...(requestId ? { requestId } : {}),
-      });
+      const invokeTool = async (): Promise<string> => {
+        const approvalCapability = await invoke<string | null>("mcp_request_tool_approval", {
+          serverId,
+          toolName,
+          arguments: serializedArguments,
+          conversationId: conversationId ?? null,
+        });
+        return invoke<string>("mcp_call_tool", {
+          serverId,
+          toolName,
+          arguments: serializedArguments,
+          conversationId: conversationId ?? null,
+          approvalCapability,
+          ...(requestId ? { requestId } : {}),
+        });
+      };
+
+      let raw: string;
+      try {
+        raw = await invokeTool();
+      } catch (error) {
+        if (!isStaleNativeConnectionError(error)) throw error;
+
+        let recovery = staleConnectionRecoveryByServer.get(serverId);
+        if (!recovery) {
+          const currentState = get();
+          const recoveryIsStillAuthorized =
+            currentState.serverStatuses[serverId] === "connected" &&
+            currentState.selectedServerIds.has(serverId) &&
+            currentState.enabledServerIds.has(serverId) &&
+            currentState.mcpConfigs.some((candidate) => candidate.id === serverId && candidate.enabled);
+          if (!recoveryIsStillAuthorized) throw error;
+
+          recovery = (async () => {
+            logWarn("mcp", `MCP server connection became stale: "${config.name}"`, {
+              action: "Reconnecting automatically before retrying the tool call.",
+            });
+            await get().connectServer(serverId);
+            return get().serverStatuses[serverId] === "connected";
+          })();
+          staleConnectionRecoveryByServer.set(serverId, recovery);
+          void recovery.finally(() => {
+            if (staleConnectionRecoveryByServer.get(serverId) === recovery) {
+              staleConnectionRecoveryByServer.delete(serverId);
+            }
+          });
+        }
+
+        if (!(await recovery)) throw error;
+        raw = await invokeTool();
+      }
       const result = JSON.parse(raw) as McpToolResult;
       if (result.isError) {
         logWarn("mcp", `MCP tool returned error: ${toolName}`, {

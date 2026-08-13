@@ -1,4 +1,14 @@
-import { useState, useEffect, useRef, memo, useCallback, useMemo, useDeferredValue, isValidElement } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  memo,
+  useCallback,
+  useMemo,
+  useDeferredValue,
+  useId,
+  isValidElement,
+} from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
@@ -16,7 +26,7 @@ import {
   Search,
   Globe,
   Wrench,
-  ChevronDown,
+  ChevronRight,
   Loader2,
   ExternalLink,
   Sparkles,
@@ -44,7 +54,7 @@ import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
-import { fileNameFromPath, parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
+import { parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -702,7 +712,7 @@ function SubagentToolCard({
           {roleLabel && <span className="font-medium text-text-primary ml-1.5">— {roleLabel}</span>}
           {isRunning && <span className="ml-1">{dots}</span>}
         </span>
-        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
       </motion.button>
 
       <AnimatePresence initial={false}>
@@ -864,7 +874,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
           )}
 
           {!isWaitSubagents && (
-            <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
           )}
         </motion.button>
 
@@ -1036,7 +1046,6 @@ function ReasoningBubble({
   const [prevAutoExpand, setPrevAutoExpand] = useState(autoExpandReasoning);
   const [expanded, setExpanded] = useState(!!autoExpandReasoning);
   const [elapsed, setElapsed] = useState<number | null>(null);
-  const [dots, setDots] = useState(".");
 
   if (autoExpandReasoning !== prevAutoExpand) {
     setPrevAutoExpand(autoExpandReasoning);
@@ -1068,70 +1077,54 @@ function ReasoningBubble({
     return () => clearInterval(interval);
   }, [thinkingActive, startTimestamp]);
 
-  useEffect(() => {
-    if (!thinkingActive) {
-      return;
-    }
-    const interval = setInterval(() => {
-      setDots((prev) => {
-        if (prev === "...") return ".";
-        if (prev === "..") return "...";
-        return "..";
-      });
-    }, 500);
-    return () => clearInterval(interval);
-  }, [thinkingActive]);
-
   return (
-    <motion.div
-      className="text-text-muted"
-      variants={messageVariants}
-      initial="hidden"
-      animate="visible"
-      transition={motionTransitions.content}
-    >
+    <section className="text-text-muted" aria-label="Reasoning activity">
       <motion.button
         type="button"
         onClick={() => setExpanded((current) => !current)}
-        className="flex items-center gap-1.5 text-left text-sm hover:text-text-primary transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-left text-sm select-none hover:text-text-primary transition-colors cursor-pointer"
         aria-label={expanded ? "Collapse reasoning" : "Expand reasoning"}
         aria-expanded={expanded}
         whileHover={{ x: 2 }}
         transition={springs.snappy}
       >
-        <Sparkles size={14} className="shrink-0" aria-hidden="true" />
+        {thinkingActive ? (
+          <Loader2 size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        ) : (
+          <Sparkles size={14} className="shrink-0" aria-hidden="true" />
+        )}
         <span>
           {thinkingActive
             ? elapsed !== null
-              ? `Thinking for ${elapsed}s${dots}`
-              : `Thinking${dots}`
+              ? `Thinking for ${formatWorkingDuration(elapsed)}`
+              : "Thinking"
             : thinkingDuration !== undefined
               ? `Thought for ${thinkingDuration}s`
               : "Thought"}
         </span>
-        <ChevronDown size={13} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
       </motion.button>
-      <div className="ml-5 min-w-0">
-        <AnimatePresence initial={false}>
-          {expanded && (
-            <motion.div
-              key="reasoning-content"
-              className="overflow-hidden bg-input/20 border border-border/40 rounded-xl"
-              initial={{ opacity: 0, height: 0, marginTop: 0 }}
-              animate={{ opacity: 1, height: "auto", marginTop: 6 }}
-              exit={{ opacity: 0, height: 0, marginTop: 0 }}
-              transition={motionTransitions.content}
-            >
-              <div className="p-3 text-sm text-text-secondary overflow-x-auto max-h-48 overflow-y-auto">
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="reasoning-content"
+            className="w-full overflow-hidden pl-5"
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 6 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={motionTransitions.content}
+          >
+            <div className="overflow-hidden rounded-xl border border-border/40 bg-input/20">
+              <div className="max-h-48 overflow-x-auto overflow-y-auto p-3 text-sm text-text-secondary">
                 <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
                   {content || "Thinking..."}
                 </p>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 }
 
@@ -1182,6 +1175,102 @@ interface ParsedQuestion {
   title: string;
   options: { value: string; label: string }[];
   cleanedContent: string;
+}
+
+interface ToolActivityGroup {
+  kind: "tool-activity";
+  id: string;
+  messages: Message[];
+  finalMessage?: Message;
+}
+
+interface FinalResponseRenderItem {
+  kind: "final-response";
+  id: string;
+  message: Message;
+}
+
+type ChatRenderItem = Message | ToolActivityGroup | FinalResponseRenderItem;
+
+function buildChatRenderItems(messages: Message[], isConversationWorking: boolean): ChatRenderItem[] {
+  const items: ChatRenderItem[] = [];
+  let cursor = 0;
+
+  while (cursor < messages.length) {
+    const message = messages[cursor];
+    if (message.role === "user") {
+      items.push(message);
+      cursor += 1;
+      continue;
+    }
+
+    const segmentStart = cursor;
+    while (cursor < messages.length && messages[cursor].role !== "user") cursor += 1;
+    const segment = messages.slice(segmentStart, cursor);
+    let lastToolIndex = -1;
+    for (let index = segment.length - 1; index >= 0; index -= 1) {
+      if (segment[index].role === "tool" && segment[index].toolCall) {
+        lastToolIndex = index;
+        break;
+      }
+    }
+
+    if (lastToolIndex < 0) {
+      items.push(...segment);
+      continue;
+    }
+
+    let finalAssistantIndex = -1;
+    for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
+      const candidate = segment[index];
+      if (
+        candidate.role === "assistant" &&
+        !candidate.isSystem &&
+        (!isConversationWorking || candidate.isStreaming === true)
+      ) {
+        finalAssistantIndex = index;
+      }
+    }
+
+    const activityEnd = finalAssistantIndex >= 0 ? finalAssistantIndex : segment.length;
+    const activityMessages = segment
+      .slice(0, activityEnd)
+      .filter(
+        (candidate) =>
+          candidate.role !== "assistant" ||
+          candidate.isSystem ||
+          candidate.content.trim().length > 0 ||
+          candidate.reasoningContent?.trim(),
+      );
+    const firstTool = activityMessages.find((candidate) => candidate.role === "tool" && !!candidate.toolCall);
+    const finalMessage = finalAssistantIndex >= 0 ? segment[finalAssistantIndex] : undefined;
+
+    items.push({
+      kind: "tool-activity",
+      id: `tool-activity-${firstTool?.id ?? activityMessages[0].id}`,
+      messages: activityMessages,
+      finalMessage,
+    });
+    if (finalMessage) {
+      items.push({
+        kind: "final-response",
+        id: finalMessage.id,
+        message: finalMessage,
+      });
+      items.push(...segment.slice(activityEnd + 1));
+    } else {
+      items.push(...segment.slice(activityEnd));
+    }
+  }
+
+  return items;
+}
+
+function formatWorkingDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
 }
 
 function parseQuestionBlock(content: string): ParsedQuestion | null {
@@ -1291,13 +1380,21 @@ const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
   conversationId,
+  pendingWorktree,
+  onApplyWorktree,
+  onDiscardWorktree,
   autoExpandReasoning,
+  hideReasoningActivity = false,
   animateEntrance = false,
 }: {
   message: Message;
   onRetry?: () => void;
   conversationId?: string;
+  pendingWorktree?: PendingWorktree;
+  onApplyWorktree?: (id: string) => void | Promise<void>;
+  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
+  hideReasoningActivity?: boolean;
   animateEntrance?: boolean;
 }) {
   const isAnySubagentRunning = useChatStore((s) =>
@@ -1321,6 +1418,16 @@ const MessageBubble = memo(function MessageBubble({
     if (idx === -1) return false;
     const next = conv.messages[idx + 1];
     return !next || next.role === "user";
+  });
+
+  const isLatestAssistantMessage = useChatStore((s) => {
+    if (message.role !== "assistant" || !conversationId) return false;
+    const messages = s.conversations.find((conversation) => conversation.id === conversationId)?.messages;
+    if (!messages) return false;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "assistant") return messages[index].id === message.id;
+    }
+    return false;
   });
 
   const isSystem = message.isSystem;
@@ -1449,7 +1556,7 @@ const MessageBubble = memo(function MessageBubble({
       transition={motionTransitions.content}
     >
       <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
-        {hasOpenReasoning && (
+        {hasOpenReasoning && !hideReasoningActivity && (
           <ReasoningBubble
             content={reasoningContent}
             isStreaming={isStreaming}
@@ -1459,7 +1566,7 @@ const MessageBubble = memo(function MessageBubble({
             autoExpandReasoning={autoExpandReasoning}
           />
         )}
-        {!hasOpenReasoning && isStreaming && displayContent.length === 0 && (
+        {!hasOpenReasoning && !hideReasoningActivity && isStreaming && displayContent.length === 0 && (
           <motion.div
             className="flex items-center gap-2 py-1"
             initial={{ opacity: 0 }}
@@ -1478,7 +1585,11 @@ const MessageBubble = memo(function MessageBubble({
               <div className={`markdown-body ${textSizeClass}`}>
                 {contentToRender.length > 0 ? (
                   contentToRender === "Cancelled agent execution." ? (
-                    <div className="text-text-muted italic text-[13px] my-1 flex items-center gap-1.5 select-none font-medium">
+                    <div
+                      className="text-text-muted italic text-[13px] my-1 flex items-center gap-1.5 select-none font-medium"
+                      role="status"
+                      aria-live="polite"
+                    >
                       Cancelled agent execution.
                     </div>
                   ) : (
@@ -1505,6 +1616,22 @@ const MessageBubble = memo(function MessageBubble({
             </>
           );
         })()}
+        {!isStreaming &&
+          !isGenerating &&
+          !isAnySubagentRunning &&
+          isLastInSequence &&
+          isLatestAssistantMessage &&
+          pendingWorktree &&
+          conversationId &&
+          onApplyWorktree &&
+          onDiscardWorktree && (
+            <WorkspaceChangeSummary
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApply={onApplyWorktree}
+              onDiscard={onDiscardWorktree}
+            />
+          )}
         {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
@@ -1526,6 +1653,239 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+function ToolActivityDisclosure({
+  activity,
+  isActive,
+  onRetry,
+  conversationId,
+  pendingWorktree,
+  onApplyWorktree,
+  onDiscardWorktree,
+  autoExpandReasoning,
+  animateMessageIds,
+}: {
+  activity: ToolActivityGroup;
+  isActive: boolean;
+  onRetry?: () => void;
+  conversationId?: string;
+  pendingWorktree?: PendingWorktree;
+  onApplyWorktree?: (id: string) => void | Promise<void>;
+  onDiscardWorktree?: (id: string) => void | Promise<void>;
+  autoExpandReasoning?: boolean;
+  animateMessageIds: ReadonlySet<string>;
+}) {
+  const contentId = useId();
+  const [expanded, setExpanded] = useState(isActive);
+  const startedAt = new Date(activity.messages[0].timestamp).getTime();
+  const completedDuration = activity.finalMessage?.workingDuration;
+  const [elapsed, setElapsed] = useState(() => {
+    if (completedDuration !== undefined) return completedDuration;
+    const endedAt = isActive
+      ? Date.now()
+      : (activity.finalMessage?.timestamp ?? activity.messages[activity.messages.length - 1].timestamp);
+    return Math.max(0, Math.round((new Date(endedAt).getTime() - startedAt) / 1000));
+  });
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [isActive, startedAt]);
+
+  const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
+  const streamedFinalContent = useChatStore((state) =>
+    activity.finalMessage?.isStreaming && conversationId ? state.activeStreamContent[conversationId] : undefined,
+  );
+  const streamedFinalReasoning = useChatStore((state) =>
+    activity.finalMessage?.isStreaming && conversationId ? state.activeStreamReasoning[conversationId] : undefined,
+  );
+  const finalReasoning = activity.finalMessage
+    ? parseReasoning(
+        streamedFinalContent !== undefined
+          ? activity.finalMessage.content + streamedFinalContent
+          : activity.finalMessage.content,
+        activity.finalMessage.role,
+        streamedFinalReasoning !== undefined
+          ? (activity.finalMessage.reasoningContent ?? "") + streamedFinalReasoning
+          : activity.finalMessage.reasoningContent,
+      )
+    : undefined;
+
+  const statusLabel = isActive
+    ? `Working for ${formatWorkingDuration(displayedElapsed)}`
+    : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
+  const collapsedPreviewMessage =
+    isActive && !activity.finalMessage
+      ? [...activity.messages]
+          .reverse()
+          .find(
+            (message) =>
+              (message.role === "tool" && !!message.toolCall) ||
+              (message.role === "assistant" &&
+                !message.isSystem &&
+                (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
+          )
+      : undefined;
+
+  return (
+    <motion.section
+      className="w-full min-w-0 py-1"
+      aria-label="Tool activity"
+      variants={messageVariants}
+      initial={animateMessageIds.size > 0 ? "hidden" : false}
+      animate="visible"
+      transition={motionTransitions.content}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex min-h-8 w-full items-center gap-2 border-b border-border/50 py-1 text-left text-sm font-medium text-text-muted transition-colors hover:border-border hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+      >
+        {isActive && (
+          <Loader2 size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        )}
+        <span>{statusLabel}</span>
+        <ChevronRight
+          size={14}
+          className={`-ml-0.5 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {!expanded && collapsedPreviewMessage && (
+          <motion.div
+            key={`tool-activity-preview-${collapsedPreviewMessage.id}`}
+            className="min-w-0 overflow-hidden pt-1"
+            data-testid="working-collapsed-preview"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={motionTransitions.content}
+          >
+            <MessageBubble
+              message={collapsedPreviewMessage}
+              onRetry={onRetry}
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApplyWorktree={onApplyWorktree}
+              onDiscardWorktree={onDiscardWorktree}
+              autoExpandReasoning={autoExpandReasoning}
+              animateEntrance={false}
+            />
+          </motion.div>
+        )}
+        {expanded && (
+          <motion.div
+            id={contentId}
+            key="tool-activity-content"
+            className="min-w-0 overflow-hidden pt-1"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={motionTransitions.content}
+          >
+            {activity.messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                onRetry={onRetry}
+                conversationId={conversationId}
+                pendingWorktree={pendingWorktree}
+                onApplyWorktree={onApplyWorktree}
+                onDiscardWorktree={onDiscardWorktree}
+                autoExpandReasoning={autoExpandReasoning}
+                animateEntrance={animateMessageIds.has(message.id)}
+              />
+            ))}
+            {finalReasoning?.hasOpenReasoning && (
+              <ReasoningBubble
+                content={finalReasoning.reasoningContent}
+                isStreaming={activity.finalMessage?.isStreaming}
+                isReasoningComplete={!activity.finalMessage?.isStreaming || finalReasoning.displayContent.length > 0}
+                thinkingDuration={activity.finalMessage?.thinkingDuration}
+                conversationId={conversationId}
+                autoExpandReasoning={autoExpandReasoning}
+              />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.section>
+  );
+}
+
+function ChatRenderItemView({
+  item,
+  activeToolActivityId,
+  onRetry,
+  conversationId,
+  pendingWorktree,
+  onApplyWorktree,
+  onDiscardWorktree,
+  autoExpandReasoning,
+  animateMessageIds,
+}: {
+  item: ChatRenderItem;
+  activeToolActivityId?: string;
+  onRetry?: () => void;
+  conversationId?: string;
+  pendingWorktree?: PendingWorktree;
+  onApplyWorktree?: (id: string) => void | Promise<void>;
+  onDiscardWorktree?: (id: string) => void | Promise<void>;
+  autoExpandReasoning?: boolean;
+  animateMessageIds: ReadonlySet<string>;
+}) {
+  if ("kind" in item && item.kind === "tool-activity") {
+    return (
+      <ToolActivityDisclosure
+        key={`${item.id}-${item.id === activeToolActivityId ? "active" : "complete"}`}
+        activity={item}
+        isActive={item.id === activeToolActivityId}
+        onRetry={onRetry}
+        conversationId={conversationId}
+        pendingWorktree={pendingWorktree}
+        onApplyWorktree={onApplyWorktree}
+        onDiscardWorktree={onDiscardWorktree}
+        autoExpandReasoning={autoExpandReasoning}
+        animateMessageIds={animateMessageIds}
+      />
+    );
+  }
+
+  if ("kind" in item && item.kind === "final-response") {
+    return (
+      <MessageBubble
+        message={item.message}
+        onRetry={onRetry}
+        conversationId={conversationId}
+        pendingWorktree={pendingWorktree}
+        onApplyWorktree={onApplyWorktree}
+        onDiscardWorktree={onDiscardWorktree}
+        autoExpandReasoning={autoExpandReasoning}
+        hideReasoningActivity
+        animateEntrance={animateMessageIds.has(item.id)}
+      />
+    );
+  }
+
+  return (
+    <MessageBubble
+      message={item}
+      onRetry={onRetry}
+      conversationId={conversationId}
+      pendingWorktree={pendingWorktree}
+      onApplyWorktree={onApplyWorktree}
+      onDiscardWorktree={onDiscardWorktree}
+      autoExpandReasoning={autoExpandReasoning}
+      animateEntrance={animateMessageIds.has(item.id)}
+    />
+  );
+}
+
 const VIRTUALIZED_THRESHOLD = 50;
 
 function ChatAreaBase({
@@ -1542,9 +1902,28 @@ function ChatAreaBase({
 }: ChatAreaProps) {
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+  const isConversationWorking = useChatStore((s) => {
+    if (!conversationId) return false;
+    return (
+      isGenerationActive(s.generationByConversation[conversationId]?.state) ||
+      s.conversations.some(
+        (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+      )
+    );
+  });
   const isTemporary = useChatStore(
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
   );
+  const hasAssistantMessage = messages.some((message) => message.role === "assistant");
+  const renderItems = useMemo(
+    () => buildChatRenderItems(messages, isConversationWorking),
+    [isConversationWorking, messages],
+  );
+  const activeToolActivityId = isConversationWorking
+    ? [...renderItems]
+        .reverse()
+        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity")?.id
+    : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
     const element = virtualScrollerRef.current;
@@ -1656,23 +2035,27 @@ function ChatAreaBase({
     );
   }
 
-  if (messages.length >= VIRTUALIZED_THRESHOLD) {
+  if (renderItems.length >= VIRTUALIZED_THRESHOLD) {
     return (
       <div className="flex-1 min-h-0 min-w-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
         <Virtuoso
           ref={virtuosoRef}
-          data={messages}
+          data={renderItems}
           atBottomStateChange={setIsAtBottom}
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
-          itemContent={(index, msg) => (
+          itemContent={(index, item) => (
             <div className={index > 0 ? "mt-0.5" : ""}>
-              <MessageBubble
-                message={msg}
+              <ChatRenderItemView
+                item={item}
+                activeToolActivityId={activeToolActivityId}
                 onRetry={onRetry}
                 conversationId={conversationId}
+                pendingWorktree={pendingWorktree}
+                onApplyWorktree={applyPendingWorktree}
+                onDiscardWorktree={discardPendingWorktree}
                 autoExpandReasoning={autoExpandReasoning}
-                animateEntrance={currentAnimationState.entering.has(msg.id)}
+                animateMessageIds={currentAnimationState.entering}
               />
             </div>
           )}
@@ -1694,7 +2077,12 @@ function ChatAreaBase({
               ),
             Footer: () => (
               <>
-                {pendingWorktree && conversationId && (
+                {pendingWorktree && conversationId && isConversationWorking && (
+                  <div className="py-6">
+                    <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
+                  </div>
+                )}
+                {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
                   <div className="py-6">
                     <WorkspaceChangeSummary
                       conversationId={conversationId}
@@ -1704,6 +2092,8 @@ function ChatAreaBase({
                     />
                   </div>
                 )}
+                {/* Keep the final message scrollable above the composer's 6rem negative-margin overlap. */}
+                <div aria-hidden="true" className="h-32" />
               </>
             ),
           }}
@@ -1715,45 +2105,54 @@ function ChatAreaBase({
 
   return (
     <NonVirtualizedChatArea
-      messages={messages}
+      renderItems={renderItems}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
       pendingWorktree={pendingWorktree}
       conversationId={conversationId}
       onApply={applyPendingWorktree}
       onDiscard={discardPendingWorktree}
+      isConversationWorking={isConversationWorking}
+      hasAssistantMessage={hasAssistantMessage}
       scrollContainerRef={scrollContainerRef}
       onScroll={onScroll}
       autoExpandReasoning={autoExpandReasoning}
       animateMessageIds={currentAnimationState.entering}
+      activeToolActivityId={activeToolActivityId}
     />
   );
 }
 
 function NonVirtualizedChatArea({
-  messages,
+  renderItems,
   setIsAtBottom,
   onRetry,
   pendingWorktree,
   conversationId,
   onApply,
   onDiscard,
+  isConversationWorking,
+  hasAssistantMessage,
   scrollContainerRef,
   onScroll,
   autoExpandReasoning,
   animateMessageIds,
+  activeToolActivityId,
 }: {
-  messages: Message[];
+  renderItems: ChatRenderItem[];
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
   pendingWorktree?: PendingWorktree;
   conversationId?: string;
   onApply: (id: string) => Promise<void>;
   onDiscard: (id: string) => Promise<void>;
+  isConversationWorking: boolean;
+  hasAssistantMessage: boolean;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
+  activeToolActivityId?: string;
 }) {
   const isTemporary = useChatStore(
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
@@ -1822,7 +2221,7 @@ function NonVirtualizedChatArea({
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 py-8 space-y-0.5">
+      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 pt-8 pb-32 space-y-0.5">
         {isTemporary && (
           <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
@@ -1833,17 +2232,24 @@ function NonVirtualizedChatArea({
             </div>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
+        {renderItems.map((item) => (
+          <ChatRenderItemView
+            key={item.id}
+            item={item}
+            activeToolActivityId={activeToolActivityId}
             onRetry={onRetry}
             conversationId={conversationId}
+            pendingWorktree={pendingWorktree}
+            onApplyWorktree={onApply}
+            onDiscardWorktree={onDiscard}
             autoExpandReasoning={autoExpandReasoning}
-            animateEntrance={animateMessageIds.has(msg.id)}
+            animateMessageIds={animateMessageIds}
           />
         ))}
-        {pendingWorktree && conversationId && (
+        {pendingWorktree && conversationId && isConversationWorking && (
+          <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
+        )}
+        {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
           <WorkspaceChangeSummary
             conversationId={conversationId}
             pendingWorktree={pendingWorktree}
@@ -1857,22 +2263,29 @@ function NonVirtualizedChatArea({
   );
 }
 
-function WorkspaceChangeSummary({
+type WorkspaceChangeStatus = "loading" | "ready" | "empty" | "error";
+
+function openWorkspaceReview(conversationId: string) {
+  const ui = useUIStore.getState();
+  ui.setActiveAuxConversationId(conversationId);
+  ui.setActiveAuxTab("review");
+  ui.setAuxPanelOpen(true);
+}
+
+function useWorkspaceChanges({
   conversationId,
   pendingWorktree,
-  onApply,
-  onDiscard,
+  refreshKey = 0,
+  poll = false,
 }: {
   conversationId: string;
   pendingWorktree: PendingWorktree;
-  onApply: (id: string) => void | Promise<void>;
-  onDiscard: (id: string) => void | Promise<void>;
+  refreshKey?: number;
+  poll?: boolean;
 }) {
   const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
-  const [statusState, setStatusState] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [statusState, setStatusState] = useState<WorkspaceChangeStatus>("loading");
   const [statusError, setStatusError] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
   const conversationProjectId = useChatStore(
     (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
   );
@@ -1880,9 +2293,13 @@ function WorkspaceChangeSummary({
 
   useEffect(() => {
     let active = true;
-    const loadStatus = async () => {
-      setStatusState("loading");
-      setStatusError("");
+    let pollTimer: number | undefined;
+
+    const loadStatus = async (showLoading: boolean) => {
+      if (showLoading) {
+        setStatusState("loading");
+        setStatusError("");
+      }
       if (!recoveryProjectId) {
         setStatusState("error");
         setStatusError(
@@ -1930,21 +2347,93 @@ function WorkspaceChangeSummary({
             });
           }
         }
-        const files = [...filesByPath.values()];
+        const files = [...filesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
         setDiffFiles(files);
         setStatusState(files.length === 0 ? "empty" : "ready");
+        setStatusError("");
       } catch (error) {
         if (!active) return;
         console.error("Failed to load worktree git status:", error);
         setStatusState("error");
         setStatusError("The file list could not be loaded. You can retry, apply, or discard this worktree.");
+      } finally {
+        if (active && poll) {
+          pollTimer = window.setTimeout(() => void loadStatus(false), 1000);
+        }
       }
     };
-    loadStatus();
+
+    void loadStatus(true);
     return () => {
       active = false;
+      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
-  }, [pendingWorktree.path, pendingWorktree.branch, recoveryProjectId, refreshKey]);
+  }, [pendingWorktree.path, pendingWorktree.branch, poll, recoveryProjectId, refreshKey]);
+
+  return {
+    diffFiles,
+    statusState,
+    statusError,
+    additions: diffFiles.reduce((total, file) => total + file.additions, 0),
+    deletions: diffFiles.reduce((total, file) => total + file.deletions, 0),
+  };
+}
+
+function WorkingChangeSummary({
+  conversationId,
+  pendingWorktree,
+}: {
+  conversationId: string;
+  pendingWorktree: PendingWorktree;
+}) {
+  const { diffFiles, statusState, additions, deletions } = useWorkspaceChanges({
+    conversationId,
+    pendingWorktree,
+    poll: true,
+  });
+
+  if (statusState !== "ready" || diffFiles.length === 0) return null;
+
+  const fileLabel = `${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"} changed`;
+
+  return (
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.98 }}
+      transition={motionTransitions.content}
+      onClick={() => openWorkspaceReview(conversationId)}
+      className="mx-auto mt-5 flex items-center gap-2 rounded-full border border-border/70 bg-surface/85 px-4 py-2 text-xs font-medium text-text-secondary shadow-sm transition-colors hover:border-text-muted hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      aria-label={`${fileLabel}, ${additions} additions and ${deletions} deletions. Open review.`}
+    >
+      <span aria-live="polite">{fileLabel}</span>
+      <span className="font-mono text-emerald-500">+{additions}</span>
+      <span className="font-mono text-red-400">−{deletions}</span>
+    </motion.button>
+  );
+}
+
+function WorkspaceChangeSummary({
+  conversationId,
+  pendingWorktree,
+  onApply,
+  onDiscard,
+}: {
+  conversationId: string;
+  pendingWorktree: PendingWorktree;
+  onApply: (id: string) => void | Promise<void>;
+  onDiscard: (id: string) => void | Promise<void>;
+}) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const fileListId = useId();
+  const { diffFiles, statusState, statusError, additions, deletions } = useWorkspaceChanges({
+    conversationId,
+    pendingWorktree,
+    refreshKey,
+  });
 
   const runAction = async (kind: "apply" | "discard", action: (id: string) => void | Promise<void>) => {
     setActionLoading(kind);
@@ -1955,29 +2444,11 @@ function WorkspaceChangeSummary({
     }
   };
 
-  const openReview = () => {
-    const ui = useUIStore.getState();
-    ui.setActiveAuxConversationId(conversationId);
-    ui.setActiveAuxTab("review");
-    ui.setAuxPanelOpen(true);
-  };
-
-  const additions = diffFiles.reduce((total, file) => total + file.additions, 0);
-  const deletions = diffFiles.reduce((total, file) => total + file.deletions, 0);
-  const onlyFile = diffFiles.length === 1 ? diffFiles[0] : undefined;
-  const changeVerb = onlyFile
-    ? onlyFile.status === "added"
-      ? "Created"
-      : onlyFile.status === "deleted"
-        ? "Deleted"
-        : onlyFile.status === "renamed"
-          ? "Renamed"
-          : "Edited"
-    : "Edited";
-  const summaryTitle = onlyFile
-    ? `${changeVerb} ${fileNameFromPath(onlyFile.path)}`
-    : diffFiles.length > 1
-      ? `Edited ${diffFiles.length} files`
+  const visibleFiles = expanded ? diffFiles : diffFiles.slice(0, 3);
+  const hiddenFileCount = Math.max(diffFiles.length - 3, 0);
+  const summaryTitle =
+    diffFiles.length > 0
+      ? `Edited ${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"}`
       : "Workspace changes ready";
 
   return (
@@ -1986,80 +2457,135 @@ function WorkspaceChangeSummary({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 8 }}
       transition={motionTransitions.content}
-      className="mx-auto mt-5 flex w-full max-w-3xl items-center gap-3 rounded-xl border border-border/60 bg-surface/65 px-3 py-2.5 shadow-sm"
+      className="my-4 w-full overflow-hidden rounded-xl border border-border/60 bg-surface/65 shadow-sm"
       role="region"
       aria-label="Workspace change summary"
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-chat/50 text-text-muted">
-        {statusState === "loading" ? (
-          <Loader2 size={15} className="animate-spin" aria-label="Loading workspace changes" />
-        ) : (
-          <FileTextIcon size={15} aria-hidden="true" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p
-          className="truncate text-xs font-semibold text-text-primary"
-          title={onlyFile?.path || pendingWorktree.branch}
+      <div className="flex flex-wrap items-center gap-3 px-3 py-3">
+        <button
+          type="button"
+          onClick={() => openWorkspaceReview(conversationId)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          aria-label={`Open ${summaryTitle.toLowerCase()} in review`}
         >
-          {statusState === "loading" ? "Loading workspace changes..." : summaryTitle}
-        </p>
-        {statusState === "ready" && (
-          <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
-            <span className="text-emerald-500">+{additions}</span>
-            <span className="text-red-400">−{deletions}</span>
-            {diffFiles.length > 1 && <span className="font-sans text-text-muted">across {diffFiles.length} files</span>}
-          </p>
-        )}
-        {statusState === "empty" && (
-          <p className="mt-0.5 truncate text-[11px] text-text-muted">Committed or binary-only changes</p>
-        )}
-        {statusState === "error" && (
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-red-400" role="alert">
-            <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
-            <span className="truncate">{statusError}</span>
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {statusState === "error" && (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-chat/65 text-text-muted">
+            {statusState === "loading" ? (
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <FileTextIcon size={16} aria-hidden="true" />
+            )}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-text-primary">
+              {statusState === "loading" ? "Loading workspace changes..." : summaryTitle}
+            </span>
+            {statusState === "ready" && (
+              <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
+                <span className="text-emerald-500">+{additions}</span>
+                <span className="text-red-400">−{deletions}</span>
+              </span>
+            )}
+            {statusState === "empty" && (
+              <span className="mt-0.5 block truncate text-[11px] text-text-muted">
+                Committed or binary-only changes
+              </span>
+            )}
+          </span>
+        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {statusState === "error" && (
+            <button
+              type="button"
+              onClick={() => setRefreshKey((key) => key + 1)}
+              className="rounded-md px-2 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
+            >
+              Retry
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setRefreshKey((key) => key + 1)}
-            className="rounded-md px-2 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10"
+            onClick={() => void runAction("discard", onDiscard)}
+            disabled={actionLoading !== null}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+            title="Discard the isolated workspace changes"
           >
-            Retry
+            {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+            <span>Undo</span>
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void runAction("discard", onDiscard)}
-          disabled={actionLoading !== null}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary disabled:opacity-50"
-          title="Discard the isolated workspace changes"
-        >
-          {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
-          <span>Undo</span>
-        </button>
-        <button
-          type="button"
-          onClick={openReview}
-          disabled={actionLoading !== null}
-          className="inline-flex items-center gap-1 rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover disabled:opacity-50"
-        >
-          <span>Review</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => void runAction("apply", onApply)}
-          disabled={actionLoading !== null}
-          className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
-          title="Apply the isolated changes to the project"
-        >
-          {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-          <span>Apply</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => openWorkspaceReview(conversationId)}
+            disabled={actionLoading !== null}
+            className="inline-flex items-center rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+          >
+            Review
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction("apply", onApply)}
+            disabled={actionLoading !== null}
+            className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+            title="Apply the isolated changes to the project"
+          >
+            {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            <span>Apply</span>
+          </button>
+        </div>
       </div>
+
+      {statusState === "error" && (
+        <div
+          className="flex items-center gap-1.5 border-t border-border/50 px-4 py-3 text-[11px] text-red-400"
+          role="alert"
+        >
+          <AlertTriangle size={12} className="shrink-0" aria-hidden="true" />
+          <span>{statusError}</span>
+        </div>
+      )}
+
+      {statusState === "ready" && (
+        <div className="border-t border-border/50">
+          <div id={fileListId}>
+            {visibleFiles.map((file) => (
+              <button
+                key={file.path}
+                type="button"
+                onClick={() => openWorkspaceReview(conversationId)}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+                aria-label={`Review changes for ${file.path}`}
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
+                  {file.path}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+                  <span className="text-emerald-500">+{file.additions}</span>
+                  <span className="text-red-400">−{file.deletions}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {hiddenFileCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              aria-expanded={expanded}
+              aria-controls={fileListId}
+              className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-hover/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+            >
+              <span>
+                {expanded
+                  ? "Show fewer files"
+                  : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
+              </span>
+              <ChevronRight
+                size={13}
+                className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+        </div>
+      )}
     </motion.div>
   );
 }

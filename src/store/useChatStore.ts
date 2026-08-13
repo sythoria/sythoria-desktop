@@ -100,6 +100,7 @@ import { collectConversationTreeIds, reduceConversationDeletion } from "./conver
 
 const processingTokens = new Set<string>();
 const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
+const CANCELLED_ASSISTANT_MESSAGE = "Cancelled agent execution.";
 let conversationDeletionTail: Promise<void> = Promise.resolve();
 const activeNormalRuns = new Map<string, Set<Promise<void>>>();
 
@@ -1168,9 +1169,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
               const end = state.activeStreamThinkingEnd?.[c.id] || Date.now();
               thinkingDuration = Math.round((end - start) / 1000);
             }
+            const content = m.content + (state.activeStreamContent[c.id] || "");
             return {
               ...m,
-              content: m.content + (state.activeStreamContent[c.id] || ""),
+              content:
+                m.role === "assistant" && content.trim().length === 0 ? CANCELLED_ASSISTANT_MESSAGE : content,
               reasoningContent: (m.reasoningContent || "") + (state.activeStreamReasoning[c.id] || "") || undefined,
               isStreaming: false,
               thinkingDuration: m.thinkingDuration ?? thinkingDuration,
@@ -1185,7 +1188,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const nextGenByConv = { ...state.generationByConversation };
       if (targetConvIds) {
         for (const convId of targetConvIds) {
-          delete nextGenByConv[convId];
+          nextGenByConv[convId] = { state: "cancelled" as GenerationState, label: "Cancelled" };
         }
       } else {
         Object.keys(nextGenByConv).forEach((id) => {

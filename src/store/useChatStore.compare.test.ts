@@ -113,7 +113,15 @@ describe("subagent cancellation", () => {
       parentId: primaryConversation.id,
       isSubagent: true,
       status: "running" as const,
-      messages: [{ ...primaryConversation.messages[0], id: "subagent-message", isStreaming: true }],
+      messages: [
+        {
+          ...primaryConversation.messages[0],
+          id: "subagent-message",
+          role: "assistant" as const,
+          content: "",
+          isStreaming: true,
+        },
+      ],
     };
     const childSubagent = {
       ...subagent,
@@ -171,8 +179,18 @@ describe("subagent cancellation", () => {
       expect(state.conversations.find((conversation) => conversation.id === unrelatedSubagent.id)?.status).toBe(
         "running",
       );
-      expect(state.generationByConversation[subagent.id]).toBeUndefined();
-      expect(state.generationByConversation[childSubagent.id]).toBeUndefined();
+      expect(state.conversations.find((conversation) => conversation.id === subagent.id)?.messages[0]).toMatchObject({
+        content: "Cancelled agent execution.",
+        isStreaming: false,
+      });
+      expect(
+        state.conversations.find((conversation) => conversation.id === childSubagent.id)?.messages[0],
+      ).toMatchObject({
+        content: "Cancelled agent execution.",
+        isStreaming: false,
+      });
+      expect(state.generationByConversation[subagent.id]).toEqual({ state: "cancelled", label: "Cancelled" });
+      expect(state.generationByConversation[childSubagent.id]).toEqual({ state: "cancelled", label: "Cancelled" });
       expect(state.generationByConversation[unrelatedSubagent.id]).toBeDefined();
       expect(resolveSelectedConfirmation).toHaveBeenCalledWith(false);
       expect(resolveUnrelatedConfirmation).not.toHaveBeenCalled();
