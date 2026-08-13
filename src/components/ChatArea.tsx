@@ -1182,13 +1182,15 @@ interface ToolActivityGroup {
   id: string;
   messages: Message[];
   finalMessage?: Message;
-  finalReasoning?: {
-    content: string;
-    thinkingDuration?: number;
-  };
 }
 
-type ChatRenderItem = Message | ToolActivityGroup;
+interface FinalResponseRenderItem {
+  kind: "final-response";
+  id: string;
+  message: Message;
+}
+
+type ChatRenderItem = Message | ToolActivityGroup | FinalResponseRenderItem;
 
 function buildChatRenderItems(messages: Message[], isConversationWorking: boolean): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
@@ -1242,30 +1244,18 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
       );
     const firstTool = activityMessages.find((candidate) => candidate.role === "tool" && !!candidate.toolCall);
     const finalMessage = finalAssistantIndex >= 0 ? segment[finalAssistantIndex] : undefined;
-    const completedFinalReasoning =
-      finalMessage && !finalMessage.isStreaming
-        ? parseReasoning(finalMessage.content, finalMessage.role, finalMessage.reasoningContent)
-        : undefined;
-    const hasCompletedFinalReasoning = completedFinalReasoning?.hasOpenReasoning === true;
 
     items.push({
       kind: "tool-activity",
       id: `tool-activity-${firstTool?.id ?? activityMessages[0].id}`,
       messages: activityMessages,
       finalMessage,
-      finalReasoning: hasCompletedFinalReasoning
-        ? {
-            content: completedFinalReasoning.reasoningContent,
-            thinkingDuration: finalMessage?.thinkingDuration,
-          }
-        : undefined,
     });
-    if (finalMessage && hasCompletedFinalReasoning) {
+    if (finalMessage) {
       items.push({
-        ...finalMessage,
-        content: completedFinalReasoning.displayContent,
-        reasoningContent: undefined,
-        thinkingDuration: undefined,
+        kind: "final-response",
+        id: finalMessage.id,
+        message: finalMessage,
       });
       items.push(...segment.slice(activityEnd + 1));
     } else {
@@ -1394,6 +1384,7 @@ const MessageBubble = memo(function MessageBubble({
   onApplyWorktree,
   onDiscardWorktree,
   autoExpandReasoning,
+  hideReasoningActivity = false,
   animateEntrance = false,
 }: {
   message: Message;
@@ -1403,6 +1394,7 @@ const MessageBubble = memo(function MessageBubble({
   onApplyWorktree?: (id: string) => void | Promise<void>;
   onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
+  hideReasoningActivity?: boolean;
   animateEntrance?: boolean;
 }) {
   const isAnySubagentRunning = useChatStore((s) =>
@@ -1564,7 +1556,7 @@ const MessageBubble = memo(function MessageBubble({
       transition={motionTransitions.content}
     >
       <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
-        {hasOpenReasoning && (
+        {hasOpenReasoning && !hideReasoningActivity && (
           <ReasoningBubble
             content={reasoningContent}
             isStreaming={isStreaming}
@@ -1574,7 +1566,7 @@ const MessageBubble = memo(function MessageBubble({
             autoExpandReasoning={autoExpandReasoning}
           />
         )}
-        {!hasOpenReasoning && isStreaming && displayContent.length === 0 && (
+        {!hasOpenReasoning && !hideReasoningActivity && isStreaming && displayContent.length === 0 && (
           <motion.div
             className="flex items-center gap-2 py-1"
             initial={{ opacity: 0 }}
@@ -1703,21 +1695,39 @@ function ToolActivityDisclosure({
   }, [isActive, startedAt]);
 
   const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
+  const streamedFinalContent = useChatStore((state) =>
+    activity.finalMessage?.isStreaming && conversationId ? state.activeStreamContent[conversationId] : undefined,
+  );
+  const streamedFinalReasoning = useChatStore((state) =>
+    activity.finalMessage?.isStreaming && conversationId ? state.activeStreamReasoning[conversationId] : undefined,
+  );
+  const finalReasoning = activity.finalMessage
+    ? parseReasoning(
+        streamedFinalContent !== undefined
+          ? activity.finalMessage.content + streamedFinalContent
+          : activity.finalMessage.content,
+        activity.finalMessage.role,
+        streamedFinalReasoning !== undefined
+          ? (activity.finalMessage.reasoningContent ?? "") + streamedFinalReasoning
+          : activity.finalMessage.reasoningContent,
+      )
+    : undefined;
 
   const statusLabel = isActive
     ? `Working for ${formatWorkingDuration(displayedElapsed)}`
     : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
-  const collapsedPreviewMessage = isActive
-    ? [...activity.messages]
-        .reverse()
-        .find(
-          (message) =>
-            (message.role === "tool" && !!message.toolCall) ||
-            (message.role === "assistant" &&
-              !message.isSystem &&
-              (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
-        )
-    : undefined;
+  const collapsedPreviewMessage =
+    isActive && !activity.finalMessage
+      ? [...activity.messages]
+          .reverse()
+          .find(
+            (message) =>
+              (message.role === "tool" && !!message.toolCall) ||
+              (message.role === "assistant" &&
+                !message.isSystem &&
+                (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
+          )
+      : undefined;
 
   return (
     <motion.section
@@ -1749,7 +1759,7 @@ function ToolActivityDisclosure({
         {!expanded && collapsedPreviewMessage && (
           <motion.div
             key={`tool-activity-preview-${collapsedPreviewMessage.id}`}
-            className="min-w-0 overflow-hidden py-1 pl-5"
+            className="min-w-0 overflow-hidden pt-1"
             data-testid="working-collapsed-preview"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -1791,12 +1801,12 @@ function ToolActivityDisclosure({
                 animateEntrance={animateMessageIds.has(message.id)}
               />
             ))}
-            {activity.finalReasoning && (
+            {finalReasoning?.hasOpenReasoning && (
               <ReasoningBubble
-                content={activity.finalReasoning.content}
-                isStreaming={false}
-                isReasoningComplete
-                thinkingDuration={activity.finalReasoning.thinkingDuration}
+                content={finalReasoning.reasoningContent}
+                isStreaming={activity.finalMessage?.isStreaming}
+                isReasoningComplete={!activity.finalMessage?.isStreaming || finalReasoning.displayContent.length > 0}
+                thinkingDuration={activity.finalMessage?.thinkingDuration}
                 conversationId={conversationId}
                 autoExpandReasoning={autoExpandReasoning}
               />
@@ -1829,7 +1839,7 @@ function ChatRenderItemView({
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
-  if ("kind" in item) {
+  if ("kind" in item && item.kind === "tool-activity") {
     return (
       <ToolActivityDisclosure
         key={`${item.id}-${item.id === activeToolActivityId ? "active" : "complete"}`}
@@ -1842,6 +1852,22 @@ function ChatRenderItemView({
         onDiscardWorktree={onDiscardWorktree}
         autoExpandReasoning={autoExpandReasoning}
         animateMessageIds={animateMessageIds}
+      />
+    );
+  }
+
+  if ("kind" in item && item.kind === "final-response") {
+    return (
+      <MessageBubble
+        message={item.message}
+        onRetry={onRetry}
+        conversationId={conversationId}
+        pendingWorktree={pendingWorktree}
+        onApplyWorktree={onApplyWorktree}
+        onDiscardWorktree={onDiscardWorktree}
+        autoExpandReasoning={autoExpandReasoning}
+        hideReasoningActivity
+        animateEntrance={animateMessageIds.has(item.id)}
       />
     );
   }
@@ -1894,7 +1920,9 @@ function ChatAreaBase({
     [isConversationWorking, messages],
   );
   const activeToolActivityId = isConversationWorking
-    ? [...renderItems].reverse().find((item): item is ToolActivityGroup => "kind" in item)?.id
+    ? [...renderItems]
+        .reverse()
+        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity")?.id
     : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {

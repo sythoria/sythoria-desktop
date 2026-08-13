@@ -200,7 +200,7 @@ describe("ChatArea", () => {
     const streamingFinal = makeMessage({
       id: "working-final",
       role: "assistant",
-      content: "The project uses",
+      content: "",
       timestamp: new Date(),
       isStreaming: true,
     });
@@ -217,6 +217,9 @@ describe("ChatArea", () => {
       generationByConversation: {
         [conversation.id]: { state: "responding", label: "Responding" },
       },
+      activeStreamReasoning: {
+        [conversation.id]: "I’m checking how the chat items are grouped.",
+      },
     });
 
     const { rerender } = render(
@@ -226,13 +229,33 @@ describe("ChatArea", () => {
     const activeDisclosure = screen.getByRole("button", { name: /Working for \d+s/i });
     expect(activeDisclosure).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("I’ll inspect the relevant files.")).toBeInTheDocument();
-    expect(screen.getByText("The project uses")).toBeInTheDocument();
+    const reasoningDisclosure = screen.getByRole("button", { name: "Expand reasoning" });
+    expect(activeDisclosure.closest("section")).toContainElement(reasoningDisclosure);
+    expect(reasoningDisclosure).toHaveTextContent(/Thinking for \d+s/);
 
     await userEvent.click(activeDisclosure);
     expect(activeDisclosure).toHaveAttribute("aria-expanded", "false");
     await waitFor(() => expect(screen.queryByText("I’ll inspect the relevant files.")).not.toBeInTheDocument());
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveClass("pl-5");
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("App.tsx");
+    expect(screen.queryByText("App.tsx")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("working-collapsed-preview")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expand reasoning" })).not.toBeInTheDocument();
+
+    const answeringFinal = { ...streamingFinal, content: "The project uses" };
+    const answeringMessages = [userMessage, narrationMessage, toolMessage, answeringFinal];
+    useChatStore.setState({ conversations: [{ ...conversation, messages: answeringMessages }] });
+    rerender(<ChatArea messages={answeringMessages} {...defaultProps} conversationId={conversation.id} />);
+    expect(screen.getByText("The project uses")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expand reasoning" })).not.toBeInTheDocument();
+
+    const activeToolMessages = [userMessage, narrationMessage, toolMessage];
+    useChatStore.setState({
+      conversations: [{ ...conversation, messages: activeToolMessages }],
+      generationByConversation: {
+        [conversation.id]: { state: "loading", label: "Loading" },
+      },
+    });
+    rerender(<ChatArea messages={activeToolMessages} {...defaultProps} conversationId={conversation.id} />);
+    await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("App.tsx"));
 
     const latestThought = makeMessage({
       id: "working-latest-thought",
@@ -248,11 +271,11 @@ describe("ChatArea", () => {
       },
     });
     rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
-    await waitFor(() => {
-      const previews = screen.getAllByTestId("working-collapsed-preview");
-      expect(previews).toHaveLength(1);
-      expect(previews[0]).toHaveTextContent("I’m checking the component state now.");
-    });
+    await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toBeInTheDocument());
+    expect(screen.getByTestId("working-collapsed-preview")).not.toHaveClass("pl-5");
+    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent(
+      "I’m checking the component state now.",
+    );
 
     const completedFinal = {
       ...streamingFinal,
