@@ -1495,79 +1495,81 @@ function App() {
                     aria-hidden={isWorkspacePanelFull}
                     inert={isWorkspacePanelFull ? true : undefined}
                   >
-                    <Suspense
-                      fallback={
-                        <div
-                          className="flex flex-1 items-center justify-center"
-                          role="status"
-                          aria-label="Loading chat"
-                        >
-                          <Spinner size="lg" />
-                        </div>
-                      }
-                    >
-                      {isCompareMode && compareConversations.length > 0 ? (
-                        <div className="comparison-grid-container">
-                          {/* Primary Column */}
-                          <ComparisonColumn
-                            conversation={activeConversation!}
-                            isPrimary={true}
-                            label={t("chat.primary")}
-                            models={models}
-                            onModelChange={handlePrimaryModelChange}
+                    <div className="relative flex min-h-0 flex-1 flex-col">
+                      <Suspense
+                        fallback={
+                          <div
+                            className="flex flex-1 items-center justify-center"
+                            role="status"
+                            aria-label="Loading chat"
+                          >
+                            <Spinner size="lg" />
+                          </div>
+                        }
+                      >
+                        {isCompareMode && compareConversations.length > 0 ? (
+                          <div className="comparison-grid-container">
+                            {/* Primary Column */}
+                            <ComparisonColumn
+                              conversation={activeConversation!}
+                              isPrimary={true}
+                              label={t("chat.primary")}
+                              models={models}
+                              onModelChange={handlePrimaryModelChange}
+                              onRetry={handleRetry}
+                              isStreaming={isStreaming}
+                              onScroll={syncScrolls ? handlePrimaryScroll : undefined}
+                              ref={primaryComparisonRef}
+                            />
+
+                            {/* Comparison Columns */}
+                            {compareConversations.map((c, index) => {
+                              return (
+                                <ComparisonColumn
+                                  key={c.id}
+                                  conversation={c}
+                                  label={`${t("chat.comparison")} ${index + 1}`}
+                                  models={models}
+                                  onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
+                                  onClose={() => handleCompareClose(c.id)}
+                                  onRetry={() => handleCompareRetry(c.id)}
+                                  isStreaming={isStreaming}
+                                  onScroll={
+                                    syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined
+                                  }
+                                  ref={(el) => {
+                                    compareRefsMap.current[c.id] = el;
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <ChatArea
+                            messages={messages}
+                            setIsAtBottom={primarySetIsAtBottom}
+                            virtuosoRef={primaryVirtuosoRef}
                             onRetry={handleRetry}
-                            isStreaming={isStreaming}
-                            onScroll={syncScrolls ? handlePrimaryScroll : undefined}
-                            ref={primaryComparisonRef}
+                            conversationId={activeId || undefined}
+                            pendingWorktree={activeConversation?.pendingWorktree}
                           />
+                        )}
+                      </Suspense>
 
-                          {/* Comparison Columns */}
-                          {compareConversations.map((c, index) => {
-                            return (
-                              <ComparisonColumn
-                                key={c.id}
-                                conversation={c}
-                                label={`${t("chat.comparison")} ${index + 1}`}
-                                models={models}
-                                onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
-                                onClose={() => handleCompareClose(c.id)}
-                                onRetry={() => handleCompareRetry(c.id)}
-                                isStreaming={isStreaming}
-                                onScroll={
-                                  syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined
-                                }
-                                ref={(el) => {
-                                  compareRefsMap.current[c.id] = el;
-                                }}
-                              />
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <ChatArea
-                          messages={messages}
-                          setIsAtBottom={primarySetIsAtBottom}
-                          virtuosoRef={primaryVirtuosoRef}
-                          onRetry={handleRetry}
-                          conversationId={activeId || undefined}
-                          pendingWorktree={activeConversation?.pendingWorktree}
-                        />
-                      )}
-                    </Suspense>
-
-                    <AnimatePresence>
-                      {showScrollToBottom && messages.length > 0 && !isPrimaryGenerating && (
-                        <motion.div
-                          className="absolute left-1/2 bottom-[180px] z-30 -translate-x-1/2 md:bottom-[160px]"
-                          initial={{ opacity: 0, y: 12, scale: 0.9 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 12, scale: 0.9 }}
-                          transition={motionTransitions.popoverEnter}
-                        >
-                          <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                      <AnimatePresence>
+                        {showScrollToBottom && messages.length > 0 && !isPrimaryGenerating && (
+                          <motion.div
+                            className="absolute bottom-28 left-1/2 z-30 -translate-x-1/2"
+                            initial={{ opacity: 0, y: 12, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 12, scale: 0.9 }}
+                            transition={motionTransitions.popoverEnter}
+                          >
+                            <ScrollToBottomButton onClick={handleScrollToBottom} hasNewMessages={hasNewMessages} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
 
                     <InputBar
                       models={models}
