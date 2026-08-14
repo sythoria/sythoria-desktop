@@ -44,10 +44,11 @@ import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { useTranslation } from "../utils/i18n";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
 import { useShallow } from "zustand/react/shallow";
+import { PromptEditor, type PromptDraft, type PromptDraftChangeOrigin, type PromptEditorHandle } from "./PromptEditor";
 
 interface InputBarProps {
   models: ModelConfig[];
-  onSend: (message: string, attachments?: Attachment[]) => Promise<SendMessageStatus>;
+  onSend: (message: string, attachments?: Attachment[], mcpServerIds?: string[]) => Promise<SendMessageStatus>;
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
@@ -56,8 +57,6 @@ interface InputBarProps {
   onToggleSearch: (enabled: boolean) => void;
   mcpServers: McpServerConfig[];
   mcpServerStatuses: Record<string, McpServerStatus>;
-  selectedMcpServerIds: Set<string>;
-  onToggleMcpServer: (serverId: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
   centered?: boolean;
@@ -78,8 +77,6 @@ export default memo(function InputBar({
   onToggleSearch,
   mcpServers,
   mcpServerStatuses,
-  selectedMcpServerIds,
-  onToggleMcpServer,
   isStreaming,
   onStop,
   centered = false,
@@ -90,10 +87,11 @@ export default memo(function InputBar({
 }: InputBarProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
+  const [mcpMentionServerIds, setMcpMentionServerIds] = useState<string[]>([]);
   const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorHandleRef = useRef<PromptEditorHandle>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const contextDetailsRef = useRef<HTMLDivElement>(null);
@@ -127,6 +125,31 @@ export default memo(function InputBar({
   const unmountedRef = useRef(false);
   const initialValueRef = useRef<string>("");
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
+
+  const handleEditorDraftChange = useCallback(
+    (draft: PromptDraft, origin: PromptDraftChangeOrigin) => {
+      setValue(draft.text);
+      setMcpMentionServerIds(draft.mcpServerIds);
+      if (origin === "user" && voiceDraft && draft.text.trim() !== voiceDraft.trim()) setVoiceDraft("");
+    },
+    [voiceDraft],
+  );
+
+  const replaceEditorText = useCallback((text: string) => {
+    editorHandleRef.current?.replaceText(text);
+  }, []);
+
+  const saveEditorSelection = useCallback(() => {
+    editorHandleRef.current?.saveSelection();
+  }, []);
+
+  const insertMcpMention = useCallback(
+    (server: McpServerConfig) => {
+      if (disabled || isStreaming) return;
+      if (editorHandleRef.current?.insertMcpMention(server)) setPlusOpen(false);
+    },
+    [disabled, isStreaming],
+  );
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -315,7 +338,7 @@ export default memo(function InputBar({
         const rawText = transcription.trim();
         if (rawText) {
           const combinedRaw = initialValueRef.current ? `${initialValueRef.current} ${rawText}` : rawText;
-          setValue(combinedRaw);
+          replaceEditorText(combinedRaw);
           setVoiceDraft(combinedRaw);
 
           if (!isLlmPolishEnabled) return;
@@ -342,7 +365,7 @@ export default memo(function InputBar({
                 const combinedRefined = initialValueRef.current
                   ? `${initialValueRef.current} ${accumulated}`
                   : accumulated;
-                setValue(combinedRefined);
+                replaceEditorText(combinedRefined);
               }
             });
             refinementUnlistenRef.current = unlistenChunk;
@@ -353,7 +376,7 @@ export default memo(function InputBar({
             const currentModel = modelStore.models.find((m) => m.id === targetModelId) || modelStore.models[0];
 
             if (currentModel) {
-              setValue(initialValueRef.current);
+              replaceEditorText(initialValueRef.current);
 
               await invoke<string>("chat_stream", {
                 configId: currentModel.id,
@@ -455,7 +478,7 @@ export default memo(function InputBar({
               const combined = initialValueRef.current
                 ? `${initialValueRef.current} ${transcription.trim()}`
                 : transcription.trim();
-              setValue(combined);
+              replaceEditorText(combined);
               setVoiceDraft(combined);
             }
           } catch (e) {
@@ -502,52 +525,18 @@ export default memo(function InputBar({
       xlarge: "text-lg",
     }[baseTextSize] || "text-sm";
 
-  const anyToolActive = isSearchEnabled || selectedMcpServerIds.size > 0;
+  const anyToolActive = isSearchEnabled || mcpMentionServerIds.length > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
-  const selectedServers = mcpServers.filter((s) => selectedMcpServerIds.has(s.id));
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
   const trimmed = value.trim();
   const canSend = (trimmed.length > 0 || attachments.length > 0) && !isOverLimit && !disabled && !isStreaming;
 
   useEffect(() => {
-    if (isStreaming && textareaRef.current) {
-      textareaRef.current.blur();
+    if (isStreaming && document.activeElement?.id === (idPrefix ? `${idPrefix}-chat-input` : "chat-input")) {
+      (document.activeElement as HTMLElement).blur();
     }
-  }, [isStreaming]);
-
-  const adjustHeight = useCallback(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      const scrollHeight = textareaRef.current.scrollHeight;
-      const newHeight = Math.max(20, Math.min(scrollHeight, MAX_TEXTAREA_HEIGHT));
-      textareaRef.current.style.height = newHeight + "px";
-      textareaRef.current.style.overflowY = scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
-    }
-  }, []);
-
-  useEffect(() => {
-    adjustHeight();
-  }, [value, adjustHeight]);
-
-  useEffect(() => {
-    window.addEventListener("resize", adjustHeight);
-    let resizeObserver: ResizeObserver | null = null;
-
-    if (textareaRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        adjustHeight();
-      });
-      resizeObserver.observe(textareaRef.current);
-    }
-
-    return () => {
-      window.removeEventListener("resize", adjustHeight);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [adjustHeight]);
+  }, [idPrefix, isStreaming]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -577,19 +566,23 @@ export default memo(function InputBar({
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
     const submittedValue = value;
+    const submittedMcpServerIds = [...mcpMentionServerIds];
     const submittedAttachments = attachments;
-    const status = await onSend(trimmed, submittedAttachments.length > 0 ? submittedAttachments : undefined);
+    const status = await onSend(
+      trimmed,
+      submittedAttachments.length > 0 ? submittedAttachments : undefined,
+      submittedMcpServerIds,
+    );
     if (status !== "accepted") return;
 
     const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id));
-    setValue((current) => (current === submittedValue ? "" : current));
+    const currentDraft = editorHandleRef.current?.readDraft() ?? { text: "", mcpServerIds: [] };
+    const mentionsAreUnchanged =
+      currentDraft.mcpServerIds.length === submittedMcpServerIds.length &&
+      currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]);
+    if (currentDraft.text === submittedValue && mentionsAreUnchanged) replaceEditorText("");
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-    window.requestAnimationFrame(() => {
-      if (textareaRef.current && textareaRef.current.value.length === 0) {
-        textareaRef.current.style.height = "auto";
-      }
-    });
-  }, [canSend, value, trimmed, attachments, onSend, setAttachments]);
+  }, [canSend, value, trimmed, mcpMentionServerIds, attachments, onSend, replaceEditorText, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -603,7 +596,7 @@ export default memo(function InputBar({
       }
 
       if (clearInputOnEscape && e.key === "Escape") {
-        setValue("");
+        replaceEditorText("");
         return;
       }
 
@@ -621,7 +614,7 @@ export default memo(function InputBar({
         }
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText],
   );
 
   const handleClipboardPaste = useCallback(
@@ -685,11 +678,11 @@ export default memo(function InputBar({
 
   useEffect(() => {
     const handleGlobalPaste = async (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInputOrTextarea = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
-      if (isInputOrTextarea && target.id !== "chat-input") {
-        return;
-      }
+      const target = e.target;
+      const editableTarget =
+        target instanceof Element ? target.closest('input, textarea, [contenteditable="true"]') : null;
+      const isThisPromptEditor = editableTarget?.id === (idPrefix ? `${idPrefix}-chat-input` : "chat-input");
+      if (editableTarget && !isThisPromptEditor) return;
 
       if (disabled || isStreaming) return;
 
@@ -703,7 +696,7 @@ export default memo(function InputBar({
       if (isFileOrImage) {
         e.preventDefault();
         await handleClipboardPaste(clipboardData);
-        textareaRef.current?.focus();
+        editorHandleRef.current?.focus();
       }
     };
 
@@ -711,17 +704,7 @@ export default memo(function InputBar({
     return () => {
       document.removeEventListener("paste", handleGlobalPaste);
     };
-  }, [disabled, isStreaming, handleClipboardPaste]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    if (val.length <= MAX_INPUT_LENGTH + 100) {
-      setValue(val);
-      if (voiceDraft && val.trim() !== voiceDraft.trim()) {
-        setVoiceDraft("");
-      }
-    }
-  };
+  }, [disabled, isStreaming, handleClipboardPaste, idPrefix]);
 
   const conversationProject = projects.find((project) => project.id === conversation?.projectId);
   const effectiveProject = conversation ? conversationProject : activeProject;
@@ -740,7 +723,7 @@ export default memo(function InputBar({
   const contextBudget = currentModel
     ? resolveContextBudget(
         currentModel,
-        isSearchEnabled || selectedMcpServerIds.size > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
+        isSearchEnabled || mcpMentionServerIds.length > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
       )
     : null;
   const contextSize = contextBudget?.contextTokens;
@@ -814,9 +797,9 @@ export default memo(function InputBar({
           </div>
         ) : (
           <>
-            <label htmlFor={elementId("chat-input")} className="sr-only">
+            <span id={elementId("chat-input-label")} className="sr-only">
               Message
-            </label>
+            </span>
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -955,6 +938,8 @@ export default memo(function InputBar({
                   {/* Plus / tools button */}
                   <div ref={plusDropdownRef} className="relative shrink-0">
                     <button
+                      type="button"
+                      onMouseDown={saveEditorSelection}
                       onClick={() => setPlusOpen(!plusOpen)}
                       className={`p-1.5 rounded-full bg-transparent transition-colors flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                         anyToolActive
@@ -1017,24 +1002,19 @@ export default memo(function InputBar({
                             <>
                               <div className="border-t border-border my-1 -mx-1" />
                               {connectedMcpServers.map((server) => {
-                                const isSelected = selectedMcpServerIds.has(server.id);
                                 return (
                                   <button
                                     key={server.id}
+                                    type="button"
                                     onClick={() => {
-                                      onToggleMcpServer(server.id);
+                                      insertMcpMention(server);
                                     }}
-                                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                                      isSelected
-                                        ? "text-text-primary bg-active"
-                                        : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                                    }`}
-                                    role="menuitemcheckbox"
-                                    aria-checked={isSelected}
+                                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                                    role="menuitem"
                                   >
-                                    <Cpu size={15} className={isSelected ? "text-text-primary" : "text-text-muted"} />
+                                    <Cpu size={15} className="text-text-muted" />
                                     <span className="truncate flex-1 text-left">{server.name}</span>
-                                    {isSelected && <Check size={14} className="text-text-primary ml-1 shrink-0" />}
+                                    <Plus size={13} className="text-text-muted ml-1 shrink-0" aria-hidden="true" />
                                   </button>
                                 );
                               })}
@@ -1047,22 +1027,23 @@ export default memo(function InputBar({
 
                   <div className="flex-1" aria-hidden="true" />
 
-                  <textarea
+                  <PromptEditor
+                    editorHandleRef={editorHandleRef}
                     id={elementId("chat-input")}
-                    ref={textareaRef}
-                    value={value}
-                    onChange={handleChange}
-                    onKeyDown={handleKeyDown}
+                    labelledBy={elementId("chat-input-label")}
+                    describedBy={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
                     placeholder={
                       isCompareMode
                         ? t("chat.comparePlaceholder") || "Ask all models..."
                         : t("chat.placeholder") || "Ask for follow-up changes..."
                     }
-                    rows={1}
                     disabled={disabled}
-                    aria-describedby={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
-                    aria-invalid={isOverLimit}
-                    className={`order-first mb-1 basis-full min-w-0 bg-transparent ${textSizeClass} text-text-primary placeholder-text-muted resize-none outline-none leading-relaxed overflow-y-hidden ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                    invalid={isOverLimit}
+                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0}
+                    maxHeight={MAX_TEXTAREA_HEIGHT}
+                    onDraftChange={handleEditorDraftChange}
+                    onKeyDown={handleKeyDown}
+                    className={`${textSizeClass} leading-relaxed ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
                       voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
                     }`}
                   />
@@ -1260,7 +1241,7 @@ export default memo(function InputBar({
               </div>
 
               {/* Active Tools and Context Row */}
-              {(isProjectsEnabled || isSearchEnabled || selectedServers.length > 0) && (
+              {(isProjectsEnabled || isSearchEnabled) && (
                 <div
                   className={`relative flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
@@ -1526,33 +1507,6 @@ export default memo(function InputBar({
                       </button>
                     </motion.div>
                   )}
-
-                  {/* MCP Server Pills */}
-                  {selectedServers.map((server) => {
-                    return (
-                      <motion.div
-                        key={server.id}
-                        initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                        transition={motionTransitions.content}
-                        className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
-                      >
-                        <Cpu size={13} className="text-text-muted shrink-0" />
-                        <span className="truncate max-w-[100px] font-medium" title={server.name}>
-                          {server.name}
-                        </span>
-                        <button
-                          onClick={() => onToggleMcpServer(server.id)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-                          title={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
-                          aria-label={t("chat.disableMcpServer", { name: server.name }) || `Disable ${server.name}`}
-                        >
-                          <X size={12} />
-                        </button>
-                      </motion.div>
-                    );
-                  })}
                 </div>
               )}
             </div>
@@ -1578,11 +1532,6 @@ export default memo(function InputBar({
                 <span className="flex items-center justify-center gap-1.5">
                   <Search size={11} className="text-text-secondary" />
                   Web Search enabled
-                </span>
-              ) : selectedMcpServerIds.size > 0 ? (
-                <span className="flex items-center justify-center gap-1.5">
-                  <Cpu size={11} className="text-text-secondary" />
-                  {t("chat.mcp_servers_enabled", { count: String(selectedMcpServerIds.size) })}
                 </span>
               ) : (
                 t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."

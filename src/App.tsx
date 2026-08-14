@@ -255,21 +255,11 @@ function App() {
     })),
   );
 
-  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore(
+  const { mcpConfigs, serverStatuses } = useMcpStore(
     useShallow((s) => ({
       mcpConfigs: s.mcpConfigs,
       serverStatuses: s.serverStatuses,
-      selectedServerIds: s.selectedServerIds,
-      toggleServerSelected: s.toggleServerSelected,
     })),
-  );
-
-  const handleToggleMcpServer = useCallback(
-    (serverId: string) => {
-      const isSelected = selectedServerIds.has(serverId);
-      void toggleServerSelected(serverId, !isSelected);
-    },
-    [selectedServerIds, toggleServerSelected],
   );
 
   const {
@@ -1598,7 +1588,9 @@ function App() {
 
                     <InputBar
                       models={models}
-                      onSend={sendMessage}
+                      onSend={(message, attachments, mcpServerIds) =>
+                        sendMessage(message, attachments, undefined, mcpServerIds)
+                      }
                       selectedModel={activeConversation?.model || selectedModel}
                       onModelChange={handlePrimaryModelChange}
                       disabled={isInputDisabled}
@@ -1607,8 +1599,6 @@ function App() {
                       onToggleSearch={toggleSearchEnabled}
                       mcpServers={mcpConfigs}
                       mcpServerStatuses={serverStatuses}
-                      selectedMcpServerIds={selectedServerIds}
-                      onToggleMcpServer={handleToggleMcpServer}
                       isStreaming={isPrimaryGenerating}
                       onStop={stopStreaming}
                       centered={messages.length === 0 && !isCompareMode}

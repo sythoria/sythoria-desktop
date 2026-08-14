@@ -203,7 +203,7 @@ interface EnabledToolLoopConfig {
     | undefined;
 }
 
-function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
+function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): EnabledToolLoopConfig {
   const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
   const searchConfig =
     isSearchEnabled && activeSearchId
@@ -211,7 +211,7 @@ function getEnabledToolLoopConfig(): EnabledToolLoopConfig {
       : undefined;
   const searchApiKey = searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
-  const mcpTools = useMcpStore.getState().getEnabledTools();
+  const mcpTools = useMcpStore.getState().getToolsForServers(mcpServerIds);
   const mcpCallTool =
     mcpTools.length > 0
       ? (serverId: string, toolName: string, args: Record<string, string>, conversationId: string) =>
@@ -285,7 +285,12 @@ interface ChatState {
   renameChat: (id: string, newTitle: string) => void;
   togglePinChat: (id: string) => void;
   confirmRename: (newTitle: string) => void;
-  sendMessage: (text: string, attachments?: Attachment[], conversationId?: string) => Promise<SendMessageStatus>;
+  sendMessage: (
+    text: string,
+    attachments?: Attachment[],
+    conversationId?: string,
+    mcpServerIds?: string[],
+  ) => Promise<SendMessageStatus>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
@@ -975,7 +980,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiCloseRenameModal();
   },
 
-  sendMessage: async (text, attachments, requestedConversationId) => {
+  sendMessage: async (text, attachments, requestedConversationId, requestedMcpServerIds = []) => {
     const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
     const {
@@ -983,7 +988,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isProjectsEnabled: sendProjectsEnabled,
       projects: sendProjects,
     } = useProjectStore.getState();
-    const toolLoop = getEnabledToolLoopConfig();
+    const toolLoop = getEnabledToolLoopConfig(requestedMcpServerIds);
 
     const requestedConversation = requestedConversationId
       ? get().conversations.find((conversation) => conversation.id === requestedConversationId)
@@ -1090,6 +1095,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content: text,
       timestamp: new Date(),
       attachments,
+      ...(requestedMcpServerIds.length > 0 ? { mcpServerIds: [...new Set(requestedMcpServerIds)] } : {}),
     };
 
     const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
@@ -1271,7 +1277,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conv || conv.messages.length === 0) return;
 
     const { isProjectsEnabled, projects } = useProjectStore.getState();
-    const toolLoop = getEnabledToolLoopConfig();
+    let lastUserIdx = -1;
+    for (let i = conv.messages.length - 1; i >= 0; i--) {
+      if (conv.messages[i].role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return;
+
+    const toolLoop = getEnabledToolLoopConfig(conv.messages[lastUserIdx].mcpServerIds);
     const runContext = buildConversationRunContext({
       conversation: conv,
       models,
@@ -1287,15 +1302,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       return;
     }
-
-    let lastUserIdx = -1;
-    for (let i = conv.messages.length - 1; i >= 0; i--) {
-      if (conv.messages[i].role === "user") {
-        lastUserIdx = i;
-        break;
-      }
-    }
-    if (lastUserIdx === -1) return;
 
     if (
       conv.messages[lastUserIdx].attachments?.some((attachment) => attachment.kind === "image") &&
@@ -1480,7 +1486,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const { selectedModel, models, temperature } = useModelStore.getState();
     const { isProjectsEnabled, projects } = useProjectStore.getState();
-    const toolLoop = getEnabledToolLoopConfig();
+    const lastUserMessage = [...conv.messages].reverse().find((message) => message.role === "user");
+    const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
     const runContext = buildConversationRunContext({
       conversation: conv,
       models,

@@ -89,6 +89,13 @@ describe("useMcpStore capability revocation", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_stop_server", { serverId: config.id });
   });
 
+  it("resolves tools from explicit prompt references without global chat selection", async () => {
+    await useMcpStore.getState().toggleServerSelected(config.id, false);
+
+    expect(useMcpStore.getState().getToolsForServers([config.id])).toEqual([tool]);
+    expect(useMcpStore.getState().getToolsForServers([])).toEqual([]);
+  });
+
   it("does not publish a late connection after deletion", async () => {
     let releaseConnection: ((value: string) => void) | undefined;
     mocks.invoke.mockImplementation((command: string) => {

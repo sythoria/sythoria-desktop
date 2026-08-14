@@ -1158,12 +1158,10 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       toggleSearchEnabled: state.toggleSearchEnabled,
     })),
   );
-  const { mcpConfigs, serverStatuses, selectedServerIds, toggleServerSelected } = useMcpStore(
+  const { mcpConfigs, serverStatuses } = useMcpStore(
     useShallow((state) => ({
       mcpConfigs: state.mcpConfigs,
       serverStatuses: state.serverStatuses,
-      selectedServerIds: state.selectedServerIds,
-      toggleServerSelected: state.toggleServerSelected,
     })),
   );
   const isStreaming = isGenerationActive(generation?.state);
@@ -1208,7 +1206,9 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       </div>
       <InputBar
         models={models}
-        onSend={(message, attachments) => sendMessage(message, attachments, conversationId)}
+        onSend={(message, attachments, mcpServerIds) =>
+          sendMessage(message, attachments, conversationId, mcpServerIds)
+        }
         selectedModel={conversation.model || selectedModel}
         onModelChange={setConversationModel}
         disabled={models.length === 0}
@@ -1217,8 +1217,6 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
         onToggleSearch={toggleSearchEnabled}
         mcpServers={mcpConfigs}
         mcpServerStatuses={serverStatuses}
-        selectedMcpServerIds={selectedServerIds}
-        onToggleMcpServer={(serverId) => void toggleServerSelected(serverId, !selectedServerIds.has(serverId))}
         isStreaming={isStreaming}
         onStop={() => void stopStreaming(conversationId)}
         centered={false}

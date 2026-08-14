@@ -76,7 +76,7 @@ interface McpState {
   mcpApiKeys: Record<string, string>;
   serverStatuses: Record<string, McpServerStatus>;
   availableTools: McpTool[];
-  /** Servers whose tools are available to the current chat composer. */
+  /** @deprecated Composer drafts now carry inline MCP references. */
   selectedServerIds: Set<string>;
   /** Servers explicitly enabled for native MCP execution and startup reconnect. */
   enabledServerIds: Set<string>;
@@ -99,6 +99,7 @@ interface McpState {
   toggleServerSelected: (serverId: string, selected: boolean) => Promise<void>;
   toggleServerEnabled: (serverId: string, enabled: boolean) => Promise<void>;
   getEnabledTools: () => McpTool[];
+  getToolsForServers: (serverIds: readonly string[]) => McpTool[];
   setEnvSecrets: (serverId: string, secrets: Record<string, string>) => void;
   checkCommand: (command: string) => Promise<ExecutableCheck>;
 }
@@ -406,11 +407,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   callTool: async (serverId, toolName, args, conversationId) => {
-    const { mcpConfigs, selectedServerIds, enabledServerIds, serverStatuses } = get();
+    const { mcpConfigs, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
     if (
       !config?.enabled ||
-      !selectedServerIds.has(serverId) ||
       !enabledServerIds.has(serverId) ||
       serverStatuses[serverId] !== "connected"
     ) {
@@ -453,7 +453,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
           const currentState = get();
           const recoveryIsStillAuthorized =
             currentState.serverStatuses[serverId] === "connected" &&
-            currentState.selectedServerIds.has(serverId) &&
             currentState.enabledServerIds.has(serverId) &&
             currentState.mcpConfigs.some((candidate) => candidate.id === serverId && candidate.enabled);
           if (!recoveryIsStillAuthorized) throw error;
@@ -629,6 +628,18 @@ export const useMcpStore = create<McpState>((set, get) => ({
     return availableTools.filter(
       (tool) =>
         selectedServerIds.has(tool.serverId) &&
+        enabledServerIds.has(tool.serverId) &&
+        serverStatuses[tool.serverId] === "connected" &&
+        mcpConfigs.some((config) => config.id === tool.serverId && config.enabled),
+    );
+  },
+
+  getToolsForServers: (serverIds) => {
+    const requestedServerIds = new Set(serverIds);
+    const { availableTools, enabledServerIds, mcpConfigs, serverStatuses } = get();
+    return availableTools.filter(
+      (tool) =>
+        requestedServerIds.has(tool.serverId) &&
         enabledServerIds.has(tool.serverId) &&
         serverStatuses[tool.serverId] === "connected" &&
         mcpConfigs.some((config) => config.id === tool.serverId && config.enabled),

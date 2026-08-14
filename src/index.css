@@ -411,6 +411,19 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
 }
 
+/* WebKit may keep a filler <br> in an otherwise empty contenteditable. The
+   placeholder is a sibling overlay, never generated editable content. */
+.chat-prompt-editor[data-editor-empty="true"] > br {
+  display: none;
+}
+
+/* Give WebKit a separate paint boundary after real editor content so the
+   caret does not overlap the final glyph. Generated content stays out of the
+   editor DOM and therefore out of the submitted message. */
+.chat-prompt-editor[data-editor-empty="false"]::after {
+  content: "\200b";
+}
+
 .sidebar-resizing,
 .sidebar-resizing *,
 .aux-panel-resizing,
