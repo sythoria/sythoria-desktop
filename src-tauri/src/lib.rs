@@ -1412,6 +1412,45 @@ fn frontend_ready(app: tauri::AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+const MACOS_WINDOWED_CORNER_RADIUS: f64 = 16.0;
+
+#[cfg(target_os = "macos")]
+static MACOS_VIBRANCY_FULLSCREEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+fn apply_macos_vibrancy(window: &tauri::WebviewWindow, fullscreen: bool) {
+    let radius = if fullscreen {
+        0.0
+    } else {
+        MACOS_WINDOWED_CORNER_RADIUS
+    };
+
+    if let Err(error) = window_vibrancy::clear_vibrancy(window) {
+        log::warn!("Could not clear the macOS vibrancy layer: {error}");
+    }
+    if let Err(error) = window_vibrancy::apply_vibrancy(
+        window,
+        window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+        None,
+        Some(radius),
+    ) {
+        log::warn!("Could not apply the macOS vibrancy layer: {error}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn update_macos_vibrancy_for_fullscreen(window: &tauri::WebviewWindow) {
+    let Ok(fullscreen) = window.is_fullscreen() else {
+        return;
+    };
+    let previous = MACOS_VIBRANCY_FULLSCREEN.swap(fullscreen, std::sync::atomic::Ordering::AcqRel);
+    if previous != fullscreen {
+        apply_macos_vibrancy(window, fullscreen);
+    }
+}
+
 #[tauri::command]
 async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
@@ -1951,12 +1990,9 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             {
-                let _ = window_vibrancy::apply_vibrancy(
-                    &_window,
-                    window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
-                    None,
-                    Some(16.0),
-                );
+                let fullscreen = _window.is_fullscreen().unwrap_or(false);
+                MACOS_VIBRANCY_FULLSCREEN.store(fullscreen, std::sync::atomic::Ordering::Release);
+                apply_macos_vibrancy(&_window, fullscreen);
                 if let Ok(menu) = create_macos_menu(app) {
                     let _ = app.set_menu(menu);
                 }
@@ -2052,6 +2088,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Resized(_)) {
+                if let Some(main_window) = window.app_handle().get_webview_window("main") {
+                    update_macos_vibrancy_for_fullscreen(&main_window);
+                }
+            }
+
             #[cfg(not(any(target_os = "ios", target_os = "android")))]
             {
                 let app = window.app_handle();
