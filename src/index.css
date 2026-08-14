@@ -372,32 +372,9 @@
 .platform-macos.macos-fullscreen .macos-traffic-light-inset {
   padding-left: 12px;
 }
-/*
- * Windows supplies Acrylic through DWM. Keep these WebView surfaces as simple
- * translucent tints so native blur remains visible without filter repaints or
- * gradient seams while the window is dragged/resized.
- */
-.platform-windows:not(.sidebar-translucency-disabled) .native-backdrop-content {
-  background-color: var(--theme-windows-backdrop);
-}
-.platform-windows:not(.sidebar-translucency-disabled) .glass-sidebar {
-  background-color: var(--theme-windows-sidebar);
-  background-image: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-}
-.platform-windows:not(.sidebar-translucency-disabled) .chat-composer-surface {
-  background-color: var(--theme-windows-composer);
-  background-image: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-}
-.platform-windows .chat-titlebar {
-  background-color: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+/* Windows uses these same glass surfaces over its native Acrylic backdrop. */
+.platform-windows.dark:not(.sidebar-translucency-disabled) .glass-sidebar {
+  background-color: color-mix(in srgb, var(--theme-sidebar) 92%, #000 8%);
 }
 .sidebar-translucency-disabled .glass-sidebar,
 .sidebar-translucency-disabled .glass-loading-screen {
