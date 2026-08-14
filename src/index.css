@@ -366,6 +366,12 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+.platform-macos .macos-traffic-light-inset {
+  padding-left: 90px;
+}
+.platform-macos.macos-fullscreen .macos-traffic-light-inset {
+  padding-left: 12px;
+}
 /*
  * Windows supplies Acrylic through DWM. Keep these WebView surfaces as simple
  * translucent tints so native blur remains visible without filter repaints or

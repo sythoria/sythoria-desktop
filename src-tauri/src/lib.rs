@@ -1448,6 +1448,9 @@ fn update_macos_vibrancy_for_fullscreen(window: &tauri::WebviewWindow) {
     let previous = MACOS_VIBRANCY_FULLSCREEN.swap(fullscreen, std::sync::atomic::Ordering::AcqRel);
     if previous != fullscreen {
         apply_macos_vibrancy(window, fullscreen);
+        if let Err(error) = window.emit("sythoria://macos-fullscreen-changed", fullscreen) {
+            log::warn!("Could not notify the frontend of the macOS fullscreen state: {error}");
+        }
     }
 }
 

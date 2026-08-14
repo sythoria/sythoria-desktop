@@ -354,7 +354,8 @@ export interface ModelConfig {
   bundled `SymbolsNerdFontMono-Regular.ttf` for Powerline and Nerd Font glyph coverage.
 - **macOS sidebar glass**: The native `NSVisualEffectView` supplies the behind-window blur. Keep the sidebar's
   color/alpha, gradient, and shadow stable during window movement and resizing; do not re-enable a CSS
-  `backdrop-filter` for `.platform-macos .glass-sidebar`. Windows keeps the interaction-time translucency suspension
-  workaround.
+  `backdrop-filter` for `.platform-macos .glass-sidebar`. Native fullscreen removes the traffic-light inset from
+  sidebar header controls because macOS moves those controls out of the app content. Windows keeps the
+  interaction-time translucency suspension workaround.
 - **Internationalization (i18n)**: Implements dynamic locale switching for BCP 47 language keys (`en`, `es`, `fr`, `de`, `zh`, `ja`) with an automatic English fallback. State is saved persistently and updates `document.documentElement.lang`. Dictionaries are structured as modular files under `src/utils/i18n/` to keep code footprint minimal and simplify adding new locales.
 - **Licensing**: Sythoria is MIT-licensed. Contributions are accepted under the same terms, and third-party license information is summarized in `THIRD_PARTY_NOTICES.md`.

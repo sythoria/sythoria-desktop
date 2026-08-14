@@ -142,6 +142,31 @@ function App() {
   const captureAppshotCombo = useKeybindStore((state) => state.keybinds.captureAppshot.currentCombo);
 
   useEffect(() => {
+    if (!isMac) return;
+
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    const root = document.documentElement;
+
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      const stopListening = await listen<boolean>("sythoria://macos-fullscreen-changed", (event) => {
+        root.classList.toggle("macos-fullscreen", event.payload);
+      });
+      if (active) {
+        unlisten = stopListening;
+      } else {
+        stopListening();
+      }
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+      root.classList.remove("macos-fullscreen");
+    };
+  }, [isMac]);
+
+  useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
@@ -1236,7 +1261,7 @@ function App() {
         <AnimatePresence>{isDraggingFile && <DragOverlay />}</AnimatePresence>
         {!(view === "settings" && (isMobile ? sidebarOpenForViewport : !sidebarCollapsed)) && (
           <div
-            className={`absolute top-0 left-0 z-50 flex items-center ${isMac ? "h-14 pl-[90px]" : "h-[32px] pl-4"}`}
+            className={`absolute top-0 left-0 z-50 flex items-center ${isMac ? "h-14 macos-traffic-light-inset" : "h-[32px] pl-4"}`}
             data-tauri-drag-region={isMac ? true : undefined}
           >
             <div className="flex items-center gap-1 h-full">

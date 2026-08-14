@@ -539,7 +539,9 @@ export default memo(function Sidebar({
               className="flex flex-col justify-start h-14 shrink-0 border-b border-border/30"
               data-tauri-drag-region={isMac ? true : undefined}
             >
-              <div className={`flex items-center pr-3 gap-2.5 ${isMac ? "h-full pl-[90px]" : "h-[32px] pl-4"}`}>
+              <div
+                className={`flex items-center pr-3 gap-2.5 ${isMac ? "h-full macos-traffic-light-inset" : "h-[32px] pl-4"}`}
+              >
                 <button
                   onClick={() => setView("chat")}
                   className="p-1 rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors flex items-center justify-center cursor-pointer"

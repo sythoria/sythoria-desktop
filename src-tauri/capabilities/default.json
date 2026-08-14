@@ -16,6 +16,7 @@
         { "event": "sythoria://drag-drop-tokens" },
         { "event": "sythoria://spotlight-shown" },
         { "event": "sythoria://appshot-requested" },
+        { "event": "sythoria://macos-fullscreen-changed" },
         { "event": "whisper-download-progress" },
         { "event": "menu-new-conversation" },
         { "event": "menu-create-project" },
