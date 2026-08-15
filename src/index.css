@@ -417,11 +417,12 @@
   display: none;
 }
 
-/* Give WebKit a separate paint boundary after real editor content so the
-   caret does not overlap the final glyph. Generated content stays out of the
-   editor DOM and therefore out of the submitted message. */
-.chat-prompt-editor[data-editor-empty="false"]::after {
-  content: "\200b";
+/* Give WebKit a real paint box after plain text so the caret does not overlap
+   the final glyph. The generated box stays out of the submitted message. */
+.chat-prompt-editor[data-editor-empty="false"][data-has-mcp-mentions="false"]::after {
+  content: "";
+  display: inline-block;
+  inline-size: 1px;
 }
 
 .sidebar-resizing,

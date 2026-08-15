@@ -28,6 +28,7 @@ interface PromptEditorProps {
   disabled?: boolean;
   invalid: boolean;
   isEmpty: boolean;
+  hasMcpMentions: boolean;
   maxHeight: number;
   className: string;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
@@ -144,6 +145,7 @@ export const PromptEditor = memo(function PromptEditor({
   disabled,
   invalid,
   isEmpty,
+  hasMcpMentions,
   maxHeight,
   className,
   onDraftChange,
@@ -195,6 +197,24 @@ export const PromptEditor = memo(function PromptEditor({
     const range = selection.getRangeAt(0);
     if (editor.contains(range.commonAncestorContainer)) selectionRef.current = range.cloneRange();
   }, []);
+
+  const normalizeEmptyEditor = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor?.hasChildNodes()) return;
+
+    const draft = readDraft();
+    if (draft.text || draft.mcpServerIds.length > 0) return;
+
+    editor.replaceChildren();
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    selectionRef.current = range.cloneRange();
+  }, [readDraft]);
 
   const placeCaretAfter = useCallback((node: Node) => {
     const selection = window.getSelection();
@@ -266,7 +286,7 @@ export const PromptEditor = memo(function PromptEditor({
       mention.dataset.mcpMentionId = crypto.randomUUID();
       mention.contentEditable = "false";
       mention.className =
-        "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 py-px align-baseline text-[1em] font-medium leading-[inherit] text-accent select-none";
+        "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
       mention.setAttribute("role", "img");
       mention.setAttribute("aria-label", `MCP tool: ${server.name}`);
 
@@ -373,6 +393,7 @@ export const PromptEditor = memo(function PromptEditor({
         aria-invalid={invalid}
         aria-disabled={disabled || undefined}
         data-editor-empty={isEmpty}
+        data-has-mcp-mentions={hasMcpMentions}
         onInput={() => syncDraft()}
         onBeforeInput={(event) => {
           const inputType = (event.nativeEvent as InputEvent).inputType;
@@ -391,6 +412,7 @@ export const PromptEditor = memo(function PromptEditor({
         }}
         onKeyUp={saveSelection}
         onMouseUp={saveSelection}
+        onFocus={normalizeEmptyEditor}
         onBlur={saveSelection}
         onPaste={(event) => {
           if (Array.from(event.clipboardData.files).some((file) => file.type.startsWith("image/"))) return;

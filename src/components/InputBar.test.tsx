@@ -59,6 +59,33 @@ describe("InputBar", () => {
     expect(placeholder).toHaveAttribute("aria-hidden", "true");
     expect(editor).not.toContainElement(placeholder);
     expect(editor).toHaveTextContent("");
+    expect(editor).toHaveAttribute("data-has-mcp-mentions", "false");
+  });
+
+  it("removes WebKit filler nodes when an empty editor regains focus", () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const fillerLine = document.createElement("div");
+    fillerLine.append(document.createElement("br"));
+    editor.append(fillerLine);
+
+    fireEvent.focus(editor);
+
+    expect(editor).toBeEmptyDOMElement();
+    expect(window.getSelection()?.anchorNode).toBe(editor);
+    expect(window.getSelection()?.anchorOffset).toBe(0);
   });
 
   it("disables send when input is empty", () => {
@@ -348,7 +375,10 @@ describe("InputBar", () => {
 
     const mentions = screen.getAllByRole("img", { name: "MCP tool: Documents" });
     expect(mentions).toHaveLength(2);
-    expect(mentions[0]).toHaveClass("text-[1em]");
+    expect(editor).toHaveAttribute("data-has-mcp-mentions", "true");
+    expect(mentions[0]).toHaveClass("text-[0.9em]", "align-[-0.08em]");
+    expect(mentions[0]).toHaveClass("leading-none");
+    expect(mentions[0]).not.toHaveClass("leading-[inherit]", "py-px");
     expect(mentions[0].querySelector(".lucide-cpu")).toBeInTheDocument();
     expect(mentions[0].querySelector("button")).not.toBeInTheDocument();
 

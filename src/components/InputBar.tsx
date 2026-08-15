@@ -1040,6 +1040,7 @@ export default memo(function InputBar({
                     disabled={disabled}
                     invalid={isOverLimit}
                     isEmpty={value.length === 0 && mcpMentionServerIds.length === 0}
+                    hasMcpMentions={mcpMentionServerIds.length > 0}
                     maxHeight={MAX_TEXTAREA_HEIGHT}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
