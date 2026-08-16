@@ -30,7 +30,7 @@ Pre-commit: Husky + lint-staged (`eslint --fix` + `prettier --write`).
 ```
 src/
   main.tsx              # Entry: theme init, ErrorBoundary > App
-  App.tsx               # Wires 10 Zustand stores to components, compare mode & tool confirmation
+  App.tsx               # Wires app stores to components, compare mode & tool confirmation
   index.css             # Tailwind v4 @theme, CSS vars, animations, markdown styles, motion tokens
   types/index.ts        # Core types (Message, Conversation, Project, configs) + helpers
   types/log.ts          # LogEntry, LogLevel, LogSource
@@ -45,6 +45,7 @@ src/
     useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
     useGitStore.ts      # Git repo detection, commits, AI commit messages, auto-commit
     useWhisperStore.ts  # Whisper voice recording controls, preset downloads, and model management
+    useSkillStore.ts    # Installed Agent Skill metadata, lazy document cache, CRUD, and refresh deduplication
     conversationLifecycle.ts # Pure conversation-tree discovery and post-deletion navigation/state reducer
     helpers.ts          # Cross-store action helpers
     index.ts            # Centralized store exports
@@ -110,6 +111,7 @@ src-tauri/src/
   project.rs            # Workspace registration, permissions, worktree mapping, compiled root-relative exclusions
   project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
   terminal.rs           # User-driven PTY sessions that launch the default shell in a registered project/worktree
+  skills.rs             # Sandboxed Agent Skill discovery, YAML editing, and bounded resource/document reads
   commands/
     config.rs           # Encrypted settings/config commands, native secret-store bridges, and full data wipe
     conversations.rs    # Encrypted content-addressed conversation snapshots
@@ -121,7 +123,7 @@ src-tauri/src/
     google.rs / searxng.rs / firecrawl.rs / custom.rs
 ```
 
-## State (10 Zustand stores)
+## State (11 Zustand stores)
 
 - **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence. Project reassignment and compare teardown are blocked while their conversations own pending worktrees.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, capped at 25), `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), and stream handlers keyed by native `streamId`.
@@ -133,12 +135,14 @@ src-tauri/src/
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
 - **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded(scope)`. Automatic commits require an explicit captured project/model/path scope and are serialized per repository.
 - **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath` (managed basename, never an arbitrary renderer path), `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
+- **useSkillStore**: `skills`, lazy `skillContents`, `loadSkills(force)`, `readSkill()`, `createSkill()`, `updateSkill()`, and `deleteSkill()`. Startup loads the catalog, and send/retry/resume force-refresh it before an immutable skill snapshot is captured for the run.
 
-## Tool Loop (MCP + Search + Project Workspaces)
+## Tool Loop (Skills + MCP + Search + Project Workspaces)
 
-- **`buildToolDefinitions(mcpTools, includeSearch)`**: Merges native search tools (`search_query`, `fetch_url`) and workspace tools (`project_read`, `project_grep`, `project_glob`, etc.) with MCP tools. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
-- **`buildToolSystemPrompt(mcpTools)`**: Injects MCP and project-specific tool descriptions into the system prompt.
-- **`sendWithToolLoop()`**: If search, MCP, or project workspaces are enabled, runs iterative tool execution. Loop step limit is user-configurable and capped at 25. Tool definitions carry read/mutation metadata: declared read-only calls can overlap, while mutations are serialized per conversation, project/worktree, or MCP server. Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
+- **`buildToolDefinitions(mcpTools, includeSearch, skills)`**: Merges only the capabilities available to the immutable run: installed-skill readers, native search tools (`search_query`, `fetch_url`), workspace tools (`project_read`, `project_grep`, `project_glob`, etc.), and MCP tools. Skill IDs are constrained to the run snapshot. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
+- **`buildToolSystemPrompt(toolDefinitions, project, skills)`**: Generates the prompt from the exact API tool definitions. Explicitly named and clearly matching skills must be read completely before substantive work; required package resources must also be read.
+- **`sendWithToolLoop()`**: If skills, search, MCP, or project workspaces are available, runs iterative tool execution. Loop step limit is user-configurable and capped at 25. Tool definitions carry read/mutation metadata: declared read-only calls can overlap, while mutations are serialized per conversation, project/worktree, or MCP server. Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
+- **Agent Skills**: Sythoria discovers portable packages only from `~/.agents/skills/<id>/SKILL.md`. `read_skill` paginates `SKILL.md`; `list_skill_resources` and `read_skill_resource` expose bounded UTF-8 package files while rejecting traversal, symlinks, excessive depth/count, and oversized content. Settings edits preserve unknown YAML frontmatter and use atomic writes. Codex-private `.codex/skills/.system` packages are intentionally excluded because they may require Codex-only tools and resource providers.
 - **Inline MCP references**: The composer uses removable, repeatable MCP labels inside the prompt editor. Submitted message text preserves each label as a readable `[MCP: server name]` marker for model context and copy actions, while user-message rendering turns that marker back into a visual MCP chip. The message also stores `mcpServerIds` metadata so retries can recreate the same per-turn tool scope. A referenced server contributes tools only when its ID appears in that prompt snapshot; sends are rejected instead of silently falling back when a referenced server exposes no tools.
 - **Context assembly**: Every model request reserves provider-specific output and tool capacity, structurally summarizes oversized tool results, prioritizes the system prompt and latest turn, and slides or summarizes older history to fit the configured context size. Unknown context sizes remain explicit and use a conservative internal assembly ceiling. The stored transcript is not rewritten; the UI adds a disclosure when request context is condensed.
 - **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`). Subsequent file writes, edits, and commands execute in the context of this isolated path (`worktreePath`) without polluting the main directory. The changes are displayed as a pending worktree in the UI for user review.
@@ -146,7 +150,7 @@ src-tauri/src/
 ## Logging System
 
 - **logInfo(source, message, opts)**, **logWarn(source, message, opts)**, **logError(source, message, opts)** — write to console, Tauri plugin-log, and a bounded in-memory log buffer (`MAX_LOGS = 500`).
-- **Sources**: `general`, `chat`, `model`, `search`, `mcp`, `storage`, `stream` (and dynamically `appshots`, `git`).
+- **Sources**: `general`, `chat`, `model`, `search`, `mcp`, `storage`, `stream`, `skills` (and dynamically `appshots`, `git`).
 - Logs are synced to `useUIStore.logBuffer` via `requestAnimationFrame` for batched UI updates.
 - **Error parsing** (`parseApiError.ts`): Returns structured `ParsedError` with `message`, `action`, `category`, `retryable`, and `rawDetail`. Includes dedicated `userFriendlyMcpError()` for MCP-specific failures.
 
@@ -161,7 +165,7 @@ src-tauri/src/
 
 **SSE**: `sendMessage()` → `invoke("chat_stream", { streamId })` → Rust emits `chat-stream-chunk`/`chat-stream-done` → store appends content. Cancel via `cancel_chat_stream`.
 
-**Tool loop**: `sendMessage()` snapshots a `ConversationRunContext` from the target conversation → queues it through the conversation actor → assembles a budgeted provider request → runs up to `maxToolSteps` tool steps → executes declared read-only calls concurrently and resource mutations serially → collects sources → final assistant message. Compare, retry, resume, and subagent runs keep their originating conversation's project/model context instead of consulting global navigation state. Follow-up subagent messages wait for the active generation boundary.
+**Tool loop**: `sendMessage()` refreshes installed skills → snapshots a `ConversationRunContext` from the target conversation, including its skill catalog → queues it through the conversation actor → assembles a budgeted provider request → runs up to `maxToolSteps` tool steps → executes declared read-only calls concurrently and resource mutations serially → collects sources → final assistant message. Compare, retry, resume, and subagent runs keep their originating conversation's project/model/skill context instead of consulting global navigation state. Follow-up subagent messages wait for the active generation boundary.
 
 **Chat deletion**: Discover the selected conversation and all descendant subagents → reject their pending tool confirmations → mark their runs stopped → await bounded stream and conversation-scoped MCP cancellation → discard each unique worktree → atomically remove conversation/history/compare records → persist. If any worktree cannot be discarded, deletion pauses and keeps the failed recovery records. Non-empty temporary chats use this same full-deletion path when the user switches away.
 
@@ -269,49 +273,52 @@ export interface ModelConfig {
 
 ## Tauri Commands
 
-| Command                                                           | Purpose                                             |
-| ----------------------------------------------------------------- | --------------------------------------------------- |
-| `load_config` / `save_config`                                     | Encrypted model configs (`models.enc`)              |
-| `load_encrypted_preferences` / `mutate_encrypted_preferences`     | Read or atomically mutate encrypted preferences     |
-| `load_network_config` / `save_network_config`                     | Authenticated network policy (`network.enc`)        |
-| `load_search_config` / `save_search_config`                       | Encrypted search configs (`search.enc`)             |
-| `load_api_keys` / `save_api_keys_cmd`                             | Mask/save encrypted model API keys                  |
-| `load_search_api_keys` / `save_search_api_keys_cmd`               | Mask/save encrypted search API keys                 |
-| `load_encrypted_conversations` / `save_encrypted_conversations`   | Read/write encrypted chat snapshots                 |
-| `clear_encrypted_conversations`                                   | Delete conversation ciphertext                      |
-| `chat_completion` / `chat_stream`                                 | Standard or streaming text generation               |
-| `cancel_chat_stream`                                              | Cancel active stream via `streamId`                 |
-| `chat_completion_tools` / `chat_stream_tools`                     | Completion/Streaming with tool calls enabled        |
-| `generate_title`                                                  | Auto-generate conversation title                    |
-| `check_api` / `check_ollama`                                      | Health checks on AI backends                        |
-| `web_search` / `fetch_url_content`                                | Native search presets and web page readers          |
-| `ws_connect` / `ws_send` / `ws_disconnect`                        | WebSocket connection commands                       |
-| `load_mcp_config` / `save_mcp_config`                             | Encrypted MCP server configs (`mcp.enc`)            |
-| `mcp_start_server` / `mcp_stop_server` / `mcp_set_server_enabled` | Spawn, stop, or revoke MCP server execution         |
-| `mcp_check_command`                                               | Probes command/args resolution on path              |
-| `mcp_list_tools` / `mcp_request_tool_approval` / `mcp_call_tool`  | MCP discovery, native approval, and execution       |
-| `mcp_cancel_tool_call`                                            | Cancel one request-scoped MCP tool invocation       |
-| `select_file_and_get_token`                                       | Open dialog to import file, returns secure token    |
-| `read_file_from_token`                                            | Read local file contents via secure token payload   |
-| `download_whisper_model` / `cancel_whisper_download`              | Download checksum-pinned Whisper preset assets      |
-| `import_custom_whisper_model`                                     | Import an explicitly unverified model into app data |
-| `check_downloaded_whisper_models`                                 | Lists cached local Whisper files                    |
-| `transcribe_audio`                                                | Transcribes recorded audio buffer via whisper.cpp   |
-| `load_projects` / `save_projects`                                 | Workspace configs storage                           |
-| `set_active_project` / `set_project_path_override`                | Maps workspace and branch context overrides         |
-| `project_run_begin`                                               | Binds a run to the root or a validated worktree     |
-| `project_browse_begin`                                            | Issues a read-only Files panel capability            |
-| `git_detect_repo` / `git_get_status`                              | Identifies local repositories and dirty tracking    |
-| `git_create_commit` / `git_undo_last_commit`                      | Creates commits, commits with AI msgs, soft-resets  |
-| `git_worktree_create` / `git_worktree_apply`                      | Create isolated workspace paths or apply changes    |
-| `git_worktree_discard`                                            | Prunes isolated branches and deletes worktree dirs  |
-| `project_read` / `project_write` / `project_edit`                 | Workspace-scoped file tools                         |
-| `project_list_dir` / `project_grep` / `project_glob`              | Workspace directory traversal and search tools      |
-| `project_bash`                                                    | Execute system shells inside worktree directory     |
-| `terminal_start` / `terminal_write` / `terminal_resize` / `terminal_stop` | Run an interactive user-controlled project PTY |
-| `capture_screen` / `list_appshots`                                | Take screenshots, query galleries                   |
-| `has_screen_capture_permission`                                   | Check macOS screen recording permissions            |
-| `wipe_config_files`                                               | Ordered legacy-keychain and encrypted-data wipe     |
+| Command                                                                   | Purpose                                                         |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `load_config` / `save_config`                                             | Encrypted model configs (`models.enc`)                          |
+| `load_encrypted_preferences` / `mutate_encrypted_preferences`             | Read or atomically mutate encrypted preferences                 |
+| `load_network_config` / `save_network_config`                             | Authenticated network policy (`network.enc`)                    |
+| `load_search_config` / `save_search_config`                               | Encrypted search configs (`search.enc`)                         |
+| `load_api_keys` / `save_api_keys_cmd`                                     | Mask/save encrypted model API keys                              |
+| `load_search_api_keys` / `save_search_api_keys_cmd`                       | Mask/save encrypted search API keys                             |
+| `load_encrypted_conversations` / `save_encrypted_conversations`           | Read/write encrypted chat snapshots                             |
+| `clear_encrypted_conversations`                                           | Delete conversation ciphertext                                  |
+| `chat_completion` / `chat_stream`                                         | Standard or streaming text generation                           |
+| `cancel_chat_stream`                                                      | Cancel active stream via `streamId`                             |
+| `chat_completion_tools` / `chat_stream_tools`                             | Completion/Streaming with tool calls enabled                    |
+| `generate_title`                                                          | Auto-generate conversation title                                |
+| `check_api` / `check_ollama`                                              | Health checks on AI backends                                    |
+| `web_search` / `fetch_url_content`                                        | Native search presets and web page readers                      |
+| `ws_connect` / `ws_send` / `ws_disconnect`                                | WebSocket connection commands                                   |
+| `load_mcp_config` / `save_mcp_config`                                     | Encrypted MCP server configs (`mcp.enc`)                        |
+| `mcp_start_server` / `mcp_stop_server` / `mcp_set_server_enabled`         | Spawn, stop, or revoke MCP server execution                     |
+| `mcp_check_command`                                                       | Probes command/args resolution on path                          |
+| `mcp_list_tools` / `mcp_request_tool_approval` / `mcp_call_tool`          | MCP discovery, native approval, and execution                   |
+| `mcp_cancel_tool_call`                                                    | Cancel one request-scoped MCP tool invocation                   |
+| `list_skills` / `read_skill` / `read_skill_chunk`                         | Discover skills and read full/editor or paginated model content |
+| `list_skill_resources` / `read_skill_resource`                            | List/read sandboxed auxiliary skill text resources              |
+| `create_skill` / `update_skill` / `delete_skill`                          | Atomically manage portable Agent Skill packages                 |
+| `select_file_and_get_token`                                               | Open dialog to import file, returns secure token                |
+| `read_file_from_token`                                                    | Read local file contents via secure token payload               |
+| `download_whisper_model` / `cancel_whisper_download`                      | Download checksum-pinned Whisper preset assets                  |
+| `import_custom_whisper_model`                                             | Import an explicitly unverified model into app data             |
+| `check_downloaded_whisper_models`                                         | Lists cached local Whisper files                                |
+| `transcribe_audio`                                                        | Transcribes recorded audio buffer via whisper.cpp               |
+| `load_projects` / `save_projects`                                         | Workspace configs storage                                       |
+| `set_active_project` / `set_project_path_override`                        | Maps workspace and branch context overrides                     |
+| `project_run_begin`                                                       | Binds a run to the root or a validated worktree                 |
+| `project_browse_begin`                                                    | Issues a read-only Files panel capability                       |
+| `git_detect_repo` / `git_get_status`                                      | Identifies local repositories and dirty tracking                |
+| `git_create_commit` / `git_undo_last_commit`                              | Creates commits, commits with AI msgs, soft-resets              |
+| `git_worktree_create` / `git_worktree_apply`                              | Create isolated workspace paths or apply changes                |
+| `git_worktree_discard`                                                    | Prunes isolated branches and deletes worktree dirs              |
+| `project_read` / `project_write` / `project_edit`                         | Workspace-scoped file tools                                     |
+| `project_list_dir` / `project_grep` / `project_glob`                      | Workspace directory traversal and search tools                  |
+| `project_bash`                                                            | Execute system shells inside worktree directory                 |
+| `terminal_start` / `terminal_write` / `terminal_resize` / `terminal_stop` | Run an interactive user-controlled project PTY                  |
+| `capture_screen` / `list_appshots`                                        | Take screenshots, query galleries                               |
+| `has_screen_capture_permission`                                           | Check macOS screen recording permissions                        |
+| `wipe_config_files`                                                       | Ordered legacy-keychain and encrypted-data wipe                 |
 
 ## Storage
 
@@ -328,6 +335,7 @@ export interface ModelConfig {
 | Preferences         | Authenticated encrypted `preferences.enc`                                      |
 | Whisper Config      | Authenticated encrypted preferences + encrypted cloud key                      |
 | UI/window layout    | Authenticated encrypted preferences                                            |
+| Agent Skills        | User-managed portable packages (`~/.agents/skills/<id>/`)                      |
 
 ## Notes
 
