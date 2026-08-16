@@ -84,7 +84,7 @@ src/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
     ChatArea.tsx        # Messages, markdown, streaming, comparison columns, worktree approvals, attachments
     InputBar.tsx        # Composer orchestration, model selector, tools, attachments, send/stop
-    PromptEditor.tsx    # Contenteditable draft parsing, placeholder overlay, caret selection, inline MCP labels
+    PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
     settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)
     StartScreen.tsx     # Onboarding with motion entrance animations
@@ -139,7 +139,7 @@ src-tauri/src/
 - **`buildToolDefinitions(mcpTools, includeSearch)`**: Merges native search tools (`search_query`, `fetch_url`) and workspace tools (`project_read`, `project_grep`, `project_glob`, etc.) with MCP tools. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
 - **`buildToolSystemPrompt(mcpTools)`**: Injects MCP and project-specific tool descriptions into the system prompt.
 - **`sendWithToolLoop()`**: If search, MCP, or project workspaces are enabled, runs iterative tool execution. Loop step limit is user-configurable and capped at 25. Tool definitions carry read/mutation metadata: declared read-only calls can overlap, while mutations are serialized per conversation, project/worktree, or MCP server. Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
-- **Inline MCP references**: The composer uses removable, repeatable MCP labels inside the prompt editor. Label names are excluded from visible/stored message text; the user message stores only `mcpServerIds` metadata so retries can recreate the same per-turn tool scope. A connected server contributes tools only when its ID appears in that prompt snapshot.
+- **Inline MCP references**: The composer uses removable, repeatable MCP labels inside the prompt editor. Submitted message text preserves each label as a readable `[MCP: server name]` marker for model context and copy actions, while user-message rendering turns that marker back into a visual MCP chip. The message also stores `mcpServerIds` metadata so retries can recreate the same per-turn tool scope. A referenced server contributes tools only when its ID appears in that prompt snapshot; sends are rejected instead of silently falling back when a referenced server exposes no tools.
 - **Context assembly**: Every model request reserves provider-specific output and tool capacity, structurally summarizes oversized tool results, prioritizes the system prompt and latest turn, and slides or summarizes older history to fit the configured context size. Unknown context sizes remain explicit and use a conservative internal assembly ceiling. The stored transcript is not rewritten; the UI adds a disclosure when request context is condensed.
 - **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`). Subsequent file writes, edits, and commands execute in the context of this isolated path (`worktreePath`) without polluting the main directory. The changes are displayed as a pending worktree in the UI for user review.
 
@@ -213,7 +213,7 @@ export interface Message {
   };
   sources?: { title: string; url: string }[];
   attachments?: Attachment[];
-  mcpServerIds?: string[]; // Inline MCP references for this turn; labels are not stored in content
+  mcpServerIds?: string[]; // Inline MCP references; content also preserves readable [MCP: name] labels
   workingDuration?: number; // Total seconds for a completed tool-assisted turn
 }
 

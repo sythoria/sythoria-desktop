@@ -143,6 +143,10 @@ export default memo(function InputBar({
     editorHandleRef.current?.saveSelection();
   }, []);
 
+  const insertEditorLineBreak = useCallback(() => {
+    editorHandleRef.current?.insertLineBreak();
+  }, []);
+
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
       if (disabled || isStreaming) return;
@@ -565,11 +569,25 @@ export default memo(function InputBar({
 
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
-    const submittedValue = value;
-    const submittedMcpServerIds = [...mcpMentionServerIds];
+    // The contenteditable DOM is the authoritative draft. Reading it here keeps
+    // a newly inserted MCP mention from being lost when send happens before the
+    // corresponding React state update has rendered.
+    const submittedDraft = editorHandleRef.current?.readDraft() ?? {
+      text: value,
+      mcpServerIds: mcpMentionServerIds,
+    };
+    const submittedValue = submittedDraft.text;
+    const submittedText = submittedValue.trim();
+    const submittedMcpServerIds = [...submittedDraft.mcpServerIds];
     const submittedAttachments = attachments;
+    if (
+      (submittedText.length === 0 && submittedAttachments.length === 0) ||
+      submittedValue.length > MAX_INPUT_LENGTH
+    ) {
+      return;
+    }
     const status = await onSend(
-      trimmed,
+      submittedText,
       submittedAttachments.length > 0 ? submittedAttachments : undefined,
       submittedMcpServerIds,
     );
@@ -582,7 +600,7 @@ export default memo(function InputBar({
       currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]);
     if (currentDraft.text === submittedValue && mentionsAreUnchanged) replaceEditorText("");
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [canSend, value, trimmed, mcpMentionServerIds, attachments, onSend, replaceEditorText, setAttachments]);
+  }, [canSend, value, mcpMentionServerIds, attachments, onSend, replaceEditorText, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -605,16 +623,22 @@ export default memo(function InputBar({
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
             void handleSubmit();
+          } else {
+            e.preventDefault();
+            insertEditorLineBreak();
           }
         } else {
           if (!e.shiftKey) {
             e.preventDefault();
             void handleSubmit();
+          } else {
+            e.preventDefault();
+            insertEditorLineBreak();
           }
         }
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText, insertEditorLineBreak],
   );
 
   const handleClipboardPaste = useCallback(
@@ -1044,7 +1068,7 @@ export default memo(function InputBar({
                     maxHeight={MAX_TEXTAREA_HEIGHT}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
-                    className={`${textSizeClass} leading-relaxed ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
+                    className={`${textSizeClass} ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
                       voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
                     }`}
                   />

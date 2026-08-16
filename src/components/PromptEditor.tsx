@@ -11,6 +11,7 @@ export interface PromptDraft {
 
 export interface PromptEditorHandle {
   focus: () => void;
+  insertLineBreak: () => void;
   insertMcpMention: (server: McpServerConfig) => boolean;
   readDraft: () => PromptDraft;
   replaceText: (text: string) => void;
@@ -168,7 +169,8 @@ export const PromptEditor = memo(function PromptEditor({
       const serverId = node.dataset.mcpServerId;
       if (serverId) {
         mcpServerIds.push(serverId);
-        return "";
+        const serverName = node.dataset.mcpServerName || node.textContent?.trim() || serverId;
+        return `[MCP: ${serverName}]`;
       }
       if (node.tagName === "BR") return "\n";
 
@@ -227,6 +229,26 @@ export const PromptEditor = memo(function PromptEditor({
     selectionRef.current = range.cloneRange();
   }, []);
 
+  const insertLineBreak = useCallback(() => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection) return;
+
+    const selectedRange = selection.rangeCount ? selection.getRangeAt(0) : null;
+    const hasEditorSelection = Boolean(selectedRange && editor.contains(selectedRange.commonAncestorContainer));
+    const range = hasEditorSelection ? selectedRange! : document.createRange();
+    if (!hasEditorSelection) {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+
+    range.deleteContents();
+    const lineBreak = document.createTextNode("\n");
+    range.insertNode(lineBreak);
+    placeCaretAfter(lineBreak);
+    syncDraft();
+  }, [placeCaretAfter, syncDraft]);
+
   const removeMcpMention = useCallback(
     (mention: HTMLElement) => {
       const parent = mention.parentNode;
@@ -283,6 +305,7 @@ export const PromptEditor = memo(function PromptEditor({
 
       const mention = document.createElement("span");
       mention.dataset.mcpServerId = server.id;
+      mention.dataset.mcpServerName = server.name;
       mention.dataset.mcpMentionId = crypto.randomUUID();
       mention.contentEditable = "false";
       mention.className =
@@ -337,12 +360,13 @@ export const PromptEditor = memo(function PromptEditor({
     editorHandleRef,
     () => ({
       focus: () => editorRef.current?.focus(),
+      insertLineBreak,
       insertMcpMention,
       readDraft,
       replaceText,
       saveSelection,
     }),
-    [insertMcpMention, readDraft, replaceText, saveSelection],
+    [insertLineBreak, insertMcpMention, readDraft, replaceText, saveSelection],
   );
 
   useEffect(
@@ -374,7 +398,9 @@ export const PromptEditor = memo(function PromptEditor({
   );
 
   return (
-    <div className={`relative order-first mb-1 basis-full min-w-0 text-text-primary ${className}`}>
+    <div
+      className={`chat-prompt-editor-shell relative order-first mb-1 basis-full min-w-0 text-text-primary ${className}`}
+    >
       {isEmpty && (
         <span className="pointer-events-none absolute inset-x-0 top-0 text-text-muted" aria-hidden="true">
           {placeholder}

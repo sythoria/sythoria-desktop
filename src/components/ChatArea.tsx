@@ -45,6 +45,7 @@ import {
   CheckCircle2,
   Undo2,
   Users,
+  Cpu,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -249,6 +250,35 @@ function MessageContent({
       {isStreaming && <span className="cursor-blink" aria-label="Generating response" />}
     </>
   );
+}
+
+const MCP_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]/g;
+
+function UserMessageContent({ content }: { content: string }) {
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of content.matchAll(MCP_LABEL_PATTERN)) {
+    const matchIndex = match.index;
+    if (matchIndex > cursor) parts.push(content.slice(cursor, matchIndex));
+
+    const serverName = match[1].trim();
+    parts.push(
+      <span
+        key={`${matchIndex}-${serverName}`}
+        role="img"
+        aria-label={`MCP tool: ${serverName}`}
+        className="mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent"
+      >
+        <Cpu size={13} className="shrink-0" aria-hidden="true" />
+        <span className="truncate">{serverName}</span>
+      </span>,
+    );
+    cursor = matchIndex + match[0].length;
+  }
+
+  if (cursor < content.length) parts.push(content.slice(cursor));
+  return <>{parts.length > 0 ? parts : content}</>;
 }
 
 function ActionButton({
@@ -1523,7 +1553,7 @@ const MessageBubble = memo(function MessageBubble({
             <div
               className={`bg-input rounded-[28px] rounded-br-md px-5 py-3 ${textSizeClass} text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full`}
             >
-              {message.content}
+              <UserMessageContent content={message.content} />
             </div>
           )}
           {!isGenerating && !isAnySubagentRunning && (

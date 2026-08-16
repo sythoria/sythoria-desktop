@@ -64,8 +64,7 @@ export default function Settings() {
   const addMcpConfig = useMcpStore((s) => s.addMcpConfig);
   const updateMcpConfig = useMcpStore((s) => s.updateMcpConfig);
   const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
-  const connectServer = useMcpStore((s) => s.connectServer);
-  const disconnectServer = useMcpStore((s) => s.disconnectServer);
+  const toggleServerEnabled = useMcpStore((s) => s.toggleServerEnabled);
   const setEnvSecrets = useMcpStore((s) => s.setEnvSecrets);
   const checkCommand = useMcpStore((s) => s.checkCommand);
 
@@ -255,8 +254,8 @@ export default function Settings() {
                 envSecrets={envSecrets}
                 updateMcpConfig={updateMcpConfig}
                 deleteMcpConfig={deleteMcpConfig}
-                connectServer={connectServer}
-                disconnectServer={disconnectServer}
+                connectServer={(id) => void toggleServerEnabled(id, true)}
+                disconnectServer={(id) => void toggleServerEnabled(id, false)}
                 setEnvSecrets={setEnvSecrets}
                 checkCommand={checkCommand}
                 handleApplyPreset={handleApplyPreset}

@@ -988,7 +988,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isProjectsEnabled: sendProjectsEnabled,
       projects: sendProjects,
     } = useProjectStore.getState();
-    const toolLoop = getEnabledToolLoopConfig(requestedMcpServerIds);
+    const uniqueMcpServerIds = [...new Set(requestedMcpServerIds)];
+
+    for (const serverId of uniqueMcpServerIds) {
+      const mcpState = useMcpStore.getState();
+      const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
+      if (!config?.enabled) {
+        uiToast("A referenced MCP server is unavailable. Re-enable it in Settings and try again.", "error");
+        return "rejected";
+      }
+
+      if (!mcpState.enabledServerIds.has(serverId) || mcpState.serverStatuses[serverId] !== "connected") {
+        try {
+          await mcpState.toggleServerEnabled(serverId, true);
+        } catch (error) {
+          logError("mcp", `Could not prepare referenced MCP server: "${config.name}"`, { error });
+          uiToast(`Could not connect ${config.name}. Your message was not sent.`, "error");
+          return "rejected";
+        }
+      }
+    }
+
+    const toolLoop = getEnabledToolLoopConfig(uniqueMcpServerIds);
+    const unresolvedMcpServerIds = uniqueMcpServerIds.filter(
+      (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
+    );
+    if (unresolvedMcpServerIds.length > 0) {
+      const unresolvedNames = unresolvedMcpServerIds.map(
+        (serverId) => useMcpStore.getState().mcpConfigs.find((config) => config.id === serverId)?.name ?? serverId,
+      );
+      logWarn("mcp", "Referenced MCP servers did not expose any tools", {
+        details: unresolvedNames.join(", "),
+        action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
+      });
+      uiToast(
+        `${unresolvedNames.join(", ")} did not provide any tools. Your message was not sent.`,
+        "error",
+      );
+      return "rejected";
+    }
 
     const requestedConversation = requestedConversationId
       ? get().conversations.find((conversation) => conversation.id === requestedConversationId)
@@ -1095,7 +1133,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content: text,
       timestamp: new Date(),
       attachments,
-      ...(requestedMcpServerIds.length > 0 ? { mcpServerIds: [...new Set(requestedMcpServerIds)] } : {}),
+      ...(uniqueMcpServerIds.length > 0 ? { mcpServerIds: uniqueMcpServerIds } : {}),
     };
 
     const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;

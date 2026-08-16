@@ -56,6 +56,23 @@ describe("ChatArea", () => {
     expect(screen.getByText("Hello world")).toBeInTheDocument();
   });
 
+  it("renders model-visible MCP markers as chips in user messages", () => {
+    const messages = [
+      makeMessage({
+        role: "user",
+        content: "Using [MCP: Gmail] check my unread email",
+        mcpServerIds: ["gmail"],
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    const chip = screen.getByRole("img", { name: "MCP tool: Gmail" });
+    const messageArticle = screen.getByRole("article", { name: /User message/ });
+    expect(chip).toHaveTextContent("Gmail");
+    expect(messageArticle).toHaveTextContent("Using Gmail check my unread email");
+    expect(messageArticle).not.toHaveTextContent("[MCP: Gmail]");
+  });
+
   it("renders assistant messages with markdown", () => {
     const messages = [makeMessage({ role: "assistant", content: "Hi there **bold**" })];
     render(<ChatArea messages={messages} {...defaultProps} />);

@@ -96,6 +96,39 @@ describe("useMcpStore capability revocation", () => {
     expect(useMcpStore.getState().getToolsForServers([])).toEqual([]);
   });
 
+  it("enables a server before connecting it for explicit prompt tools", async () => {
+    useMcpStore.setState({
+      serverStatuses: { [config.id]: "disconnected" },
+      availableTools: [],
+      selectedServerIds: new Set(),
+      enabledServerIds: new Set(),
+    });
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_start_server") {
+        return Promise.resolve(
+          JSON.stringify([
+            {
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await useMcpStore.getState().toggleServerEnabled(config.id, true);
+
+    expect(useMcpStore.getState().enabledServerIds.has(config.id)).toBe(true);
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_set_server_enabled", { serverId: config.id, enabled: true });
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_start_server", {
+      config: JSON.stringify({ ...config, apiKey: undefined }),
+      explicitlyEnabled: true,
+    });
+    expect(useMcpStore.getState().getToolsForServers([config.id])).toEqual([tool]);
+  });
+
   it("does not publish a late connection after deletion", async () => {
     let releaseConnection: ((value: string) => void) | undefined;
     mocks.invoke.mockImplementation((command: string) => {

@@ -384,8 +384,50 @@ describe("InputBar", () => {
 
     await user.click(screen.getByLabelText("Send message"));
 
-    expect(onSend).toHaveBeenCalledWith("Open this using  please", undefined, ["documents", "documents"]);
+    expect(onSend).toHaveBeenCalledWith(
+      "Open this using [MCP: Documents][MCP: Documents] please",
+      undefined,
+      ["documents", "documents"],
+    );
     expect(editor).toHaveTextContent("");
+  });
+
+  it("captures an MCP label when it is inserted and sent in the same React batch", async () => {
+    const onSend = vi.fn().mockResolvedValue("accepted");
+    const documentsServer = {
+      id: "documents",
+      name: "Documents",
+      transport: "stdio" as const,
+      command: "documents-mcp",
+      enabled: true,
+    };
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={onSend}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        mcpServers={[documentsServer]}
+        mcpServerStatuses={{ documents: "connected" }}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.input(editor, { target: { textContent: "Check my unread email" } });
+    fireEvent.click(screen.getByLabelText("Attach or search"));
+
+    const mcpMenuItem = screen.getByRole("menuitem", { name: /Documents/i });
+    const sendButton = screen.getByLabelText("Send message");
+    await act(async () => {
+      mcpMenuItem.click();
+      sendButton.click();
+    });
+
+    expect(onSend).toHaveBeenCalledWith("Check my unread email[MCP: Documents]", undefined, ["documents"]);
   });
 
   it("removes an inline MCP label with one Backspace and preserves the caret position", async () => {
@@ -479,7 +521,7 @@ describe("InputBar", () => {
     expect(editor).toHaveTextContent("Use the tool");
   });
 
-  it("does not send on Shift+Enter", async () => {
+  it("inserts a plain newline without browser block markup on Shift+Enter", async () => {
     const onSend = vi.fn();
     render(
       <InputBar
@@ -495,10 +537,15 @@ describe("InputBar", () => {
     );
 
     const textarea = screen.getByRole("textbox");
-    await userEvent.type(textarea, "Hello");
+    const user = userEvent.setup();
+    await user.type(textarea, "Hello");
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    await user.type(textarea, "world");
 
     expect(onSend).not.toHaveBeenCalled();
+    expect(textarea.textContent).toBe("Hello\nworld");
+    expect(textarea.querySelector("div, p, br")).not.toBeInTheDocument();
+    expect(textarea.parentElement).toHaveClass("chat-prompt-editor-shell");
   });
 
   it("shows web search option in plus dropdown", () => {
