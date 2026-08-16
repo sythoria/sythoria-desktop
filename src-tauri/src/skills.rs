@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_yaml_ng::{Mapping, Value};
 use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
@@ -14,6 +15,8 @@ const MAX_SKILL_RESOURCE_READ_CHARS: usize = 100_000;
 const DEFAULT_SKILL_RESOURCE_READ_CHARS: usize = 32_000;
 const MAX_SKILL_RESOURCES: usize = 500;
 const MAX_SKILL_RESOURCE_DEPTH: usize = 12;
+const MAX_SKILL_NAME_CHARS: usize = 200;
+const MAX_SKILL_DESCRIPTION_CHARS: usize = 4_000;
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct SkillInfo {
@@ -49,47 +52,39 @@ fn get_skills_dir(app: &AppHandle) -> PathBuf {
 }
 
 fn parse_frontmatter<R: BufRead>(mut reader: R) -> io::Result<(String, String)> {
-    let mut name = String::new();
-    let mut description = String::new();
     let mut line = String::new();
-    let mut closed = false;
 
     if reader.read_line(&mut line)? == 0 || line.trim() != "---" {
-        return Ok((name, description));
+        return Ok((String::new(), String::new()));
     }
 
+    let mut yaml = String::new();
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
-            break;
+            return Ok((String::new(), String::new()));
         }
 
-        let line = line.trim();
-        if line == "---" {
-            closed = true;
+        if line.trim() == "---" {
             break;
         }
-
-        if let Some(value) = line.strip_prefix("name:") {
-            name = value
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
-        } else if let Some(value) = line.strip_prefix("description:") {
-            description = value
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
-        }
+        yaml.push_str(&line);
     }
 
-    if closed {
-        Ok((name, description))
+    let mapping: Mapping = if yaml.trim().is_empty() {
+        Mapping::new()
     } else {
-        Ok((String::new(), String::new()))
-    }
+        serde_yaml_ng::from_str(&yaml)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+    };
+    let string_value = |key: &str| {
+        mapping
+            .get(&Value::String(key.to_string()))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    Ok((string_value("name"), string_value("description")))
 }
 
 fn read_skill_metadata(path: &Path) -> io::Result<(String, String)> {
@@ -358,13 +353,92 @@ fn read_skill_resource_from_dir(
     })
 }
 
-fn build_frontmatter(name: &str, description: &str, body: &str) -> String {
-    format!(
-        "---\nname: \"{}\"\ndescription: \"{}\"\n---\n{}",
-        name,
-        description,
-        body.trim_start()
-    )
+fn split_skill_document(content: &str) -> Result<(Mapping, &str), String> {
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let Some(first_line_end) = content.find('\n') else {
+        return Ok((Mapping::new(), content));
+    };
+    if content[..first_line_end].trim_end_matches('\r') != "---" {
+        return Ok((Mapping::new(), content));
+    }
+
+    let frontmatter_start = first_line_end + 1;
+    let mut line_start = frontmatter_start;
+    while line_start <= content.len() {
+        let line_end = content[line_start..]
+            .find('\n')
+            .map(|offset| line_start + offset)
+            .unwrap_or(content.len());
+        if content[line_start..line_end].trim_end_matches('\r') == "---" {
+            let yaml = &content[frontmatter_start..line_start];
+            let mapping = if yaml.trim().is_empty() {
+                Mapping::new()
+            } else {
+                serde_yaml_ng::from_str::<Mapping>(yaml)
+                    .map_err(|error| format!("Invalid skill frontmatter: {error}"))?
+            };
+            let body_start = (line_end < content.len())
+                .then_some(line_end + 1)
+                .unwrap_or(line_end);
+            return Ok((mapping, &content[body_start..]));
+        }
+        if line_end == content.len() {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+
+    Err("Skill frontmatter is missing its closing delimiter".to_string())
+}
+
+fn validate_skill_fields(name: &str, description: &str, body: &str) -> Result<(), String> {
+    if name.trim().is_empty() || name.chars().count() > MAX_SKILL_NAME_CHARS {
+        return Err(format!(
+            "Skill name must contain 1 to {MAX_SKILL_NAME_CHARS} characters"
+        ));
+    }
+    if description.chars().count() > MAX_SKILL_DESCRIPTION_CHARS {
+        return Err(format!(
+            "Skill description exceeds {MAX_SKILL_DESCRIPTION_CHARS} characters"
+        ));
+    }
+    if body.len() as u64 > MAX_SKILL_DOCUMENT_BYTES {
+        return Err(format!(
+            "Skill body exceeds the {MAX_SKILL_DOCUMENT_BYTES} byte limit"
+        ));
+    }
+    Ok(())
+}
+
+fn build_skill_document(
+    existing_content: Option<&str>,
+    name: &str,
+    description: &str,
+    body: &str,
+) -> Result<String, String> {
+    validate_skill_fields(name, description, body)?;
+    let mut frontmatter = existing_content
+        .map(split_skill_document)
+        .transpose()?
+        .map(|(mapping, _)| mapping)
+        .unwrap_or_default();
+    frontmatter.insert(
+        Value::String("name".to_string()),
+        Value::String(name.trim().to_string()),
+    );
+    frontmatter.insert(
+        Value::String("description".to_string()),
+        Value::String(description.trim().to_string()),
+    );
+    let yaml = serde_yaml_ng::to_string(&frontmatter)
+        .map_err(|error| format!("Failed to serialize skill frontmatter: {error}"))?;
+    let content = format!("---\n{yaml}---\n{}", body.trim_start());
+    if content.len() as u64 > MAX_SKILL_DOCUMENT_BYTES {
+        return Err(format!(
+            "Skill document exceeds the {MAX_SKILL_DOCUMENT_BYTES} byte limit"
+        ));
+    }
+    Ok(content)
 }
 
 #[tauri::command]
@@ -429,13 +503,15 @@ pub async fn create_skill(
         return Err(format!("Skill with id '{}' already exists", id));
     }
 
-    fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+    let content = build_skill_document(None, &name, &description, &body)?;
+    fs::create_dir_all(&skill_dir).map_err(|e| format!("Failed to create skill directory: {e}"))?;
 
-    let content = build_frontmatter(&name, &description, &body);
     let skill_md_path = skill_dir.join("SKILL.md");
 
-    fs::write(skill_md_path, content).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+    if let Err(error) = crate::atomic_file::write_atomic(&skill_md_path, content.as_bytes()) {
+        let _ = fs::remove_dir(&skill_dir);
+        return Err(format!("Failed to write SKILL.md: {error}"));
+    }
 
     Ok(())
 }
@@ -450,16 +526,14 @@ pub async fn update_skill(
 ) -> Result<(), String> {
     validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
-    let skill_dir = skills_dir.join(&id);
+    let skill_dir = resolve_skill_dir(&skills_dir, &id)?;
+    let skill_md_path =
+        skill_markdown_path(&skill_dir).ok_or_else(|| format!("Skill '{id}' not found"))?;
+    let existing = read_skill_from_dir(&skills_dir, &id)?;
+    let content = build_skill_document(Some(&existing), &name, &description, &body)?;
 
-    if !skill_dir.exists() {
-        return Err(format!("Skill '{}' not found", id));
-    }
-
-    let content = build_frontmatter(&name, &description, &body);
-    let skill_md_path = skill_dir.join("SKILL.md");
-
-    fs::write(skill_md_path, content).map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+    crate::atomic_file::write_atomic(&skill_md_path, content.as_bytes())
+        .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
 
     Ok(())
 }
@@ -468,14 +542,9 @@ pub async fn update_skill(
 pub async fn delete_skill(app: AppHandle, id: String) -> Result<(), String> {
     validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
-    let skill_dir = skills_dir.join(&id);
+    let skill_dir = resolve_skill_dir(&skills_dir, &id)?;
 
-    if !skill_dir.exists() {
-        return Err(format!("Skill '{}' not found", id));
-    }
-
-    fs::remove_dir_all(skill_dir)
-        .map_err(|e| format!("Failed to delete skill directory: {}", e))?;
+    fs::remove_dir_all(skill_dir).map_err(|e| format!("Failed to delete skill directory: {e}"))?;
 
     Ok(())
 }
@@ -587,6 +656,61 @@ mod tests {
             read_skill_from_dir(directory.path(), "missing").unwrap_err(),
             "Skill 'missing' not found"
         );
+    }
+
+    #[test]
+    fn preserves_unknown_frontmatter_fields_when_editing() {
+        let existing = r#"---
+name: Old
+description: Old description
+origin: ECC
+allowed-tools:
+  - project_read
+---
+Old body"#;
+        let updated = build_skill_document(
+            Some(existing),
+            "Quoted \"name\"",
+            "First line\nSecond: line",
+            "New body",
+        )
+        .expect("build skill document");
+        let (frontmatter, body) = split_skill_document(&updated).expect("parse updated document");
+
+        assert_eq!(
+            frontmatter.get(&Value::String("name".to_string())),
+            Some(&Value::String("Quoted \"name\"".to_string()))
+        );
+        assert_eq!(
+            frontmatter.get(&Value::String("description".to_string())),
+            Some(&Value::String("First line\nSecond: line".to_string()))
+        );
+        assert_eq!(
+            frontmatter.get(&Value::String("origin".to_string())),
+            Some(&Value::String("ECC".to_string()))
+        );
+        assert!(frontmatter.contains_key(&Value::String("allowed-tools".to_string())));
+        assert_eq!(body, "New body");
+    }
+
+    #[test]
+    fn parses_yaml_metadata_and_rejects_malformed_edits() {
+        let metadata =
+            b"---\nname: 'A: skill'\ndescription: |\n  First line\n  Second line\n---\nBody";
+        assert_eq!(
+            parse_frontmatter(BufReader::new(metadata.as_slice())).expect("parse metadata"),
+            (
+                "A: skill".to_string(),
+                "First line\nSecond line\n".to_string()
+            )
+        );
+        assert!(build_skill_document(
+            Some("---\nname: [invalid\n---\nBody"),
+            "Updated",
+            "Description",
+            "Body",
+        )
+        .is_err());
     }
 
     #[test]
