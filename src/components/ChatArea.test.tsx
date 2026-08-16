@@ -97,6 +97,26 @@ describe("ChatArea", () => {
     expect(cursor).toBeInTheDocument();
   });
 
+  it("shows the completed thinking duration while answer text is still streaming", () => {
+    const conversationId = "answering-with-reasoning";
+    const messages = [
+      makeMessage({
+        role: "assistant",
+        content: "The answer is",
+        reasoningContent: "I worked through the problem.",
+        isStreaming: true,
+      }),
+    ];
+    useChatStore.setState({
+      activeStreamThinkingStart: { [conversationId]: 10_000 },
+      activeStreamThinkingEnd: { [conversationId]: 13_900 },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversationId} />);
+
+    expect(screen.getByRole("button", { name: "Expand reasoning" })).toHaveTextContent("Thought for 3s");
+  });
+
   it("shows one cancellation message without a duplicate status label", () => {
     const messages = [makeMessage({ role: "assistant", content: "Cancelled agent execution." })];
     const conversation: Conversation = {

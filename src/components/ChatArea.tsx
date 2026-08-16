@@ -1087,8 +1087,16 @@ function ReasoningBubble({
   const startTimestamp = useChatStore((s) =>
     conversationId && s.activeStreamThinkingStart ? s.activeStreamThinkingStart[conversationId] : undefined,
   );
+  const endTimestamp = useChatStore((s) =>
+    conversationId && s.activeStreamThinkingEnd ? s.activeStreamThinkingEnd[conversationId] : undefined,
+  );
 
   const thinkingActive = isStreaming && !isReasoningComplete;
+  const completedElapsed =
+    startTimestamp !== undefined && endTimestamp !== undefined
+      ? Math.max(0, Math.floor((endTimestamp - startTimestamp) / 1000))
+      : undefined;
+  const displayedDuration = thinkingDuration ?? completedElapsed;
 
   useEffect(() => {
     if (!thinkingActive) {
@@ -1097,7 +1105,7 @@ function ReasoningBubble({
 
     const updateElapsed = () => {
       const start = startTimestamp || Date.now();
-      const diff = Math.max(0, Math.round((Date.now() - start) / 1000));
+      const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
       setElapsed(diff);
     };
 
@@ -1128,8 +1136,8 @@ function ReasoningBubble({
             ? elapsed !== null
               ? `Thinking for ${formatWorkingDuration(elapsed)}`
               : "Thinking"
-            : thinkingDuration !== undefined
-              ? `Thought for ${thinkingDuration}s`
+            : displayedDuration !== undefined
+              ? `Thought for ${displayedDuration}s`
               : "Thought"}
         </span>
         <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />

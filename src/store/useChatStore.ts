@@ -1213,7 +1213,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const start = state.activeStreamThinkingStart?.[c.id];
             if (start) {
               const end = state.activeStreamThinkingEnd?.[c.id] || Date.now();
-              thinkingDuration = Math.round((end - start) / 1000);
+              thinkingDuration = Math.floor((end - start) / 1000);
             }
             const content = m.content + (state.activeStreamContent[c.id] || "");
             return {
@@ -1790,7 +1790,7 @@ async function runNormal(
           const start = state.activeStreamThinkingStart?.[convId];
           if (start) {
             const end = state.activeStreamThinkingEnd?.[convId] || Date.now();
-            thinkingDuration = Math.round((end - start) / 1000);
+            thinkingDuration = Math.floor((end - start) / 1000);
           }
 
           const conversations = state.conversations.map((c) => {
@@ -1899,7 +1899,7 @@ async function runNormal(
     let thinkingDuration: number | undefined = undefined;
     if (start) {
       const end = get().activeStreamThinkingEnd?.[convId] || Date.now();
-      thinkingDuration = Math.round((end - start) / 1000);
+      thinkingDuration = Math.floor((end - start) / 1000);
     }
 
     set((state) => {

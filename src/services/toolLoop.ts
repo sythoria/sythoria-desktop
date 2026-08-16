@@ -1146,6 +1146,12 @@ async function runWithToolLoop(
       set((state) => {
         const streamContent = state.activeStreamContent?.[convId] || "";
         const streamReasoning = state.activeStreamReasoning?.[convId] || "";
+        const thinkingStart = state.activeStreamThinkingStart?.[convId];
+        const thinkingEnd = state.activeStreamThinkingEnd?.[convId] ?? Date.now();
+        const thinkingDuration =
+          thinkingStart !== undefined
+            ? Math.max(0, Math.floor((thinkingEnd - thinkingStart) / 1000))
+            : undefined;
         const conversations = state.conversations.map((c) => {
           if (c.id !== convId) return c;
           const updated = [...c.messages];
@@ -1158,6 +1164,7 @@ async function runWithToolLoop(
               content: last.content + streamContent,
               reasoningContent: (last.reasoningContent || "") + streamReasoning || undefined,
               isStreaming: false,
+              thinkingDuration: last.thinkingDuration ?? thinkingDuration,
             };
           }
           return { ...c, messages: updated };
@@ -1494,7 +1501,7 @@ async function runWithToolLoop(
                 content: last.content.trim() ? last.content : finalizedAssistantContent,
                 reasoningContent: last.reasoningContent || msg.reasoning || undefined,
                 isStreaming: false,
-                thinkingDuration: stepDuration,
+                thinkingDuration: last.thinkingDuration ?? stepDuration,
               };
             }
             return updated;
