@@ -9,12 +9,12 @@ import type {
   McpTool,
   Project,
   McpImageContent,
+  SkillInfo,
 } from "../types";
 import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
-import { useSkillStore } from "../store/useSkillStore";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
@@ -297,12 +297,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-export function buildToolDefinitions(mcpTools: McpTool[] = [], includeSearch = true) {
+export function buildToolDefinitions(
+  mcpTools: McpTool[] = [],
+  includeSearch = true,
+  skills: readonly SkillInfo[] = [],
+) {
   const tools = TOOL_DEFINITIONS.filter((t) => {
     if (!includeSearch && (t.function.name === "search_query" || t.function.name === "fetch_url")) {
       return false;
     }
+    if (skills.length === 0 && t.function.name === "read_skill") return false;
     return true;
+  }).map((tool) => {
+    if (tool.function.name !== "read_skill") return tool;
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: {
+          ...tool.function.parameters,
+          properties: {
+            ...tool.function.parameters.properties,
+            id: {
+              type: "string",
+              enum: skills.map((skill) => skill.id),
+              description: "The ID of an installed skill from the current run's catalog.",
+            },
+          },
+        },
+      },
+    } satisfies ToolDefinition;
   });
   for (const mcpTool of mcpTools) {
     const inputSchema = (mcpTool.inputSchema ?? { properties: {} }) as Record<string, unknown>;
@@ -631,10 +655,13 @@ When you need current information, facts, or recent events, use search_query fir
 
 CRITICAL: You are an agentic system with the genuine capability to spawn real background processes via the \`invoke_subagent\` tool. You MUST NEVER say you cannot physically spawn subagents, and you MUST NEVER simulate subagent workflows. When asked to delegate tasks, ALWAYS call the \`invoke_subagent\` tool directly.`;
 
-function buildToolSystemPrompt(mcpTools: McpTool[] = [], project: Project | null = null) {
+function buildToolSystemPrompt(
+  mcpTools: McpTool[] = [],
+  project: Project | null = null,
+  skills: readonly SkillInfo[] = [],
+) {
   let prompt = TOOL_SYSTEM_PROMPT;
 
-  const skills = useSkillStore.getState().skills;
   if (skills.length > 0) {
     const skillsList = skills.map((s) => `- ${s.name} (ID: ${s.id}): ${s.description}`).join("\n");
     prompt += `\n\nYou have access to the following skills. You can read them using the read_skill tool:\n${skillsList}`;
@@ -1191,7 +1218,7 @@ async function runWithToolLoop(
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
     const toolDefinitions = [
-      ...buildToolDefinitions(useMcp ? mcpTools : [], useSearch),
+      ...buildToolDefinitions(useMcp ? mcpTools : [], useSearch, initialRunContext.skills),
       ...buildProjectToolDefinitions(project),
     ];
     const apiTools = toolDefinitions.map(({ effect: _effect, ...definition }) => definition);
@@ -1231,7 +1258,7 @@ async function runWithToolLoop(
         // AGENTS.md not found or cannot be read, ignore
       }
     }
-    const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : [], project);
+    const toolSystemPrompt = buildToolSystemPrompt(useMcp ? mcpTools : [], project, initialRunContext.skills);
     const combinedSystemPrompt = userSystemPrompt.trim()
       ? `${userSystemPrompt}\n\n${toolSystemPrompt}`
       : toolSystemPrompt;
@@ -1966,6 +1993,9 @@ async function runWithToolLoop(
               const skillId = fnArgs.id;
               logInfo("chat", `Tool loop read skill: ${skillId}`);
               try {
+                if (!initialRunContext.skills.some((skill) => skill.id === skillId)) {
+                  throw new Error(`Skill '${skillId}' is not available in this run`);
+                }
                 resultContent = await invoke<string>("read_skill", { id: skillId });
               } catch (err: unknown) {
                 isError = true;

@@ -1,4 +1,4 @@
-import type { Conversation, McpTool, McpToolResult, ModelConfig, Project, SearchApiConfig } from "../types";
+import type { Conversation, McpTool, McpToolResult, ModelConfig, Project, SearchApiConfig, SkillInfo } from "../types";
 
 export type McpToolCaller = (
   serverId: string,
@@ -17,6 +17,7 @@ export interface ConversationRunContext {
   readonly searchApiKey: string;
   readonly mcpTools: McpTool[];
   readonly mcpCallTool: McpToolCaller | undefined;
+  readonly skills: readonly SkillInfo[];
   readonly attachmentCapabilities: Readonly<{ images: boolean }>;
   readonly commitScope: Readonly<{
     projectId: string | null;
@@ -39,6 +40,7 @@ interface BuildConversationRunContextOptions {
   searchApiKey: string;
   mcpTools: McpTool[];
   mcpCallTool: McpToolCaller | undefined;
+  skills: readonly SkillInfo[];
 }
 
 function cloneProject(project: Project | null): Project | null {
@@ -58,6 +60,10 @@ function cloneMcpTools(tools: McpTool[]): McpTool[] {
       }),
     ),
   ) as unknown as McpTool[];
+}
+
+function cloneSkills(skills: readonly SkillInfo[]): readonly SkillInfo[] {
+  return Object.freeze(skills.map((skill) => Object.freeze({ ...skill })));
 }
 
 export function buildConversationRunContext(
@@ -82,6 +88,7 @@ export function buildConversationRunContext(
     ? (Object.freeze({ ...options.searchConfig }) as SearchApiConfig)
     : undefined;
   const mcpTools = cloneMcpTools(options.mcpTools);
+  const skills = cloneSkills(options.skills);
   const attachmentCapabilities = Object.freeze({ images: modelConfig.supportsImages !== false });
   const commitScope = Object.freeze({
     projectId: project?.id ?? null,
@@ -101,9 +108,10 @@ export function buildConversationRunContext(
     searchApiKey: options.searchApiKey,
     mcpTools,
     mcpCallTool: options.mcpCallTool,
+    skills,
     attachmentCapabilities,
     commitScope,
-    shouldUseTools: Boolean(project || searchConfig || mcpTools.length > 0),
+    shouldUseTools: Boolean(project || searchConfig || mcpTools.length > 0 || skills.length > 0),
   });
 }
 

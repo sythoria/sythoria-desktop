@@ -66,6 +66,7 @@ import {
   waitForConversationToolLoops,
 } from "../services/toolLoop";
 import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
+import { useSkillStore } from "./useSkillStore";
 import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
 import { buildUserApiContent, validateFile } from "../utils/attachments";
 import {
@@ -201,6 +202,7 @@ interface EnabledToolLoopConfig {
         conversationId: string,
       ) => Promise<McpToolResult>)
     | undefined;
+  skills: ReturnType<typeof useSkillStore.getState>["skills"];
 }
 
 function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): EnabledToolLoopConfig {
@@ -223,6 +225,7 @@ function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): Enabled
     searchApiKey,
     mcpTools,
     mcpCallTool,
+    skills: useSkillStore.getState().skills,
   };
 }
 
@@ -990,6 +993,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } = useProjectStore.getState();
     const uniqueMcpServerIds = [...new Set(requestedMcpServerIds)];
 
+    await useSkillStore.getState().loadSkills(true);
+
     for (const serverId of uniqueMcpServerIds) {
       const mcpState = useMcpStore.getState();
       const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
@@ -1021,10 +1026,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         details: unresolvedNames.join(", "),
         action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
       });
-      uiToast(
-        `${unresolvedNames.join(", ")} did not provide any tools. Your message was not sent.`,
-        "error",
-      );
+      uiToast(`${unresolvedNames.join(", ")} did not provide any tools. Your message was not sent.`, "error");
       return "rejected";
     }
 
@@ -1216,8 +1218,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const content = m.content + (state.activeStreamContent[c.id] || "");
             return {
               ...m,
-              content:
-                m.role === "assistant" && content.trim().length === 0 ? CANCELLED_ASSISTANT_MESSAGE : content,
+              content: m.role === "assistant" && content.trim().length === 0 ? CANCELLED_ASSISTANT_MESSAGE : content,
               reasoningContent: (m.reasoningContent || "") + (state.activeStreamReasoning[c.id] || "") || undefined,
               isStreaming: false,
               thinkingDuration: m.thinkingDuration ?? thinkingDuration,
@@ -1324,6 +1325,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     if (lastUserIdx === -1) return;
 
+    await useSkillStore.getState().loadSkills(true);
     const toolLoop = getEnabledToolLoopConfig(conv.messages[lastUserIdx].mcpServerIds);
     const runContext = buildConversationRunContext({
       conversation: conv,
@@ -1525,6 +1527,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { selectedModel, models, temperature } = useModelStore.getState();
     const { isProjectsEnabled, projects } = useProjectStore.getState();
     const lastUserMessage = [...conv.messages].reverse().find((message) => message.role === "user");
+    await useSkillStore.getState().loadSkills(true);
     const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
     const runContext = buildConversationRunContext({
       conversation: conv,

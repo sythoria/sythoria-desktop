@@ -50,6 +50,7 @@ describe("buildConversationRunContext", () => {
       searchApiKey: "",
       mcpTools: [],
       mcpCallTool: vi.fn(),
+      skills: [],
     });
 
     expect(context?.project?.id).toBe("project-a");
@@ -72,6 +73,7 @@ describe("buildConversationRunContext", () => {
       searchApiKey: "",
       mcpTools: [],
       mcpCallTool: undefined,
+      skills: [],
     });
 
     mutableProjects[1].name = "Changed Project";
@@ -96,8 +98,33 @@ describe("buildConversationRunContext", () => {
       searchApiKey: "",
       mcpTools: [],
       mcpCallTool: undefined,
+      skills: [],
     });
 
     expect(context?.modelConfig.id).toBe("model-b");
+  });
+
+  it("captures installed skills immutably and enables the tool loop for a plain chat", () => {
+    const skills = [{ id: "react-patterns", name: "React Patterns", description: "React guidance" }];
+    const context = buildConversationRunContext({
+      conversation: { ...conversation("none"), projectId: undefined },
+      models,
+      selectedModel: "model-a",
+      temperature: 0.7,
+      projects,
+      projectsEnabled: false,
+      searchConfig: undefined,
+      searchApiKey: "",
+      mcpTools: [],
+      mcpCallTool: undefined,
+      skills,
+    });
+
+    skills[0].name = "Changed";
+
+    expect(context?.skills).toEqual([{ id: "react-patterns", name: "React Patterns", description: "React guidance" }]);
+    expect(context?.shouldUseTools).toBe(true);
+    expect(Object.isFrozen(context?.skills)).toBe(true);
+    expect(Object.isFrozen(context?.skills[0])).toBe(true);
   });
 });

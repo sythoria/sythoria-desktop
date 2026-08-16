@@ -93,6 +93,7 @@ function makeRunContext(
     searchApiKey: "",
     mcpTools: [],
     mcpCallTool: undefined,
+    skills: [],
     attachmentCapabilities: { images: true },
     commitScope: {
       projectId: project?.id ?? null,
@@ -101,7 +102,9 @@ function makeRunContext(
       worktreePath: worktree?.path ?? null,
       worktreeBranch: worktree?.branch ?? null,
     },
-    shouldUseTools: Boolean(project || overrides.searchConfig || overrides.mcpTools?.length),
+    shouldUseTools: Boolean(
+      project || overrides.searchConfig || overrides.mcpTools?.length || overrides.skills?.length,
+    ),
     ...overrides,
   };
 }
@@ -169,6 +172,17 @@ describe("TOOL_DEFINITIONS", () => {
       false,
     ).filter((tool) => tool.function.name === "server__change");
     expect(unknownEffect.effect).toEqual({ mode: "mutation", resource: "mcp-server" });
+  });
+
+  it("exposes read_skill only for an immutable run catalog", () => {
+    expect(buildToolDefinitions([], false).map((tool) => tool.function.name)).not.toContain("read_skill");
+
+    const tools = buildToolDefinitions([], false, [
+      { id: "react-patterns", name: "React Patterns", description: "React guidance" },
+    ]);
+    const readSkill = tools.find((tool) => tool.function.name === "read_skill");
+
+    expect(readSkill?.function.parameters.properties.id).toMatchObject({ enum: ["react-patterns"] });
   });
 });
 
