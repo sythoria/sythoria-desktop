@@ -128,8 +128,8 @@ beforeEach(() => {
 });
 
 describe("TOOL_DEFINITIONS", () => {
-  it("defines exactly 6 tools", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(6);
+  it("defines exactly 8 tools", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(8);
   });
 
   it("includes search_query tool", () => {
@@ -147,6 +147,8 @@ describe("TOOL_DEFINITIONS", () => {
     expect(names).toContain("invoke_subagent");
     expect(names).toContain("send_message");
     expect(names).toContain("read_skill");
+    expect(names).toContain("list_skill_resources");
+    expect(names).toContain("read_skill_resource");
   });
 
   it("all tools have required parameters", () => {
@@ -183,6 +185,9 @@ describe("TOOL_DEFINITIONS", () => {
     const readSkill = tools.find((tool) => tool.function.name === "read_skill");
 
     expect(readSkill?.function.parameters.properties.id).toMatchObject({ enum: ["react-patterns"] });
+    expect(tools.map((tool) => tool.function.name)).toEqual(
+      expect.arrayContaining(["list_skill_resources", "read_skill_resource"]),
+    );
   });
 });
 

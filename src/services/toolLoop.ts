@@ -295,6 +295,44 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    effect: { mode: "read", resource: "none" },
+    function: {
+      name: "list_skill_resources",
+      description: "Lists the auxiliary text resources packaged with an installed skill.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The ID of the installed skill." },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    effect: { mode: "read", resource: "none" },
+    function: {
+      name: "read_skill_resource",
+      description: "Reads a bounded text chunk from an auxiliary resource packaged with an installed skill.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The ID of the installed skill." },
+          path: { type: "string", description: "A resource path returned by list_skill_resources." },
+          offset: { type: "integer", minimum: 0, description: "Optional character offset. Defaults to 0." },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 100000,
+            description: "Optional maximum characters to return.",
+          },
+        },
+        required: ["id", "path"],
+      },
+    },
+  },
 ];
 
 export function buildToolDefinitions(
@@ -306,10 +344,15 @@ export function buildToolDefinitions(
     if (!includeSearch && (t.function.name === "search_query" || t.function.name === "fetch_url")) {
       return false;
     }
-    if (skills.length === 0 && t.function.name === "read_skill") return false;
+    if (
+      skills.length === 0 &&
+      ["read_skill", "list_skill_resources", "read_skill_resource"].includes(t.function.name)
+    ) {
+      return false;
+    }
     return true;
   }).map((tool) => {
-    if (tool.function.name !== "read_skill") return tool;
+    if (!["read_skill", "list_skill_resources", "read_skill_resource"].includes(tool.function.name)) return tool;
     return {
       ...tool,
       function: {
@@ -650,6 +693,8 @@ export const TOOL_SYSTEM_PROMPT = `You have access to the following tools:
 - search_query(query: string): Search the web for information. Returns search results with titles, URLs, and snippets.
 - fetch_url(url: string): Fetch and extract the content of a web page.
 - read_skill(id: string): Read the content of a specific skill to learn how to perform a task.
+- list_skill_resources(id: string): List auxiliary resources packaged with a skill.
+- read_skill_resource(id: string, path: string, offset?: number, limit?: number): Read an auxiliary skill resource.
 
 When you need current information, facts, or recent events, use search_query first. If a search result looks relevant, use fetch_url to read the full page content. After gathering information, synthesize it into your final answer. Always cite your sources by mentioning where you found the information.
 
@@ -712,7 +757,9 @@ type KnownToolName =
   | "project_git_status"
   | "project_git_diff"
   | "project_git_commit"
-  | "read_skill";
+  | "read_skill"
+  | "list_skill_resources"
+  | "read_skill_resource";
 const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
@@ -731,6 +778,8 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "project_git_diff",
   "project_git_commit",
   "read_skill",
+  "list_skill_resources",
+  "read_skill_resource",
 ]);
 
 function toKnownToolName(name: string): KnownToolName | "unknown" {
@@ -1472,6 +1521,8 @@ async function runWithToolLoop(
           if (fnName === "search_query") toolDesc = `Searching: ${fnArgs.query}`;
           else if (fnName === "fetch_url") toolDesc = `Fetching: ${fnArgs.url}`;
           else if (fnName === "read_skill") toolDesc = `Reading Skill: ${fnArgs.id}`;
+          else if (fnName === "list_skill_resources") toolDesc = `Listing Skill Resources: ${fnArgs.id}`;
+          else if (fnName === "read_skill_resource") toolDesc = `Reading Skill Resource: ${fnArgs.path}`;
           else if (isProjectTool) toolDesc = `Project: ${fnName.replace("project_", "")}`;
           else if (fnName === "unknown" && rawName.includes("__") && useMcp) {
             const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
@@ -1527,6 +1578,8 @@ async function runWithToolLoop(
             if (td.fnName === "search_query") return `Searching: ${td.fnArgs.query}`;
             if (td.fnName === "fetch_url") return `Fetching: ${td.fnArgs.url}`;
             if (td.fnName === "read_skill") return `Reading Skill: ${td.fnArgs.id}`;
+            if (td.fnName === "list_skill_resources") return `Listing Skill Resources: ${td.fnArgs.id}`;
+            if (td.fnName === "read_skill_resource") return `Reading Skill Resource: ${td.fnArgs.path}`;
             if (td.fnName.startsWith("project_")) return `Project: ${td.fnName.replace("project_", "")}`;
             return td.fnName;
           })
@@ -1997,6 +2050,28 @@ async function runWithToolLoop(
                   throw new Error(`Skill '${skillId}' is not available in this run`);
                 }
                 resultContent = await invoke<string>("read_skill", { id: skillId });
+              } catch (err: unknown) {
+                isError = true;
+                resultContent = errorMessage(err);
+              }
+            } else if (fnName === "list_skill_resources" || fnName === "read_skill_resource") {
+              const skillId = fnArgs.id;
+              try {
+                if (!initialRunContext.skills.some((skill) => skill.id === skillId)) {
+                  throw new Error(`Skill '${skillId}' is not available in this run`);
+                }
+                if (fnName === "list_skill_resources") {
+                  const resources = await invoke("list_skill_resources", { id: skillId });
+                  resultContent = JSON.stringify(resources);
+                } else {
+                  const resource = await invoke("read_skill_resource", {
+                    id: skillId,
+                    path: fnArgs.path,
+                    offset: fnArgs.offset ?? null,
+                    limit: fnArgs.limit ?? null,
+                  });
+                  resultContent = JSON.stringify(resource);
+                }
               } catch (err: unknown) {
                 isError = true;
                 resultContent = errorMessage(err);

@@ -1,18 +1,42 @@
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tauri::AppHandle;
 
 use tauri::Manager;
 
 const MAX_FRONTMATTER_BYTES: u64 = 64 * 1024;
+const MAX_SKILL_DOCUMENT_BYTES: u64 = 1024 * 1024;
+const MAX_SKILL_RESOURCE_BYTES: u64 = 1024 * 1024;
+const MAX_SKILL_RESOURCE_READ_CHARS: usize = 100_000;
+const DEFAULT_SKILL_RESOURCE_READ_CHARS: usize = 32_000;
+const MAX_SKILL_RESOURCES: usize = 500;
+const MAX_SKILL_RESOURCE_DEPTH: usize = 12;
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 pub struct SkillInfo {
     pub id: String,
     pub name: String,
     pub description: String,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillResourceInfo {
+    pub path: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillResourceContent {
+    pub path: String,
+    pub content: String,
+    pub offset: usize,
+    pub next_offset: Option<usize>,
+    pub total_characters: usize,
 }
 
 fn get_skills_dir(app: &AppHandle) -> PathBuf {
@@ -74,14 +98,89 @@ fn read_skill_metadata(path: &Path) -> io::Result<(String, String)> {
     parse_frontmatter(reader)
 }
 
+fn is_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_file())
+        .unwrap_or(false)
+}
+
 fn skill_markdown_path(skill_dir: &Path) -> Option<PathBuf> {
     let standard = skill_dir.join("SKILL.md");
-    if standard.is_file() {
+    if is_regular_file(&standard) {
         return Some(standard);
     }
 
     let uppercase_extension = skill_dir.join("SKILL.MD");
-    uppercase_extension.is_file().then_some(uppercase_extension)
+    is_regular_file(&uppercase_extension).then_some(uppercase_extension)
+}
+
+fn validate_skill_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        || id == "."
+        || id == ".."
+        || id.contains("..")
+    {
+        return Err("Invalid skill ID".to_string());
+    }
+    Ok(())
+}
+
+fn resolve_skill_dir(skills_dir: &Path, id: &str) -> Result<PathBuf, String> {
+    validate_skill_id(id)?;
+    let root = fs::canonicalize(skills_dir).map_err(|_| format!("Skill '{id}' not found"))?;
+    let candidate = skills_dir.join(id);
+    let metadata =
+        fs::symlink_metadata(&candidate).map_err(|_| format!("Skill '{id}' not found"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!("Skill '{id}' not found"));
+    }
+    let resolved = fs::canonicalize(candidate).map_err(|_| format!("Skill '{id}' not found"))?;
+    if !resolved.starts_with(&root) {
+        return Err("Skill path escapes the skills directory".to_string());
+    }
+    Ok(resolved)
+}
+
+fn normalized_resource_path(path: &Path) -> Result<String, String> {
+    if path.as_os_str().to_string_lossy().contains('\\') {
+        return Err("Invalid skill resource path".to_string());
+    }
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            _ => return Err("Invalid skill resource path".to_string()),
+        }
+    }
+    if parts.is_empty() || parts.len() > MAX_SKILL_RESOURCE_DEPTH {
+        return Err("Invalid skill resource path".to_string());
+    }
+    Ok(parts.join("/"))
+}
+
+fn resolve_skill_resource(
+    skills_dir: &Path,
+    id: &str,
+    resource_path: &str,
+) -> Result<(PathBuf, String), String> {
+    let skill_dir = resolve_skill_dir(skills_dir, id)?;
+    let normalized = normalized_resource_path(Path::new(resource_path))?;
+    let candidate = skill_dir.join(&normalized);
+    let metadata = fs::symlink_metadata(&candidate)
+        .map_err(|_| format!("Skill resource '{normalized}' not found"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!("Skill resource '{normalized}' not found"));
+    }
+    let resolved = fs::canonicalize(candidate)
+        .map_err(|_| format!("Skill resource '{normalized}' not found"))?;
+    if !resolved.starts_with(&skill_dir) {
+        return Err("Skill resource path escapes the skill directory".to_string());
+    }
+    Ok((resolved, normalized))
 }
 
 fn collect_skills(skills_dir: &Path) -> Result<Vec<SkillInfo>, String> {
@@ -109,7 +208,11 @@ fn collect_skills(skills_dir: &Path) -> Result<Vec<SkillInfo>, String> {
             }
         };
         let path = entry.path();
-        if !path.is_dir() {
+        let is_directory = entry
+            .file_type()
+            .map(|file_type| file_type.is_dir())
+            .unwrap_or(false);
+        if !is_directory {
             continue;
         }
 
@@ -147,12 +250,112 @@ fn collect_skills(skills_dir: &Path) -> Result<Vec<SkillInfo>, String> {
 }
 
 fn read_skill_from_dir(skills_dir: &Path, id: &str) -> Result<String, String> {
-    let skill_dir = skills_dir.join(id);
+    let skill_dir = resolve_skill_dir(skills_dir, id)?;
     let Some(markdown_path) = skill_markdown_path(&skill_dir) else {
         return Err(format!("Skill '{id}' not found"));
     };
-
+    let size = fs::metadata(&markdown_path)
+        .map_err(|e| e.to_string())?
+        .len();
+    if size > MAX_SKILL_DOCUMENT_BYTES {
+        return Err(format!(
+            "Skill '{id}' exceeds the {} byte document limit",
+            MAX_SKILL_DOCUMENT_BYTES
+        ));
+    }
     fs::read_to_string(markdown_path).map_err(|e| e.to_string())
+}
+
+fn list_skill_resources_from_dir(
+    skills_dir: &Path,
+    id: &str,
+) -> Result<Vec<SkillResourceInfo>, String> {
+    let skill_dir = resolve_skill_dir(skills_dir, id)?;
+    let mut directories = VecDeque::from([(skill_dir.clone(), 0usize)]);
+    let mut resources = Vec::new();
+
+    while let Some((directory, depth)) = directories.pop_front() {
+        let entries = fs::read_dir(&directory).map_err(|e| e.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let file_type = entry.file_type().map_err(|e| e.to_string())?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            let path = entry.path();
+            if file_type.is_dir() {
+                if depth >= MAX_SKILL_RESOURCE_DEPTH {
+                    return Err(format!(
+                        "Skill '{id}' exceeds the maximum resource depth of {MAX_SKILL_RESOURCE_DEPTH}"
+                    ));
+                }
+                directories.push_back((path, depth + 1));
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&skill_dir)
+                .map_err(|_| "Skill resource path escapes the skill directory".to_string())?;
+            let normalized = normalized_resource_path(relative)?;
+            if normalized.eq_ignore_ascii_case("SKILL.md") {
+                continue;
+            }
+            resources.push(SkillResourceInfo {
+                path: normalized,
+                size: entry.metadata().map_err(|e| e.to_string())?.len(),
+            });
+            if resources.len() > MAX_SKILL_RESOURCES {
+                return Err(format!(
+                    "Skill '{id}' exceeds the maximum of {MAX_SKILL_RESOURCES} resources"
+                ));
+            }
+        }
+    }
+
+    resources.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(resources)
+}
+
+fn read_skill_resource_from_dir(
+    skills_dir: &Path,
+    id: &str,
+    resource_path: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SkillResourceContent, String> {
+    let (path, normalized) = resolve_skill_resource(skills_dir, id, resource_path)?;
+    let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if size > MAX_SKILL_RESOURCE_BYTES {
+        return Err(format!(
+            "Skill resource '{normalized}' exceeds the {} byte limit",
+            MAX_SKILL_RESOURCE_BYTES
+        ));
+    }
+    let content = fs::read_to_string(path)
+        .map_err(|_| format!("Skill resource '{normalized}' is not UTF-8 text"))?;
+    let total_characters = content.chars().count();
+    let offset = offset.unwrap_or(0);
+    if offset > total_characters {
+        return Err(format!(
+            "Skill resource offset {offset} exceeds its {total_characters} characters"
+        ));
+    }
+    let limit = limit
+        .unwrap_or(DEFAULT_SKILL_RESOURCE_READ_CHARS)
+        .clamp(1, MAX_SKILL_RESOURCE_READ_CHARS);
+    let chunk: String = content.chars().skip(offset).take(limit).collect();
+    let consumed = chunk.chars().count();
+    let next = offset + consumed;
+
+    Ok(SkillResourceContent {
+        path: normalized,
+        content: chunk,
+        offset,
+        next_offset: (next < total_characters).then_some(next),
+        total_characters,
+    })
 }
 
 fn build_frontmatter(name: &str, description: &str, body: &str) -> String {
@@ -174,19 +377,40 @@ pub async fn list_skills(app: AppHandle) -> Result<Vec<SkillInfo>, String> {
 
 #[tauri::command]
 pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
-    if id.trim().is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains("..")
-        || id.contains('/')
-        || id.contains('\\')
-    {
-        return Err("Invalid skill ID".to_string());
-    }
+    validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
     tokio::task::spawn_blocking(move || read_skill_from_dir(&skills_dir, &id))
         .await
         .map_err(|e| format!("Skill reader worker failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn list_skill_resources(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<SkillResourceInfo>, String> {
+    validate_skill_id(&id)?;
+    let skills_dir = get_skills_dir(&app);
+    tokio::task::spawn_blocking(move || list_skill_resources_from_dir(&skills_dir, &id))
+        .await
+        .map_err(|e| format!("Skill resource listing worker failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn read_skill_resource(
+    app: AppHandle,
+    id: String,
+    path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SkillResourceContent, String> {
+    validate_skill_id(&id)?;
+    let skills_dir = get_skills_dir(&app);
+    tokio::task::spawn_blocking(move || {
+        read_skill_resource_from_dir(&skills_dir, &id, &path, offset, limit)
+    })
+    .await
+    .map_err(|e| format!("Skill resource reader worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -197,15 +421,7 @@ pub async fn create_skill(
     description: String,
     body: String,
 ) -> Result<(), String> {
-    if id.trim().is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains("..")
-        || id.contains('/')
-        || id.contains('\\')
-    {
-        return Err("Invalid skill ID".to_string());
-    }
+    validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
 
@@ -232,15 +448,7 @@ pub async fn update_skill(
     description: String,
     body: String,
 ) -> Result<(), String> {
-    if id.trim().is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains("..")
-        || id.contains('/')
-        || id.contains('\\')
-    {
-        return Err("Invalid skill ID".to_string());
-    }
+    validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
 
@@ -258,15 +466,7 @@ pub async fn update_skill(
 
 #[tauri::command]
 pub async fn delete_skill(app: AppHandle, id: String) -> Result<(), String> {
-    if id.trim().is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains("..")
-        || id.contains('/')
-        || id.contains('\\')
-    {
-        return Err("Invalid skill ID".to_string());
-    }
+    validate_skill_id(&id)?;
     let skills_dir = get_skills_dir(&app);
     let skill_dir = skills_dir.join(&id);
 
@@ -305,6 +505,13 @@ mod tests {
             fs::create_dir_all(&directory).expect("create test skill directory");
             let mut file = File::create(directory.join(filename)).expect("create test skill");
             file.write_all(content).expect("write test skill");
+        }
+
+        fn write_resource(&self, id: &str, path: &str, content: &[u8]) {
+            let path = self.0.join(id).join(path);
+            fs::create_dir_all(path.parent().expect("resource parent"))
+                .expect("create resource directory");
+            fs::write(path, content).expect("write skill resource");
         }
     }
 
@@ -380,5 +587,92 @@ mod tests {
             read_skill_from_dir(directory.path(), "missing").unwrap_err(),
             "Skill 'missing' not found"
         );
+    }
+
+    #[test]
+    fn lists_and_reads_bounded_skill_resources() {
+        let directory = TestDirectory::new();
+        directory.write_skill("example", "SKILL.md", b"---\nname: Example\n---\nBody");
+        directory.write_resource("example", "references/guide.md", "AéBC".as_bytes());
+        directory.write_resource("example", "scripts/helper.sh", b"echo safe");
+
+        assert_eq!(
+            list_skill_resources_from_dir(directory.path(), "example").expect("list resources"),
+            vec![
+                SkillResourceInfo {
+                    path: "references/guide.md".to_string(),
+                    size: 5,
+                },
+                SkillResourceInfo {
+                    path: "scripts/helper.sh".to_string(),
+                    size: 9,
+                },
+            ]
+        );
+
+        assert_eq!(
+            read_skill_resource_from_dir(
+                directory.path(),
+                "example",
+                "references/guide.md",
+                Some(1),
+                Some(2),
+            )
+            .expect("read resource"),
+            SkillResourceContent {
+                path: "references/guide.md".to_string(),
+                content: "éB".to_string(),
+                offset: 1,
+                next_offset: Some(3),
+                total_characters: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_resource_traversal_and_invalid_skill_ids() {
+        let directory = TestDirectory::new();
+        directory.write_skill("example", "SKILL.md", b"Body");
+
+        assert_eq!(
+            read_skill_resource_from_dir(directory.path(), "example", "../outside.md", None, None)
+                .unwrap_err(),
+            "Invalid skill resource path"
+        );
+        assert_eq!(
+            validate_skill_id("../../escape").unwrap_err(),
+            "Invalid skill ID"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_skill_directories_and_resources() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TestDirectory::new();
+        directory.write_skill("example", "SKILL.md", b"Body");
+        let outside = directory.path().join("outside.md");
+        fs::write(&outside, "outside").expect("write outside file");
+        symlink(&outside, directory.path().join("example/references.md"))
+            .expect("create resource symlink");
+        symlink(
+            directory.path().join("example"),
+            directory.path().join("linked-skill"),
+        )
+        .expect("create skill symlink");
+
+        assert!(read_skill_resource_from_dir(
+            directory.path(),
+            "example",
+            "references.md",
+            None,
+            None
+        )
+        .is_err());
+        assert!(read_skill_from_dir(directory.path(), "linked-skill").is_err());
+        assert!(list_skill_resources_from_dir(directory.path(), "example")
+            .expect("list resources")
+            .is_empty());
     }
 }

@@ -2300,6 +2300,8 @@ pub fn run() {
             appshots::open_screen_capture_settings,
             skills::list_skills,
             skills::read_skill,
+            skills::list_skill_resources,
+            skills::read_skill_resource,
             skills::create_skill,
             skills::update_skill,
             skills::delete_skill
