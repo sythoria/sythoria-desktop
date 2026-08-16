@@ -81,6 +81,7 @@ import { useUIStore } from "./store/useUIStore";
 import { useProjectStore } from "./store/useProjectStore";
 import { findMatchingCommand, useKeybindStore } from "./store/useKeybindStore";
 import { useAppshotStore } from "./store/useAppshotStore";
+import { useSkillStore } from "./store/useSkillStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
@@ -831,6 +832,7 @@ function App() {
       void useUIStore.getState().initDownloadedThemes();
       void useKeybindStore.getState().initKeybinds();
       void useAppshotStore.getState().init();
+      void useSkillStore.getState().loadSkills(true);
       void useUIStore.getState().initSkipExternalLinkWarning();
     });
   }, [isConfigLoaded]);
