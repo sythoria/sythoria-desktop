@@ -330,11 +330,20 @@ fn read_skill_resource_from_dir(
     }
     let content = fs::read_to_string(path)
         .map_err(|_| format!("Skill resource '{normalized}' is not UTF-8 text"))?;
+    chunk_skill_text(normalized, content, offset, limit)
+}
+
+fn chunk_skill_text(
+    path: String,
+    content: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SkillResourceContent, String> {
     let total_characters = content.chars().count();
     let offset = offset.unwrap_or(0);
     if offset > total_characters {
         return Err(format!(
-            "Skill resource offset {offset} exceeds its {total_characters} characters"
+            "Skill text offset {offset} exceeds its {total_characters} characters"
         ));
     }
     let limit = limit
@@ -345,12 +354,22 @@ fn read_skill_resource_from_dir(
     let next = offset + consumed;
 
     Ok(SkillResourceContent {
-        path: normalized,
+        path,
         content: chunk,
         offset,
         next_offset: (next < total_characters).then_some(next),
         total_characters,
     })
+}
+
+fn read_skill_chunk_from_dir(
+    skills_dir: &Path,
+    id: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SkillResourceContent, String> {
+    let content = read_skill_from_dir(skills_dir, id)?;
+    chunk_skill_text("SKILL.md".to_string(), content, offset, limit)
 }
 
 fn split_skill_document(content: &str) -> Result<(Mapping, &str), String> {
@@ -456,6 +475,20 @@ pub async fn read_skill(app: AppHandle, id: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || read_skill_from_dir(&skills_dir, &id))
         .await
         .map_err(|e| format!("Skill reader worker failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn read_skill_chunk(
+    app: AppHandle,
+    id: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<SkillResourceContent, String> {
+    validate_skill_id(&id)?;
+    let skills_dir = get_skills_dir(&app);
+    tokio::task::spawn_blocking(move || read_skill_chunk_from_dir(&skills_dir, &id, offset, limit))
+        .await
+        .map_err(|e| format!("Skill chunk reader worker failed: {e}"))?
 }
 
 #[tauri::command]
@@ -655,6 +688,18 @@ mod tests {
         assert_eq!(
             read_skill_from_dir(directory.path(), "missing").unwrap_err(),
             "Skill 'missing' not found"
+        );
+
+        assert_eq!(
+            read_skill_chunk_from_dir(directory.path(), "example", Some(0), Some(5))
+                .expect("read skill chunk"),
+            SkillResourceContent {
+                path: "SKILL.md".to_string(),
+                content: "---\nn".to_string(),
+                offset: 0,
+                next_offset: Some(5),
+                total_characters: content.chars().count(),
+            }
         );
     }
 
