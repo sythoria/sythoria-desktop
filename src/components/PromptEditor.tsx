@@ -34,6 +34,7 @@ interface PromptEditorProps {
   className: string;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onPasteText?: (text: string) => boolean;
 }
 
 type DeletionDirection = "backward" | "forward";
@@ -151,6 +152,7 @@ export const PromptEditor = memo(function PromptEditor({
   className,
   onDraftChange,
   onKeyDown,
+  onPasteText,
 }: PromptEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<Range | null>(null);
@@ -444,6 +446,9 @@ export const PromptEditor = memo(function PromptEditor({
           if (Array.from(event.clipboardData.files).some((file) => file.type.startsWith("image/"))) return;
           event.preventDefault();
 
+          const pastedText = event.clipboardData.getData("text/plain");
+          if (onPasteText?.(pastedText)) return;
+
           const editor = editorRef.current;
           const selection = window.getSelection();
           if (!editor || !selection) return;
@@ -456,7 +461,7 @@ export const PromptEditor = memo(function PromptEditor({
           }
 
           range.deleteContents();
-          const textNode = document.createTextNode(event.clipboardData.getData("text/plain"));
+          const textNode = document.createTextNode(pastedText);
           range.insertNode(textNode);
           placeCaretAfter(textNode);
           syncDraft();

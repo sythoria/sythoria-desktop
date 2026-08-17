@@ -1,4 +1,5 @@
 export const MAX_INPUT_LENGTH = 10000;
+export const PASTED_TEXT_FILE_THRESHOLD = 4000;
 export const MAX_TEXTAREA_HEIGHT = 200;
 export const DEBOUNCE_MS = 150;
 export const TITLE_MAX_LENGTH = 40;

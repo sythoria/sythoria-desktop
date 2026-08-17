@@ -84,7 +84,7 @@ src/
   components/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
     ChatArea.tsx        # Messages, markdown, streaming, comparison columns, worktree approvals, attachments
-    InputBar.tsx        # Composer orchestration, model selector, tools, attachments, send/stop
+    InputBar.tsx        # Composer orchestration, model selector, tools, attachments, large-paste files, send/stop
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
     settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
@@ -338,6 +338,40 @@ describe("InputBar", () => {
     expect(editor).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Send message")).toBeDisabled();
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("turns large plain-text pastes into text file attachments", async () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const pastedText = "large paste\n".repeat(400);
+    fireEvent.paste(editor, {
+      clipboardData: {
+        files: [],
+        getData: (type: string) => (type === "text/plain" ? pastedText : ""),
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTitle("pasted-text.txt")).toBeInTheDocument());
+    expect(editor).toHaveTextContent("");
+    expect(useChatStore.getState().draftAttachments[0]).toMatchObject({
+      name: "pasted-text.txt",
+      kind: "text",
+      textContent: pastedText,
+    });
+
+    act(() => useChatStore.getState().setDraftAttachments([]));
   });
 
   it("adds repeated MCP labels inline and sends only their server references", async () => {

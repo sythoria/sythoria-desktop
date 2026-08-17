@@ -28,7 +28,7 @@ import { useWhisperStore } from "../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../config/whisperPresets";
 import { ModelConfig, McpServerConfig, McpServerStatus, Attachment, ProjectPermission } from "../types";
 import type { ModelStatuses } from "../types";
-import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT } from "../config/constants";
+import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT, PASTED_TEXT_FILE_THRESHOLD } from "../config/constants";
 
 import { formatFileSize } from "../utils/attachments";
 import { motionTokens, motionTransitions } from "../lib/motion-tokens";
@@ -112,6 +112,24 @@ export default memo(function InputBar({
 
   const { attachments, setAttachments, isDragging, setIsDragging, fileInputRef, handleAddFiles, handleFileChange } =
     useAttachments(isolatedAttachments);
+
+  const handlePastedText = useCallback(
+    (text: string) => {
+      if (text.length < PASTED_TEXT_FILE_THRESHOLD) return false;
+
+      const existingNames = new Set(attachments.map((attachment) => attachment.name));
+      let filename = "pasted-text.txt";
+      let suffix = 2;
+      while (existingNames.has(filename)) {
+        filename = `pasted-text-${suffix}.txt`;
+        suffix += 1;
+      }
+
+      void handleAddFiles([new File([text], filename, { type: "text/plain" })]);
+      return true;
+    },
+    [attachments, handleAddFiles],
+  );
 
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
@@ -1068,6 +1086,7 @@ export default memo(function InputBar({
                     maxHeight={MAX_TEXTAREA_HEIGHT}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
+                    onPasteText={handlePastedText}
                     className={`${textSizeClass} ${isOverLimit ? "text-red-600 dark:text-red-400" : ""} ${
                       voiceDraft && value.trim() === voiceDraft.trim() ? "opacity-60 italic text-text-muted" : ""
                     }`}
