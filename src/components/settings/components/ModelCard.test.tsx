@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModelCard } from "./ModelCard";
 import type { ModelConfig } from "../../../types";
@@ -30,9 +30,51 @@ describe("ModelCard", () => {
       provider: "openai",
       apiBase: "https://api.openai.com/v1/chat/completions",
       modelId: "gpt-5.6-sol",
-      name: "OpenAI",
+      name: "GPT 5.6 Sol",
     });
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+  });
+
+  it("automatically generates model name when changing Model ID", () => {
+    const onUpdate = vi.fn();
+
+    render(
+      <ModelCard
+        model={{ ...model, modelId: "example-model", name: "Example Model" }}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        connectionStatus="disconnected"
+      />,
+    );
+
+    const modelIdInput = screen.getByLabelText("Model ID");
+    fireEvent.change(modelIdInput, { target: { value: "z-ai/glm-5.2" } });
+
+    expect(onUpdate).toHaveBeenCalledWith("model-1", {
+      modelId: "z-ai/glm-5.2",
+      name: "GLM 5.2",
+    });
+  });
+
+  it("allows manual regeneration via the auto-generate button", async () => {
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+
+    render(
+      <ModelCard
+        model={{ ...model, modelId: "meta/llama-3.3-70b-instruct", name: "Custom Name" }}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        connectionStatus="disconnected"
+      />,
+    );
+
+    const autoGenBtn = screen.getByRole("button", { name: /generate name from model id/i });
+    await user.click(autoGenBtn);
+
+    expect(onUpdate).toHaveBeenCalledWith("model-1", {
+      name: "Llama 3.3 70B Instruct",
+    });
   });
 
   it("shows a compact status when an API key is already configured", () => {
