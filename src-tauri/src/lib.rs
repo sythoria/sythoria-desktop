@@ -506,7 +506,7 @@ async fn chat_stream(
     ensure_online()?;
     let (api_url, api_key, model, provider, allow_local_network) =
         get_model_config_and_key(&app, &config_id).await?;
-    let endpoint = endpoint_security::validate_http_endpoint(
+    let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
         allow_local_network,
         !api_key.is_empty(),
@@ -632,7 +632,7 @@ async fn chat_stream_tools(
     ensure_online()?;
     let (api_url, api_key, model, provider, allow_local_network) =
         get_model_config_and_key(&app, &config_id).await?;
-    let endpoint = endpoint_security::validate_http_endpoint(
+    let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
         allow_local_network,
         !api_key.is_empty(),

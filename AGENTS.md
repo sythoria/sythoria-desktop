@@ -163,7 +163,7 @@ src-tauri/src/
 
 ## Data Flow
 
-**SSE**: `sendMessage()` → `invoke("chat_stream", { streamId })` → Rust emits `chat-stream-chunk`/`chat-stream-done` → store appends content. Cancel via `cancel_chat_stream`.
+**SSE**: `sendMessage()` → `invoke("chat_stream", { streamId })` → Rust emits `chat-stream-chunk`/`chat-stream-done` → store appends content. Streaming HTTP uses a resettable 120-second inactivity timeout rather than a total request deadline, so active long-running reasoning can continue indefinitely. Cancel via `cancel_chat_stream`.
 
 **Tool loop**: `sendMessage()` refreshes installed skills → snapshots a `ConversationRunContext` from the target conversation, including its skill catalog → queues it through the conversation actor → assembles a budgeted provider request → runs up to `maxToolSteps` tool steps → executes declared read-only calls concurrently and resource mutations serially → collects sources → final assistant message. Compare, retry, resume, and subagent runs keep their originating conversation's project/model/skill context instead of consulting global navigation state. Follow-up subagent messages wait for the active generation boundary.
 

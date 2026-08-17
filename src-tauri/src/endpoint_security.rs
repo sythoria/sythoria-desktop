@@ -422,6 +422,35 @@ pub async fn validate_http_endpoint(
     Ok(ValidatedHttpEndpoint { url, client })
 }
 
+/// Builds a client for responses whose total duration is not known in advance.
+/// The timeout resets after every successful read, allowing an active stream to
+/// continue indefinitely while still detecting a stalled connection.
+pub async fn validate_streaming_http_endpoint(
+    raw_url: &str,
+    allow_local_network: bool,
+    has_secret: bool,
+    inactivity_timeout: Duration,
+) -> Result<ValidatedHttpEndpoint, AppError> {
+    let (url, host, addresses) =
+        parse_and_resolve(raw_url, &["http", "https"], allow_local_network, has_secret).await?;
+    let client = build_streaming_http_client(&host, &addresses, inactivity_timeout)?;
+    Ok(ValidatedHttpEndpoint { url, client })
+}
+
+fn build_streaming_http_client(
+    host: &str,
+    addresses: &[SocketAddr],
+    inactivity_timeout: Duration,
+) -> Result<reqwest::Client, AppError> {
+    crate::client_builder()
+        .redirect(Policy::none())
+        .resolve_to_addrs(&host, &addresses)
+        .connect_timeout(inactivity_timeout)
+        .read_timeout(inactivity_timeout)
+        .build()
+        .map_err(AppError::from)
+}
+
 pub async fn validate_websocket_endpoint(
     raw_url: &str,
     allow_local_network: bool,
@@ -438,6 +467,41 @@ pub async fn validate_websocket_endpoint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn streaming_timeout_resets_after_each_read() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1_024];
+            socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(125)).await;
+            socket.write_all(b"1\r\nb\r\n").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(125)).await;
+            socket.write_all(b"0\r\n\r\n").await.unwrap();
+        });
+
+        let client =
+            build_streaming_http_client("127.0.0.1", &[address], Duration::from_millis(200))
+                .unwrap();
+        let body = client
+            .get(format!("http://{address}/stream"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+
+        assert_eq!(body, "ab");
+        server.await.unwrap();
+    }
 
     #[test]
     fn classifies_intrinsic_local_ranges_independently_of_custom_rules() {
