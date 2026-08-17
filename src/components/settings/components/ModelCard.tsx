@@ -1,10 +1,11 @@
 import { memo, useState } from "react";
 import { motion } from "motion/react";
-import { Trash2, ChevronDown, AlertCircle } from "lucide-react";
+import { Trash2, ChevronDown, AlertCircle, Sparkles } from "lucide-react";
 import { ModelConfig } from "../../../types";
 import { PROVIDER_PRESETS } from "../../../config/providerPresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { isApiKeyOptionalForProvider, validateApiUrl, validateApiKey } from "../../../utils/validation";
+import { formatModelName } from "../../../utils/formatModelName";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useUIStore } from "../../../store/useUIStore";
@@ -38,8 +39,19 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
   const keyValidation = validateApiKey(model.apiKey, model.provider);
   const isApiKeyOptional = isApiKeyOptionalForProvider(model.provider);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isSparkleAnimating, setIsSparkleAnimating] = useState(false);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const hasStoredApiKey = model.apiKey === STORED_SECRET_PLACEHOLDER;
+
+  const handleAutoGenerateName = () => {
+    if (!model.modelId) return;
+    const generated = formatModelName(model.modelId);
+    if (generated) {
+      onUpdate(model.id, { name: generated });
+    }
+    setIsSparkleAnimating(true);
+    setTimeout(() => setIsSparkleAnimating(false), 500);
+  };
 
   return (
     <motion.div
@@ -99,17 +111,52 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
             <label className="text-xs font-medium text-text-muted" htmlFor={`model-name-${model.id}`}>
               {t("settings.models.name")}
             </label>
-            <input
-              id={`model-name-${model.id}`}
-              type="text"
-              value={model.name}
-              onChange={(e) => onUpdate(model.id, { name: e.target.value })}
-              placeholder="e.g. My Llama 3"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck="false"
-              className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
-            />
+            <div className="relative">
+              <input
+                id={`model-name-${model.id}`}
+                type="text"
+                value={model.name}
+                onChange={(e) => onUpdate(model.id, { name: e.target.value })}
+                onBlur={() => {
+                  if (!model.name.trim() && model.modelId) {
+                    const generated = formatModelName(model.modelId);
+                    if (generated) onUpdate(model.id, { name: generated });
+                  }
+                }}
+                placeholder={formatModelName(model.modelId) || "e.g. My Llama 3"}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                className="w-full h-10 px-3 py-2 pr-9 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
+              />
+              {model.modelId && (
+                <motion.button
+                  type="button"
+                  onClick={handleAutoGenerateName}
+                  whileHover={{ scale: motionTokens.scale.pop }}
+                  whileTap={{ scale: motionTokens.scale.press }}
+                  transition={springs.snappy}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-accent/10 transition-colors flex items-center justify-center cursor-pointer"
+                  title={t("settings.models.generateNameTooltip")}
+                  aria-label={t("settings.models.generateNameTooltip")}
+                >
+                  <motion.div
+                    animate={
+                      isSparkleAnimating
+                        ? {
+                            rotate: [0, -25, 25, -15, 15, 0],
+                            scale: [1, 1.35, 0.9, 1.2, 1],
+                          }
+                        : { rotate: 0, scale: 1 }
+                    }
+                    transition={{ duration: 0.5, ease: "easeInOut" }}
+                    className="flex items-center justify-center"
+                  >
+                    <Sparkles size={15} />
+                  </motion.div>
+                </motion.button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -123,11 +170,13 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
               onChange={(providerId) => {
                 const preset = PROVIDER_PRESETS.find((candidate) => candidate.providerId === providerId);
                 if (preset) {
+                  const newModelId = preset.defaultModel || model.modelId;
+                  const newName = formatModelName(newModelId) || preset.label;
                   onUpdate(model.id, {
                     provider: preset.providerId,
                     apiBase: preset.apiBase || model.apiBase,
-                    modelId: preset.defaultModel || model.modelId,
-                    name: model.name === "New Model" ? preset.label : model.name,
+                    modelId: newModelId,
+                    name: newName,
                   });
                 } else {
                   onUpdate(model.id, { provider: providerId });
@@ -180,7 +229,25 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
               id={`model-id-${model.id}`}
               type="text"
               value={model.modelId}
-              onChange={(e) => onUpdate(model.id, { modelId: e.target.value })}
+              onChange={(e) => {
+                const newModelId = e.target.value;
+                const prevGenerated = formatModelName(model.modelId);
+                const currentName = model.name;
+                const isCurrentNameDerivedOrEmpty =
+                  !currentName ||
+                  !currentName.trim() ||
+                  currentName === "New Model" ||
+                  currentName === prevGenerated ||
+                  PROVIDER_PRESETS.some((preset) => preset.label === currentName || preset.providerId === currentName);
+
+                const nextGenerated = formatModelName(newModelId);
+
+                if (isCurrentNameDerivedOrEmpty && nextGenerated) {
+                  onUpdate(model.id, { modelId: newModelId, name: nextGenerated });
+                } else {
+                  onUpdate(model.id, { modelId: newModelId });
+                }
+              }}
               placeholder="e.g. gpt-5.6-sol or meta/llama-3.3-70b-instruct"
               autoComplete="off"
               autoCorrect="off"
