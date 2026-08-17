@@ -164,6 +164,8 @@ export const es = {
   "settings.models.enabled": "Habilitado",
   "settings.models.enabledDesc": "Mostrar en selector de modelos y health check",
   "settings.models.name": "Nombre",
+  "settings.models.generateName": "Autogenerar",
+  "settings.models.generateNameTooltip": "Generar nombre a partir de la ID del modelo",
   "settings.models.preset": "Plantilla de Proveedor",
   "settings.models.apiBase": "URL Base de API",
   "settings.models.modelId": "ID de Modelo",
@@ -328,6 +330,10 @@ export const es = {
   "settings.privacy.blockedHostsDesc": "Especifica direcciones IP o nombres de host restringidos (uno por línea).",
   "settings.privacy.resetBlockedHostsBtn": "Restablecer valores predeterminados",
   "settings.privacy.blockedHostsPlaceholder": "ej. localhost\n127.0.0.1",
+  "settings.privacy.allowedLocalEndpoints": "Permisos de endpoints locales",
+  "settings.privacy.allowedLocalEndpointsDesc":
+    "Permitir servicios locales por origen exacto (uno por línea). Esto cubre modelos configurados, búsqueda, obtención y endpoints MCP; los metadatos en la nube y las reglas de bloqueo personalizadas permanecen denegados.",
+  "settings.privacy.allowedLocalEndpointsPlaceholder": "ej. http://127.0.0.1:11434",
   "settings.privacy.offlineMode": "Modo Sin Conexión",
   "settings.privacy.offlineModeDesc":
     "Fuerza a la aplicación a ejecutarse completamente sin conexión. Bloquea todas las solicitudes salientes.",
