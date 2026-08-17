@@ -188,7 +188,8 @@ struct ChatRequestTools {
     messages: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f64>,
-    tools: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -664,12 +665,13 @@ async fn chat_stream_tools(
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let (max_tokens, max_completion_tokens) =
         completion_token_params(provider.as_deref(), max_tokens);
+    let has_tools = !tools_parsed.is_empty();
     let body = ChatRequestTools {
         model,
         messages,
         temperature: (!reasoning.suppress_temperature).then_some(temperature),
-        tools: tools_parsed,
-        tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        tools: has_tools.then_some(tools_parsed),
+        tool_choice: has_tools.then(|| serde_json::Value::String("auto".to_string())),
         max_tokens,
         max_completion_tokens,
         stream: Some(true),
@@ -793,12 +795,13 @@ async fn chat_completion_tools(
     let reasoning = reasoning_params(provider.as_deref(), &model, thinking_level.as_deref());
     let (max_tokens, max_completion_tokens) =
         completion_token_params(provider.as_deref(), max_tokens);
+    let has_tools = !tools_parsed.is_empty();
     let body = ChatRequestTools {
         model,
         messages,
         temperature: (!reasoning.suppress_temperature).then_some(temperature),
-        tools: tools_parsed,
-        tool_choice: Some(serde_json::Value::String("auto".to_string())),
+        tools: has_tools.then_some(tools_parsed),
+        tool_choice: has_tools.then(|| serde_json::Value::String("auto".to_string())),
         max_tokens,
         max_completion_tokens,
         stream: None,
@@ -2309,9 +2312,29 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        completion_token_params, tray_should_show, truncate_error, EphemeralFileCleanup,
-        FileTokenRegistry, NetworkConfig,
+        completion_token_params, tray_should_show, truncate_error, ChatRequestTools,
+        EphemeralFileCleanup, FileTokenRegistry, NetworkConfig,
     };
+
+    #[test]
+    fn tool_request_omits_tools_and_choice_when_finalizing() {
+        let request = ChatRequestTools {
+            model: "model".to_string(),
+            messages: Vec::new(),
+            temperature: None,
+            tools: None,
+            tool_choice: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stream: Some(true),
+            reasoning_effort: None,
+            reasoning: None,
+        };
+
+        let serialized = serde_json::to_value(request).unwrap();
+        assert!(serialized.get("tools").is_none());
+        assert!(serialized.get("tool_choice").is_none());
+    }
 
     #[test]
     fn openai_uses_max_completion_tokens_while_compatible_providers_keep_max_tokens() {

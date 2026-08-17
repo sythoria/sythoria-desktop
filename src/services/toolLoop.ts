@@ -59,6 +59,39 @@ function errorMessage(error: unknown): string {
 }
 
 const pendingSubagentMessages = new Map<string, Message[]>();
+const MAX_PROVIDER_CONTINUATION_TURNS = 8;
+const TOOL_LIMIT_FALLBACK_CHARS = 6_000;
+
+interface CompletedToolResult {
+  name: string;
+  content: string;
+  isError: boolean;
+}
+
+function buildToolLimitFallback(results: CompletedToolResult[], error: unknown): string {
+  const lines = [
+    "**Tool limit reached — partial result preserved.**",
+    "",
+    "The allowed tool rounds completed, but I could not generate the final synthesis. Completed workspace changes and tool activity have been preserved. You can ask me to continue from this point.",
+  ];
+  const detail = errorMessage(error).trim();
+  if (detail) lines.push("", `Finalization error: ${detail}`);
+
+  if (results.length === 0) return lines.join("\n");
+
+  lines.push("", "Completed tool results:");
+  let remaining = TOOL_LIMIT_FALLBACK_CHARS - lines.join("\n").length;
+  for (const result of results) {
+    if (remaining <= 0) break;
+    const prefix = `\n\n- ${result.name}${result.isError ? " (error)" : ""}: `;
+    const normalized = result.content.replace(/\s+/g, " ").trim();
+    const available = Math.max(0, remaining - prefix.length);
+    const excerpt = normalized.slice(0, available);
+    lines.push(`${prefix}${excerpt}${excerpt.length < normalized.length ? "…" : ""}`);
+    remaining -= prefix.length + excerpt.length + (excerpt.length < normalized.length ? 1 : 0);
+  }
+  return lines.join("\n");
+}
 
 function setConversationGeneration(
   state: ToolLoopSlice,
@@ -1106,6 +1139,8 @@ async function runWithToolLoop(
   let projectCapability: ProjectRunContext | null = null;
   const collectedSources: { title: string; url: string }[] = [];
   let contextDisclosureMessageId: string | null = null;
+  let isFinalizingAfterToolLimit = false;
+  const completedToolResults: CompletedToolResult[] = [];
 
   try {
     logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
@@ -1149,9 +1184,7 @@ async function runWithToolLoop(
         const thinkingStart = state.activeStreamThinkingStart?.[convId];
         const thinkingEnd = state.activeStreamThinkingEnd?.[convId] ?? Date.now();
         const thinkingDuration =
-          thinkingStart !== undefined
-            ? Math.max(0, Math.floor((thinkingEnd - thinkingStart) / 1000))
-            : undefined;
+          thinkingStart !== undefined ? Math.max(0, Math.floor((thinkingEnd - thinkingStart) / 1000)) : undefined;
         const conversations = state.conversations.map((c) => {
           if (c.id !== convId) return c;
           const updated = [...c.messages];
@@ -1316,8 +1349,18 @@ async function runWithToolLoop(
     const apiMessages: ApiContextMessage[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
     const maxToolSteps = useModelStore.getState().maxToolSteps;
+    let completedToolRounds = 0;
+    let providerContinuationTurns = 0;
 
-    for (let step = 0; step < maxToolSteps; step++) {
+    while (true) {
+      if (completedToolRounds >= maxToolSteps && !isFinalizingAfterToolLimit) {
+        isFinalizingAfterToolLimit = true;
+        apiMessages.push({
+          role: "system",
+          content:
+            "The tool execution budget is exhausted. Do not request or claim to run more tools. Provide the best final answer from the completed tool results, clearly distinguishing completed work from anything still unfinished.",
+        });
+      }
       if (!get().conversations.some((c) => c.id === convId)) {
         logInfo("chat", "Tool loop aborted: conversation was deleted");
         wasAborted = true;
@@ -1336,24 +1379,30 @@ async function runWithToolLoop(
       }
 
       useUIStore.getState().setLoading("toolExecution", true);
-      logInfo("chat", `Tool loop step ${step + 1}/${maxToolSteps}`, {
-        details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}`,
-      });
-      if (step > 0) {
+      logInfo(
+        "chat",
+        isFinalizingAfterToolLimit
+          ? "Tool loop finalizing after tool limit"
+          : `Tool loop step ${completedToolRounds + 1}/${maxToolSteps}`,
+        { details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}` },
+      );
+      if (completedToolRounds > 0 || providerContinuationTurns > 0 || isFinalizingAfterToolLimit) {
+        const continuationLabel = isFinalizingAfterToolLimit ? "Preparing final answer" : "Loading (continued)";
         set((state) => ({
           generationState: "loading" as GenerationState,
-          generationLabel: "Loading (continued)",
+          generationLabel: continuationLabel,
           generationByConversation: setConversationGeneration(
             state,
             convId,
             "loading" as GenerationState,
-            "Loading (continued)",
+            continuationLabel,
           ),
         }));
       }
 
       const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
-      const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig, tools: apiTools });
+      const requestTools = isFinalizingAfterToolLimit ? [] : apiTools;
+      const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig, tools: requestTools });
       const maxTokens = assembledContext.budget.reservedOutputTokens;
       if (assembledContext.disclosure) {
         const disclosure = assembledContext.disclosure;
@@ -1409,7 +1458,7 @@ async function runWithToolLoop(
       const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
         messages: assembledContext.messages,
-        tools: JSON.stringify(apiTools),
+        tools: JSON.stringify(requestTools),
         temperature: requestTemp,
         maxTokens,
         thinkingLevel: modelConfig.thinkingLevel ?? "auto",
@@ -1440,13 +1489,19 @@ async function runWithToolLoop(
       const response: ToolCallResponse = JSON.parse(raw);
 
       const choice = response.choices?.[0];
-      if (!choice) break;
+      if (!choice) {
+        throw new Error("The model returned no completion choice.");
+      }
 
       const msg = choice.message;
       const hasToolCalls = Boolean(msg.tool_calls?.length);
       assertUsableFinishReason(choice.finish_reason, hasToolCalls);
 
       if (choice.finish_reason === "pause_turn") {
+        providerContinuationTurns += 1;
+        if (providerContinuationTurns > MAX_PROVIDER_CONTINUATION_TURNS) {
+          throw new Error("The provider paused too many consecutive turns without completing the response.");
+        }
         apiMessages.push({
           role: "assistant",
           content: msg.content,
@@ -1474,6 +1529,10 @@ async function runWithToolLoop(
       }
 
       if (hasToolCalls && msg.tool_calls) {
+        if (isFinalizingAfterToolLimit) {
+          throw new Error("The model requested another tool after the tool execution budget was exhausted.");
+        }
+        providerContinuationTurns = 0;
         hasUsedTools = true;
         apiMessages.push({
           role: "assistant",
@@ -1655,7 +1714,7 @@ async function runWithToolLoop(
               const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
               if (mcpTool && mcpCallTool) {
                 logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
-                  details: `Server: ${mcpTool.serverName}, Step ${step + 1}`,
+                  details: `Server: ${mcpTool.serverName}, Step ${completedToolRounds + 1}`,
                 });
 
                 let mcpOldContent = "";
@@ -2038,7 +2097,7 @@ async function runWithToolLoop(
               }
             } else if (fnName === "search_query" && useSearch && searchConfig) {
               logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
-                details: `Provider: ${searchConfig.provider}, Step ${step + 1}`,
+                details: `Provider: ${searchConfig.provider}, Step ${completedToolRounds + 1}`,
               });
               const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
               resultContent = JSON.stringify(results);
@@ -2084,7 +2143,7 @@ async function runWithToolLoop(
               }
             } else if (fnName === "fetch_url" && useSearch) {
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
-                details: `Step ${step + 1}`,
+                details: `Step ${completedToolRounds + 1}`,
               });
               const urlContent = await fetchUrlContent(fnArgs.url!, fnArgs.format);
               resultContent = JSON.stringify(urlContent);
@@ -2214,6 +2273,11 @@ async function runWithToolLoop(
 
         // Push results to apiMessages in order
         for (const res of results) {
+          completedToolResults.push({
+            name: res.rawName,
+            content: res.resultContent,
+            isError: res.isError,
+          });
           if (res.images && res.images.length > 0) {
             apiMessages.push({
               role: "tool",
@@ -2247,7 +2311,9 @@ async function runWithToolLoop(
             });
           }
         }
+        completedToolRounds += 1;
       } else {
+        providerContinuationTurns = 0;
         const assistantContent = msg.content || "";
 
         set((state) => {
@@ -2306,37 +2372,71 @@ async function runWithToolLoop(
         return;
       }
     }
-
-    const maxStepsMsg: Message = {
-      id: generateId(),
-      role: "assistant",
-      content:
-        "I reached the maximum number of tool calls. Let me provide the best answer I can with the information gathered so far.",
-      timestamp: new Date(),
-      sources: collectedSources.length > 0 ? collectedSources : undefined,
-      workingDuration: hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
-    };
-
-    set((state) => {
-      let conversations = updateConversationMessages(state.conversations, convId, (msgs) => [...msgs, maxStepsMsg]);
-      conversations = conversations.map((c) => (c.id === convId && c.isSubagent ? { ...c, status: "completed" } : c));
-      const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
-      const stillStreaming = Object.values(generationByConversation).some((generation) =>
-        isGenerationActive(generation.state),
-      );
-      return {
-        conversations,
-        isStreaming: stillStreaming,
-        generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
-        generationLabel: stillStreaming ? state.generationLabel : "",
-        generationByConversation,
-      };
-    });
-    useUIStore.getState().setLoading("sendMessage", false);
-    useUIStore.getState().setLoading("toolExecution", false);
-
-    await get().persistConversations?.();
   } catch (err) {
+    if (isFinalizingAfterToolLimit) {
+      const fallbackContent = buildToolLimitFallback(completedToolResults, err);
+      set((state) => {
+        let conversations = updateConversationMessages(state.conversations, convId, (messages) => {
+          const updated = [...messages];
+          const lastAssistantIndex = [...updated].reverse().findIndex((message) => message.role === "assistant");
+          const fallbackMessage: Message = {
+            id: generateId(),
+            role: "assistant",
+            content: fallbackContent,
+            timestamp: new Date(),
+            isStreaming: false,
+            sources: collectedSources.length > 0 ? collectedSources : undefined,
+            workingDuration: Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)),
+          };
+          if (lastAssistantIndex < 0) return [...updated, fallbackMessage];
+          const index = updated.length - 1 - lastAssistantIndex;
+          const partialContent = updated[index].content.trim();
+          updated[index] = {
+            ...updated[index],
+            ...fallbackMessage,
+            id: updated[index].id,
+            content: partialContent ? `${partialContent}\n\n${fallbackContent}` : fallbackContent,
+          };
+          return updated;
+        });
+        conversations = conversations.map((conversation) =>
+          conversation.id === convId && conversation.isSubagent
+            ? { ...conversation, status: "completed" as const }
+            : conversation,
+        );
+        const generationByConversation = setConversationGeneration(state, convId, "idle" as GenerationState, "");
+        const stillStreaming = Object.values(generationByConversation).some((generation) =>
+          isGenerationActive(generation.state),
+        );
+        return {
+          conversations,
+          isStreaming: stillStreaming,
+          generationState: stillStreaming ? state.generationState : ("idle" as GenerationState),
+          generationLabel: stillStreaming ? state.generationLabel : "",
+          generationByConversation,
+        };
+      });
+      useUIStore.getState().setLoading("sendMessage", false);
+      useUIStore.getState().setLoading("toolExecution", false);
+      useUIStore.getState().addToast("Tool work was preserved, but the final answer could not be generated.", "info");
+      logWarn("chat", "Tool-limit finalization failed; preserved a partial result", {
+        details: errorMessage(err),
+      });
+      await get().persistConversations?.();
+
+      const updatedConv = get().conversations.find((conversation) => conversation.id === convId);
+      if (updatedConv?.isSubagent && updatedConv.parentId) {
+        const parentMsg: Message = {
+          id: generateId(),
+          role: "user",
+          content: `[System Notification] Subagent '${updatedConv.role}' (ID: ${updatedConv.id}) reached its tool limit. Its partial result was preserved:\n\n${fallbackContent}\n\nPlease proceed using this information or continue the subagent if more work is required.`,
+          timestamp: new Date(),
+          isSystem: true,
+        };
+        triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+      }
+      return;
+    }
     const parsed = parseApiError(err);
     set((state) => {
       const generationLabel = `Generation failed: ${parsed.message}`;

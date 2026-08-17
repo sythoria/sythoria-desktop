@@ -444,30 +444,36 @@ describe("sendWithToolLoop", () => {
 
   it("keeps assistant narration visible when the same response requests a tool call", async () => {
     mockMaxToolSteps = 1;
-    mockStreamReasoning = "I should use the search tool.";
-    mockStreamContent = "I’ll search for the latest information first.";
-    invokeMock.mockResolvedValueOnce(
-      JSON.stringify({
-        choices: [
-          {
-            finish_reason: "tool_calls",
-            message: {
-              content: "I’ll search for the latest information first.",
-              reasoning: "I should use the search tool.",
-              tool_calls: [
-                {
-                  id: "call-1",
-                  function: {
-                    name: "search_query",
-                    arguments: JSON.stringify({ query: "latest information" }),
+    mockStreamReasoning = "";
+    mockStreamContent = "";
+    invokeMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "I’ll search for the latest information first.",
+                reasoning: "I should use the search tool.",
+                tool_calls: [
+                  {
+                    id: "call-1",
+                    function: {
+                      name: "search_query",
+                      arguments: JSON.stringify({ query: "latest information" }),
+                    },
                   },
-                },
-              ],
+                ],
+              },
             },
-          },
-        ],
-      }),
-    );
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "Final answer from gathered results." } }],
+        }),
+      );
 
     mockConversations.push({
       id: "conv-1",
@@ -530,7 +536,176 @@ describe("sendWithToolLoop", () => {
     expect(narration?.reasoningContent).toBe("I should use the search tool.");
     expect(narrationIndex).toBeGreaterThan(-1);
     expect(toolCallIndex).toBeGreaterThan(narrationIndex);
+    expect(messages.at(-1)?.content).toBe("Final answer from gathered results.");
     expect(mockAddTask).toHaveBeenCalledWith("call-1", "Tool: search_query", "conv-1");
+    const modelCalls = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
+    expect(modelCalls).toHaveLength(2);
+    expect(modelCalls[1][1]).toMatchObject({ tools: "[]" });
+  });
+
+  it("does not count provider pause turns against the tool execution limit", async () => {
+    mockMaxToolSteps = 1;
+    mockStreamContent = "";
+    invokeMock
+      .mockResolvedValueOnce(
+        JSON.stringify({ choices: [{ finish_reason: "pause_turn", message: { content: "Still working." } }] }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                tool_calls: [
+                  {
+                    id: "call-after-pause",
+                    function: { name: "search_query", arguments: JSON.stringify({ query: "paused search" }) },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "Finished after pause." } }] }),
+      );
+
+    mockConversations.push({
+      id: "conv-pause",
+      title: "Pause",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-pause", role: "user", content: "Search", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-pause": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      makeRunContext("conv-pause", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
+      set,
+      () => state,
+      vi.fn().mockResolvedValue([]),
+      vi.fn(),
+    );
+
+    expect(invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools")).toHaveLength(3);
+    expect(state.conversations[0].messages.at(-1)?.content).toBe("Finished after pause.");
+  });
+
+  it("preserves partial tool results and resumes the parent when subagent finalization fails", async () => {
+    mockMaxToolSteps = 1;
+    mockStreamContent = "";
+    mockResumeConversation.mockClear();
+    invokeMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                tool_calls: [
+                  {
+                    id: "sub-search",
+                    function: { name: "search_query", arguments: JSON.stringify({ query: "important result" }) },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockRejectedValueOnce(new Error("finalizer unavailable"));
+
+    mockConversations.push(
+      {
+        id: "parent-limit",
+        title: "Parent",
+        timestamp: new Date(),
+        model: "model-1",
+        messages: [{ id: "parent-user", role: "user", content: "Delegate", timestamp: new Date() }],
+      },
+      {
+        id: "sub-limit",
+        title: "Subagent",
+        timestamp: new Date(),
+        model: "model-1",
+        parentId: "parent-limit",
+        role: "Researcher",
+        isSubagent: true,
+        status: "running",
+        messages: [{ id: "sub-user", role: "user", content: "Research", timestamp: new Date() }],
+      },
+    );
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "sub-limit": { state: "loading", label: "Loading" } },
+      resumeConversation: mockResumeConversation,
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      makeRunContext("sub-limit", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
+      set,
+      () => state,
+      vi.fn().mockResolvedValue([{ title: "Result", url: "https://example.com", snippet: "Useful evidence" }]),
+      vi.fn(),
+    );
+
+    const subagent = state.conversations.find((conversation) => conversation.id === "sub-limit");
+    const parent = state.conversations.find((conversation) => conversation.id === "parent-limit");
+    expect(subagent?.status).toBe("completed");
+    expect(subagent?.messages.at(-1)?.content).toContain("partial result preserved");
+    expect(subagent?.messages.at(-1)?.content).toContain("Useful evidence");
+    expect(parent?.messages.at(-1)?.content).toContain("reached its tool limit");
+    expect(mockResumeConversation).toHaveBeenCalledWith("parent-limit");
   });
 
   it("appends an assistant error when the tool request fails before a placeholder exists", async () => {

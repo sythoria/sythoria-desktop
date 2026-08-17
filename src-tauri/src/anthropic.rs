@@ -116,7 +116,7 @@ pub fn convert_tools(tools_str: &str) -> Option<Vec<serde_json::Value>> {
             anthropic_tools.push(anthropic_tool);
         }
     }
-    Some(anthropic_tools)
+    (!anthropic_tools.is_empty()).then_some(anthropic_tools)
 }
 
 pub fn convert_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<AnthropicMessage>) {
@@ -689,6 +689,11 @@ pub async fn check_api_anthropic(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_tool_list_is_omitted_for_finalization() {
+        assert!(convert_tools("[]").is_none());
+    }
 
     #[test]
     fn native_assistant_content_is_replayed_without_reconstruction() {
