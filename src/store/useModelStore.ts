@@ -15,6 +15,7 @@ import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
 import { validateModelConfig } from "../utils/validation";
+import { formatModelName } from "../utils/formatModelName";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
 
@@ -352,13 +353,14 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
 
   addModel: () => {
+    const defaultModelId = "gpt-5.6-sol";
     const newModel: ModelConfig = {
       id: "custom-" + Date.now(),
-      name: "New Model",
+      name: formatModelName(defaultModelId) || "GPT 5.6 Sol",
       apiBase: "https://api.openai.com/v1/chat/completions",
       apiKey: "",
-      modelId: "gpt-5.6-sol",
-      provider: "OpenAI",
+      modelId: defaultModelId,
+      provider: "openai",
       enabled: true,
     };
     const { models } = get();
