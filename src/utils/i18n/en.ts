@@ -163,6 +163,8 @@ export const en = {
   "settings.models.enabled": "Enabled",
   "settings.models.enabledDesc": "Show in model selector & health check",
   "settings.models.name": "Name",
+  "settings.models.generateName": "Auto-generate",
+  "settings.models.generateNameTooltip": "Generate name from Model ID",
   "settings.models.preset": "Provider Preset",
   "settings.models.apiBase": "API Base URL",
   "settings.models.modelId": "Model ID",
