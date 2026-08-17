@@ -401,6 +401,69 @@ describe("ChatArea", () => {
     expect(screen.getByText("I found the entry point; now I’ll inspect the store.")).toBeInTheDocument();
   });
 
+  it("keeps a previous tool turn completed while the next turn is working", () => {
+    const firstUser = makeMessage({
+      id: "first-user",
+      role: "user",
+      content: "Inspect the app",
+      timestamp: new Date(Date.now() - 12_000),
+    });
+    const firstTool = makeMessage({
+      id: "first-tool",
+      role: "tool",
+      content: "Project: read",
+      timestamp: new Date(Date.now() - 11_000),
+      toolCall: { id: "first-call", name: "project_read", arguments: { file_path: "src/App.tsx" } },
+      toolResult: { id: "first-call", name: "project_read", content: "App contents" },
+    });
+    const firstFinal = makeMessage({
+      id: "first-final",
+      role: "assistant",
+      content: "The app uses React.",
+      timestamp: new Date(Date.now() - 10_000),
+      isStreaming: false,
+      workingDuration: 2,
+    });
+    const secondUser = makeMessage({
+      id: "second-user",
+      role: "user",
+      content: "Now inspect the store",
+      timestamp: new Date(Date.now() - 1_000),
+    });
+    const secondTool = makeMessage({
+      id: "second-tool",
+      role: "tool",
+      content: "Project: read",
+      timestamp: new Date(),
+      toolCall: {
+        id: "second-call",
+        name: "project_read",
+        arguments: { file_path: "src/store/useChatStore.ts" },
+      },
+    });
+    const messages = [firstUser, firstTool, firstFinal, secondUser, secondTool];
+    const conversation: Conversation = {
+      id: "second-turn-working",
+      title: "Second turn working",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: {
+        [conversation.id]: { state: "loading", label: "Loading" },
+      },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    expect(screen.getByRole("button", { name: "Worked for 2s" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Working for \d+s/i })).toBeInTheDocument();
+    expect(screen.getByText("The app uses React.")).toBeInTheDocument();
+    expect(screen.getByText("useChatStore.ts")).toBeInTheDocument();
+  });
+
   it("keeps completed final reasoning and empty tool placeholders inside the work disclosure", async () => {
     const user = userEvent.setup();
     const startedAt = Date.now() - 10_000;

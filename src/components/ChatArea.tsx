@@ -1220,6 +1220,7 @@ interface ToolActivityGroup {
   id: string;
   messages: Message[];
   finalMessage?: Message;
+  isActive: boolean;
 }
 
 interface FinalResponseRenderItem {
@@ -1245,6 +1246,7 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
     const segmentStart = cursor;
     while (cursor < messages.length && messages[cursor].role !== "user") cursor += 1;
     const segment = messages.slice(segmentStart, cursor);
+    const isActiveSegment = isConversationWorking && cursor === messages.length;
     let lastToolIndex = -1;
     for (let index = segment.length - 1; index >= 0; index -= 1) {
       if (segment[index].role === "tool" && segment[index].toolCall) {
@@ -1264,7 +1266,7 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
       if (
         candidate.role === "assistant" &&
         !candidate.isSystem &&
-        (!isConversationWorking || candidate.isStreaming === true)
+        (!isActiveSegment || candidate.isStreaming === true)
       ) {
         finalAssistantIndex = index;
       }
@@ -1288,6 +1290,7 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
       id: `tool-activity-${firstTool?.id ?? activityMessages[0].id}`,
       messages: activityMessages,
       finalMessage,
+      isActive: isActiveSegment,
     });
     if (finalMessage) {
       items.push({
@@ -1960,7 +1963,10 @@ function ChatAreaBase({
   const activeToolActivityId = isConversationWorking
     ? [...renderItems]
         .reverse()
-        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity")?.id
+        .find(
+          (item): item is ToolActivityGroup =>
+            "kind" in item && item.kind === "tool-activity" && item.isActive,
+        )?.id
     : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
