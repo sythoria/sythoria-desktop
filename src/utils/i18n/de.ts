@@ -163,6 +163,8 @@ export const de = {
   "settings.models.enabled": "Aktiviert",
   "settings.models.enabledDesc": "In Modellauswahl & Verbindungsprüfung anzeigen",
   "settings.models.name": "Name",
+  "settings.models.generateName": "Automatisch generieren",
+  "settings.models.generateNameTooltip": "Namen aus Modell-ID generieren",
   "settings.models.preset": "Anbietervorlage",
   "settings.models.apiBase": "API-Basis-URL",
   "settings.models.modelId": "Modell-ID",
@@ -330,6 +332,10 @@ export const de = {
     "Gib IP-Adressen oder Hostnamen an, die vom Netzwerkzugriff ausgeschlossen sind (einer pro Zeile).",
   "settings.privacy.resetBlockedHostsBtn": "Auf Standard zurücksetzen",
   "settings.privacy.blockedHostsPlaceholder": "z.B. localhost\n127.0.0.1",
+  "settings.privacy.allowedLocalEndpoints": "Lokale Endpunkt-Freigaben",
+  "settings.privacy.allowedLocalEndpointsDesc":
+    "Lokale Dienste nach exakter Origin zulassen (eine pro Zeile). Dies deckt konfigurierte Modelle, Suche, Fetch und MCP-Endpunkte ab; Cloud-Metadaten und benutzerdefinierte Blockregeln bleiben blockiert.",
+  "settings.privacy.allowedLocalEndpointsPlaceholder": "z.B. http://127.0.0.1:11434",
   "settings.privacy.offlineMode": "Offline-Modus",
   "settings.privacy.offlineModeDesc":
     "Zwingt die App, vollständig offline zu laufen. Blockiert alle ausgehenden Anfragen.",
