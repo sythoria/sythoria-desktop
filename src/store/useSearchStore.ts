@@ -68,7 +68,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       cx: "",
       maxResults: 5,
       enabled: true,
-      allowLocalNetwork: false,
     };
     const validation = validateSearchConfig(newConfig);
     if (!validation.success) {
@@ -188,7 +187,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       baseUrl: "",
       apiKey: "",
       enabled: true,
-      allowLocalNetwork: false,
     };
     const validation = validateFetchConfig(newConfig);
     if (!validation.success) {
@@ -271,7 +269,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         configId = activeConfig.id;
         configPayload = JSON.stringify({
           baseUrl: activeConfig.baseUrl,
-          allowLocalNetwork: activeConfig.allowLocalNetwork ?? false,
         });
       }
 

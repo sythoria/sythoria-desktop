@@ -1137,7 +1137,7 @@ function ReasoningBubble({
               ? `Thinking for ${formatWorkingDuration(elapsed)}`
               : "Thinking"
             : displayedDuration !== undefined
-              ? `Thought for ${displayedDuration}s`
+              ? `Thought for ${formatWorkingDuration(displayedDuration)}`
               : "Thought"}
         </span>
         <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />

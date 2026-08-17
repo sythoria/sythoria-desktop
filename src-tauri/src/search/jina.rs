@@ -12,7 +12,6 @@ pub async fn fetch(url: &str, config: &serde_json::Value) -> Result<UrlContent, 
     let endpoint = format!("{}/{}", base_url.trim_end_matches('/'), url);
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         &endpoint,
-        crate::search::allows_local_network(config),
         api_key.is_some_and(|key| !key.trim().is_empty()),
         std::time::Duration::from_secs(60),
     )

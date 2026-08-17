@@ -20,15 +20,13 @@ describe("migrateMcpConfigs", () => {
     expect(result.trustLevel).toBe("untrusted");
   });
 
-  it("preserves trust and local-network policy fields", () => {
+  it("preserves trust policy fields", () => {
     const result = McpServerConfigSchema.parse({
       ...stdio("1", "npx"),
       trustLevel: "trusted",
-      allowLocalNetwork: true,
     });
 
     expect(result.trustLevel).toBe("trusted");
-    expect(result.allowLocalNetwork).toBe(true);
   });
 
   it("splits a legacy full command line into program + args", () => {

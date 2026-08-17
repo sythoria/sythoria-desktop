@@ -128,7 +128,6 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
                     apiBase: preset.apiBase || model.apiBase,
                     modelId: preset.defaultModel || model.modelId,
                     name: model.name === "New Model" ? preset.label : model.name,
-                    allowLocalNetwork: false,
                   });
                 } else {
                   onUpdate(model.id, { provider: providerId });
@@ -171,27 +170,6 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
             </p>
           )}
         </div>
-
-        <Switch
-          checked={model.allowLocalNetwork ?? false}
-          onChange={(checked) => {
-            if (
-              checked &&
-              !window.confirm(
-                "Allow this provider to connect to local or private network addresses? Only enable this for an endpoint you trust.",
-              )
-            ) {
-              return;
-            }
-            onUpdate(model.id, { allowLocalNetwork: checked });
-          }}
-          label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
-          ariaLabel={`Allow local network access for model ${model.name}`}
-          description={t("settings.network.allowLocalDesc", {
-            defaultValue:
-              "Required with an exact local endpoint grant for trusted local providers such as Ollama or Tailscale services.",
-          })}
-        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">

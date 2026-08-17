@@ -354,18 +354,11 @@ pub struct ValidatedWebSocketEndpoint {
     pub address: SocketAddr,
 }
 
-fn allows_plaintext_local_transport(
-    allow_local_network: bool,
-    has_exact_local_grant: bool,
-    addresses: &[SocketAddr],
-) -> bool {
-    // A non-loopback local service can use plaintext only when the user has
-    // opted this provider into local-network access *and* approved its exact
-    // origin in the authenticated global policy. Requiring every resolved
-    // address to be local prevents a hostname with mixed public/private DNS
-    // results from using the local exception.
-    allow_local_network
-        && has_exact_local_grant
+fn allows_plaintext_local_transport(has_exact_local_grant: bool, addresses: &[SocketAddr]) -> bool {
+    // An exact origin grant is the single user authorization for local
+    // transport. Requiring every resolved address to be local prevents a
+    // hostname with mixed public/private DNS results from using the exception.
+    has_exact_local_grant
         && !addresses.is_empty()
         && addresses
             .iter()
@@ -375,7 +368,6 @@ fn allows_plaintext_local_transport(
 async fn parse_and_resolve(
     raw_url: &str,
     allowed_schemes: &[&str],
-    allow_local_network: bool,
     has_secret: bool,
 ) -> Result<(url::Url, String, Vec<SocketAddr>), AppError> {
     let validated = validate_outbound_url(raw_url, allowed_schemes).await?;
@@ -388,16 +380,12 @@ async fn parse_and_resolve(
         .to_string();
     let is_plaintext = matches!(validated.url.scheme(), "http" | "ws");
     if is_plaintext
-        && !allows_plaintext_local_transport(
-            allow_local_network,
-            validated.has_exact_local_grant,
-            &validated.addresses,
-        )
+        && !allows_plaintext_local_transport(validated.has_exact_local_grant, &validated.addresses)
     {
         let reason = if has_secret {
-            "Credentials may only use plaintext transport to an exact local endpoint grant when this provider allows local network access"
+            "Credentials may only use plaintext transport to an exact local endpoint grant"
         } else {
-            "Plaintext transport is only allowed for an exact local endpoint grant when this provider allows local network access"
+            "Plaintext transport is only allowed for an exact local endpoint grant"
         };
         return Err(AppError::UrlValidationError(reason.to_string()));
     }
@@ -407,12 +395,10 @@ async fn parse_and_resolve(
 
 pub async fn validate_http_endpoint(
     raw_url: &str,
-    allow_local_network: bool,
     has_secret: bool,
     timeout: Duration,
 ) -> Result<ValidatedHttpEndpoint, AppError> {
-    let (url, host, addresses) =
-        parse_and_resolve(raw_url, &["http", "https"], allow_local_network, has_secret).await?;
+    let (url, host, addresses) = parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
     let client = crate::client_builder()
         .redirect(Policy::none())
         .resolve_to_addrs(&host, &addresses)
@@ -427,12 +413,10 @@ pub async fn validate_http_endpoint(
 /// continue indefinitely while still detecting a stalled connection.
 pub async fn validate_streaming_http_endpoint(
     raw_url: &str,
-    allow_local_network: bool,
     has_secret: bool,
     inactivity_timeout: Duration,
 ) -> Result<ValidatedHttpEndpoint, AppError> {
-    let (url, host, addresses) =
-        parse_and_resolve(raw_url, &["http", "https"], allow_local_network, has_secret).await?;
+    let (url, host, addresses) = parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
     let client = build_streaming_http_client(&host, &addresses, inactivity_timeout)?;
     Ok(ValidatedHttpEndpoint { url, client })
 }
@@ -453,11 +437,9 @@ fn build_streaming_http_client(
 
 pub async fn validate_websocket_endpoint(
     raw_url: &str,
-    allow_local_network: bool,
     has_secret: bool,
 ) -> Result<ValidatedWebSocketEndpoint, AppError> {
-    let (url, _host, addresses) =
-        parse_and_resolve(raw_url, &["ws", "wss"], allow_local_network, has_secret).await?;
+    let (url, _host, addresses) = parse_and_resolve(raw_url, &["ws", "wss"], has_secret).await?;
     Ok(ValidatedWebSocketEndpoint {
         url,
         address: addresses[0],
@@ -543,33 +525,15 @@ mod tests {
     }
 
     #[test]
-    fn plaintext_local_transport_requires_both_explicit_opt_ins() {
+    fn plaintext_local_transport_requires_an_exact_origin_grant() {
         let tailnet_address = SocketAddr::new("100.100.0.12".parse().unwrap(), 8080);
         let loopback_address = SocketAddr::new("127.0.0.1".parse().unwrap(), 8080);
         let public_address = SocketAddr::new("203.0.113.12".parse().unwrap(), 8080);
 
-        assert!(allows_plaintext_local_transport(
-            true,
-            true,
-            &[tailnet_address]
-        ));
-        assert!(allows_plaintext_local_transport(
-            true,
-            true,
-            &[loopback_address]
-        ));
+        assert!(allows_plaintext_local_transport(true, &[tailnet_address]));
+        assert!(allows_plaintext_local_transport(true, &[loopback_address]));
+        assert!(!allows_plaintext_local_transport(false, &[tailnet_address]));
         assert!(!allows_plaintext_local_transport(
-            false,
-            true,
-            &[tailnet_address]
-        ));
-        assert!(!allows_plaintext_local_transport(
-            true,
-            false,
-            &[tailnet_address]
-        ));
-        assert!(!allows_plaintext_local_transport(
-            true,
             true,
             &[tailnet_address, public_address]
         ));

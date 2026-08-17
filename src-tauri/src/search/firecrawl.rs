@@ -23,7 +23,6 @@ pub async fn search(
     let url = format!("{}/search", base_url.trim_end_matches('/'));
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         &url,
-        crate::search::allows_local_network(config),
         true,
         std::time::Duration::from_secs(30),
     )
@@ -119,7 +118,6 @@ pub async fn fetch(
     let endpoint = format!("{}/scrape", base_url.trim_end_matches('/'));
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         &endpoint,
-        crate::search::allows_local_network(config),
         true,
         std::time::Duration::from_secs(60),
     )

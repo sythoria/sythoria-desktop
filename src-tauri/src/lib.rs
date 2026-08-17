@@ -414,11 +414,9 @@ async fn chat_completion(
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let (api_url, api_key, model, provider, allow_local_network) =
-        get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
     let endpoint = endpoint_security::validate_http_endpoint(
         &api_url,
-        allow_local_network,
         !api_key.is_empty(),
         std::time::Duration::from_secs(60),
     )
@@ -504,11 +502,9 @@ async fn chat_stream(
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
-    let (api_url, api_key, model, provider, allow_local_network) =
-        get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
     let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
-        allow_local_network,
         !api_key.is_empty(),
         std::time::Duration::from_secs(120),
     )
@@ -630,11 +626,9 @@ async fn chat_stream_tools(
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
-    let (api_url, api_key, model, provider, allow_local_network) =
-        get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
     let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
-        allow_local_network,
         !api_key.is_empty(),
         std::time::Duration::from_secs(120),
     )
@@ -763,11 +757,9 @@ async fn chat_completion_tools(
     thinking_level: Option<String>,
 ) -> Result<String, AppError> {
     ensure_online()?;
-    let (api_url, api_key, model, provider, allow_local_network) =
-        get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
     let endpoint = endpoint_security::validate_http_endpoint(
         &api_url,
-        allow_local_network,
         !api_key.is_empty(),
         std::time::Duration::from_secs(60),
     )
@@ -840,11 +832,9 @@ async fn chat_completion_tools(
 #[tauri::command]
 async fn check_api(app: tauri::AppHandle, config_id: String) -> Result<bool, AppError> {
     ensure_online()?;
-    let (api_url, api_key, _, provider, allow_local_network) =
-        get_model_config_and_key(&app, &config_id).await?;
+    let (api_url, api_key, _, provider) = get_model_config_and_key(&app, &config_id).await?;
     let endpoint = endpoint_security::validate_http_endpoint(
         &api_url,
-        allow_local_network,
         !api_key.is_empty(),
         std::time::Duration::from_secs(10),
     )
@@ -894,7 +884,6 @@ async fn check_ollama() -> Result<Vec<String>, AppError> {
     ensure_online()?;
     let endpoint = endpoint_security::validate_http_endpoint(
         "http://127.0.0.1:11434/api/tags",
-        true,
         false,
         std::time::Duration::from_secs(5),
     )
@@ -1006,7 +995,6 @@ async fn ws_chat(
     url: String,
     api_key: Option<String>,
     model: String,
-    allow_local_network: Option<bool>,
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<String, AppError> {
@@ -1017,7 +1005,6 @@ async fn ws_chat(
         model,
         reconnect: true,
         max_reconnect_attempts: 5,
-        allow_local_network: allow_local_network.unwrap_or(false),
     };
     ws_handler::ws_connect(config, app, &session)
         .await
@@ -1030,7 +1017,6 @@ async fn ws_connect(
     url: String,
     api_key: Option<String>,
     model: String,
-    allow_local_network: Option<bool>,
     app: tauri::AppHandle,
     session: tauri::State<'_, ws_handler::WsSession>,
 ) -> Result<(), AppError> {
@@ -1041,7 +1027,6 @@ async fn ws_connect(
         model,
         reconnect: true,
         max_reconnect_attempts: 5,
-        allow_local_network: allow_local_network.unwrap_or(false),
     };
     ws_handler::ws_connect(config, app, &session)
         .await
@@ -1074,13 +1059,11 @@ async fn ws_authenticate(
     username: String,
     api_key: String,
     server_url: String,
-    allow_local_network: Option<bool>,
 ) -> Result<String, AppError> {
     ensure_online()?;
     let auth_url = format!("{}/auth", server_url.trim_end_matches('/'));
     let endpoint = endpoint_security::validate_http_endpoint(
         &auth_url,
-        allow_local_network.unwrap_or(false),
         true,
         std::time::Duration::from_secs(15),
     )

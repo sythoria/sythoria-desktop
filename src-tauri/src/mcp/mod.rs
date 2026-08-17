@@ -17,7 +17,6 @@ pub struct McpServerConfig {
     pub apiKey: Option<String>,
     pub enabled: bool,
     pub trustLevel: Option<String>,
-    pub allowLocalNetwork: Option<bool>,
 }
 
 #[allow(non_snake_case)]
@@ -266,7 +265,6 @@ mod tests {
             apiKey: None,
             enabled,
             trustLevel: Some("untrusted".to_string()),
-            allowLocalNetwork: None,
         }
     }
 

@@ -664,7 +664,6 @@ pub async fn download_whisper_model(app: AppHandle, model_id: String) -> Result<
             let endpoint = crate::endpoint_security::validate_http_endpoint(
                 &current_url,
                 false,
-                false,
                 std::time::Duration::from_secs(300),
             )
             .await?;
@@ -1298,7 +1297,6 @@ pub async fn transcribe_audio_cloud(
 
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         &api_url,
-        false,
         true,
         std::time::Duration::from_secs(120),
     )

@@ -173,7 +173,6 @@ const ModelConfigSchema = z
     temperature: z.number().min(0).max(2).optional(),
     thinkingLevel: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
     systemPromptOverride: z.string().optional(),
-    allowLocalNetwork: z.boolean().optional(),
   })
   .passthrough();
 
@@ -188,7 +187,6 @@ const SearchConfigSchema = z.object({
   cx: z.string().optional(),
   maxResults: z.number(),
   enabled: z.boolean(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 const SearchConfigsArraySchema = z.array(SearchConfigSchema);
@@ -200,7 +198,6 @@ const FetchConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   enabled: z.boolean(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 const FetchConfigsArraySchema = z.array(FetchConfigSchema);
@@ -1242,7 +1239,6 @@ export const McpServerConfigSchema = z
     apiKey: z.string().optional(),
     enabled: z.boolean(),
     trustLevel: z.enum(["trusted", "untrusted"]).default("untrusted"),
-    allowLocalNetwork: z.boolean().optional(),
   })
   .passthrough();
 

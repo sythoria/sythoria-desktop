@@ -266,14 +266,12 @@ pub struct ModelConfig {
     #[serde(rename = "modelId")]
     pub model_id: String,
     pub provider: Option<String>,
-    #[serde(rename = "allowLocalNetwork", default)]
-    pub allow_local_network: bool,
 }
 
 pub async fn get_model_config_and_key(
     app: &tauri::AppHandle,
     config_id: &str,
-) -> Result<(String, String, String, Option<String>, bool), AppError> {
+) -> Result<(String, String, String, Option<String>), AppError> {
     let configs: Vec<ModelConfig> = secure_storage::load_json(app, StorageDomain::Models)?
         .ok_or_else(|| AppError::ConfigIo("Model configuration not found".to_string()))?;
 
@@ -287,11 +285,5 @@ pub async fn get_model_config_and_key(
     let api_key =
         secret_storage::get_secret(app, SecretMapKind::Model, config_id)?.unwrap_or_default();
 
-    Ok((
-        config.api_base,
-        api_key,
-        config.model_id,
-        config.provider,
-        config.allow_local_network,
-    ))
+    Ok((config.api_base, api_key, config.model_id, config.provider))
 }

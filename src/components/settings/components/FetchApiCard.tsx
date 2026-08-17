@@ -98,7 +98,6 @@ export const FetchApiCard = memo(function FetchApiCard({
                     provider,
                     baseUrl: preset.baseUrl || config.baseUrl,
                     name: config.name === "New Fetch API" ? preset.label : config.name,
-                    allowLocalNetwork: false,
                   });
                 } else {
                   onUpdate(config.id, { provider });
@@ -112,26 +111,6 @@ export const FetchApiCard = memo(function FetchApiCard({
             />
           </div>
         </div>
-
-        <Switch
-          checked={config.allowLocalNetwork ?? false}
-          onChange={(checked) => {
-            if (
-              checked &&
-              !window.confirm(
-                "Allow this fetch provider to connect to local or private network addresses? Only enable this for an endpoint you trust.",
-              )
-            ) {
-              return;
-            }
-            onUpdate(config.id, { allowLocalNetwork: checked });
-          }}
-          label={t("settings.network.allowLocal", { defaultValue: "Allow local network" })}
-          ariaLabel={`Allow local network access for fetch provider ${config.name}`}
-          description={t("settings.network.allowLocalFetchDesc", {
-            defaultValue: "Permit a trusted private endpoint. Plaintext stays limited to loopback.",
-          })}
-        />
 
         <div className="space-y-1">
           <label className="text-xs font-medium text-text-muted" htmlFor={`fetch-base-${config.id}`}>

@@ -31,7 +31,6 @@ describe("ModelCard", () => {
       apiBase: "https://api.openai.com/v1/chat/completions",
       modelId: "gpt-5.6-sol",
       name: "OpenAI",
-      allowLocalNetwork: false,
     });
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
   });

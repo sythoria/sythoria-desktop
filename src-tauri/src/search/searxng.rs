@@ -17,7 +17,6 @@ pub async fn search(
 
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         base,
-        crate::search::allows_local_network(config),
         config
             .get("apiKey")
             .and_then(|value| value.as_str())

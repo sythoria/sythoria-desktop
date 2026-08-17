@@ -545,7 +545,6 @@ pub async fn connect_server(
             let has_secret = config.apiKey.as_deref().is_some_and(|key| !key.is_empty());
             let endpoint = crate::endpoint_security::validate_http_endpoint(
                 &base_url,
-                config.allowLocalNetwork.unwrap_or(false),
                 has_secret,
                 std::time::Duration::from_secs(120),
             )

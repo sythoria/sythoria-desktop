@@ -72,7 +72,6 @@ pub struct WsConfig {
     pub model: String,
     pub reconnect: bool,
     pub max_reconnect_attempts: u32,
-    pub allow_local_network: bool,
 }
 
 impl Default for WsConfig {
@@ -83,7 +82,6 @@ impl Default for WsConfig {
             model: "gpt-4o".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
-            allow_local_network: false,
         }
     }
 }
@@ -334,7 +332,6 @@ async fn connect_validated(
 > {
     let endpoint = crate::endpoint_security::validate_websocket_endpoint(
         &ws_config.url,
-        ws_config.allow_local_network,
         ws_config
             .api_key
             .as_deref()
@@ -697,7 +694,6 @@ mod tests {
             model: "gpt-4o".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
-            allow_local_network: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("ws://localhost:8080/chat"));
@@ -710,7 +706,6 @@ mod tests {
             model: "llama3.1".to_string(),
             reconnect: true,
             max_reconnect_attempts: 5,
-            allow_local_network: true,
         };
         let json = serde_json::to_string(&config_no_key).unwrap();
         assert!(json.contains("\"api_key\":null"));

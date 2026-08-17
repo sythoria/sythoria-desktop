@@ -109,12 +109,12 @@ describe("ChatArea", () => {
     ];
     useChatStore.setState({
       activeStreamThinkingStart: { [conversationId]: 10_000 },
-      activeStreamThinkingEnd: { [conversationId]: 13_900 },
+      activeStreamThinkingEnd: { [conversationId]: 133_900 },
     });
 
     render(<ChatArea messages={messages} {...defaultProps} conversationId={conversationId} />);
 
-    expect(screen.getByRole("button", { name: "Expand reasoning" })).toHaveTextContent("Thought for 3s");
+    expect(screen.getByRole("button", { name: "Expand reasoning" })).toHaveTextContent("Thought for 2m 3s");
   });
 
   it("shows one cancellation message without a duplicate status label", () => {

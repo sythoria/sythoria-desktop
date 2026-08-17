@@ -360,7 +360,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
       modelId: "gpt-5.6-sol",
       provider: "OpenAI",
       enabled: true,
-      allowLocalNetwork: false,
     };
     const { models } = get();
     const updated = [...models, newModel];

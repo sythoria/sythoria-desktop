@@ -531,7 +531,6 @@ function ModelSetupDialog({ onBack, onComplete }: { onBack: () => void; onComple
       apiKey: apiKey.trim(),
       modelId: modelId.trim(),
       enabled: true,
-      allowLocalNetwork: false,
     };
 
     updateModels([...models, newModel]);

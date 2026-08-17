@@ -45,7 +45,6 @@ export const ModelConfigSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   thinkingLevel: z.enum(["auto", "off", "low", "medium", "high"]).optional(),
   systemPromptOverride: z.string().optional(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 const SearchApiConfigSchema = z.object({
@@ -57,7 +56,6 @@ const SearchApiConfigSchema = z.object({
   cx: z.string().optional(),
   maxResults: z.number().min(1).max(20),
   enabled: z.boolean(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 const FetchApiConfigSchema = z.object({
@@ -67,7 +65,6 @@ const FetchApiConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKey: z.string().optional(),
   enabled: z.boolean(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 const McpServerConfigSchema = z.object({
@@ -85,7 +82,6 @@ const McpServerConfigSchema = z.object({
   apiKey: z.string().optional(),
   enabled: z.boolean(),
   trustLevel: z.enum(["trusted", "untrusted"]).optional(),
-  allowLocalNetwork: z.boolean().optional(),
 });
 
 export function validateModelConfig(config: unknown) {

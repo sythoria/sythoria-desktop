@@ -25,7 +25,6 @@ pub async fn search(
         .unwrap_or("https://www.googleapis.com/customsearch/v1");
     let endpoint = crate::endpoint_security::validate_http_endpoint(
         base_url,
-        crate::search::allows_local_network(config),
         true,
         std::time::Duration::from_secs(15),
     )
