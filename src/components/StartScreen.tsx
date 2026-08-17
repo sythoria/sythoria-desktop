@@ -20,6 +20,7 @@ import { useModelStore } from "../store/useModelStore";
 import { useUIStore } from "../store/useUIStore";
 import type { ModelConfig } from "../types";
 import { generateId } from "../utils/generateId";
+import { formatModelName } from "../utils/formatModelName";
 import { SUPPORTED_LANGUAGES, type SupportedLanguageCode, useTranslation } from "../utils/i18n";
 import { isApiKeyOptionalForProvider, validateApiKey, validateApiUrl } from "../utils/validation";
 import { Select } from "./ui/Select";
@@ -525,7 +526,7 @@ function ModelSetupDialog({ onBack, onComplete }: { onBack: () => void; onComple
 
     const newModel: ModelConfig = {
       id: `model-${generateId()}`,
-      name: selectedProvider?.label || modelId.trim() || "Custom Model",
+      name: formatModelName(modelId) || selectedProvider?.label || "Custom Model",
       provider: providerId,
       apiBase: apiBase.trim(),
       apiKey: apiKey.trim(),
