@@ -106,6 +106,20 @@ function groupConversations(conversations: Conversation[]) {
   return groups;
 }
 
+function getLatestMessageTimestamp(conversation: Conversation) {
+  const latestMessage = conversation.messages.at(-1);
+  const timestamp = latestMessage?.timestamp ?? conversation.timestamp;
+  const time = new Date(timestamp).getTime();
+
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortConversationsByLatestMessage(conversations: Conversation[]) {
+  return [...conversations].sort(
+    (left, right) => getLatestMessageTimestamp(right) - getLatestMessageTimestamp(left),
+  );
+}
+
 export default memo(function Sidebar({
   conversations,
   activeId,
@@ -369,12 +383,14 @@ export default memo(function Sidebar({
 
   const nonEmptyConversations = useMemo(
     () =>
-      conversations.filter(
-        (c) =>
-          (c.messages.length > 0 || Boolean(c.pendingWorktree)) &&
-          (!c.id.startsWith("compare-") || Boolean(c.pendingWorktree)) &&
-          !c.isSubagent &&
-          (!c.isTemporary || Boolean(c.pendingWorktree)),
+      sortConversationsByLatestMessage(
+        conversations.filter(
+          (c) =>
+            (c.messages.length > 0 || Boolean(c.pendingWorktree)) &&
+            (!c.id.startsWith("compare-") || Boolean(c.pendingWorktree)) &&
+            !c.isSubagent &&
+            (!c.isTemporary || Boolean(c.pendingWorktree)),
+        ),
       ),
     [conversations],
   );
