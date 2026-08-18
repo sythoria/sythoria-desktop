@@ -5,6 +5,7 @@ import type { ConversationRunContext } from "./conversationRunContext";
 import {
   TOOL_DEFINITIONS,
   assertUsableFinishReason,
+  buildConversationContextMessages,
   buildToolDefinitions,
   buildToolSystemPrompt,
   cancelConversationGenerationQueue,
@@ -189,6 +190,80 @@ describe("TOOL_DEFINITIONS", () => {
     expect(tools.map((tool) => tool.function.name)).toEqual(
       expect.arrayContaining(["list_skill_resources", "read_skill_resource"]),
     );
+  });
+});
+
+describe("buildConversationContextMessages", () => {
+  it("includes the first turn's tool call and result in the second-message context", () => {
+    const messages: Conversation["messages"] = [
+      { id: "user-1", role: "user", content: "Inspect the README", timestamp: new Date() },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "I’ll inspect it.",
+        timestamp: new Date(),
+      },
+      {
+        id: "tool-1",
+        role: "tool",
+        content: "README contents",
+        timestamp: new Date(),
+        toolCall: {
+          id: "call-1",
+          name: "project_read",
+          arguments: { file_path: "README.md" },
+        },
+        toolResult: {
+          id: "call-1",
+          name: "project_read",
+          content: "README contents",
+        },
+      },
+      { id: "assistant-2", role: "assistant", content: "The project is documented.", timestamp: new Date() },
+      { id: "user-2", role: "user", content: "What should I change?", timestamp: new Date() },
+    ];
+
+    expect(buildConversationContextMessages(messages)).toEqual([
+      { role: "user", content: "Inspect the README" },
+      { role: "assistant", content: "I’ll inspect it." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: {
+              name: "project_read",
+              arguments: JSON.stringify({ file_path: "README.md" }),
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call-1",
+        name: "project_read",
+        content: "README contents",
+      },
+      { role: "assistant", content: "The project is documented." },
+      { role: "user", content: "What should I change?" },
+    ]);
+  });
+
+  it("does not send an incomplete historical tool call without a matching result", () => {
+    const messages: Conversation["messages"] = [
+      {
+        id: "tool-incomplete",
+        role: "tool",
+        content: "Running",
+        timestamp: new Date(),
+        toolCall: { id: "call-incomplete", name: "project_read", arguments: { file_path: "README.md" } },
+      },
+      { id: "user-2", role: "user", content: "Continue", timestamp: new Date() },
+    ];
+
+    expect(buildConversationContextMessages(messages)).toEqual([{ role: "user", content: "Continue" }]);
   });
 });
 

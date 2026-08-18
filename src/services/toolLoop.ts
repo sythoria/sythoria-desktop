@@ -68,6 +68,70 @@ interface CompletedToolResult {
   isError: boolean;
 }
 
+export function buildConversationContextMessages(messages: Message[]): ApiContextMessage[] {
+  const contextMessages: ApiContextMessage[] = [];
+
+  for (const message of messages) {
+    if (message.isStreaming || message.excludeFromModelContext) continue;
+
+    if (message.role === "user") {
+      contextMessages.push({
+        role: "user",
+        content: buildUserApiContent(message.content, message.attachments),
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      contextMessages.push({ role: "assistant", content: message.content });
+      continue;
+    }
+
+    // A stored tool entry combines the provider's assistant tool call and the
+    // resulting tool message. Re-expand the pair for subsequent model turns.
+    // Incomplete calls are excluded because provider APIs reject an assistant
+    // tool call that has no matching result.
+    if (!message.toolCall || !message.toolResult) continue;
+
+    const { toolCall, toolResult } = message;
+    contextMessages.push({
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: toolCall.id,
+          type: "function",
+          function: {
+            name: toolCall.name,
+            arguments: JSON.stringify(toolCall.arguments),
+          },
+        },
+      ],
+    });
+    contextMessages.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      name: toolCall.name,
+      content: toolResult.content,
+    });
+
+    if (toolResult.images?.length) {
+      contextMessages.push({
+        role: "user",
+        content: [
+          { type: "text", text: `[Images from MCP tool "${toolCall.name}" — analyze these images:]` },
+          ...toolResult.images.map((image) => ({
+            type: "image_url",
+            image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+          })),
+        ],
+      });
+    }
+  }
+
+  return contextMessages;
+}
+
 function buildToolLimitFallback(results: CompletedToolResult[], error: unknown): string {
   const lines = [
     "**Tool limit reached — partial result preserved.**",
@@ -1290,13 +1354,7 @@ async function runWithToolLoop(
     }
     const projectRun = projectCapability;
     logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
-    const baseMessages =
-      conv?.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming && !m.excludeFromModelContext)
-        .map((m) => ({
-          role: m.role,
-          content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
-        })) ?? [];
+    const baseMessages = buildConversationContextMessages(conv?.messages ?? []);
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;

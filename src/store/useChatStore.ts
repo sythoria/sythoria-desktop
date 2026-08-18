@@ -61,6 +61,7 @@ import {
 import { parseApiError } from "../utils/parseApiError";
 import {
   cancelConversationGenerationQueue,
+  buildConversationContextMessages,
   enqueueConversationGeneration,
   sendWithToolLoop,
   waitForConversationToolLoops,
@@ -68,7 +69,7 @@ import {
 import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
 import { useSkillStore } from "./useSkillStore";
 import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
-import { buildUserApiContent, validateFile } from "../utils/attachments";
+import { validateFile } from "../utils/attachments";
 import {
   uiToast,
   uiLoading,
@@ -1845,13 +1846,7 @@ async function runNormal(
     modelStore.setActiveStreamId(streamId, convId);
 
     const conv = get().conversations.find((c) => c.id === convId);
-    const apiMessages: { role: string; content: string | unknown[] }[] =
-      conv?.messages
-        .filter((m) => (m.role === "user" || m.role === "assistant") && !m.isStreaming && !m.excludeFromModelContext)
-        .map((m) => ({
-          role: m.role,
-          content: m.role === "user" ? buildUserApiContent(m.content, m.attachments) : m.content,
-        })) ?? [];
+    const apiMessages = buildConversationContextMessages(conv?.messages ?? []);
 
     const systemPrompt =
       modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()
