@@ -102,6 +102,7 @@ export default memo(function InputBar({
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const contextDetailsRef = useRef<HTMLDivElement>(null);
+  const composerDockRef = useRef<HTMLDivElement>(null);
 
   const { projects, activeProjectId, setActiveProject, updateProject, isProjectsEnabled } = useProjectStore(
     useShallow((state) => ({
@@ -866,6 +867,28 @@ export default memo(function InputBar({
     };
   }, [constrainContextDetails, currentModel?.id, showContextWindow]);
 
+  useEffect(() => {
+    const dock = composerDockRef.current;
+    const container = dock?.parentElement;
+    if (centered || !dock || !container) return;
+
+    const updateComposerHeight = () => {
+      container.style.setProperty("--chat-composer-height", `${dock.getBoundingClientRect().height}px`);
+    };
+
+    updateComposerHeight();
+    if (typeof ResizeObserver === "undefined") {
+      return () => container.style.removeProperty("--chat-composer-height");
+    }
+
+    const observer = new ResizeObserver(updateComposerHeight);
+    observer.observe(dock);
+    return () => {
+      observer.disconnect();
+      container.style.removeProperty("--chat-composer-height");
+    };
+  }, [centered]);
+
   const composerVisualStateClasses = `${
     conversation?.isTemporary
       ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
@@ -876,10 +899,11 @@ export default memo(function InputBar({
 
   return (
     <div
+      ref={composerDockRef}
       className={`chat-composer-dock transition-[transform,padding] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-standard)] ${
         centered
           ? "flex-1 flex flex-col items-center translate-y-[-7vh] pt-4"
-          : "relative z-20 -mt-24 px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
+          : "absolute inset-x-0 bottom-0 z-20 px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
       }`}
     >
       <div className={`w-full max-w-3xl mx-auto px-2 sm:px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
@@ -1631,7 +1655,7 @@ export default memo(function InputBar({
 
             <p
               id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
-              className="mt-2 text-center text-[11px] text-text-muted"
+              className="mt-2 text-center text-[11px] text-text-secondary/80"
             >
               {isOverLimit ? (
                 <span className="text-red-600 dark:text-red-400" role="alert">

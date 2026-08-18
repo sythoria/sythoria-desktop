@@ -1596,7 +1596,7 @@ const MessageBubble = memo(function MessageBubble({
       animate="visible"
       transition={motionTransitions.content}
     >
-      <div className={`max-w-[85%] ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
+      <div className={`max-w-none ${textSizeClass} text-text-primary leading-relaxed w-full min-w-0`}>
         {hasOpenReasoning && !hideReasoningActivity && (
           <ReasoningBubble
             content={reasoningContent}
@@ -2089,7 +2089,7 @@ function ChatAreaBase({
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
           itemContent={(index, item) => (
-            <div className={index > 0 ? "mt-0.5" : ""}>
+            <div className={`px-8 sm:px-12 lg:px-16 ${index > 0 ? "mt-0.5" : ""}`}>
               <ChatRenderItemView
                 item={item}
                 activeToolActivityId={activeToolActivityId}
@@ -2136,8 +2136,11 @@ function ChatAreaBase({
                     />
                   </div>
                 )}
-                {/* Keep the final message scrollable above the composer's 6rem negative-margin overlap. */}
-                <div aria-hidden="true" className="h-32" />
+                {/* Keep the final message scrollable above the floating composer. */}
+                <div
+                  aria-hidden="true"
+                  style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
+                />
               </>
             ),
           }}
@@ -2265,7 +2268,11 @@ function NonVirtualizedChatArea({
       aria-label="Chat messages"
       aria-live="polite"
     >
-      <div ref={contentRef} className="max-w-3xl mx-auto w-full px-6 pt-8 pb-32 space-y-0.5">
+      <div
+        ref={contentRef}
+        className="w-full space-y-0.5 px-8 pt-8 sm:px-12 lg:px-16"
+        style={{ paddingBottom: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
+      >
         {isTemporary && (
           <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
             <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
