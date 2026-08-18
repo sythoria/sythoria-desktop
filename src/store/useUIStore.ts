@@ -18,6 +18,8 @@ import {
   saveBaseTextSize,
   saveAutoUpdateChecking,
   saveShowContextWindow,
+  saveContextTokenizationMode,
+  type ContextTokenizationMode,
   saveIsLoggingEnabled,
   saveDisableBgActivity,
   saveNetworkSettings,
@@ -91,6 +93,7 @@ interface UIState {
   isLoggingEnabled: boolean;
   isDraggingFile: boolean;
   showContextWindow: boolean;
+  contextTokenizationMode: ContextTokenizationMode;
   showProjectConfigModal: boolean;
   projectConfigModalMode: "create" | "edit";
   projectConfigModalId: string | null;
@@ -139,6 +142,7 @@ interface UIState {
   setIsLoggingEnabled: (value: boolean) => void;
   setIsDraggingFile: (dragging: boolean) => void;
   setShowContextWindow: (value: boolean) => void;
+  setContextTokenizationMode: (value: ContextTokenizationMode) => void;
   setDisableBgActivity: (value: boolean) => void;
   setBlockedHosts: (value: string[]) => void;
   setAllowedLocalEndpoints: (value: string[]) => void;
@@ -246,6 +250,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isLoggingEnabled: true,
   isDraggingFile: false,
   showContextWindow: false,
+  contextTokenizationMode: "local",
   showProjectConfigModal: false,
   projectConfigModalMode: "create",
   projectConfigModalId: null,
@@ -530,6 +535,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   setShowContextWindow: (value) => {
     set({ showContextWindow: value });
     saveShowContextWindow(value);
+  },
+  setContextTokenizationMode: (value) => {
+    set({ contextTokenizationMode: value });
+    saveContextTokenizationMode(value);
   },
   setDisableBgActivity: (value) => {
     set({ disableBgActivity: value });

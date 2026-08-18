@@ -241,6 +241,7 @@ const BASE_TEXT_SIZE_KEY = "sythoria-base-text-size";
 const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
+const CONTEXT_TOKENIZATION_MODE_KEY = "sythoria-context-tokenization-mode";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
 const SELECTED_MODEL_KEY = "sythoria-selected-model";
 const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
@@ -387,6 +388,7 @@ const LEGACY_PREFERENCE_KEYS = [
   AUTO_UPDATE_CHECKING_KEY,
   SYSTEM_PROMPT_KEY,
   SHOW_CONTEXT_WINDOW_KEY,
+  CONTEXT_TOKENIZATION_MODE_KEY,
   MAX_TOOL_STEPS_KEY,
   SELECTED_MODEL_KEY,
   LOGGING_ENABLED_KEY,
@@ -1689,6 +1691,29 @@ export async function saveShowContextWindow(value: boolean): Promise<void> {
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save show context window setting", { error: e });
+  }
+}
+
+export type ContextTokenizationMode = "local" | "endpoint";
+
+export async function loadContextTokenizationMode(): Promise<ContextTokenizationMode> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(CONTEXT_TOKENIZATION_MODE_KEY);
+    if (raw === "local" || raw === "endpoint") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load context tokenization mode", { error: e });
+  }
+  return "local";
+}
+
+export async function saveContextTokenizationMode(value: ContextTokenizationMode): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(CONTEXT_TOKENIZATION_MODE_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save context tokenization mode", { error: e });
   }
 }
 

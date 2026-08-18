@@ -65,6 +65,20 @@ export const es = {
   "general.contextIndicator": "Mostrar Ventana de Contexto",
   "general.contextIndicatorDesc":
     "Mostrar un indicador radial de uso de contexto junto al selector de modelo en el chat",
+  "general.contextCalculation": "Cálculo de tokens",
+  "general.contextCalculationDesc": "Elige cómo cuenta los tokens de entrada el indicador de contexto.",
+  "general.contextCalculationLocal": "Estimación local",
+  "general.contextCalculationLocalDesc": "Privada y rápida, pero puede ser inexacta",
+  "general.contextCalculationEndpoint": "Tokenizador del endpoint",
+  "general.contextCalculationEndpointDesc": "Envía el contexto con el ID del modelo para un recuento más preciso",
+
+  "context.calculationSource": "Calculado por:",
+  "context.localEstimate": "Estimación local",
+  "context.endpointLoading": "Tokenizador del endpoint…",
+  "context.endpointTokenizer": "Tokenizador del endpoint",
+  "context.localFallback": "Alternativa local",
+  "context.breakdown": "Desglose:",
+  "context.endpointError": "Recuento del endpoint no disponible.",
 
   "general.language": "Idioma",
   "general.languageDesc": "Cambia el idioma de visualización de la aplicación",

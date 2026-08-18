@@ -104,7 +104,7 @@ struct LaunchRuntimeState {
     frontend_ready: std::sync::atomic::AtomicBool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChatMessage {
     role: String,
     // Either a plain string or an OpenAI multipart content array
@@ -398,6 +398,339 @@ use commands::config::get_model_config_and_key;
 
 fn truncate_error(body: &str) -> String {
     endpoint_security::sanitize_provider_error(body)
+}
+
+fn generic_tokenizer_endpoint_url(api_url: &str) -> Result<url::Url, AppError> {
+    let mut url = url::Url::parse(api_url)
+        .map_err(|error| AppError::UrlValidationError(error.to_string()))?;
+    let path = url.path().trim_end_matches('/');
+    let known_suffixes = [
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/v1/completions",
+        "/completions",
+        "/v1/messages",
+        "/messages",
+    ];
+    let mut prefix = known_suffixes
+        .iter()
+        .find_map(|suffix| path.strip_suffix(suffix))
+        .unwrap_or(path);
+    if prefix == "/v1" {
+        prefix = "";
+    } else if let Some(without_version) = prefix.strip_suffix("/v1") {
+        prefix = without_version;
+    }
+    let tokenizer_path = if prefix.is_empty() {
+        "/tokenize".to_string()
+    } else {
+        format!("{}/tokenize", prefix.trim_end_matches('/'))
+    };
+    url.set_path(&tokenizer_path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn gemini_token_count_endpoint_url(api_url: &str, model: &str) -> Result<url::Url, AppError> {
+    let mut url = url::Url::parse(api_url)
+        .map_err(|error| AppError::UrlValidationError(error.to_string()))?;
+    let version = url
+        .path_segments()
+        .and_then(|segments| {
+            segments
+                .filter(|segment| {
+                    segment.starts_with('v')
+                        && segment.len() <= 16
+                        && segment
+                            .chars()
+                            .all(|character| character.is_ascii_alphanumeric())
+                })
+                .next()
+        })
+        .unwrap_or("v1beta")
+        .to_string();
+    let model = model.strip_prefix("models/").unwrap_or(model);
+    if model.is_empty()
+        || model.len() > 200
+        || !model.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        return Err(AppError::UrlValidationError(
+            "The Gemini model ID cannot be used in the token-count endpoint".to_string(),
+        ));
+    }
+    url.set_path(&format!("/{version}/models/{model}:countTokens"));
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn messages_token_count_endpoint_url(api_url: &str) -> Result<url::Url, AppError> {
+    let mut url = url::Url::parse(api_url)
+        .map_err(|error| AppError::UrlValidationError(error.to_string()))?;
+    let path = url.path().trim_end_matches('/');
+    let count_path = if path.ends_with("/v1/messages") {
+        format!("{path}/count_tokens")
+    } else {
+        let known_suffixes = [
+            "/v1/chat/completions",
+            "/v1/completions",
+            "/v1/responses",
+            "/v1",
+        ];
+        let prefix = known_suffixes
+            .iter()
+            .find_map(|suffix| path.strip_suffix(suffix))
+            .unwrap_or(path)
+            .trim_end_matches('/');
+        if prefix.is_empty() {
+            "/v1/messages/count_tokens".to_string()
+        } else {
+            format!("{prefix}/v1/messages/count_tokens")
+        }
+    };
+    url.set_path(&count_path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn messages_token_count_body(model: &str, messages: Vec<ChatMessage>) -> serde_json::Value {
+    let (system, mut anthropic_messages) = anthropic::convert_messages(messages);
+    if anthropic_messages.is_empty() {
+        anthropic_messages.push(anthropic::AnthropicMessage {
+            role: "user".to_string(),
+            content: serde_json::Value::String(String::new()),
+        });
+    }
+    let mut body = serde_json::json!({ "model": model, "messages": anthropic_messages });
+    if let Some(system) = system {
+        body["system"] = serde_json::Value::String(system);
+    }
+    body
+}
+
+fn text_from_openai_content(content: Option<&serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                (part.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+                    .then(|| part.get("text").and_then(serde_json::Value::as_str))
+                    .flatten()
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(value) => value.to_string(),
+        None => String::new(),
+    }
+}
+
+fn gemini_parts_from_openai_content(content: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+    let Some(content) = content else {
+        return Vec::new();
+    };
+    if let Some(text) = content.as_str() {
+        return vec![serde_json::json!({ "text": text })];
+    }
+    let Some(parts) = content.as_array() else {
+        return vec![serde_json::json!({ "text": content.to_string() })];
+    };
+
+    parts
+        .iter()
+        .filter_map(
+            |part| match part.get("type").and_then(serde_json::Value::as_str) {
+                Some("text") => part
+                    .get("text")
+                    .cloned()
+                    .map(|text| serde_json::json!({ "text": text })),
+                Some("image_url") => {
+                    let image_url = part
+                        .get("image_url")
+                        .and_then(|value| value.get("url"))
+                        .and_then(serde_json::Value::as_str)?;
+                    let data = image_url.strip_prefix("data:")?;
+                    let (mime_type, encoded) = data.split_once(";base64,")?;
+                    Some(serde_json::json!({
+                        "inlineData": { "mimeType": mime_type, "data": encoded }
+                    }))
+                }
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+fn gemini_token_count_body(model: &str, messages: &[ChatMessage]) -> serde_json::Value {
+    let mut system_prompts = Vec::new();
+    let mut contents = Vec::new();
+
+    for message in messages {
+        if message.role == "system" {
+            let system_text = text_from_openai_content(message.content.as_ref());
+            if !system_text.is_empty() {
+                system_prompts.push(system_text);
+            }
+            continue;
+        }
+
+        let mut parts = gemini_parts_from_openai_content(message.content.as_ref());
+        if let Some(tool_calls) = &message.tool_calls {
+            for tool_call in tool_calls {
+                let args = serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                parts.push(serde_json::json!({
+                    "functionCall": { "name": tool_call.function.name, "args": args }
+                }));
+            }
+        }
+        if message.role == "tool" {
+            parts = vec![serde_json::json!({
+                "functionResponse": {
+                    "name": message.name.clone().unwrap_or_else(|| "tool".to_string()),
+                    "response": { "content": text_from_openai_content(message.content.as_ref()) }
+                }
+            })];
+        }
+        if parts.is_empty() {
+            parts.push(serde_json::json!({ "text": "" }));
+        }
+        contents.push(serde_json::json!({
+            "role": if message.role == "assistant" { "model" } else { "user" },
+            "parts": parts
+        }));
+    }
+
+    if contents.is_empty() {
+        contents.push(serde_json::json!({ "role": "user", "parts": [{ "text": "" }] }));
+    }
+    let mut body = serde_json::json!({
+        "generateContentRequest": {
+            "model": format!("models/{}", model.strip_prefix("models/").unwrap_or(model)),
+            "contents": contents
+        }
+    });
+    if !system_prompts.is_empty() {
+        body["generateContentRequest"]["systemInstruction"] = serde_json::json!({
+            "parts": [{ "text": system_prompts.join("\n\n") }]
+        });
+    }
+    body
+}
+
+fn parse_token_count(value: &serde_json::Value) -> Option<u64> {
+    value
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| value.get("token_count").and_then(serde_json::Value::as_u64))
+        .or_else(|| value.get("num_tokens").and_then(serde_json::Value::as_u64))
+        .or_else(|| value.get("totalTokens").and_then(serde_json::Value::as_u64))
+        .or_else(|| {
+            value
+                .get("input_tokens")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .or_else(|| {
+            value
+                .get("tokens")
+                .and_then(serde_json::Value::as_array)
+                .map(|tokens| tokens.len() as u64)
+        })
+        .or_else(|| {
+            value
+                .get("usage")
+                .and_then(|usage| {
+                    usage
+                        .get("prompt_tokens")
+                        .or_else(|| usage.get("input_tokens"))
+                })
+                .and_then(serde_json::Value::as_u64)
+        })
+}
+
+#[tauri::command]
+async fn count_model_tokens(
+    app: tauri::AppHandle,
+    config_id: String,
+    messages: Vec<ChatMessage>,
+) -> Result<u64, AppError> {
+    ensure_online()?;
+    let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    let parsed_api_url = url::Url::parse(&api_url)
+        .map_err(|error| AppError::UrlValidationError(error.to_string()))?;
+    let host = parsed_api_url
+        .host_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let provider = provider.unwrap_or_default().to_ascii_lowercase();
+    let is_gemini = host == "generativelanguage.googleapis.com";
+    let is_anthropic = host == "api.anthropic.com" || provider == "anthropic";
+    let tokenizer_url = if is_gemini {
+        gemini_token_count_endpoint_url(&api_url, &model)?
+    } else if is_anthropic {
+        messages_token_count_endpoint_url(&api_url)?
+    } else {
+        generic_tokenizer_endpoint_url(&api_url)?
+    };
+    let endpoint = endpoint_security::validate_http_endpoint(
+        tokenizer_url.as_str(),
+        !api_key.is_empty(),
+        std::time::Duration::from_secs(20),
+    )
+    .await?;
+    let body = if is_gemini {
+        gemini_token_count_body(&model, &messages)
+    } else if is_anthropic {
+        messages_token_count_body(&model, messages.clone())
+    } else if messages.is_empty() {
+        serde_json::json!({ "model": model, "prompt": "" })
+    } else {
+        serde_json::json!({ "model": model, "messages": messages })
+    };
+    let mut request = endpoint
+        .client
+        .post(endpoint.url)
+        .header("Content-Type", "application/json")
+        .json(&body);
+    if !api_key.is_empty() {
+        request = if is_gemini {
+            request.header("x-goog-api-key", &api_key)
+        } else if is_anthropic {
+            request
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+        } else {
+            request.header("Authorization", format!("Bearer {}", api_key))
+        };
+    }
+
+    let response = request.send().await?;
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let detail = truncate_error(&response.text().await.unwrap_or_default());
+        if status == 404 && !is_gemini && !is_anthropic {
+            return Err(AppError::ConfigIo(
+                "This provider does not expose a compatible token-count endpoint. Use Local estimate for this model."
+                    .to_string(),
+            ));
+        }
+        return Err(AppError::ApiError {
+            status,
+            message: format!("Tokenizer request failed: {}", detail),
+        });
+    }
+
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| AppError::ParseError(error.to_string()))?;
+    parse_token_count(&value).ok_or_else(|| {
+        AppError::ParseError("Tokenizer response did not contain a token count".to_string())
+    })
 }
 
 #[tauri::command]
@@ -1940,12 +2273,10 @@ pub fn run() {
                 }
             }
             init_network_settings(app.app_handle());
-            app.state::<TrayRuntimeState>()
-                .close_to_tray
-                .store(
-                    load_close_to_tray_preference(app.app_handle()),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
+            app.state::<TrayRuntimeState>().close_to_tray.store(
+                load_close_to_tray_preference(app.app_handle()),
+                std::sync::atomic::Ordering::Relaxed,
+            );
             let registry = app.state::<project::ProjectRegistry>();
             if let Err(error) = registry.load_from_disk(app.app_handle()) {
                 log::error!("Failed to load projects from disk: {error}");
@@ -2198,6 +2529,7 @@ pub fn run() {
             cancel_chat_stream,
             chat_completion_tools,
             chat_stream_tools,
+            count_model_tokens,
             generate_title,
             check_api,
             check_ollama,
@@ -2312,8 +2644,9 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        completion_token_params, tray_should_show, truncate_error, ChatRequestTools,
-        EphemeralFileCleanup, FileTokenRegistry, NetworkConfig,
+        completion_token_params, gemini_token_count_endpoint_url, generic_tokenizer_endpoint_url,
+        messages_token_count_endpoint_url, parse_token_count, tray_should_show, truncate_error,
+        ChatRequestTools, EphemeralFileCleanup, FileTokenRegistry, NetworkConfig,
     };
 
     #[test]
@@ -2345,6 +2678,83 @@ mod tests {
         assert_eq!(
             completion_token_params(Some("OpenRouter"), Some(2048)),
             (Some(2048), None)
+        );
+    }
+
+    #[test]
+    fn generic_tokenizer_endpoint_uses_provider_origin_and_preserves_proxy_prefix() {
+        assert_eq!(
+            generic_tokenizer_endpoint_url("http://localhost:8000/v1/chat/completions")
+                .unwrap()
+                .as_str(),
+            "http://localhost:8000/tokenize"
+        );
+        assert_eq!(
+            generic_tokenizer_endpoint_url(
+                "https://example.com/proxy/v1/chat/completions?ignored=true"
+            )
+            .unwrap()
+            .as_str(),
+            "https://example.com/proxy/tokenize"
+        );
+        assert_eq!(
+            generic_tokenizer_endpoint_url("http://localhost:8000/v1")
+                .unwrap()
+                .as_str(),
+            "http://localhost:8000/tokenize"
+        );
+    }
+
+    #[test]
+    fn gemini_token_count_endpoint_uses_native_model_route() {
+        assert_eq!(
+            gemini_token_count_endpoint_url(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                "gemini-3.1-pro"
+            )
+            .unwrap()
+            .as_str(),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:countTokens"
+        );
+    }
+
+    #[test]
+    fn anthropic_token_count_endpoint_extends_the_configured_messages_route() {
+        assert_eq!(
+            messages_token_count_endpoint_url("https://api.anthropic.com/v1/messages")
+                .unwrap()
+                .as_str(),
+            "https://api.anthropic.com/v1/messages/count_tokens"
+        );
+    }
+
+    #[test]
+    fn nim_tokenizer_endpoint_replaces_the_chat_completion_route() {
+        assert_eq!(
+            generic_tokenizer_endpoint_url("https://integrate.api.nvidia.com/v1/chat/completions")
+                .unwrap()
+                .as_str(),
+            "https://integrate.api.nvidia.com/tokenize"
+        );
+    }
+
+    #[test]
+    fn tokenizer_response_accepts_count_and_token_array_shapes() {
+        assert_eq!(
+            parse_token_count(&serde_json::json!({ "count": 42 })),
+            Some(42)
+        );
+        assert_eq!(
+            parse_token_count(&serde_json::json!({ "tokens": [1, 2, 3] })),
+            Some(3)
+        );
+        assert_eq!(
+            parse_token_count(&serde_json::json!({ "usage": { "prompt_tokens": 17 } })),
+            Some(17)
+        );
+        assert_eq!(
+            parse_token_count(&serde_json::json!({ "totalTokens": 23 })),
+            Some(23)
         );
     }
 

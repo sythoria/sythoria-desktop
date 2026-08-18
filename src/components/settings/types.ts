@@ -223,10 +223,20 @@ export const SEARCHABLE_SETTINGS: SearchableSetting[] = [
   {
     id: "setting-general-context-window",
     label: "Show Context Window",
-    description: "Display the radial context window token usage indicator in the chat input",
+    description: "Display the context usage indicator and choose local or endpoint token counting",
     sectionId: "general",
     sectionLabel: "General",
-    keywords: ["context window", "radial", "token usage", "show context", "context indicator", "usage limit"],
+    keywords: [
+      "context window",
+      "radial",
+      "token usage",
+      "show context",
+      "context indicator",
+      "usage limit",
+      "tokenizer",
+      "local estimate",
+      "privacy",
+    ],
   },
   {
     id: "setting-general-text-size",

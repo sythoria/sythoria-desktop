@@ -28,6 +28,8 @@ export function GeneralSection() {
   const setBaseTextSize = useUIStore((s) => s.setBaseTextSize);
   const showContextWindow = useUIStore((s) => s.showContextWindow);
   const setShowContextWindow = useUIStore((s) => s.setShowContextWindow);
+  const contextTokenizationMode = useUIStore((s) => s.contextTokenizationMode);
+  const setContextTokenizationMode = useUIStore((s) => s.setContextTokenizationMode);
 
   const autoUpdateChecking = useUIStore((s) => s.autoUpdateChecking);
   const setAutoUpdateChecking = useUIStore((s) => s.setAutoUpdateChecking);
@@ -168,6 +170,33 @@ export function GeneralSection() {
               label={t("general.contextIndicator")}
               description={t("general.contextIndicatorDesc")}
             />
+            <div className="mt-3 ml-0 sm:ml-11 space-y-2">
+              <label
+                htmlFor="context-tokenization-mode-trigger"
+                className="text-sm font-medium text-text-primary block"
+              >
+                {t("general.contextCalculation")}
+              </label>
+              <p className="text-xs text-text-muted">{t("general.contextCalculationDesc")}</p>
+              <Select
+                id="context-tokenization-mode"
+                value={contextTokenizationMode}
+                onChange={(value) => setContextTokenizationMode(value as "local" | "endpoint")}
+                options={[
+                  {
+                    value: "local",
+                    label: t("general.contextCalculationLocal"),
+                    description: t("general.contextCalculationLocalDesc"),
+                  },
+                  {
+                    value: "endpoint",
+                    label: t("general.contextCalculationEndpoint"),
+                    description: t("general.contextCalculationEndpointDesc"),
+                  },
+                ]}
+                aria-label={t("general.contextCalculation")}
+              />
+            </div>
           </div>
 
           {/* Base Text Size Segmented Pill Selector */}

@@ -65,6 +65,20 @@ export const fr = {
   "general.contextIndicator": "Afficher la fenêtre de contexte",
   "general.contextIndicatorDesc":
     "Afficher un indicateur radial d'utilisation du contexte à côté du sélecteur de modèle",
+  "general.contextCalculation": "Calcul des jetons",
+  "general.contextCalculationDesc": "Choisissez comment l’indicateur compte les jetons d’entrée.",
+  "general.contextCalculationLocal": "Estimation locale",
+  "general.contextCalculationLocalDesc": "Privée et rapide, mais potentiellement imprécise",
+  "general.contextCalculationEndpoint": "Tokenizer du endpoint",
+  "general.contextCalculationEndpointDesc": "Envoie le contexte avec l’ID du modèle pour un calcul plus précis",
+
+  "context.calculationSource": "Calculé par :",
+  "context.localEstimate": "Estimation locale",
+  "context.endpointLoading": "Tokenizer du endpoint…",
+  "context.endpointTokenizer": "Tokenizer du endpoint",
+  "context.localFallback": "Repli local",
+  "context.breakdown": "Répartition :",
+  "context.endpointError": "Calcul par endpoint indisponible.",
 
   "general.language": "Langue",
   "general.languageDesc": "Modifier la langue d'affichage de l'application",

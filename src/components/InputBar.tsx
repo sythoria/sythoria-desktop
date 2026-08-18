@@ -39,7 +39,9 @@ import { useChatStore } from "../store/useChatStore";
 import type { SendMessageStatus } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { estimateConversationTokens } from "../utils/tokens";
+import { parseApiError } from "../utils/parseApiError";
 import { resolveContextBudget } from "../services/contextAssembler";
+import { buildConversationContextMessages } from "../services/toolLoop";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { useTranslation } from "../utils/i18n";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
@@ -91,6 +93,11 @@ export default memo(function InputBar({
   const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
+  const [endpointTokenCount, setEndpointTokenCount] = useState<{
+    count: number | null;
+    loading: boolean;
+    error: string | null;
+  }>({ count: null, loading: false, error: null });
   const editorHandleRef = useRef<PromptEditorHandle>(null);
   const plusDropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
@@ -177,6 +184,8 @@ export default memo(function InputBar({
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
   const showContextWindow = useUIStore((s) => s.showContextWindow);
+  const contextTokenizationMode = useUIStore((s) => s.contextTokenizationMode);
+  const offlineMode = useUIStore((s) => s.offlineMode);
   const storeActiveConversationId = useChatStore((s) => s.activeId);
   const activeConversationId = conversationId || storeActiveConversationId;
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
@@ -598,10 +607,7 @@ export default memo(function InputBar({
     const submittedText = submittedValue.trim();
     const submittedMcpServerIds = [...submittedDraft.mcpServerIds];
     const submittedAttachments = attachments;
-    if (
-      (submittedText.length === 0 && submittedAttachments.length === 0) ||
-      submittedValue.length > MAX_INPUT_LENGTH
-    ) {
+    if ((submittedText.length === 0 && submittedAttachments.length === 0) || submittedValue.length > MAX_INPUT_LENGTH) {
       return;
     }
     const status = await onSend(
@@ -761,7 +767,9 @@ export default memo(function InputBar({
       ? currentModel.systemPromptOverride
       : systemPrompt;
   const tokenBreakdown = estimateConversationTokens(conversation?.messages || [], activeSystemPrompt);
-  const estimatedTokens = tokenBreakdown.total;
+  const localEstimatedTokens = tokenBreakdown.total;
+  const endpointCountAvailable = contextTokenizationMode === "endpoint" && endpointTokenCount.count !== null;
+  const estimatedTokens = endpointCountAvailable ? endpointTokenCount.count! : localEstimatedTokens;
   const contextBudget = currentModel
     ? resolveContextBudget(
         currentModel,
@@ -786,6 +794,49 @@ export default memo(function InputBar({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset =
     percentage === null ? circumference * 0.25 : circumference - (percentage / 100) * circumference;
+
+  useEffect(() => {
+    if (!showContextWindow || contextTokenizationMode !== "endpoint" || !currentModel) {
+      setEndpointTokenCount({ count: null, loading: false, error: null });
+      return;
+    }
+
+    if (offlineMode) {
+      setEndpointTokenCount({ count: null, loading: false, error: "Unavailable while Offline Mode is enabled." });
+      return;
+    }
+
+    let cancelled = false;
+    setEndpointTokenCount({ count: null, loading: true, error: null });
+    const timeout = window.setTimeout(() => {
+      const messages = buildConversationContextMessages(conversation?.messages ?? []);
+      if (activeSystemPrompt.trim()) {
+        messages.unshift({ role: "system", content: activeSystemPrompt });
+      }
+
+      void invoke<number>("count_model_tokens", { configId: currentModel.id, messages })
+        .then((count) => {
+          if (!cancelled) setEndpointTokenCount({ count, loading: false, error: null });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const message = parseApiError(error).message;
+          setEndpointTokenCount({ count: null, loading: false, error: message });
+        });
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    activeSystemPrompt,
+    contextTokenizationMode,
+    conversation?.messages,
+    currentModel,
+    offlineMode,
+    showContextWindow,
+  ]);
 
   const constrainContextDetails = useCallback(() => {
     const details = contextDetailsRef.current;
@@ -1149,6 +1200,18 @@ export default memo(function InputBar({
                             />
                           </div>
                           <div className="space-y-1.5 text-[11px] text-text-secondary">
+                            <div className="flex justify-between gap-3">
+                              <span>{t("context.calculationSource")}</span>
+                              <span className="font-medium text-right text-text-primary">
+                                {contextTokenizationMode === "local"
+                                  ? t("context.localEstimate")
+                                  : endpointTokenCount.loading
+                                    ? t("context.endpointLoading")
+                                    : endpointCountAvailable
+                                      ? t("context.endpointTokenizer")
+                                      : t("context.localFallback")}
+                              </span>
+                            </div>
                             <div className="flex justify-between">
                               <span>Usage:</span>
                               <span className="font-semibold font-mono text-text-primary">
@@ -1165,6 +1228,12 @@ export default memo(function InputBar({
                                     {configuredContextSize.toLocaleString()}
                                   </span>
                                 </div>
+                                {endpointCountAvailable && (
+                                  <div className="flex justify-between gap-3 text-text-muted">
+                                    <span>{t("context.breakdown")}</span>
+                                    <span className="text-right">{t("context.localEstimate")}</span>
+                                  </div>
+                                )}
                                 <div className="flex justify-between">
                                   <span>System Prompt:</span>
                                   <span className="font-mono text-text-primary">
@@ -1203,6 +1272,11 @@ export default memo(function InputBar({
                                     {Math.max(0, inputBudget - estimatedTokens).toLocaleString()}
                                   </span>
                                 </div>
+                                {contextTokenizationMode === "endpoint" && endpointTokenCount.error && (
+                                  <p className="text-amber-500 mt-1 leading-normal text-[10px]">
+                                    {t("context.endpointError")} {endpointTokenCount.error}
+                                  </p>
+                                )}
                               </>
                             ) : (
                               <p className="text-amber-500 mt-1 italic leading-normal text-[10px]">
