@@ -904,10 +904,11 @@ export default memo(function InputBar({
       className={`chat-composer-dock transition-[transform,padding] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-standard)] ${
         centered
           ? "flex-1 flex flex-col items-center translate-y-[-7vh] pt-4"
-          : "absolute inset-x-0 bottom-0 z-20 px-4 pb-[env(safe-area-inset-bottom,16px)] pt-2 md:px-0 md:pb-4"
+          : "absolute inset-x-0 bottom-0 z-20 px-4 pt-2 md:px-0"
       }`}
     >
-      <div className={`w-full max-w-3xl mx-auto px-2 sm:px-6 ${centered ? "" : "pb-4 md:pb-6 pt-2"}`}>
+      {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
+      <div className={`relative z-10 w-full max-w-4xl mx-auto px-2 sm:px-6 ${centered ? "" : "pt-2"}`}>
         {conversation?.isSubagent ? (
           <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
             <Bot size={24} className="mb-2 text-text-muted/70" />
@@ -1399,7 +1400,7 @@ export default memo(function InputBar({
                 <div
                   className={`relative flex flex-wrap items-center gap-2 ${projectDropdownOpen ? "z-30" : "z-0"} ${
                     isProjectsEnabled
-                      ? `chat-composer-surface -mt-px mx-6 min-h-10 w-[calc(100%-3rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
+                      ? `chat-composer-surface chat-composer-project-row -mt-px mx-4 min-h-10 w-[calc(100%-2rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
                           conversation?.isTemporary
                             ? "border-dashed before:pointer-events-none before:absolute before:inset-0 before:rounded-b-2xl before:bg-accent/[0.03]"
                             : ""
@@ -1670,36 +1671,40 @@ export default memo(function InputBar({
                 </div>
               )}
             </div>
-
-            <p
-              id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
-              className="mt-2 text-center text-[11px] text-text-secondary/80"
-            >
-              {isOverLimit ? (
-                <span className="text-red-600 dark:text-red-400" role="alert">
-                  Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
-                </span>
-              ) : isStreaming ? (
-                <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
-                  <span>Generating response</span>
-                  <span className="generating-dots">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </span>
-              ) : isSearchEnabled ? (
-                <span className="flex items-center justify-center gap-1.5">
-                  <Search size={11} className="text-text-secondary" />
-                  Web Search enabled
-                </span>
-              ) : (
-                t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."
-              )}
-            </p>
           </>
         )}
       </div>
+
+      {!conversation?.isSubagent && (
+        <p
+          id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
+          className={`relative z-10 mt-2 bg-chat px-4 py-2 text-center text-[11px] text-text-secondary/80 ${
+            centered ? "w-full" : "-mx-4 w-[calc(100%+2rem)] md:mx-0 md:w-full"
+          }`}
+        >
+          {isOverLimit ? (
+            <span className="text-red-600 dark:text-red-400" role="alert">
+              Message exceeds {MAX_INPUT_LENGTH.toLocaleString()} character limit
+            </span>
+          ) : isStreaming ? (
+            <span className="flex items-center justify-center gap-2 text-text-secondary font-medium animate-generating-pulse">
+              <span>Generating response</span>
+              <span className="generating-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+            </span>
+          ) : isSearchEnabled ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <Search size={11} className="text-text-secondary" />
+              Web Search enabled
+            </span>
+          ) : (
+            t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."
+          )}
+        </p>
+      )}
 
       {previewImageIndex !== null && imageAttachments.length > 0 && (
         <ImagePreviewModal

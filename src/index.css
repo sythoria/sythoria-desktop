@@ -411,6 +411,37 @@
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
 }
 
+/* The project selector is the composer's footer, not a floating card. Its
+ * inherited surface shadow otherwise creates a dark horizontal band below it. */
+.chat-composer-project-row {
+  box-shadow: none;
+}
+.dark .chat-composer-project-row {
+  box-shadow: none;
+}
+
+/*
+ * The floating composer stays translucent, but message text must not show
+ * through around its project/context footer. Fade a chat-coloured underlay in
+ * behind the dock: it remains transparent through the editor, then fully
+ * masks the scrollable conversation at the project/footer boundary.
+ */
+.chat-composer-backdrop {
+  position: absolute;
+  inset-inline: 0;
+  top: 1rem;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--theme-chat) 65%, transparent) 2.75rem,
+    var(--theme-chat) 4.5rem,
+    var(--theme-chat) 100%
+  );
+}
+
 /* WebKit may keep a filler <br> in an otherwise empty contenteditable. The
    placeholder is a sibling overlay, never generated editable content. */
 .chat-prompt-editor[data-editor-empty="true"] > br {
