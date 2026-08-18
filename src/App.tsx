@@ -1576,7 +1576,8 @@ function App() {
                       <AnimatePresence>
                         {showScrollToBottom && messages.length > 0 && !isPrimaryGenerating && (
                           <motion.div
-                            className="absolute bottom-28 left-1/2 z-30 -translate-x-1/2"
+                            className="absolute left-1/2 z-30 -translate-x-1/2"
+                            style={{ bottom: "calc(var(--chat-composer-height, 14rem) + 0.75rem)" }}
                             initial={{ opacity: 0, y: 12, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 12, scale: 0.9 }}
