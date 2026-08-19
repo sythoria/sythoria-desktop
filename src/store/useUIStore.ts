@@ -61,7 +61,7 @@ export interface ToolConfirmation {
   destination?: string;
 }
 
-export type AuxiliaryTab = "review" | "files" | "terminals" | "activity" | "artifacts" | "chat";
+export type AuxiliaryTab = "review" | "files" | "terminals" | "activity" | "artifacts" | "chat" | "knowledge";
 
 interface UIState {
   view: "chat" | "settings";
