@@ -14,6 +14,7 @@ import {
   Shield,
   Mic,
   BookOpen,
+  Database,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -37,6 +38,7 @@ export type SectionId =
   | "marketplace"
   | "whisper"
   | "skills"
+  | "knowledge"
   | "logs";
 
 export interface SettingSectionItem {
@@ -134,6 +136,22 @@ export const SECTION_GROUPS: SettingSectionGroup[] = [
         label: "MCP Servers",
         icon: Cpu,
         keywords: ["mcp", "servers", "tools", "model context protocol", "stdio", "sse", "env", "secrets"],
+      },
+      {
+        id: "knowledge",
+        label: "Knowledge & RAG",
+        icon: Database,
+        keywords: [
+          "knowledge",
+          "rag",
+          "documents",
+          "vector",
+          "embeddings",
+          "pdf",
+          "collections",
+          "sqlite-vec",
+          "hybrid search",
+        ],
       },
       {
         id: "browser",
