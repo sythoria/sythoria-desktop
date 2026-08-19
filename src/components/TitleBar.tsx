@@ -71,6 +71,8 @@ export function TitleBar() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const keybinds = useKeybindStore((state) => state.keybinds);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const hasDraggedRef = useRef(false);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -90,34 +92,51 @@ export function TitleBar() {
   }, []);
 
   useEffect(() => {
-    if (!isWindows) return;
-
     let fallbackTimer = 0;
     const root = document.documentElement;
 
     function finishWindowDrag() {
       window.clearTimeout(fallbackTimer);
-      root.classList.remove("window-dragging");
+      if (isWindows) {
+        root.classList.remove("window-dragging");
+      }
+      pointerStartRef.current = null;
     }
 
-    function handleWindowDragStart(event: PointerEvent) {
+    function handlePointerDown(event: PointerEvent) {
       if (event.button !== 0 || !(event.target instanceof Element)) return;
       if (!event.target.closest("[data-tauri-drag-region]")) return;
-      if (event.target.closest("button, a, input, select, textarea, [role='menuitem']")) return;
+      if (event.target.closest("button, a, input, select, textarea, [role='menuitem'], [role='menu']")) return;
 
-      root.classList.add("window-dragging");
+      pointerStartRef.current = { x: event.clientX, y: event.clientY };
+      hasDraggedRef.current = false;
+
+      if (isWindows) {
+        root.classList.add("window-dragging");
+      }
       window.clearTimeout(fallbackTimer);
       fallbackTimer = window.setTimeout(finishWindowDrag, 10_000);
     }
 
-    document.addEventListener("pointerdown", handleWindowDragStart, true);
+    function handlePointerMove(event: PointerEvent) {
+      if (!pointerStartRef.current) return;
+      const dx = Math.abs(event.clientX - pointerStartRef.current.x);
+      const dy = Math.abs(event.clientY - pointerStartRef.current.y);
+      if (dx > 5 || dy > 5) {
+        hasDraggedRef.current = true;
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointermove", handlePointerMove, true);
     window.addEventListener("pointerup", finishWindowDrag, true);
     window.addEventListener("pointercancel", finishWindowDrag, true);
     window.addEventListener("blur", finishWindowDrag);
 
     return () => {
       finishWindowDrag();
-      document.removeEventListener("pointerdown", handleWindowDragStart, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointermove", handlePointerMove, true);
       window.removeEventListener("pointerup", finishWindowDrag, true);
       window.removeEventListener("pointercancel", finishWindowDrag, true);
       window.removeEventListener("blur", finishWindowDrag);
@@ -179,6 +198,16 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
+      onDoubleClick={(event) => {
+        if (event.button !== 0) return;
+        if (!(event.target instanceof Element)) return;
+        if (event.target.closest("button, a, input, select, textarea, [role='menuitem'], [role='menu']")) return;
+        if (hasDraggedRef.current) {
+          hasDraggedRef.current = false;
+          return;
+        }
+        void appWindow.toggleMaximize();
+      }}
       className="h-[32px] w-full flex justify-between items-center select-none shrink-0 border-b border-border/30 bg-surface z-50 relative"
     >
       <div
