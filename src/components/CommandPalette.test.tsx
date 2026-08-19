@@ -13,15 +13,18 @@ const mocks = vi.hoisted(() => ({
   zoomReset: vi.fn(),
 }));
 
-vi.mock("../store/useUIStore", () => ({
-  useUIStore: () => ({
+vi.mock("../store/useUIStore", () => {
+  const storeState = {
     showCommandPalette: true,
     setShowCommandPalette: mocks.setShowCommandPalette,
     setView: mocks.setView,
     setActiveSection: mocks.setActiveSection,
     checkForUpdates: mocks.checkForUpdates,
-  }),
-}));
+  };
+  const useUIStore = () => storeState;
+  useUIStore.getState = () => storeState;
+  return { useUIStore };
+});
 
 vi.mock("../store/useChatStore", () => ({
   useChatStore: {
@@ -29,13 +32,17 @@ vi.mock("../store/useChatStore", () => ({
   },
 }));
 
-vi.mock("../store/useKeybindStore", () => ({
-  useKeybindStore: () => ({
-    zoomIn: mocks.zoomIn,
-    zoomOut: mocks.zoomOut,
-    zoomReset: mocks.zoomReset,
-  }),
-}));
+vi.mock("../store/useKeybindStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../store/useKeybindStore")>();
+  return {
+    ...actual,
+    useKeybindStore: () => ({
+      zoomIn: mocks.zoomIn,
+      zoomOut: mocks.zoomOut,
+      zoomReset: mocks.zoomReset,
+    }),
+  };
+});
 
 import { CommandPalette } from "./CommandPalette";
 
@@ -51,7 +58,7 @@ describe("CommandPalette", () => {
     await user.click(screen.getByRole("button", { name: /new conversation/i }));
 
     expect(mocks.newChat).toHaveBeenCalledOnce();
-    expect(mocks.setView).not.toHaveBeenCalled();
+    expect(mocks.setView).toHaveBeenCalledWith("chat");
     expect(mocks.setShowCommandPalette).toHaveBeenCalledWith(false);
   });
 
