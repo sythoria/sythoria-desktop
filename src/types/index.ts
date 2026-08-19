@@ -261,3 +261,57 @@ export interface SkillInfo {
   name: string;
   description: string;
 }
+
+export interface KnowledgeCollection {
+  id: string;
+  name: string;
+  description?: string;
+  embedding_provider: string;
+  embedding_model: string;
+  chunk_size: number;
+  chunk_overlap: number;
+  document_count: number;
+  chunk_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  collection_id: string;
+  name: string;
+  path?: string;
+  mime_type: string;
+  size: number;
+  chunk_count: number;
+  created_at: number;
+}
+
+export interface KnowledgeSearchResultChunk {
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  collection_id: string;
+  chunk_index: number;
+  content: string;
+  page_number?: number;
+  similarity_score: number;
+  rrf_score: number;
+  metadata_json: string;
+}
+
+export interface RagStats {
+  collection_count: number;
+  document_count: number;
+  chunk_count: number;
+  db_size_bytes: number;
+}
+
+export type EmbeddingProviderType = "ollama" | "openai" | "gemini" | "custom" | "lexical_only";
+
+export interface EmbeddingProviderConfig {
+  type: EmbeddingProviderType;
+  endpoint?: string;
+  api_key?: string;
+  model: string;
+}
