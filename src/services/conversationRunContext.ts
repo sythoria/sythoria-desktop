@@ -62,8 +62,8 @@ function cloneMcpTools(tools: McpTool[]): McpTool[] {
   ) as unknown as McpTool[];
 }
 
-function cloneSkills(skills: readonly SkillInfo[]): readonly SkillInfo[] {
-  return Object.freeze(skills.map((skill) => Object.freeze({ ...skill })));
+function cloneSkills(skills: readonly SkillInfo[] = []): readonly SkillInfo[] {
+  return Object.freeze((skills ?? []).map((skill) => Object.freeze({ ...skill })));
 }
 
 export function buildConversationRunContext(
