@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   setView: vi.fn(),
   setActiveSection: vi.fn(),
   toggleCommandPalette: vi.fn(),
+  toggleMaximize: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -18,18 +19,22 @@ vi.mock("@tauri-apps/api/app", () => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     minimize: vi.fn(),
-    toggleMaximize: vi.fn(),
+    toggleMaximize: mocks.toggleMaximize,
     close: vi.fn(),
   }),
 }));
 
-vi.mock("../store/useKeybindStore", () => ({
-  useKeybindStore: () => ({
-    zoomIn: vi.fn(),
-    zoomOut: vi.fn(),
-    zoomReset: vi.fn(),
-  }),
-}));
+vi.mock("../store/useKeybindStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../store/useKeybindStore")>();
+  return {
+    ...actual,
+    useKeybindStore: () => ({
+      zoomIn: vi.fn(),
+      zoomOut: vi.fn(),
+      zoomReset: vi.fn(),
+    }),
+  };
+});
 
 vi.mock("../store/useChatStore", () => ({
   useChatStore: {
@@ -89,5 +94,17 @@ describe("TitleBar application menu", () => {
     await user.keyboard("{ArrowRight}");
 
     expect(screen.getByRole("menuitem", { name: "File" })).toHaveFocus();
+  });
+
+  it("toggles window maximize when double-clicking on the title bar", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<TitleBar />);
+
+    const titlebar = container.querySelector("[data-tauri-drag-region]");
+    expect(titlebar).not.toBeNull();
+
+    await user.dblClick(titlebar!);
+
+    expect(mocks.toggleMaximize).toHaveBeenCalledOnce();
   });
 });
