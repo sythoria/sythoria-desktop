@@ -9,6 +9,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "adobe-cmap-parser"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae8abfa9a4688de8fc9f42b3f013b6fffec18ed8a554f5f113577e0b9b3212a3"
+dependencies = [
+ "pom",
+]
+
+[[package]]
 name = "aes"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -746,6 +755,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cff-parser"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31f5b6e9141c036f3ff4ce7b2f7e432b0f00dee416ddcd4f17741d189ddc2e9d"
+
+[[package]]
 name = "cfg-expr"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1318,7 +1333,7 @@ checksum = "521e380c0c8afb8d9a1e83a1822ee03556fc3e3e7dbc1fd30be14e37f9cb3f89"
 dependencies = [
  "bit-set",
  "cssparser",
- "foldhash",
+ "foldhash 0.2.0",
  "html5ever",
  "precomputed-hash",
  "selectors",
@@ -1464,6 +1479,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1548,6 +1572,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "euclid"
+version = "0.20.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bb7ef65b3777a325d1eeefefab5b6d4959da54747e33bd6258e789640f307ad"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1582,6 +1615,18 @@ dependencies = [
  "smallvec",
  "zune-inflate",
 ]
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fastrand"
@@ -1665,6 +1710,12 @@ name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
+name = "foldhash"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "foldhash"
@@ -2225,9 +2276,27 @@ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
+version = "0.15.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
+dependencies = [
+ "foldhash 0.1.5",
+]
+
+[[package]]
+name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hashlink"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
+dependencies = [
+ "hashbrown 0.15.5",
+]
 
 [[package]]
 name = "heck"
@@ -2973,6 +3042,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsqlite3-sys"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8935b44e7c13394a179a438e0cebba0fe08fe01b54f152e29a93b5cf993fd4"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "libwayshot-xcap"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3042,6 +3122,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "lopdf"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5c8ecfc6c72051981c0459f75ccc585e7ff67c70829560cda8e647882a9abff"
+dependencies = [
+ "encoding_rs",
+ "flate2",
+ "indexmap 2.14.0",
+ "itoa",
+ "log",
+ "md-5",
+ "nom 7.1.3",
+ "rangemap",
+ "time",
+ "weezl",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3072,6 +3170,16 @@ checksum = "8ea1f30cedd69f0a2954655f7188c6a834246d2bcf1e315e2ac40c4b24dc9519"
 dependencies = [
  "cfg-if",
  "rayon",
+]
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]
@@ -3901,6 +4009,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
+name = "pdf-extract"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87aa267a18864f2f75471f6d316ea430f13e78f0b5a882ce261ebbdfd389a76a"
+dependencies = [
+ "adobe-cmap-parser",
+ "cff-parser",
+ "encoding_rs",
+ "euclid",
+ "lopdf",
+ "postscript",
+ "type1-encoding-parser",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4061,6 +4185,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pom"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60f6ce597ecdcc9a098e7fddacb1065093a3d66446fa16c675e7e71d1b5c28e6"
+
+[[package]]
 name = "portable-pty"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4080,6 +4210,12 @@ dependencies = [
  "winapi",
  "winreg 0.10.1",
 ]
+
+[[package]]
+name = "postscript"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78451badbdaebaf17f053fd9152b3ffb33b516104eacb45e7864aaa9c712f306"
 
 [[package]]
 name = "potential_utf"
@@ -4388,6 +4524,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "rangemap"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
+
+[[package]]
 name = "rav1e"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4666,6 +4808,20 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "rusqlite"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c6d5e5acb6f6129fe3f7ba0a7fc77bca1942cb568535e18e7bc40262baf3110"
+dependencies = [
+ "bitflags 2.13.0",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
 ]
 
 [[package]]
@@ -5452,11 +5608,13 @@ dependencies = [
  "image",
  "keyring-core",
  "log",
+ "pdf-extract",
  "portable-pty",
  "regex",
  "reqwest",
  "ring",
  "rmcp",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -6399,6 +6557,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "type1-encoding-parser"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa10c302f5a53b7ad27fd42a3996e23d096ba39b5b8dd6d9e683a05b01bee749"
+dependencies = [
+ "pom",
+]
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6473,6 +6640,15 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-segmentation"
@@ -6563,6 +6739,12 @@ dependencies = [
  "num-traits",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"
