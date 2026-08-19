@@ -35,6 +35,7 @@ import {
   TerminalSquare,
   Trash2,
   X,
+  Database,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motionTransitions } from "../lib/motion-tokens";
@@ -50,6 +51,7 @@ import { useShallow } from "zustand/react/shallow";
 import { openExternalUrl } from "../utils/externalUrl";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
+import { AuxiliaryKnowledgeTab } from "./AuxiliaryKnowledgeTab";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
 interface FileTreeEntry {
@@ -72,6 +74,7 @@ const panelLaunchItems: Array<{
   shortcut?: string;
 }> = [
   { id: "review", label: "Review", icon: ClipboardCheck, shortcut: "Ctrl+Shift+G" },
+  { id: "knowledge", label: "Knowledge", icon: Database },
   { id: "terminals", label: "Terminal", icon: TerminalSquare },
   { id: "artifacts", label: "Browser", icon: Globe2, shortcut: "Ctrl+T" },
   { id: "files", label: "Files", icon: FolderOpen, shortcut: "Ctrl+P" },
@@ -80,6 +83,7 @@ const panelLaunchItems: Array<{
 
 const panelTitles: Record<AuxiliaryTab, { label: string; icon: typeof ClipboardCheck }> = {
   review: { label: "Review", icon: ClipboardCheck },
+  knowledge: { label: "Knowledge", icon: Database },
   terminals: { label: "Terminal", icon: TerminalSquare },
   artifacts: { label: "Browser", icon: Globe2 },
   files: { label: "Files", icon: FolderOpen },
@@ -474,15 +478,17 @@ function FilesPane({
 
   useEffect(() => {
     if (!projectId || !browserConversationId) {
-      setRunToken(null);
+      queueMicrotask(() => setRunToken(null));
       return;
     }
 
     let cancelled = false;
     let acquiredToken: string | null = null;
-    setRunToken(null);
-    setEntries([]);
-    setError(null);
+    queueMicrotask(() => {
+      setRunToken(null);
+      setEntries([]);
+      setError(null);
+    });
 
     void invoke<string>("project_browse_begin", {
       projectId,
@@ -1206,9 +1212,7 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       </div>
       <InputBar
         models={models}
-        onSend={(message, attachments, mcpServerIds) =>
-          sendMessage(message, attachments, conversationId, mcpServerIds)
-        }
+        onSend={(message, attachments, mcpServerIds) => sendMessage(message, attachments, conversationId, mcpServerIds)}
         selectedModel={conversation.model || selectedModel}
         onModelChange={setConversationModel}
         disabled={models.length === 0}
@@ -1434,6 +1438,7 @@ export function AuxiliaryPanel() {
                 {activeTab === "activity" && <ActivityPane activeId={activeId} />}
                 {activeTab === "artifacts" && <BrowserPane />}
                 {activeTab === "chat" && <SideChatPane conversationId={sideChatConversationId} />}
+                {activeTab === "knowledge" && <AuxiliaryKnowledgeTab />}
               </div>
             </motion.div>
           ) : null}
