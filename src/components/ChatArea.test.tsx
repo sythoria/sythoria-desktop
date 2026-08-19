@@ -330,6 +330,7 @@ describe("ChatArea", () => {
     rerender(<ChatArea messages={completedMessages} {...defaultProps} conversationId={conversation.id} />);
 
     const completedDisclosure = screen.getByRole("button", { name: "Worked for 8s" });
+    expect(completedDisclosure).toBe(activeDisclosure);
     await waitFor(() => expect(completedDisclosure).toHaveAttribute("aria-expanded", "false"));
     await waitFor(() => expect(screen.queryByText("I’ll inspect the relevant files.")).not.toBeInTheDocument());
     expect(screen.getByText("The project uses React.")).toBeInTheDocument();
