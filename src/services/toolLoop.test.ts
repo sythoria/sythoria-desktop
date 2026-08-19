@@ -129,8 +129,8 @@ beforeEach(() => {
 });
 
 describe("TOOL_DEFINITIONS", () => {
-  it("defines exactly 8 tools", () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(8);
+  it("defines exactly 10 tools", () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(10);
   });
 
   it("includes search_query tool", () => {
@@ -141,6 +141,12 @@ describe("TOOL_DEFINITIONS", () => {
   it("includes fetch_url tool", () => {
     const names = TOOL_DEFINITIONS.map((t) => t.function.name);
     expect(names).toContain("fetch_url");
+  });
+
+  it("includes knowledge and RAG tools", () => {
+    const names = TOOL_DEFINITIONS.map((t) => t.function.name);
+    expect(names).toContain("knowledge_search");
+    expect(names).toContain("knowledge_list_collections");
   });
 
   it("includes subagent and skill tools", () => {
