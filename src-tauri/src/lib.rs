@@ -8,6 +8,7 @@ mod keyring;
 mod mcp;
 pub mod project;
 mod project_tools;
+mod rag;
 mod search;
 mod secret_storage;
 mod secure_storage;
@@ -358,6 +359,8 @@ pub enum AppError {
     McpError(String),
     #[error("Git error: {0}")]
     GitError(String),
+    #[error("RAG error: {0}")]
+    RagError(String),
 }
 
 impl From<std::io::Error> for AppError {
@@ -2623,7 +2626,18 @@ pub fn run() {
             skills::read_skill_resource,
             skills::create_skill,
             skills::update_skill,
-            skills::delete_skill
+            skills::delete_skill,
+            rag::rag_create_collection,
+            rag::rag_list_collections,
+            rag::rag_get_collection,
+            rag::rag_delete_collection,
+            rag::rag_index_file,
+            rag::rag_index_text,
+            rag::rag_delete_document,
+            rag::rag_list_documents,
+            rag::rag_search,
+            rag::rag_get_stats,
+            rag::rag_clear_all
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
