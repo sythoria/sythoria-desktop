@@ -21,6 +21,7 @@ import {
   Settings,
   Mic,
   Bot,
+  Database,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -1115,6 +1116,17 @@ export default memo(function InputBar({
                             <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
                             <span>{t("chat.webSearch") || "Web Search"}</span>
                           </button>
+                          <button
+                            onClick={() => {
+                              setPlusOpen(false);
+                              useUIStore.getState().setActiveAuxTab("knowledge");
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                            role="menuitem"
+                          >
+                            <Database size={15} className="text-text-muted" />
+                            <span>Knowledge & Docs</span>
+                          </button>
                           {connectedMcpServers.length > 0 && (
                             <>
                               <div className="border-t border-border my-1 -mx-1" />
@@ -1385,7 +1397,7 @@ export default memo(function InputBar({
               {/* Active Tools and Context Row */}
               {(isProjectsEnabled || isSearchEnabled) && (
                 <div
-                  className={`relative flex flex-wrap items-center gap-2 ${
+                  className={`relative flex flex-wrap items-center gap-2 ${projectDropdownOpen ? "z-30" : "z-0"} ${
                     isProjectsEnabled
                       ? `chat-composer-surface -mt-px mx-6 min-h-10 w-[calc(100%-3rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
                           conversation?.isTemporary
@@ -1443,14 +1455,20 @@ export default memo(function InputBar({
                       <AnimatePresence>
                         {projectDropdownOpen && (
                           <motion.div
-                            className="popup-surface absolute bottom-full left-0 mb-2 w-64 border border-border rounded-xl p-1 z-50 overflow-hidden"
+                            className={`popup-surface absolute ${
+                              centered ? "top-full mt-2" : "bottom-full mb-2"
+                            } left-0 w-64 border border-border rounded-xl p-1 z-50 overflow-hidden`}
                             style={{ boxShadow: "var(--shadow-xl)" }}
                             role="menu"
-                            initial={{ opacity: 0, y: 8, scale: motionTokens.scale.subtle }}
+                            initial={{
+                              opacity: 0,
+                              y: centered ? -8 : 8,
+                              scale: motionTokens.scale.subtle,
+                            }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{
                               opacity: 0,
-                              y: 8,
+                              y: centered ? -8 : 8,
                               scale: motionTokens.scale.subtle,
                               transition: motionTransitions.popoverExit,
                             }}
