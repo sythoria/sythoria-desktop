@@ -437,6 +437,52 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    effect: { mode: "read", resource: "none" },
+    function: {
+      name: "knowledge_search",
+      description:
+        "Searches local indexed knowledge bases and documents for relevant passages, excerpts, and citations using hybrid vector + lexical search. Use this when answering questions based on user documents, PDFs, manuals, or notes.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The search query string." },
+          collection_id: {
+            type: "string",
+            description:
+              "Optional collection ID to search within. If omitted, searches the active or default collection.",
+          },
+          top_k: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            description: "Optional number of relevant chunks to retrieve. Defaults to 5.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    effect: { mode: "read", resource: "none" },
+    function: {
+      name: "knowledge_list_collections",
+      description:
+        "Lists all available local document collections and knowledge bases with their IDs, names, and document counts.",
+      parameters: {
+        type: "object",
+        properties: {
+          include_stats: {
+            type: "boolean",
+            description: "Whether to include document and chunk counts. Defaults to true.",
+          },
+        },
+        required: ["include_stats"],
+      },
+    },
+  },
 ];
 
 export function buildToolDefinitions(
@@ -850,7 +896,9 @@ type KnownToolName =
   | "project_git_commit"
   | "read_skill"
   | "list_skill_resources"
-  | "read_skill_resource";
+  | "read_skill_resource"
+  | "knowledge_search"
+  | "knowledge_list_collections";
 const KNOWN_TOOLS: Set<string> = new Set([
   "search_query",
   "fetch_url",
@@ -871,6 +919,8 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "read_skill",
   "list_skill_resources",
   "read_skill_resource",
+  "knowledge_search",
+  "knowledge_list_collections",
 ]);
 
 function toKnownToolName(name: string): KnownToolName | "unknown" {
@@ -1641,6 +1691,8 @@ async function runWithToolLoop(
           else if (fnName === "read_skill") toolDesc = `Reading Skill: ${fnArgs.id}`;
           else if (fnName === "list_skill_resources") toolDesc = `Listing Skill Resources: ${fnArgs.id}`;
           else if (fnName === "read_skill_resource") toolDesc = `Reading Skill Resource: ${fnArgs.path}`;
+          else if (fnName === "knowledge_search") toolDesc = `Knowledge Search: "${fnArgs.query}"`;
+          else if (fnName === "knowledge_list_collections") toolDesc = "Listing Knowledge Collections";
           else if (isProjectTool) toolDesc = `Project: ${fnName.replace("project_", "")}`;
           else if (fnName === "unknown" && rawName.includes("__") && useMcp) {
             const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
@@ -2195,6 +2247,62 @@ async function runWithToolLoop(
                   });
                   resultContent = JSON.stringify(resource);
                 }
+              } catch (err: unknown) {
+                isError = true;
+                resultContent = errorMessage(err);
+              }
+            } else if (fnName === "knowledge_search") {
+              const query = fnArgs.query;
+              const collectionId = fnArgs.collection_id;
+              const topK = fnArgs.top_k ? Number(fnArgs.top_k) : 5;
+              logInfo("chat", `Tool loop knowledge search: "${query}" (collection: ${collectionId || "default"})`);
+              try {
+                let targetCollectionId = collectionId;
+                if (!targetCollectionId) {
+                  const collections = await invoke<{ id: string }[]>("rag_list_collections");
+                  if (!collections.length) {
+                    resultContent = "No local knowledge collections found. Please add or index documents first.";
+                  } else {
+                    targetCollectionId = collections[0].id;
+                  }
+                }
+
+                if (targetCollectionId) {
+                  const searchResults = await invoke<
+                    {
+                      chunk_id: string;
+                      document_name: string;
+                      content: string;
+                      page_number?: number;
+                      similarity_score: number;
+                    }[]
+                  >("rag_search", {
+                    collectionId: targetCollectionId,
+                    query,
+                    topK,
+                    minScore: 0.0,
+                    providerConfig: null,
+                  });
+
+                  if (!searchResults.length) {
+                    resultContent = `No relevant passages found in knowledge base for query: "${query}"`;
+                  } else {
+                    resultContent = searchResults
+                      .map((r, idx) => {
+                        const pageStr = r.page_number ? ` (Page ${r.page_number})` : "";
+                        return `### [Excerpt ${idx + 1}: ${r.document_name}${pageStr}]\n${r.content}`;
+                      })
+                      .join("\n\n---\n\n");
+                  }
+                }
+              } catch (err: unknown) {
+                isError = true;
+                resultContent = errorMessage(err);
+              }
+            } else if (fnName === "knowledge_list_collections") {
+              try {
+                const collections = await invoke("rag_list_collections");
+                resultContent = JSON.stringify(collections);
               } catch (err: unknown) {
                 isError = true;
                 resultContent = errorMessage(err);
