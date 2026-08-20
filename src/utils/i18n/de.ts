@@ -274,6 +274,18 @@ export const de = {
   "settings.knowledge.clearAllDesc": "Löscht alle Sammlungen, Dokumentenindizes und Vektoreinbettungen unwiderruflich.",
   "settings.knowledge.clearBtn": "Speicher leeren",
   "settings.knowledge.confirmClearBtn": "Löschen bestätigen",
+
+  // Settings: Data & Memory Transfer
+  "section.data_transfer": "Daten- & Speicherübertragung",
+  "settings.dataTransfer.title": "Daten- & Speicherübertragung",
+  "settings.dataTransfer.subtitle":
+    "Importiere und exportiere Erinnerungen, Anweisungen und Chat-Verläufe über verschiedene KI-Assistenten hinweg.",
+  "settings.dataTransfer.importTitle": "Daten & Erinnerungen importieren",
+  "settings.dataTransfer.importSubtitle":
+    "Importiere Unterhaltungen, benutzerdefinierte Anweisungen und Fakten aus ChatGPT, Claude, Google Gemini oder Sythoria-Backups.",
+  "settings.dataTransfer.exportTitle": "Daten & Chat-Verlauf exportieren",
+  "settings.dataTransfer.exportSubtitle":
+    "Exportiere Unterhaltungen und Systemspeicher als Markdown, Sythoria-Backup, ChatGPT- oder Claude-JSON.",
   "settings.skills.idLabel": "Ordnername (ID)",
   "settings.skills.idPlaceholder": "z.B. react-best-practices",
   "settings.skills.idHelper": "Dies wird der Ordnername in ~/.agents/skills/ sein",
@@ -546,6 +558,11 @@ export const de = {
   "settings.prompts.titlePromptDesc":
     "Passe den Prompt für die Titelgenerierung an. Verwende {{userMessage}} als Platzhalter für die Nachricht des Benutzers",
   "settings.prompts.resetBtn": "Auf Standard zurücksetzen",
+  "settings.prompts.memoryTitle": "Adaptives Chat-Gedächtnis",
+  "settings.prompts.memorySubtitle": "Kontext und Präferenzen automatisch über Unterhaltungen hinweg speichern.",
+  "settings.prompts.autoMemoryLabel": "Erinnerungen aus Chats generieren",
+  "settings.prompts.autoMemoryDesc":
+    "Wichtige Fakten, persönliche Vorlieben und Hintergrundinformationen automatisch aus abgeschlossenen Unterhaltungen extrahieren.",
   "settings.prompts.behaviorTitle": "KI-Verhalten",
   "settings.prompts.behaviorSubtitle": "Konfiguriere die globalen Anweisungen für die KI",
   "settings.prompts.globalPrompt": "System-Prompt",
