@@ -26,6 +26,7 @@ import { PrivacySection } from "./sections/PrivacySection";
 import { WhisperSection } from "./sections/WhisperSection";
 import { SkillsSection } from "./sections/SkillsSection";
 import { KnowledgeSection } from "./sections/KnowledgeSection";
+import { DataTransferSection } from "./sections/DataTransferSection";
 import { SectionId } from "./types";
 import { useTranslation } from "../../utils/i18n";
 
@@ -281,6 +282,7 @@ export default function Settings() {
             {activeSection === "skills" && <SkillsSection scrollParent={scrollParent} />}
 
             {activeSection === "knowledge" && <KnowledgeSection />}
+            {activeSection === "data_transfer" && <DataTransferSection />}
           </motion.div>
         </div>
       </div>
