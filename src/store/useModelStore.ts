@@ -8,6 +8,7 @@ import {
   saveApiKeys,
   saveTitleConfig,
   saveSystemPrompt,
+  saveAutoGenerateMemory,
   saveMaxToolSteps,
   saveSelectedModel,
 } from "../utils/storage";
@@ -190,6 +191,7 @@ interface ModelState {
   modelStatuses: ModelStatuses;
   titleConfig: TitleGenerationConfig;
   systemPrompt: string;
+  autoGenerateMemory: boolean;
   maxToolSteps: number;
 
   setSelectedModel: (model: string) => void;
@@ -205,6 +207,7 @@ interface ModelState {
   persistApiKeys: () => Promise<void>;
   setTitleConfig: (updates: Partial<TitleGenerationConfig>) => void;
   setSystemPrompt: (prompt: string) => void;
+  setAutoGenerateMemory: (enabled: boolean) => void;
 
   getActiveStreamId: () => string | null;
   setActiveStreamId: (id: string | null, convId?: string | null) => void;
@@ -228,6 +231,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   modelStatuses: {},
   titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
   systemPrompt: "",
+  autoGenerateMemory: false,
   maxToolSteps: DEFAULT_MAX_TOOL_STEPS,
 
   setSelectedModel: (model) => {
@@ -475,6 +479,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
   setSystemPrompt: (prompt) => {
     set({ systemPrompt: prompt });
     saveSystemPrompt(prompt);
+  },
+  setAutoGenerateMemory: (enabled: boolean) => {
+    set({ autoGenerateMemory: enabled });
+    void saveAutoGenerateMemory(enabled);
   },
 
   getActiveStreamId: () => {
