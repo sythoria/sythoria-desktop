@@ -270,6 +270,18 @@ export const en = {
   "settings.knowledge.clearAllDesc": "Permanently deletes all collections, document indexes, and vector embeddings.",
   "settings.knowledge.clearBtn": "Clear Storage",
   "settings.knowledge.confirmClearBtn": "Confirm Delete All",
+
+  // Settings: Data & Memory Transfer
+  "section.data_transfer": "Data & Memory Transfer",
+  "settings.dataTransfer.title": "Data & Memory Transfer",
+  "settings.dataTransfer.subtitle":
+    "Import and export memories, custom instructions, and conversation history across AI chatbots.",
+  "settings.dataTransfer.importTitle": "Import Data & Memory",
+  "settings.dataTransfer.importSubtitle":
+    "Import conversations, custom instructions, and memories from ChatGPT, Claude, Google Gemini, or Sythoria backups.",
+  "settings.dataTransfer.exportTitle": "Export Data & Chat History",
+  "settings.dataTransfer.exportSubtitle":
+    "Export conversations and system memory to Markdown, Sythoria backup format, ChatGPT JSON, or Claude JSON.",
   "settings.skills.idLabel": "Folder Name (ID)",
   "settings.skills.idPlaceholder": "e.g. react-best-practices",
   "settings.skills.idHelper": "This will be the folder name in ~/.agents/skills/",
@@ -526,6 +538,11 @@ export const en = {
   "settings.prompts.titlePromptDesc":
     "Customize the prompt used for title generation. Use {{userMessage}} as a placeholder for the user's message",
   "settings.prompts.resetBtn": "Reset to default",
+  "settings.prompts.memoryTitle": "Adaptive Chat Memory",
+  "settings.prompts.memorySubtitle": "Automatically learn and retain context across conversations.",
+  "settings.prompts.autoMemoryLabel": "Generate Memory from Chats",
+  "settings.prompts.autoMemoryDesc":
+    "Extract key facts, personal preferences, and background context from completed conversations to enrich your persistent profile memory.",
   "settings.prompts.behaviorTitle": "AI Behavior",
   "settings.prompts.behaviorSubtitle": "Configure the global instructions for the AI",
   "settings.prompts.globalPrompt": "System Prompt",
