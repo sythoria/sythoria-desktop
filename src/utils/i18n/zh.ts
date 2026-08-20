@@ -267,6 +267,17 @@ export const zh = {
   "settings.knowledge.clearAllDesc": "永久删除所有集合、文档索引及向量嵌入数据。",
   "settings.knowledge.clearBtn": "清空数据库",
   "settings.knowledge.confirmClearBtn": "确认全部删除",
+
+  // Settings: Data & Memory Transfer
+  "section.data_transfer": "数据与记忆迁移",
+  "settings.dataTransfer.title": "数据与记忆迁移",
+  "settings.dataTransfer.subtitle": "在不同 AI 对话应用之间导入和导出记忆、自定义指令与会话历史记录。",
+  "settings.dataTransfer.importTitle": "导入数据与记忆",
+  "settings.dataTransfer.importSubtitle":
+    "从 ChatGPT、Claude、Google Gemini 或 Sythoria 备份中导入对话、自定义指令与记忆。",
+  "settings.dataTransfer.exportTitle": "导出数据与会话记录",
+  "settings.dataTransfer.exportSubtitle":
+    "将对话与系统记忆导出为 Markdown、Sythoria 备份、ChatGPT JSON 或 Claude JSON 格式。",
   "settings.skills.idLabel": "文件夹名称 (ID)",
   "settings.skills.idPlaceholder": "例如 react-best-practices",
   "settings.skills.idHelper": "这将是 ~/.agents/skills/ 中的文件夹名称",
@@ -512,6 +523,10 @@ export const zh = {
   "settings.prompts.systemPrompt": "系统提示词",
   "settings.prompts.titlePromptDesc": "自定义标题生成使用的提示词。使用 {{userMessage}} 作为用户消息的占位符",
   "settings.prompts.resetBtn": "重置为默认值",
+  "settings.prompts.memoryTitle": "自适应对话记忆",
+  "settings.prompts.memorySubtitle": "在多次会话之间自动学习并保留上下文与偏好。",
+  "settings.prompts.autoMemoryLabel": "从对话中自动生成记忆",
+  "settings.prompts.autoMemoryDesc": "自动从已完成的会话中提取关键事实、个人偏好与背景信息，以丰富持久的用户画像记忆。",
   "settings.prompts.behaviorTitle": "AI 行为",
   "settings.prompts.behaviorSubtitle": "配置 AI 的全局指示说明",
   "settings.prompts.globalPrompt": "系统提示词",
