@@ -14,6 +14,8 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
   const { t } = useTranslation();
   const systemPrompt = useModelStore((s) => s.systemPrompt);
   const setSystemPrompt = useModelStore((s) => s.setSystemPrompt);
+  const autoGenerateMemory = useModelStore((s) => s.autoGenerateMemory);
+  const setAutoGenerateMemory = useModelStore((s) => s.setAutoGenerateMemory);
 
   return (
     <>
@@ -74,6 +76,25 @@ export const PersonalizationSection = ({ titleConfig, setTitleConfig, enabledMod
           )}
         </div>
       </SettingsTogglePanel>
+
+      <SettingsSectionHeader
+        compact
+        title={t("settings.prompts.memoryTitle") || "Adaptive Chat Memory"}
+        description={
+          t("settings.prompts.memorySubtitle") || "Automatically learn and retain context across conversations."
+        }
+      />
+      <SettingsTogglePanel
+        id="setting-personalization-auto-memory"
+        checked={autoGenerateMemory}
+        onChange={(checked) => setAutoGenerateMemory(checked)}
+        label={t("settings.prompts.autoMemoryLabel") || "Generate Memory from Chats"}
+        description={
+          t("settings.prompts.autoMemoryDesc") ||
+          "Extract key facts, personal preferences, and background context from completed conversations to enrich your persistent profile memory."
+        }
+      />
+
       <SettingsSectionHeader
         compact
         title={t("settings.prompts.behaviorTitle")}
