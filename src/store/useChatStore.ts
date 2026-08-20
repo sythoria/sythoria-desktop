@@ -38,6 +38,7 @@ import {
   loadBaseTextSize,
   loadAutoUpdateChecking,
   loadSystemPrompt,
+  loadAutoGenerateMemory,
   loadShowContextWindow,
   loadContextTokenizationMode,
   loadMaxToolSteps,
@@ -299,6 +300,7 @@ interface ChatState {
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
+  importConversations: (imported: Conversation[]) => Promise<void>;
   persistConversations: () => Promise<void>;
   resumeConversation: (convId: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
@@ -422,6 +424,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedBaseTextSize,
         loadedAutoUpdateChecking,
         loadedSystemPrompt,
+        loadedAutoGenerateMemory,
         loadedShowContextWindow,
         loadedContextTokenizationMode,
         loadedMaxToolSteps,
@@ -454,6 +457,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadOptionalStartupValue("text size", loadBaseTextSize, "medium" as const),
         loadOptionalStartupValue("update preference", loadAutoUpdateChecking, true),
         loadOptionalStartupValue("system prompt", loadSystemPrompt, ""),
+        loadOptionalStartupValue("auto-generate memory preference", loadAutoGenerateMemory, false),
         loadOptionalStartupValue("context-window preference", loadShowContextWindow, false),
         loadOptionalStartupValue("context-tokenization preference", loadContextTokenizationMode, "local" as const),
         loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, 10),
@@ -512,6 +516,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         modelStatuses: {},
         titleConfig: loadedTitleCfg,
         systemPrompt: loadedSystemPrompt,
+        autoGenerateMemory: loadedAutoGenerateMemory,
         maxToolSteps: loadedMaxToolSteps,
       });
       if (selectedModel !== loadedSelectedModel) {
@@ -1510,6 +1515,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       logError("chat", "Failed to export chat", { error: err });
       uiToast("Failed to export chat", "error");
     }
+  },
+
+  importConversations: async (imported: Conversation[]) => {
+    if (!imported || imported.length === 0) return;
+    const { conversations } = get();
+    const newConversations = [...imported, ...conversations];
+    set({
+      conversations: newConversations,
+      activeId: imported[0].id,
+    });
+    await get().persistConversations();
+    uiToast(`Imported ${imported.length} conversation${imported.length === 1 ? "" : "s"}`, "success");
   },
 
   persistConversations: async () => {
