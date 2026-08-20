@@ -16,6 +16,7 @@ import {
   BookOpen,
   Database,
   ArrowUpDown,
+  Blocks,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -27,6 +28,7 @@ export type SectionId =
   | "personalization"
   | "keybinds"
   | "appshots"
+  | "plugins"
   | "mcp"
   | "browser"
   | "computer"
@@ -133,6 +135,25 @@ export const SECTION_GROUPS: SettingSectionGroup[] = [
   {
     category: "Integrations",
     items: [
+      {
+        id: "plugins",
+        label: "Plugins & Apps",
+        icon: Blocks,
+        keywords: [
+          "plugins",
+          "apps",
+          "integrations",
+          "github",
+          "notion",
+          "slack",
+          "linear",
+          "google drive",
+          "postgres",
+          "marketplace",
+          "connect",
+          "tools",
+        ],
+      },
       {
         id: "mcp",
         label: "MCP Servers",
@@ -359,6 +380,14 @@ export const SEARCHABLE_SETTINGS: SearchableSetting[] = [
     sectionId: "whisper",
     sectionLabel: "Voice Input",
     keywords: ["whisper", "voice", "speech to text", "audio", "recording", "transcribe", "stt", "model download"],
+  },
+  {
+    id: "setting-plugins-catalog",
+    label: "Plugins & Apps",
+    description: "Browse, connect, and configure top integrations and tools (GitHub, Notion, Slack, etc.)",
+    sectionId: "plugins",
+    sectionLabel: "Plugins & Apps",
+    keywords: ["plugins", "apps", "integrations", "github", "notion", "slack", "linear", "connect", "tools"],
   },
   {
     id: "setting-mcp-servers",
