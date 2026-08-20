@@ -1,10 +1,8 @@
 import { motion } from "motion/react";
-import { Download } from "lucide-react";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { useUIStore } from "../../../store/useUIStore";
-import { useChatStore } from "../../../store/useChatStore";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 import { useAppVersion } from "../../../hooks/useAppVersion";
@@ -37,7 +35,6 @@ export function GeneralSection() {
   const checkForUpdates = useUIStore((s) => s.checkForUpdates);
 
   const setLanguage = useUIStore((s) => s.setLanguage);
-  const addToast = useUIStore((s) => s.addToast);
 
   const appVersion = useAppVersion();
 
@@ -47,23 +44,6 @@ export function GeneralSection() {
     { value: "large", label: t("general.textSizeLarge") },
     { value: "xlarge", label: t("general.textSizeXLarge") },
   ] as const;
-
-  const handleExportConversations = () => {
-    try {
-      const conversations = useChatStore.getState().conversations;
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(conversations, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `sythoria-conversations-${new Date().toISOString().slice(0, 10)}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-      addToast("All conversations exported successfully", "success");
-    } catch (e) {
-      console.error(e);
-      addToast("Failed to export conversations", "error");
-    }
-  };
 
   const handleCheckUpdates = () => {
     checkForUpdates(false);
@@ -228,33 +208,6 @@ export function GeneralSection() {
                 );
               })}
             </div>
-          </div>
-        </div>
-      </SettingsPanel>
-
-      {/* Data Management Section */}
-      <SettingsPanel>
-        <h4 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-          {t("general.dataManagement")}
-        </h4>
-        <div className="space-y-4 pt-1">
-          {/* Export Conversations */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-2">
-            <div>
-              <span className="text-sm font-medium text-text-primary block">{t("general.exportConversations")}</span>
-              <span className="text-xs text-text-muted">{t("general.exportConversationsDesc")}</span>
-            </div>
-            <motion.button
-              type="button"
-              onClick={handleExportConversations}
-              whileHover={{ scale: motionTokens.scale.pop }}
-              whileTap={{ scale: motionTokens.scale.press }}
-              transition={springs.snappy}
-              className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-input hover:bg-hover border border-border text-text-primary text-sm font-medium transition-colors shadow-sm min-h-[40px] shrink-0"
-            >
-              <Download size={16} />
-              <span>{t("general.exportAll")}</span>
-            </motion.button>
           </div>
         </div>
       </SettingsPanel>
