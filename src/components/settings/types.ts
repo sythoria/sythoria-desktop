@@ -15,6 +15,7 @@ import {
   Mic,
   BookOpen,
   Database,
+  ArrowUpDown,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -39,6 +40,7 @@ export type SectionId =
   | "whisper"
   | "skills"
   | "knowledge"
+  | "data_transfer"
   | "logs";
 
 export interface SettingSectionItem {
@@ -164,6 +166,12 @@ export const SECTION_GROUPS: SettingSectionGroup[] = [
         label: "Appshots",
         icon: Camera,
         keywords: ["screen capture", "screenshots", "gallery", "auto-clean", "quality", "format", "images"],
+      },
+      {
+        id: "data_transfer",
+        label: "Data & Memory Transfer",
+        icon: ArrowUpDown,
+        keywords: ["export", "import", "chatgpt", "claude", "gemini", "memory", "backup", "data transfer", "migration"],
       },
     ],
   },
