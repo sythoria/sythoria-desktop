@@ -27,6 +27,7 @@ import { WhisperSection } from "./sections/WhisperSection";
 import { SkillsSection } from "./sections/SkillsSection";
 import { KnowledgeSection } from "./sections/KnowledgeSection";
 import { DataTransferSection } from "./sections/DataTransferSection";
+import { PluginsSection } from "./sections/PluginsSection";
 import { SectionId } from "./types";
 import { useTranslation } from "../../utils/i18n";
 
@@ -247,6 +248,8 @@ export default function Settings() {
                 toggleFetchKeyVisibility={toggleFetchKeyVisibility}
               />
             )}
+
+            {activeSection === "plugins" && <PluginsSection />}
 
             {activeSection === "mcp" && (
               <McpSection
