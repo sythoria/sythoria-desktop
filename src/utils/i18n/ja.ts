@@ -269,6 +269,18 @@ export const ja = {
   "settings.knowledge.clearAllDesc": "すべてのコレクション、ドキュメント、ベクトル埋め込みを完全に削除します。",
   "settings.knowledge.clearBtn": "ストレージを消去",
   "settings.knowledge.confirmClearBtn": "完全削除を確認",
+
+  // Settings: Data & Memory Transfer
+  "section.data_transfer": "データ＆メモリ転送",
+  "settings.dataTransfer.title": "データ＆メモリ転送",
+  "settings.dataTransfer.subtitle":
+    "AIチャットボット間でのメモリ、カスタム指示、および会話履歴のインポートとエクスポート。",
+  "settings.dataTransfer.importTitle": "データ＆メモリのインポート",
+  "settings.dataTransfer.importSubtitle":
+    "ChatGPT、Claude、Google Gemini、またはSythoriaバックアップから会話、カスタム指示、メモリをインポートします。",
+  "settings.dataTransfer.exportTitle": "データ＆会話履歴のエクスポート",
+  "settings.dataTransfer.exportSubtitle":
+    "会話とシステムメモリをMarkdown、Sythoriaバックアップ、ChatGPT JSON、またはClaude JSON形式でエクスポートします。",
   "settings.skills.idLabel": "フォルダ名 (ID)",
   "settings.skills.idPlaceholder": "例: react-best-practices",
   "settings.skills.idHelper": "これは ~/.agents/skills/ 内のフォルダ名になります",
@@ -533,6 +545,11 @@ export const ja = {
   "settings.prompts.titlePromptDesc":
     "タイトル生成用のプロンプトを編集します。{{userMessage}}はユーザーの最初のメッセージに置換されます",
   "settings.prompts.resetBtn": "デフォルトに戻す",
+  "settings.prompts.memoryTitle": "アダプティブチャットメモリ",
+  "settings.prompts.memorySubtitle": "会話を通じてコンテキストやユーザーの好みを自動学習・記憶します。",
+  "settings.prompts.autoMemoryLabel": "会話からメモリを自動生成する",
+  "settings.prompts.autoMemoryDesc":
+    "完了した会話から重要な事実、個人の好み、および背景コンテキストを抽出し、永続プロファイルメモリに蓄積します。",
   "settings.prompts.behaviorTitle": "AIの挙動設定",
   "settings.prompts.behaviorSubtitle": "AIの全体的な指示ルールを構成します",
   "settings.prompts.globalPrompt": "システムプロンプト",
