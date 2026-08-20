@@ -240,6 +240,7 @@ const CLEAR_INPUT_ON_ESCAPE_KEY = "sythoria-clear-input-on-escape";
 const BASE_TEXT_SIZE_KEY = "sythoria-base-text-size";
 const AUTO_UPDATE_CHECKING_KEY = "sythoria-auto-update-checking";
 const SYSTEM_PROMPT_KEY = "sythoria-system-prompt";
+const AUTO_GENERATE_MEMORY_KEY = "sythoria-auto-generate-memory";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const CONTEXT_TOKENIZATION_MODE_KEY = "sythoria-context-tokenization-mode";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
@@ -387,6 +388,7 @@ const LEGACY_PREFERENCE_KEYS = [
   BASE_TEXT_SIZE_KEY,
   AUTO_UPDATE_CHECKING_KEY,
   SYSTEM_PROMPT_KEY,
+  AUTO_GENERATE_MEMORY_KEY,
   SHOW_CONTEXT_WINDOW_KEY,
   CONTEXT_TOKENIZATION_MODE_KEY,
   MAX_TOOL_STEPS_KEY,
@@ -1670,6 +1672,27 @@ export async function saveSystemPrompt(value: string): Promise<void> {
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save system prompt", { error: e });
+  }
+}
+
+export async function loadAutoGenerateMemory(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(AUTO_GENERATE_MEMORY_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load auto generate memory setting", { error: e });
+  }
+  return false;
+}
+
+export async function saveAutoGenerateMemory(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(AUTO_GENERATE_MEMORY_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save auto generate memory setting", { error: e });
   }
 }
 
