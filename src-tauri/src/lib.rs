@@ -2559,6 +2559,8 @@ pub fn run() {
             commands::mcp::mcp_request_tool_approval,
             commands::mcp::mcp_call_tool,
             commands::mcp::mcp_cancel_tool_call,
+            commands::oauth::github_start_device_flow,
+            commands::oauth::github_poll_device_token,
             commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
