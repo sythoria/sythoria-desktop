@@ -1,6 +1,7 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   memo,
   useCallback,
@@ -1717,6 +1718,15 @@ function ToolActivityDisclosure({
 }) {
   const contentId = useId();
   const [expanded, setExpanded] = useState(isActive);
+  const previousActiveRef = useRef(isActive);
+
+  useLayoutEffect(() => {
+    if (previousActiveRef.current !== isActive) {
+      setExpanded(isActive);
+      previousActiveRef.current = isActive;
+    }
+  }, [isActive]);
+
   const startedAt = new Date(activity.messages[0].timestamp).getTime();
   const completedDuration = activity.finalMessage?.workingDuration;
   const [elapsed, setElapsed] = useState(() => {
@@ -1883,7 +1893,7 @@ function ChatRenderItemView({
   if ("kind" in item && item.kind === "tool-activity") {
     return (
       <ToolActivityDisclosure
-        key={`${item.id}-${item.id === activeToolActivityId ? "active" : "complete"}`}
+        key={item.id}
         activity={item}
         isActive={item.id === activeToolActivityId}
         onRetry={onRetry}

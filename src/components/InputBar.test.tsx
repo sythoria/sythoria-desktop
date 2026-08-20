@@ -131,6 +131,33 @@ describe("InputBar", () => {
     expect(onStop).toHaveBeenCalledWith();
   });
 
+  it("animates the project context row while generating", () => {
+    act(() => {
+      useProjectStore.setState({
+        projects: [{ id: "project-a", name: "Project A", path: "/projects/a", permissions: "write" }],
+        activeProjectId: "project-a",
+        isProjectsEnabled: true,
+      });
+    });
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        isStreaming
+        onStop={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    expect(document.querySelector(".chat-composer-project-row")).toHaveClass("animate-border-glow-light");
+  });
+
   it("disables input when disabled prop is true", () => {
     render(
       <InputBar

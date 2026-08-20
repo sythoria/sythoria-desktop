@@ -897,6 +897,7 @@ export default memo(function InputBar({
   } ${isOverLimit ? "ring-red-500/50 border-red-500/30" : ""} ${
     isStreaming ? "dark:animate-border-glow animate-border-glow-light" : ""
   } ${isDragging ? "ring-accent border-accent bg-active/40" : ""}`;
+  const projectRowGenerationClass = isStreaming ? "dark:animate-border-glow animate-border-glow-light" : "";
 
   return (
     <div
@@ -1400,7 +1401,7 @@ export default memo(function InputBar({
                 <div
                   className={`relative flex flex-wrap items-center gap-2 ${projectDropdownOpen ? "z-30" : "z-0"} ${
                     isProjectsEnabled
-                      ? `chat-composer-surface chat-composer-project-row -mt-px mx-4 min-h-10 w-[calc(100%-2rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${
+                      ? `chat-composer-surface chat-composer-project-row -mt-px mx-4 min-h-10 w-[calc(100%-2rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${projectRowGenerationClass} ${
                           conversation?.isTemporary
                             ? "border-dashed before:pointer-events-none before:absolute before:inset-0 before:rounded-b-2xl before:bg-accent/[0.03]"
                             : ""
