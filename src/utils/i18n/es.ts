@@ -277,6 +277,18 @@ export const es = {
     "Elimina permanentemente todas las colecciones, índices e incrustaciones vectoriales.",
   "settings.knowledge.clearBtn": "Limpiar Almacenamiento",
   "settings.knowledge.confirmClearBtn": "Confirmar Borrado Total",
+
+  // Settings: Data & Memory Transfer
+  "section.data_transfer": "Transferencia de Datos y Memoria",
+  "settings.dataTransfer.title": "Transferencia de Datos y Memoria",
+  "settings.dataTransfer.subtitle":
+    "Importa y exporta recuerdos, instrucciones personalizadas e historial de conversaciones entre chatbots de IA.",
+  "settings.dataTransfer.importTitle": "Importar Datos y Memoria",
+  "settings.dataTransfer.importSubtitle":
+    "Importa conversaciones, instrucciones personalizadas y recuerdos desde ChatGPT, Claude, Google Gemini o copias de seguridad de Sythoria.",
+  "settings.dataTransfer.exportTitle": "Exportar Datos e Historial de Chat",
+  "settings.dataTransfer.exportSubtitle":
+    "Exporta conversaciones y memoria del sistema a Markdown, formato de copia de seguridad de Sythoria, ChatGPT JSON o Claude JSON.",
   "settings.skills.idLabel": "Nombre de Carpeta (ID)",
   "settings.skills.idPlaceholder": "ej. react-best-practices",
   "settings.skills.idHelper": "Este será el nombre de la carpeta en ~/.agents/skills/",
@@ -541,6 +553,11 @@ export const es = {
   "settings.prompts.titlePromptDesc":
     "Personaliza las instrucciones de generación de títulos. Usa {{userMessage}} como marcador del mensaje del usuario",
   "settings.prompts.resetBtn": "Restablecer por defecto",
+  "settings.prompts.memoryTitle": "Memoria de Chat Adaptativa",
+  "settings.prompts.memorySubtitle": "Aprende y retiene automáticamente el contexto a través de las conversaciones.",
+  "settings.prompts.autoMemoryLabel": "Generar memoria desde las conversaciones",
+  "settings.prompts.autoMemoryDesc":
+    "Extrae automáticamente hechos clave, preferencias y contexto de las conversaciones para enriquecer el perfil de memoria persistente.",
   "settings.prompts.behaviorTitle": "Comportamiento de la IA",
   "settings.prompts.behaviorSubtitle": "Configura las instrucciones globales para la IA",
   "settings.prompts.globalPrompt": "Instrucciones de Sistema (System Prompt)",
