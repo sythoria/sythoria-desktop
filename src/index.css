@@ -442,11 +442,6 @@
   );
 }
 
-/* Keep the scroll viewport above the absolute composer and its backdrop. */
-.chat-content-frame {
-  padding-bottom: var(--chat-composer-height, 0px);
-}
-
 /* Keep long-form chat readable when the main pane has abundant horizontal
    space instead of letting messages and the composer expand with the window. */
 .chat-column-content {
