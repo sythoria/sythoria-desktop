@@ -1987,10 +1987,14 @@ function ChatAreaBase({
   }, [onScroll]);
   const setVirtualScroller = useCallback(
     (element: HTMLElement | Window | null) => {
-      virtualScrollerRef.current?.removeEventListener("scroll", handleVirtualScroll);
+      if (virtualScrollerRef.current) {
+        virtualScrollerRef.current.removeEventListener("scroll", handleVirtualScroll);
+        delete virtualScrollerRef.current.dataset.chatScroll;
+      }
       const div = element instanceof HTMLDivElement ? element : null;
       virtualScrollerRef.current = div;
       if (scrollContainerRef) scrollContainerRef.current = div;
+      if (div) div.dataset.chatScroll = "";
       div?.addEventListener("scroll", handleVirtualScroll, { passive: true });
     },
     [handleVirtualScroll, scrollContainerRef],
@@ -2099,7 +2103,7 @@ function ChatAreaBase({
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
           itemContent={(index, item) => (
-            <div className={`chat-column-content px-8 sm:px-12 lg:px-16 ${index > 0 ? "mt-0.5" : ""}`}>
+            <div className={`chat-column-content ${index > 0 ? "mt-0.5" : ""}`}>
               <ChatRenderItemView
                 item={item}
                 activeToolActivityId={activeToolActivityId}
@@ -2130,7 +2134,7 @@ function ChatAreaBase({
                 <div className="h-4" />
               ),
             Footer: () => (
-              <div className="chat-column-content px-8 sm:px-12 lg:px-16">
+              <div className="chat-column-content">
                 {pendingWorktree && conversationId && isConversationWorking && (
                   <div className="py-6">
                     <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
@@ -2277,7 +2281,7 @@ function NonVirtualizedChatArea({
     >
       <div
         ref={contentRef}
-        className="chat-column-content space-y-0.5 px-8 pt-8 sm:px-12 lg:px-16"
+        className="chat-column-content space-y-0.5 pt-8"
         style={{ paddingBottom: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
       >
         {isTemporary && (

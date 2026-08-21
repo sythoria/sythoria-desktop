@@ -448,6 +448,17 @@
   width: 100%;
   max-width: 64rem;
   margin-inline: auto;
+  padding-inline: 2rem;
+}
+@media (min-width: 40rem) {
+  .chat-column-content {
+    padding-inline: 3rem;
+  }
+}
+@media (min-width: 64rem) {
+  .chat-column-content {
+    padding-inline: 4rem;
+  }
 }
 
 /* WebKit may keep a filler <br> in an otherwise empty contenteditable. The

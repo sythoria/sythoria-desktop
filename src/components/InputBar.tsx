@@ -890,6 +890,45 @@ export default memo(function InputBar({
     };
   }, [centered]);
 
+  useEffect(() => {
+    const dock = composerDockRef.current;
+    const container = dock?.parentElement;
+    if (centered || !dock || !container) return;
+
+    // The message column is centered inside the scroll viewport, whose usable
+    // width can exclude a classic scrollbar. Match that viewport so the fixed
+    // composer does not shift sideways when scrolling starts or virtualization changes.
+    let scroller: HTMLElement | null = null;
+    let scrollerObserver: ResizeObserver | null = null;
+
+    const alignToScrollViewport = () => {
+      const nextScroller = container.querySelector<HTMLElement>("[data-chat-scroll]");
+      if (nextScroller !== scroller) {
+        scrollerObserver?.disconnect();
+        scroller = nextScroller;
+        if (scroller && typeof ResizeObserver !== "undefined") {
+          scrollerObserver = new ResizeObserver(alignToScrollViewport);
+          scrollerObserver.observe(scroller);
+        }
+      }
+
+      const scrollbarWidth = scroller ? Math.max(0, scroller.offsetWidth - scroller.clientWidth) : 0;
+      dock.style.right = `${scrollbarWidth}px`;
+    };
+
+    alignToScrollViewport();
+    const mutationObserver = new MutationObserver(alignToScrollViewport);
+    mutationObserver.observe(container, { childList: true, subtree: true });
+    window.addEventListener("resize", alignToScrollViewport);
+
+    return () => {
+      scrollerObserver?.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", alignToScrollViewport);
+      dock.style.removeProperty("right");
+    };
+  }, [centered]);
+
   const composerVisualStateClasses = `${
     conversation?.isTemporary
       ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
@@ -913,7 +952,7 @@ export default memo(function InputBar({
         className={`relative z-10 mx-auto w-full ${
           centered
             ? "max-w-4xl px-2 sm:px-6"
-            : "chat-column-content px-4 sm:px-12 lg:px-16"
+            : "chat-column-content"
         } ${centered ? "" : "pt-2"}`}
       >
         {conversation?.isSubagent ? (
