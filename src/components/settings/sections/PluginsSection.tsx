@@ -73,10 +73,8 @@ export function PluginsSection() {
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
   const envSecrets = useMcpStore((s) => s.envSecrets);
   const enabledServerIds = useMcpStore((s) => s.enabledServerIds);
-  const addMcpConfigFromPreset = useMcpStore((s) => s.addMcpConfigFromPreset);
   const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
   const toggleServerEnabled = useMcpStore((s) => s.toggleServerEnabled);
-  const setEnvSecrets = useMcpStore((s) => s.setEnvSecrets);
 
   // Local UI State
   const [selectedCategory, setSelectedCategory] = useState<PluginCategory | "all">("all");
@@ -84,6 +82,7 @@ export function PluginsSection() {
   const [activeModalPlugin, setActiveModalPlugin] = useState<PluginItem | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+  const [showReauthForm, setShowReauthForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Map installed MCP configs to catalog items
@@ -190,6 +189,7 @@ export function PluginsSection() {
 
       setFormValues(initialForm);
       setShowPasswordMap({});
+      setShowReauthForm(false);
     },
     [installedPluginMap, envSecrets],
   );
@@ -207,6 +207,7 @@ export function PluginsSection() {
       error: null,
     });
     setShowManualToken(false);
+    setShowReauthForm(false);
     setActiveModalPlugin(null);
     setFormValues({});
     setIsSubmitting(false);
@@ -260,16 +261,10 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "github");
       if (plugin) {
-        addMcpConfigFromPreset(plugin.preset);
-        const latestConfigs = useMcpStore.getState().mcpConfigs;
-        const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-        const targetId = newConfig?.id || plugin.preset.id;
-
-        setEnvSecrets(targetId, {
+        await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
           GITHUB_PERSONAL_ACCESS_TOKEN: token,
         });
 
-        await toggleServerEnabled(targetId, true);
         addToast("GitHub successfully authorized via 1-Click OAuth!", "success");
         handleCloseModal();
       }
@@ -294,29 +289,15 @@ export function PluginsSection() {
       const plugin = activeModalPlugin;
       const installedInfo = installedPluginMap.get(plugin.id);
 
-      let targetConfigId = installedInfo?.configId;
-
-      if (!targetConfigId) {
-        addMcpConfigFromPreset(plugin.preset);
-        const latestConfigs = useMcpStore.getState().mcpConfigs;
-        const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-        targetConfigId = newConfig?.id || plugin.preset.id;
-      }
-
-      if (plugin.authFields.length > 0 && targetConfigId) {
-        const secretsToSave: Record<string, string> = {};
-        for (const field of plugin.authFields) {
-          const val = formValues[field.key];
-          if (val !== undefined) {
-            secretsToSave[field.key] = val.trim();
-          }
+      const secretsToSave: Record<string, string> = {};
+      for (const field of plugin.authFields) {
+        const val = formValues[field.key];
+        if (val !== undefined) {
+          secretsToSave[field.key] = val.trim();
         }
-        setEnvSecrets(targetConfigId, secretsToSave);
       }
 
-      if (targetConfigId) {
-        await toggleServerEnabled(targetConfigId, true);
-      }
+      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secretsToSave);
 
       addToast(
         installedInfo ? `Updated authorization for ${plugin.name}` : `Successfully authorized ${plugin.name}`,
@@ -339,12 +320,7 @@ export function PluginsSection() {
     }
 
     try {
-      addMcpConfigFromPreset(plugin.preset);
-      const latestConfigs = useMcpStore.getState().mcpConfigs;
-      const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-      const targetId = newConfig?.id || plugin.preset.id;
-
-      await toggleServerEnabled(targetId, true);
+      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {});
       addToast(`Authorized ${plugin.name}`, "success");
     } catch {
       addToast(`Failed to authorize ${plugin.name}`, "error");
@@ -402,7 +378,7 @@ export function PluginsSection() {
                   title={`Configure ${plugin.name}`}
                 >
                   <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0">
-                    <BrandIcon name={plugin.id} size={18} />
+                    <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={18} />
                   </div>
                   <span>{plugin.name}</span>
                   <span
@@ -517,7 +493,7 @@ export function PluginsSection() {
                       {/* Left: Brand Icon + Title & Subtitle */}
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
                         <div className="w-11 h-11 rounded-2xl bg-[#141415] border border-white/5 flex items-center justify-center shrink-0 shadow-sm relative p-2">
-                          <BrandIcon name={plugin.id} size={24} showSparkle={isGoogleApp} />
+                          <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={24} showSparkle={isGoogleApp} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
@@ -580,264 +556,385 @@ export function PluginsSection() {
                 </button>
               </div>
 
-              {/* OAuth App Connection Visual (Sythoria <---> App) */}
-              <div className="px-6 pb-4 text-center">
-                <div className="flex items-center justify-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
-                    <SythoriaMark size={36} />
-                  </div>
+              {installedPluginMap.has(activeModalPlugin.id) && !showReauthForm ? (
+                /* ========================================================= */
+                /* 1. ALREADY CONNECTED MANAGEMENT VIEW                      */
+                /* ========================================================= */
+                (() => {
+                  const info = installedPluginMap.get(activeModalPlugin.id)!;
+                  return (
+                    <div className="px-6 pb-6 pt-2 space-y-6 overflow-y-auto flex-1 text-sm">
+                      {/* Connection Visual Header */}
+                      <div className="text-center space-y-3">
+                        <div className="flex items-center justify-center gap-3 mb-3">
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
+                            <SythoriaMark size={36} />
+                          </div>
 
-                  <div className="flex items-center gap-1 text-text-muted">
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center text-accent">
-                      <Shield size={13} />
-                    </div>
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                  </div>
+                          <div className="flex items-center gap-1.5 text-emerald-400">
+                            <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm shadow-emerald-500/20">
+                              <Check size={14} strokeWidth={3} />
+                            </div>
+                            <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
+                          </div>
 
-                  <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
-                    <BrandIcon
-                      name={activeModalPlugin.id}
-                      size={28}
-                      showSparkle={
-                        activeModalPlugin.id === "google-drive" ||
-                        activeModalPlugin.id === "gmail" ||
-                        activeModalPlugin.id === "google-calendar"
-                      }
-                    />
-                  </div>
-                </div>
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                            <BrandIcon
+                              name={activeModalPlugin.id}
+                              iconUrl={activeModalPlugin.icon}
+                              size={28}
+                              showSparkle={
+                                activeModalPlugin.id === "google-drive" ||
+                                activeModalPlugin.id === "gmail" ||
+                                activeModalPlugin.id === "google-calendar"
+                              }
+                            />
+                            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#141415] rounded-full shadow-xs" />
+                          </div>
+                        </div>
 
-                <h3 className="text-lg font-semibold text-text-primary">Sythoria Connector by Sythoria</h3>
-                <p className="text-xs text-text-muted mt-0.5">wants access to your {activeModalPlugin.name} account</p>
-              </div>
+                        <div>
+                          <div className="flex items-center justify-center gap-2">
+                            <h3 className="text-lg font-semibold text-text-primary">{activeModalPlugin.name}</h3>
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
+                            Sythoria is authorized and ready to execute {activeModalPlugin.name} Model Context Protocol
+                            tools.
+                          </p>
+                        </div>
+                      </div>
 
-              {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
-              <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
-                <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
-                  <div className="text-xs font-semibold text-text-primary tracking-tight">
-                    Authorizing allows this app to:
-                  </div>
-
-                  <div className="space-y-2.5 text-xs text-text-secondary">
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>Verify your {activeModalPlugin.name} identity</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>Act on your behalf via local Model Context Protocol tools</span>
-                    </div>
-                  </div>
-
-                  {/* Resource Scopes */}
-                  <div className="pt-3 border-t border-border/40">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
-                      Resources on your account
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
-                      <Sparkles size={14} className="text-accent shrink-0" />
-                      <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
-                      <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
-                        read & write
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Security & Privacy Guarantee */}
-                  <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
-                    <Lock size={13} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256 keychain.
-                      Data never touches third-party cloud servers.
-                    </span>
-                  </div>
-                </div>
-
-                {/* GitHub 1-Click OAuth Integration */}
-                {activeModalPlugin.id === "github" && (
-                  <div className="space-y-3 pt-1">
-                    {githubOAuth.isActive ? (
-                      <div className="p-4 rounded-xl border border-accent/40 bg-accent/10 space-y-3 text-center">
-                        <div className="text-xs font-semibold text-text-primary">Enter this code on GitHub:</div>
-                        <div className="flex items-center justify-center gap-3">
-                          <span className="text-2xl font-mono font-bold tracking-widest text-accent bg-surface px-4 py-2 rounded-xl border border-accent/30 shadow-inner select-all">
-                            {githubOAuth.userCode || "···· - ····"}
+                      {/* Active Connection Status & Privacy Info */}
+                      <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-text-muted font-medium">Integration Status</span>
+                          <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            {info.isConnected ? "Active & Ready" : "Standby (Ready)"}
                           </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
+                          <span className="text-text-muted font-medium">Data Privacy & Security</span>
+                          <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
+                            <Lock size={12} className="text-emerald-400" />
+                            AES-256 Keychain (Local)
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
+                          <span className="text-text-muted font-medium">Scope</span>
+                          <span className="text-text-secondary font-medium">Full AI Toolset (Read & Write)</span>
+                        </div>
+                      </div>
+
+                      {/* Big Prominent Revoke Access Button */}
+                      <div className="space-y-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
+                          className="w-full py-3.5 rounded-xl border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer group"
+                        >
+                          <Trash2 size={16} className="text-rose-400 group-hover:scale-110 transition-transform" />
+                          <span>Revoke Access & Disconnect</span>
+                        </button>
+
+                        <div className="flex items-center justify-between pt-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (githubOAuth.userCode) {
-                                void navigator.clipboard.writeText(githubOAuth.userCode);
-                                addToast("Code copied to clipboard!", "info");
-                              }
-                            }}
-                            className="p-2.5 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary transition-colors cursor-pointer"
-                            title="Copy Code"
+                            onClick={() => setShowReauthForm(true)}
+                            className="text-xs text-text-muted hover:text-text-primary transition-colors underline"
                           >
-                            <Copy size={16} />
+                            Update credentials / Re-authenticate
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleCloseModal}
+                            className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+                          >
+                            Done
                           </button>
                         </div>
-                        <p className="text-xs text-text-muted leading-relaxed">
-                          Your browser has opened to GitHub. Paste the code above and click{" "}
-                          <strong>Authorize Sythoria</strong>.
-                        </p>
-                        {githubOAuth.isPolling ? (
-                          <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-medium pt-1">
-                            <RefreshCw size={13} className="animate-spin" />
-                            <span>Waiting for approval in browser...</span>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                /* ========================================================= */
+                /* 2. AUTHORIZATION / CONNECTION FLOW                         */
+                /* ========================================================= */
+                <>
+                  {/* OAuth App Connection Visual (Sythoria <---> App) */}
+                  <div className="px-6 pb-4 text-center">
+                    <div className="flex items-center justify-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
+                        <SythoriaMark size={36} />
+                      </div>
+
+                      <div className="flex items-center gap-1 text-text-muted">
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center text-accent">
+                          <Shield size={13} />
+                        </div>
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                      </div>
+
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                        <BrandIcon
+                          name={activeModalPlugin.id}
+                          iconUrl={activeModalPlugin.icon}
+                          size={28}
+                          showSparkle={
+                            activeModalPlugin.id === "google-drive" ||
+                            activeModalPlugin.id === "gmail" ||
+                            activeModalPlugin.id === "google-calendar"
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <h3 className="text-lg font-semibold text-text-primary">Sythoria Connector by Sythoria</h3>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      wants access to your {activeModalPlugin.name} account
+                    </p>
+                  </div>
+
+                  {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
+                  <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
+                    <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
+                      <div className="text-xs font-semibold text-text-primary tracking-tight">
+                        Authorizing allows this app to:
+                      </div>
+
+                      <div className="space-y-2.5 text-xs text-text-secondary">
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Verify your {activeModalPlugin.name} identity</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Act on your behalf via local Model Context Protocol tools</span>
+                        </div>
+                      </div>
+
+                      {/* Resource Scopes */}
+                      <div className="pt-3 border-t border-border/40">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
+                          Resources on your account
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
+                          <Sparkles size={14} className="text-accent shrink-0" />
+                          <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
+                          <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
+                            read & write
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Security & Privacy Guarantee */}
+                      <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
+                        <Lock size={13} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256
+                          keychain. Data never touches third-party cloud servers.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* GitHub 1-Click OAuth Integration */}
+                    {activeModalPlugin.id === "github" && (
+                      <div className="space-y-3 pt-1">
+                        {githubOAuth.isActive ? (
+                          <div className="p-4 rounded-xl border border-accent/40 bg-accent/10 space-y-3 text-center">
+                            <div className="text-xs font-semibold text-text-primary">Enter this code on GitHub:</div>
+                            <div className="flex items-center justify-center gap-3">
+                              <span className="text-2xl font-mono font-bold tracking-widest text-accent bg-surface px-4 py-2 rounded-xl border border-accent/30 shadow-inner select-all">
+                                {githubOAuth.userCode || "···· - ····"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (githubOAuth.userCode) {
+                                    void navigator.clipboard.writeText(githubOAuth.userCode);
+                                    addToast("Code copied to clipboard!", "info");
+                                  }
+                                }}
+                                className="p-2.5 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary transition-colors cursor-pointer"
+                                title="Copy Code"
+                              >
+                                <Copy size={16} />
+                              </button>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to GitHub. Paste the code above and click{" "}
+                              <strong>Authorize Sythoria</strong>.
+                            </p>
+                            {githubOAuth.isPolling ? (
+                              <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-medium pt-1">
+                                <RefreshCw size={13} className="animate-spin" />
+                                <span>Waiting for approval in browser...</span>
+                              </div>
+                            ) : githubOAuth.error ? (
+                              <div className="space-y-2 pt-1">
+                                <div className="text-xs text-rose-400 font-medium">{githubOAuth.error}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleStartGitHubOAuth()}
+                                  className="px-3 py-1 text-xs rounded-lg bg-accent text-accent-foreground font-medium hover:bg-accent/90 transition-colors"
+                                >
+                                  Try Again
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : githubOAuth.error ? (
-                          <div className="space-y-2 pt-1">
-                            <div className="text-xs text-rose-400 font-medium">{githubOAuth.error}</div>
+                        ) : (
+                          <div className="space-y-3">
                             <button
                               type="button"
                               onClick={() => void handleStartGitHubOAuth()}
-                              className="px-3 py-1 text-xs rounded-lg bg-accent text-accent-foreground font-medium hover:bg-accent/90 transition-colors"
+                              className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
-                              Try Again
+                              <BrandIcon name="github" size={18} />
+                              <span>1-Click Connect with GitHub</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
+
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter a Personal Access Token manually"}
+                              </button>
+                            </div>
                           </div>
-                        ) : null}
+                        )}
                       </div>
-                    ) : (
-                      <div className="space-y-3">
+                    )}
+
+                    {/* Input Fields (if service requires API token / OAuth Token and not in GitHub 1-Click mode) */}
+                    {activeModalPlugin.authFields.length > 0 &&
+                      (activeModalPlugin.id !== "github" || (showManualToken && !githubOAuth.isActive)) && (
+                        <div className="space-y-3 pt-1">
+                          {activeModalPlugin.authFields.map((field) => {
+                            const isPassword = field.type === "password";
+                            const isVisible = showPasswordMap[field.key] || false;
+
+                            return (
+                              <div key={field.key} className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-medium text-text-primary">
+                                    {field.label}
+                                    {field.required && <span className="text-accent ml-1">*</span>}
+                                  </label>
+                                  {field.docUrl && (
+                                    <a
+                                      href={field.docUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[11px] text-accent hover:underline flex items-center gap-1"
+                                    >
+                                      <span>Get token in browser</span>
+                                      <ExternalLink size={10} />
+                                    </a>
+                                  )}
+                                </div>
+
+                                <div className="relative">
+                                  <input
+                                    type={isPassword && !isVisible ? "password" : "text"}
+                                    value={formValues[field.key] || ""}
+                                    onChange={(e) =>
+                                      setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                                    }
+                                    placeholder={field.placeholder}
+                                    className="w-full px-3 py-2 text-xs rounded-lg border border-input-border bg-input text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none pr-8 font-mono"
+                                  />
+                                  {isPassword && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setShowPasswordMap((prev) => ({
+                                          ...prev,
+                                          [field.key]: !prev[field.key],
+                                        }))
+                                      }
+                                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                                    >
+                                      {isVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {field.helpText && <p className="text-[11px] text-text-muted">{field.helpText}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </div>
+
+                  {/* Modal Footer (ChatGPT Authorize Buttons) */}
+                  <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
+                    {/* Generic Authorize Button (shown if not in GitHub 1-click active state) */}
+                    {!githubOAuth.isActive && (activeModalPlugin.id !== "github" || showManualToken) && (
+                      <button
+                        onClick={() => void handleConnectPlugin()}
+                        disabled={isSubmitting}
+                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <RefreshCw size={14} className="animate-spin" />
+                            <span>Authorizing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Authorize {activeModalPlugin.name}</span>
+                            <ArrowRight size={14} />
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1">
+                      {installedPluginMap.has(activeModalPlugin.id) ? (
                         <button
                           type="button"
-                          onClick={() => void handleStartGitHubOAuth()}
-                          className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                          onClick={() => setShowReauthForm(false)}
+                          className="px-2.5 py-1 text-xs text-text-muted hover:text-text-primary transition-colors flex items-center gap-1 font-medium"
                         >
-                          <BrandIcon name="github" size={18} />
-                          <span>1-Click Connect with GitHub</span>
-                          <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                          ← Back to Connected View
                         </button>
+                      ) : (
+                        <div />
+                      )}
 
-                        <div className="text-center">
-                          <button
-                            type="button"
-                            onClick={() => setShowManualToken((prev) => !prev)}
-                            className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
-                          >
-                            {showManualToken
-                              ? "Switch back to 1-Click OAuth"
-                              : "Or enter a Personal Access Token manually"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Input Fields (if service requires API token / OAuth Token and not in GitHub 1-Click mode) */}
-                {activeModalPlugin.authFields.length > 0 &&
-                  (activeModalPlugin.id !== "github" || (showManualToken && !githubOAuth.isActive)) && (
-                    <div className="space-y-3 pt-1">
-                      {activeModalPlugin.authFields.map((field) => {
-                        const isPassword = field.type === "password";
-                        const isVisible = showPasswordMap[field.key] || false;
-
-                        return (
-                          <div key={field.key} className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-medium text-text-primary">
-                                {field.label}
-                                {field.required && <span className="text-accent ml-1">*</span>}
-                              </label>
-                              {field.docUrl && (
-                                <a
-                                  href={field.docUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[11px] text-accent hover:underline flex items-center gap-1"
-                                >
-                                  <span>Get token in browser</span>
-                                  <ExternalLink size={10} />
-                                </a>
-                              )}
-                            </div>
-
-                            <div className="relative">
-                              <input
-                                type={isPassword && !isVisible ? "password" : "text"}
-                                value={formValues[field.key] || ""}
-                                onChange={(e) => setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                                placeholder={field.placeholder}
-                                className="w-full px-3 py-2 text-xs rounded-lg border border-input-border bg-input text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none pr-8 font-mono"
-                              />
-                              {isPassword && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setShowPasswordMap((prev) => ({
-                                      ...prev,
-                                      [field.key]: !prev[field.key],
-                                    }))
-                                  }
-                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                                >
-                                  {isVisible ? <EyeOff size={13} /> : <Eye size={13} />}
-                                </button>
-                              )}
-                            </div>
-
-                            {field.helpText && <p className="text-[11px] text-text-muted">{field.helpText}</p>}
-                          </div>
-                        );
-                      })}
+                      <button
+                        onClick={handleCloseModal}
+                        className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  )}
-              </div>
-
-              {/* Modal Footer (ChatGPT Authorize Buttons) */}
-              <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
-                {/* Generic Authorize Button (shown if not in GitHub 1-click active state) */}
-                {!githubOAuth.isActive && (activeModalPlugin.id !== "github" || showManualToken) && (
-                  <button
-                    onClick={() => void handleConnectPlugin()}
-                    disabled={isSubmitting}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" />
-                        <span>Authorizing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Authorize {activeModalPlugin.name}</span>
-                        <ArrowRight size={14} />
-                      </>
-                    )}
-                  </button>
-                )}
-
-                <div className="flex items-center justify-between pt-1">
-                  {installedPluginMap.has(activeModalPlugin.id) ? (
-                    <button
-                      onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
-                      className="px-2.5 py-1 text-xs text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1 font-medium"
-                    >
-                      <Trash2 size={13} />
-                      <span>Revoke Access</span>
-                    </button>
-                  ) : (
-                    <div />
-                  )}
-
-                  <button
-                    onClick={handleCloseModal}
-                    className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}
