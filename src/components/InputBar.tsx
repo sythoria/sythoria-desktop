@@ -913,7 +913,7 @@ export default memo(function InputBar({
         className={`relative z-10 mx-auto w-full ${
           centered
             ? "max-w-4xl px-2 sm:px-6"
-            : "max-w-none px-4 sm:px-12 lg:px-16"
+            : "chat-column-content px-4 sm:px-12 lg:px-16"
         } ${centered ? "" : "pt-2"}`}
       >
         {conversation?.isSubagent ? (

@@ -442,6 +442,19 @@
   );
 }
 
+/* Keep the scroll viewport above the absolute composer and its backdrop. */
+.chat-content-frame {
+  padding-bottom: var(--chat-composer-height, 0px);
+}
+
+/* Keep long-form chat readable when the main pane has abundant horizontal
+   space instead of letting messages and the composer expand with the window. */
+.chat-column-content {
+  width: 100%;
+  max-width: 64rem;
+  margin-inline: auto;
+}
+
 /* WebKit may keep a filler <br> in an otherwise empty contenteditable. The
    placeholder is a sibling overlay, never generated editable content. */
 .chat-prompt-editor[data-editor-empty="true"] > br {

@@ -2091,7 +2091,12 @@ function ChatAreaBase({
 
   if (renderItems.length >= VIRTUALIZED_THRESHOLD) {
     return (
-      <div className="flex-1 min-h-0 min-w-0 relative" role="log" aria-label="Chat messages" aria-live="polite">
+      <div
+        className="chat-content-frame flex min-h-0 min-w-0 flex-1 flex-col relative"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+      >
         <Virtuoso
           ref={virtuosoRef}
           data={renderItems}
@@ -2099,7 +2104,7 @@ function ChatAreaBase({
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
           itemContent={(index, item) => (
-            <div className={`px-8 sm:px-12 lg:px-16 ${index > 0 ? "mt-0.5" : ""}`}>
+            <div className={`chat-column-content px-8 sm:px-12 lg:px-16 ${index > 0 ? "mt-0.5" : ""}`}>
               <ChatRenderItemView
                 item={item}
                 activeToolActivityId={activeToolActivityId}
@@ -2130,7 +2135,7 @@ function ChatAreaBase({
                 <div className="h-4" />
               ),
             Footer: () => (
-              <>
+              <div className="chat-column-content px-8 sm:px-12 lg:px-16">
                 {pendingWorktree && conversationId && isConversationWorking && (
                   <div className="py-6">
                     <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
@@ -2146,12 +2151,9 @@ function ChatAreaBase({
                     />
                   </div>
                 )}
-                {/* Keep the final message scrollable above the floating composer. */}
-                <div
-                  aria-hidden="true"
-                  style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
-                />
-              </>
+                {/* Leave a small gap between the final message and the composer. */}
+                <div aria-hidden="true" className="h-8" />
+              </div>
             ),
           }}
           followOutput="smooth"
@@ -2270,55 +2272,57 @@ function NonVirtualizedChatArea({
   }, [setIsAtBottom, onScroll, activeRef]);
 
   return (
-    <div
-      ref={activeRef}
-      data-chat-scroll
-      className="flex-1 min-h-0 min-w-0 overflow-y-auto relative"
-      role="log"
-      aria-label="Chat messages"
-      aria-live="polite"
-    >
+    <div className="chat-content-frame flex min-h-0 min-w-0 flex-1 flex-col">
       <div
-        ref={contentRef}
-        className="w-full space-y-0.5 px-8 pt-8 sm:px-12 lg:px-16"
-        style={{ paddingBottom: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
+        ref={activeRef}
+        data-chat-scroll
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto relative"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
       >
-        {isTemporary && (
-          <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
-            <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
-            <div>
-              <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
-              This conversation won't be saved to history or used for training/persistence. It will be discarded once
-              you close the app or switch chats.
+        <div
+          ref={contentRef}
+          className="chat-column-content space-y-0.5 px-8 pt-8 sm:px-12 lg:px-16"
+          style={{ paddingBottom: "2rem" }}
+        >
+          {isTemporary && (
+            <div className="flex items-start gap-2.5 p-3.5 bg-accent/5 rounded-xl border border-accent/20 text-text-secondary text-xs leading-relaxed select-none mb-4 animate-fade-in">
+              <Ghost size={16} className="shrink-0 text-accent animate-pulse" />
+              <div>
+                <span className="font-semibold text-text-primary block mb-0.5">Temporary Chat</span>
+                This conversation won't be saved to history or used for training/persistence. It will be discarded once
+                you close the app or switch chats.
+              </div>
             </div>
-          </div>
-        )}
-        {renderItems.map((item) => (
-          <ChatRenderItemView
-            key={item.id}
-            item={item}
-            activeToolActivityId={activeToolActivityId}
-            onRetry={onRetry}
-            conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApplyWorktree={onApply}
-            onDiscardWorktree={onDiscard}
-            autoExpandReasoning={autoExpandReasoning}
-            animateMessageIds={animateMessageIds}
-          />
-        ))}
-        {pendingWorktree && conversationId && isConversationWorking && (
-          <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
-        )}
-        {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
-          <WorkspaceChangeSummary
-            conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApply={onApply}
-            onDiscard={onDiscard}
-          />
-        )}
-        <div aria-hidden="true" className="h-1" />
+          )}
+          {renderItems.map((item) => (
+            <ChatRenderItemView
+              key={item.id}
+              item={item}
+              activeToolActivityId={activeToolActivityId}
+              onRetry={onRetry}
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApplyWorktree={onApply}
+              onDiscardWorktree={onDiscard}
+              autoExpandReasoning={autoExpandReasoning}
+              animateMessageIds={animateMessageIds}
+            />
+          ))}
+          {pendingWorktree && conversationId && isConversationWorking && (
+            <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
+          )}
+          {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
+            <WorkspaceChangeSummary
+              conversationId={conversationId}
+              pendingWorktree={pendingWorktree}
+              onApply={onApply}
+              onDiscard={onDiscard}
+            />
+          )}
+          <div aria-hidden="true" className="h-1" />
+        </div>
       </div>
     </div>
   );
