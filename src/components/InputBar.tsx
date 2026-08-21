@@ -1405,7 +1405,7 @@ export default memo(function InputBar({
               {/* Active Tools and Context Row */}
               {(isProjectsEnabled || isSearchEnabled) && (
                 <div
-                  className={`relative flex flex-wrap items-center gap-2 ${projectDropdownOpen ? "z-30" : "z-0"} ${
+                  className={`relative z-0 flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
                       ? `chat-composer-surface chat-composer-project-row -mt-px mx-4 min-h-10 w-[calc(100%-2rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${projectRowGenerationClass} ${
                           conversation?.isTemporary
@@ -1685,7 +1685,7 @@ export default memo(function InputBar({
       {!conversation?.isSubagent && (
         <p
           id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
-          className={`relative z-10 mt-2 bg-chat px-4 py-2 text-center text-[11px] text-text-secondary/80 ${
+          className={`relative z-0 mt-2 bg-chat px-4 py-2 text-center text-[11px] text-text-secondary/80 ${
             centered ? "w-full" : "-mx-4 w-[calc(100%+2rem)] md:mx-0 md:w-full"
           }`}
         >
