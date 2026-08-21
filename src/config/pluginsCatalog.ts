@@ -18,6 +18,7 @@ export interface PluginItem {
   category: PluginCategory;
   description: string;
   longDescription?: string;
+  icon: string;
   iconName: string;
   badge?: "Popular" | "Official" | "New" | "Essential";
   authType: "none" | "api_key" | "oauth" | "connection_string";
@@ -42,6 +43,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "github",
     name: "GitHub",
+    icon: "/plugins/github/icon.svg",
     category: "featured",
     badge: "Official",
     description: "Triage PRs, manage issues, search repositories, and inspect code.",
@@ -74,6 +76,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "playwright",
     name: "Web Browser Automation",
+    icon: "/plugins/playwright/icon.svg",
     category: "featured",
     badge: "Popular",
     description: "Headless browser automation to navigate, interact with web apps, and take screenshots.",
@@ -95,6 +98,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "notion",
     name: "Notion",
+    icon: "/plugins/notion/icon.svg",
     category: "featured",
     badge: "Popular",
     description: "Search workspace pages, read project specs, and create new notes.",
@@ -127,6 +131,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "slack",
     name: "Slack",
+    icon: "/plugins/slack/icon.svg",
     category: "featured",
     badge: "Official",
     description: "Read channel messages, summarize discussions, and post replies.",
@@ -167,6 +172,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "linear",
     name: "Linear",
+    icon: "/plugins/linear/icon.svg",
     category: "featured",
     badge: "Official",
     description: "Search issues, triage bug reports, create tickets, and manage sprints.",
@@ -199,6 +205,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "google-drive",
     name: "Google Drive",
+    icon: "/plugins/google-drive/icon.svg",
     category: "featured",
     badge: "Popular",
     description: "Work across Drive, Docs, Sheets, and Slides",
@@ -231,6 +238,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "postgres",
     name: "PostgreSQL & Supabase",
+    icon: "/plugins/postgres/icon.svg",
     category: "featured",
     badge: "Popular",
     description: "Inspect schemas, explore tables, and execute analytical SQL queries.",
@@ -262,6 +270,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "memory",
     name: "Memory Knowledge Graph",
+    icon: "/plugins/memory/icon.svg",
     category: "featured",
     badge: "Essential",
     description: "Persistent cross-conversation memory graph storing entities and relations.",
@@ -283,6 +292,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "tavily",
     name: "Tavily AI Search",
+    icon: "/plugins/tavily/icon.svg",
     category: "featured",
     badge: "Official",
     description: "Real-time AI-optimized web search tailored for LLM factual accuracy.",
@@ -315,6 +325,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "firecrawl",
     name: "Firecrawl Web Scraper",
+    icon: "/plugins/firecrawl/icon.svg",
     category: "featured",
     badge: "Official",
     description: "Crawl and convert any complex website into clean, LLM-ready Markdown.",
@@ -351,6 +362,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "docker",
     name: "Docker Container Manager",
+    icon: "/plugins/docker/icon.svg",
     category: "developer",
     badge: "Popular",
     description: "Inspect local containers, view runtime logs, and manage Docker services.",
@@ -372,6 +384,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "gitlab",
     name: "GitLab",
+    icon: "/plugins/gitlab/icon.svg",
     category: "developer",
     badge: "Official",
     description: "Manage merge requests, repositories, issues, and pipelines on GitLab.",
@@ -410,6 +423,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "sentry",
     name: "Sentry Error Monitoring",
+    icon: "/plugins/sentry/icon.svg",
     category: "developer",
     badge: "Official",
     description: "Pull stack traces, triage unhandled exceptions, and link errors to code.",
@@ -442,6 +456,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "sqlite",
     name: "SQLite Database Inspector",
+    icon: "/plugins/sqlite/icon.svg",
     category: "developer",
     badge: "Essential",
     description: "Query and inspect local SQLite databases with automated schema analysis.",
@@ -473,6 +488,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "redis",
     name: "Redis",
+    icon: "/plugins/redis/icon.svg",
     category: "developer",
     description: "Inspect cached keys, view TTLs, and test key-value structures.",
     iconName: "Zap",
@@ -499,6 +515,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "mongodb",
     name: "MongoDB",
+    icon: "/plugins/mongodb/icon.svg",
     category: "developer",
     description: "Query document collections, filter JSON data, and inspect schemas.",
     iconName: "Database",
@@ -525,6 +542,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "kubernetes",
     name: "Kubernetes (K8s)",
+    icon: "/plugins/kubernetes/icon.svg",
     category: "developer",
     description: "Inspect cluster pods, check deployment statuses, and read pod logs.",
     iconName: "Boxes",
@@ -542,6 +560,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "cloudflare",
     name: "Cloudflare",
+    icon: "/plugins/cloudflare/icon.svg",
     category: "developer",
     description: "Manage Cloudflare Workers, KV storage, DNS records, and AI models.",
     iconName: "Cloud",
@@ -569,6 +588,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "aws",
     name: "AWS & S3 Storage",
+    icon: "/plugins/aws/icon.svg",
     category: "developer",
     description: "List S3 buckets, inspect objects, and query cloud resources.",
     iconName: "Cloud",
@@ -609,6 +629,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "filesystem",
     name: "Local Filesystem",
+    icon: "/plugins/filesystem/icon.svg",
     category: "developer",
     badge: "Essential",
     description: "Read, write, search, and inspect files and folders on your computer.",
@@ -642,6 +663,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "jira-confluence",
     name: "Jira & Confluence (Atlassian)",
+    icon: "/plugins/jira-confluence/icon.svg",
     category: "productivity",
     badge: "Official",
     description: "Search enterprise wikis, update Jira tickets, and log bug status.",
@@ -684,6 +706,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "obsidian",
     name: "Obsidian Markdown Vault",
+    icon: "/plugins/obsidian/icon.svg",
     category: "productivity",
     description: "Read, search, and link personal Markdown notes inside your Obsidian vault.",
     iconName: "BookOpen",
@@ -710,6 +733,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "todoist",
     name: "Todoist",
+    icon: "/plugins/todoist/icon.svg",
     category: "productivity",
     description: "Create tasks, check upcoming deadlines, and organize project tasks.",
     iconName: "CheckSquare",
@@ -737,6 +761,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "trello",
     name: "Trello",
+    icon: "/plugins/trello/icon.svg",
     category: "productivity",
     description: "Move cards across kanban boards, create task cards, and assign members.",
     iconName: "Trello",
@@ -771,6 +796,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "asana",
     name: "Asana",
+    icon: "/plugins/asana/icon.svg",
     category: "productivity",
     description: "Track project milestones, view team tasks, and update goals.",
     iconName: "CheckSquare",
@@ -798,6 +824,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "airtable",
     name: "Airtable",
+    icon: "/plugins/airtable/icon.svg",
     category: "productivity",
     description: "Read relational bases, insert customer rows, and query table views.",
     iconName: "Database",
@@ -825,6 +852,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "clickup",
     name: "ClickUp",
+    icon: "/plugins/clickup/icon.svg",
     category: "productivity",
     description: "Manage all-in-one workspace tasks, docs, goals, and team backlogs.",
     iconName: "CheckSquare",
@@ -852,6 +880,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "coda",
     name: "Coda",
+    icon: "/plugins/coda/icon.svg",
     category: "productivity",
     description: "Read interactive docs, query tables, and append row data in Coda.",
     iconName: "FileText",
@@ -879,6 +908,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "hubspot",
     name: "HubSpot CRM",
+    icon: "/plugins/hubspot/icon.svg",
     category: "productivity",
     description: "Search contact records, log call notes, and view deals in your sales pipeline.",
     iconName: "Users",
@@ -906,6 +936,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "google-calendar",
     name: "Google Calendar",
+    icon: "/plugins/google-calendar/icon.svg",
     category: "productivity",
     badge: "Popular",
     description: "Check schedule availability, view meetings, and create calendar events.",
@@ -938,6 +969,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "gmail",
     name: "Gmail",
+    icon: "/plugins/gmail/icon.svg",
     category: "communication",
     badge: "Popular",
     description: "Search email threads, summarize inbox newsletters, and draft message replies.",
@@ -966,6 +998,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "outlook",
     name: "Microsoft Outlook & 365",
+    icon: "/plugins/outlook/icon.svg",
     category: "communication",
     description: "Search Outlook emails, summarize threads, and check calendar invites.",
     iconName: "Mail",
@@ -993,6 +1026,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "discord",
     name: "Discord",
+    icon: "/plugins/discord/icon.svg",
     category: "communication",
     description: "Send channel messages, monitor server discussions, and post notifications.",
     iconName: "MessageCircle",
@@ -1020,6 +1054,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "telegram",
     name: "Telegram",
+    icon: "/plugins/telegram/icon.svg",
     category: "communication",
     description: "Send alerts, message summaries, and notifications to Telegram chats.",
     iconName: "Send",
@@ -1047,6 +1082,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "ms-teams",
     name: "Microsoft Teams",
+    icon: "/plugins/ms-teams/icon.svg",
     category: "communication",
     description: "Read team channel chats, view activity feeds, and send bot messages.",
     iconName: "Users",
@@ -1073,6 +1109,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "twilio",
     name: "Twilio SMS & WhatsApp",
+    icon: "/plugins/twilio/icon.svg",
     category: "communication",
     description: "Send SMS notifications and WhatsApp messages programmatically.",
     iconName: "Phone",
@@ -1110,6 +1147,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "exa",
     name: "Exa (Metaphor) Neural Search",
+    icon: "/plugins/exa/icon.svg",
     category: "search",
     badge: "Official",
     description: "Semantic neural search tailored for code, technical blogs, and deep research.",
@@ -1140,6 +1178,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "brave-search",
     name: "Brave Search",
+    icon: "/plugins/brave-search/icon.svg",
     category: "search",
     badge: "Popular",
     description: "Independent web search engine with zero tracking and local POI lookups.",
@@ -1169,6 +1208,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "perplexity",
     name: "Perplexity Research",
+    icon: "/plugins/perplexity/icon.svg",
     category: "search",
     description: "Multi-source synthesized web answers with structured citations.",
     iconName: "Compass",
@@ -1196,6 +1236,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "arxiv",
     name: "ArXiv Academic Papers",
+    icon: "/plugins/arxiv/icon.svg",
     category: "search",
     description: "Search scientific papers, preprints, abstracts, and authors on ArXiv.",
     iconName: "BookOpen",
@@ -1213,6 +1254,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "wikipedia",
     name: "Wikipedia Knowledge",
+    icon: "/plugins/wikipedia/icon.svg",
     category: "search",
     description: "Search and fetch verified encyclopedic articles and biographical context.",
     iconName: "Globe",
@@ -1230,6 +1272,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "apify",
     name: "Apify Web Scrapers",
+    icon: "/plugins/apify/icon.svg",
     category: "search",
     description: "Run ready-made scrapers for e-commerce, Google Maps, Instagram, and more.",
     iconName: "Layers",
@@ -1257,6 +1300,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "fetch",
     name: "Fetch Web URLs",
+    icon: "/plugins/fetch/icon.svg",
     category: "search",
     badge: "Essential",
     description: "Fast HTTP page reader converting raw web pages into clean text.",
@@ -1280,6 +1324,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "figma",
     name: "Figma",
+    icon: "/plugins/figma/icon.svg",
     category: "media",
     badge: "Popular",
     description: "Inspect UI frames, extract component styles, typography, and color tokens.",
@@ -1308,6 +1353,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "youtube-transcripts",
     name: "YouTube Transcripts",
+    icon: "/plugins/youtube-transcripts/icon.svg",
     category: "media",
     description: "Extract complete video transcripts and subtitles for rapid summarization.",
     iconName: "Video",
@@ -1325,6 +1371,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "spotify",
     name: "Spotify Player & Library",
+    icon: "/plugins/spotify/icon.svg",
     category: "media",
     description: "Control music playback, search track catalogs, and inspect playlists.",
     iconName: "Music",
@@ -1359,6 +1406,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "wolfram",
     name: "Wolfram Alpha",
+    icon: "/plugins/wolfram/icon.svg",
     category: "media",
     badge: "Official",
     description: "Computational knowledge engine for advanced math, physics, and science.",
@@ -1387,6 +1435,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "canva",
     name: "Canva",
+    icon: "/plugins/canva/icon.svg",
     category: "media",
     description: "Browse social media templates, create design assets, and export graphics.",
     iconName: "Image",
@@ -1414,6 +1463,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "fireflies",
     name: "Fireflies & Granola Meetings",
+    icon: "/plugins/fireflies/icon.svg",
     category: "media",
     description: "Search meeting transcripts, AI summaries, and action item logs.",
     iconName: "Mic",
@@ -1441,6 +1491,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
   {
     id: "zapier",
     name: "Zapier & Webhooks",
+    icon: "/plugins/zapier/icon.svg",
     category: "media",
     badge: "Official",
     description: "Universal webhook bridge triggering actions in 5,000+ third-party apps.",
