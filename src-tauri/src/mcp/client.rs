@@ -47,10 +47,19 @@ const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
     "APPDATA",
     "LOCALAPPDATA",
     "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)",
+    "COMMONPROGRAMW6432",
+    "SYSTEMDRIVE",
     "SYSTEMROOT",
     "WINDIR",
     "COMSPEC",
     "PATHEXT",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
 ];
 
 fn is_explicit_env_key_allowed(key: &str) -> bool {
@@ -174,8 +183,9 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
     // MCP stdio servers are renderer-configurable executables. Do not let them
     // implicitly inherit credentials or ambient desktop integration sockets.
     cmd.env_clear();
-    for key in MCP_RUNTIME_ENV_ALLOWLIST {
-        if let Some(value) = std::env::var_os(key) {
+    for (key, value) in std::env::vars_os() {
+        let normalized = key.to_string_lossy().to_ascii_uppercase();
+        if MCP_RUNTIME_ENV_ALLOWLIST.contains(&normalized.as_str()) {
             cmd.env(key, value);
         }
     }
