@@ -909,7 +909,13 @@ export default memo(function InputBar({
       }`}
     >
       {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
-      <div className={`relative z-10 w-full max-w-4xl mx-auto px-2 sm:px-6 ${centered ? "" : "pt-2"}`}>
+      <div
+        className={`relative z-10 mx-auto w-full ${
+          centered
+            ? "max-w-4xl px-2 sm:px-6"
+            : "max-w-none px-4 sm:px-12 lg:px-16"
+        } ${centered ? "" : "pt-2"}`}
+      >
         {conversation?.isSubagent ? (
           <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
             <Bot size={24} className="mb-2 text-text-muted/70" />
