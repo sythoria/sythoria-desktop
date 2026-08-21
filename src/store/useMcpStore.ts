@@ -84,6 +84,7 @@ interface McpState {
 
   addMcpConfig: () => void;
   addMcpConfigFromPreset: (preset: McpServerPreset) => void;
+  addMcpConfigWithSecrets: (preset: McpServerPreset, secrets: Record<string, string>) => Promise<void>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
   connectServer: (id: string) => Promise<void>;
@@ -197,6 +198,45 @@ export const useMcpStore = create<McpState>((set, get) => ({
           : `Added ${preset.name} preset`,
         "info",
       );
+  },
+
+  addMcpConfigWithSecrets: async (preset, secrets) => {
+    const { mcpConfigs, envSecrets, connectServer } = get();
+    const existing = mcpConfigs.find((c) => c.name === preset.name);
+    const targetId = existing?.id || generateId();
+
+    const newConfig: McpServerConfig = {
+      id: targetId,
+      name: preset.name,
+      transport: "stdio",
+      command: preset.command,
+      args: [...preset.args],
+      enabled: true,
+      trustLevel: "untrusted",
+    };
+
+    const updatedConfigs = existing
+      ? mcpConfigs.map((c) => (c.id === targetId ? newConfig : c))
+      : [...mcpConfigs, newConfig];
+
+    const updatedEnvSecrets = { ...envSecrets, [targetId]: secrets };
+    const nextEnabled = new Set(get().enabledServerIds);
+    nextEnabled.add(targetId);
+
+    set({
+      mcpConfigs: updatedConfigs,
+      envSecrets: updatedEnvSecrets,
+      enabledServerIds: nextEnabled,
+      serverStatuses: { ...get().serverStatuses, [targetId]: "connecting" },
+    });
+
+    debouncedSaveMcpConfigs.cancel();
+    debouncedSaveMcpEnvSecrets.cancel();
+    saveMcpConfigs(updatedConfigs);
+    saveMcpEnvSecrets(updatedEnvSecrets);
+    saveEnabledMcpServers(Array.from(nextEnabled));
+
+    await connectServer(targetId);
   },
 
   updateMcpConfig: async (id, updates) => {
@@ -409,11 +449,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   callTool: async (serverId, toolName, args, conversationId) => {
     const { mcpConfigs, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
-    if (
-      !config?.enabled ||
-      !enabledServerIds.has(serverId) ||
-      serverStatuses[serverId] !== "connected"
-    ) {
+    if (!config?.enabled || !enabledServerIds.has(serverId) || serverStatuses[serverId] !== "connected") {
       return { content: "Error: MCP server is disabled or disconnected", isError: true };
     }
     const requestId = conversationId ? `mcp-${generateId()}-${Date.now()}` : undefined;
