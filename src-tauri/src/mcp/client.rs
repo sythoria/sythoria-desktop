@@ -267,7 +267,15 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
         cmd.env("TMP", &temp);
     }
 
-    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let current_path = std::env::vars_os()
+        .find_map(|(k, v)| {
+            if k.to_string_lossy().eq_ignore_ascii_case("PATH") {
+                Some(v)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
     let paths = std::env::split_paths(&current_path);
     let mut new_paths: Vec<std::path::PathBuf> = paths.collect();
 
