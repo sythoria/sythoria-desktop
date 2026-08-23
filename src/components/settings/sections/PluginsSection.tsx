@@ -26,6 +26,7 @@ import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrim
 import { BrandIcon } from "../../ui/BrandIcons";
 import { startGitHubDeviceFlow, pollGitHubDeviceToken } from "../../../services/githubOAuth";
 import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../services/linearOAuth";
+import { startGoogleOAuthFlow, DEFAULT_GOOGLE_CLIENT_ID } from "../../../services/googleOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
 
 // Sythoria Desktop Official Brand Logo Mark
@@ -162,6 +163,18 @@ export function PluginsSection() {
     error: null,
   });
   const linearAbortRef = useRef<AbortController | null>(null);
+
+  // Google 1-Click PKCE OAuth State
+  const [googleOAuth, setGoogleOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const googleAbortRef = useRef<AbortController | null>(null);
   const [showManualToken, setShowManualToken] = useState(false);
 
   // Clean up pending OAuth polling on unmount
@@ -174,6 +187,10 @@ export function PluginsSection() {
       if (linearAbortRef.current) {
         linearAbortRef.current.abort();
         linearAbortRef.current = null;
+      }
+      if (googleAbortRef.current) {
+        googleAbortRef.current.abort();
+        googleAbortRef.current = null;
       }
     };
   }, []);
@@ -191,6 +208,11 @@ export function PluginsSection() {
         error: null,
       });
       setLinearOAuth({
+        isActive: false,
+        isConnecting: false,
+        error: null,
+      });
+      setGoogleOAuth({
         isActive: false,
         isConnecting: false,
         error: null,
@@ -225,6 +247,10 @@ export function PluginsSection() {
       linearAbortRef.current.abort();
       linearAbortRef.current = null;
     }
+    if (googleAbortRef.current) {
+      googleAbortRef.current.abort();
+      googleAbortRef.current = null;
+    }
     setGithubOAuth({
       isActive: false,
       userCode: "",
@@ -233,6 +259,11 @@ export function PluginsSection() {
       error: null,
     });
     setLinearOAuth({
+      isActive: false,
+      isConnecting: false,
+      error: null,
+    });
+    setGoogleOAuth({
       isActive: false,
       isConnecting: false,
       error: null,
@@ -348,6 +379,52 @@ export function PluginsSection() {
       if (abortController.signal.aborted) return;
       const errorMsg = err instanceof Error ? err.message : "Linear OAuth failed";
       setLinearOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
+      addToast(errorMsg, "error");
+    }
+  };
+
+  // 1-Click Google PKCE OAuth
+  const handleStartGoogleOAuth = async () => {
+    if (!activeModalPlugin) return;
+    if (googleAbortRef.current) {
+      googleAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    googleAbortRef.current = abortController;
+
+    setGoogleOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const { accessToken } = await startGoogleOAuthFlow(
+        DEFAULT_GOOGLE_CLIENT_ID,
+        undefined,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      // Save token to active Google plugin
+      const plugin = activeModalPlugin;
+      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
+        GOOGLE_APPLICATION_CREDENTIALS: accessToken,
+        GOOGLE_ACCESS_TOKEN: accessToken,
+        GDRIVE_OAUTH_TOKEN: accessToken,
+      });
+
+      addToast(`${plugin.name} successfully connected via 1-Click Google OAuth!`, "success");
+      handleCloseModal();
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = err instanceof Error ? err.message : "Google OAuth failed";
+      setGoogleOAuth({
         isActive: true,
         isConnecting: false,
         error: errorMsg,
@@ -978,10 +1055,97 @@ export function PluginsSection() {
                       </div>
                     )}
 
+                    {/* Google 1-Click PKCE OAuth Integration */}
+                    {(activeModalPlugin.id === "google-drive" ||
+                      activeModalPlugin.id === "google-calendar" ||
+                      activeModalPlugin.id === "gmail") && (
+                      <div className="space-y-3 pt-1">
+                        {googleOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-[#4285F4]/40 bg-[#4285F4]/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#4285F4] font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for Google authorization in browser...</span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Google. Choose your Google account and click{" "}
+                              <strong>Allow</strong>.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (googleAbortRef.current) {
+                                  googleAbortRef.current.abort();
+                                  googleAbortRef.current = null;
+                                }
+                                setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : googleOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-400 font-medium">{googleOAuth.error}</div>
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartGoogleOAuth()}
+                                className="px-3 py-1 text-xs rounded-lg bg-[#4285F4] hover:bg-[#3367D6] text-white font-medium transition-colors cursor-pointer"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Enter credentials manually
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartGoogleOAuth()}
+                              className="w-full py-3 rounded-xl bg-white text-gray-900 hover:bg-gray-100 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer border border-gray-200"
+                            >
+                              <BrandIcon name="googledrive" size={18} />
+                              <span>1-Click Connect with Google</span>
+                              <ArrowRight
+                                size={14}
+                                className="group-hover:translate-x-0.5 transition-transform text-gray-600"
+                              />
+                            </button>
+
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter Service Account credentials manually"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Input Fields (if service requires API token / OAuth Token and not in 1-Click mode) */}
                     {activeModalPlugin.authFields.length > 0 &&
-                      ((activeModalPlugin.id !== "github" && activeModalPlugin.id !== "linear") ||
-                        (showManualToken && !githubOAuth.isActive && !linearOAuth.isConnecting)) && (
+                      ((activeModalPlugin.id !== "github" &&
+                        activeModalPlugin.id !== "linear" &&
+                        activeModalPlugin.id !== "google-drive" &&
+                        activeModalPlugin.id !== "google-calendar" &&
+                        activeModalPlugin.id !== "gmail") ||
+                        (showManualToken &&
+                          !githubOAuth.isActive &&
+                          !linearOAuth.isConnecting &&
+                          !googleOAuth.isConnecting)) && (
                         <div className="space-y-3 pt-1">
                           {activeModalPlugin.authFields.map((field) => {
                             const isPassword = field.type === "password";
@@ -1046,7 +1210,13 @@ export function PluginsSection() {
                     {/* Generic Authorize Button (shown if not in 1-click active state) */}
                     {!githubOAuth.isActive &&
                       !linearOAuth.isConnecting &&
-                      ((activeModalPlugin.id !== "github" && activeModalPlugin.id !== "linear") || showManualToken) && (
+                      !googleOAuth.isConnecting &&
+                      ((activeModalPlugin.id !== "github" &&
+                        activeModalPlugin.id !== "linear" &&
+                        activeModalPlugin.id !== "google-drive" &&
+                        activeModalPlugin.id !== "google-calendar" &&
+                        activeModalPlugin.id !== "gmail") ||
+                        showManualToken) && (
                         <button
                           onClick={() => void handleConnectPlugin()}
                           disabled={isSubmitting}
