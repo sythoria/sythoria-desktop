@@ -9,6 +9,9 @@ pub const DEFAULT_GITHUB_SCOPE: &str = "repo,read:user,workflow";
 pub const DEFAULT_LINEAR_CLIENT_ID: &str = "4c8cf80a34931c6e5b6338c9df74f1f8";
 pub const DEFAULT_LINEAR_SCOPE: &str = "read,write,issues:create";
 
+pub const DEFAULT_GOOGLE_CLIENT_ID: &str = "566025429774-vh5b4ie4edatstbismtj0d5ku233ndlk.apps.googleusercontent.com";
+pub const DEFAULT_GOOGLE_SCOPE: &str = "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GitHubDeviceCodeResponse {
     pub device_code: String,
@@ -311,6 +314,74 @@ pub async fn linear_exchange_token(
     if let Some(err) = result.error {
         let desc = result.error_description.unwrap_or_default();
         return Err(AppError::RequestFailed(format!("Linear OAuth error: {err} - {desc}")));
+    }
+
+    Ok(result)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GoogleTokenResponse {
+    pub access_token: String,
+    pub token_type: Option<String>,
+    pub expires_in: Option<u64>,
+    pub refresh_token: Option<String>,
+    pub scope: Option<String>,
+    pub id_token: Option<String>,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
+
+/// Exchanges authorization code + PKCE code_verifier for a Google access token.
+#[tauri::command]
+pub async fn google_exchange_token(
+    client_id: Option<String>,
+    code: String,
+    code_verifier: String,
+    redirect_uri: String,
+) -> Result<GoogleTokenResponse, AppError> {
+    crate::ensure_online()?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
+
+    let cid = client_id.unwrap_or_else(|| DEFAULT_GOOGLE_CLIENT_ID.to_string());
+
+    let form_body = format!(
+        "grant_type=authorization_code&client_id={}&redirect_uri={}&code={}&code_verifier={}",
+        urlencoding::encode(&cid),
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode(&code),
+        urlencoding::encode(&code_verifier)
+    );
+
+    let response = client
+        .post("https://oauth2.googleapis.com/token")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
+        .header("User-Agent", "Sythoria-Desktop")
+        .body(form_body)
+        .send()
+        .await
+        .map_err(|e| AppError::RequestFailed(format!("Failed to reach Google OAuth token API: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::RequestFailed(format!(
+            "Google token exchange failed with HTTP {status}: {body}"
+        )));
+    }
+
+    let result: GoogleTokenResponse = response
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(format!("Failed to parse Google token response: {e}")))?;
+
+    if let Some(err) = result.error {
+        let desc = result.error_description.unwrap_or_default();
+        return Err(AppError::RequestFailed(format!("Google OAuth error: {err} - {desc}")));
     }
 
     Ok(result)
