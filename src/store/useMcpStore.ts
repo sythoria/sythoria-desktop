@@ -232,9 +232,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
     debouncedSaveMcpConfigs.cancel();
     debouncedSaveMcpEnvSecrets.cancel();
-    saveMcpConfigs(updatedConfigs);
-    saveMcpEnvSecrets(updatedEnvSecrets);
-    saveEnabledMcpServers(Array.from(nextEnabled));
+    await Promise.all([
+      saveMcpConfigs(updatedConfigs),
+      saveMcpEnvSecrets(updatedEnvSecrets),
+      saveEnabledMcpServers(Array.from(nextEnabled)),
+    ]);
 
     await connectServer(targetId);
   },
