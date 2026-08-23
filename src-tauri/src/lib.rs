@@ -2563,6 +2563,7 @@ pub fn run() {
             commands::oauth::github_poll_device_token,
             commands::oauth::listen_oauth_callback,
             commands::oauth::linear_exchange_token,
+            commands::oauth::google_exchange_token,
             commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
