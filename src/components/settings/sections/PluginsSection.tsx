@@ -25,6 +25,7 @@ import { motionTransitions } from "../../../lib/motion-tokens";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { BrandIcon } from "../../ui/BrandIcons";
 import { startGitHubDeviceFlow, pollGitHubDeviceToken } from "../../../services/githubOAuth";
+import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../services/linearOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
 
 // Sythoria Desktop Official Brand Logo Mark
@@ -148,8 +149,20 @@ export function PluginsSection() {
     isPolling: false,
     error: null,
   });
-  const [showManualToken, setShowManualToken] = useState(false);
   const githubAbortRef = useRef<AbortController | null>(null);
+
+  // Linear 1-Click PKCE OAuth State
+  const [linearOAuth, setLinearOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const linearAbortRef = useRef<AbortController | null>(null);
+  const [showManualToken, setShowManualToken] = useState(false);
 
   // Clean up pending OAuth polling on unmount
   useEffect(() => {
@@ -157,6 +170,10 @@ export function PluginsSection() {
       if (githubAbortRef.current) {
         githubAbortRef.current.abort();
         githubAbortRef.current = null;
+      }
+      if (linearAbortRef.current) {
+        linearAbortRef.current.abort();
+        linearAbortRef.current = null;
       }
     };
   }, []);
@@ -171,6 +188,11 @@ export function PluginsSection() {
         userCode: "",
         verificationUri: "",
         isPolling: false,
+        error: null,
+      });
+      setLinearOAuth({
+        isActive: false,
+        isConnecting: false,
         error: null,
       });
       const installedInfo = installedPluginMap.get(plugin.id);
@@ -199,11 +221,20 @@ export function PluginsSection() {
       githubAbortRef.current.abort();
       githubAbortRef.current = null;
     }
+    if (linearAbortRef.current) {
+      linearAbortRef.current.abort();
+      linearAbortRef.current = null;
+    }
     setGithubOAuth({
       isActive: false,
       userCode: "",
       verificationUri: "",
       isPolling: false,
+      error: null,
+    });
+    setLinearOAuth({
+      isActive: false,
+      isConnecting: false,
       error: null,
     });
     setShowManualToken(false);
@@ -276,6 +307,51 @@ export function PluginsSection() {
         isPolling: false,
         error: errorMsg,
       }));
+      addToast(errorMsg, "error");
+    }
+  };
+
+  // 1-Click Linear PKCE OAuth
+  const handleStartLinearOAuth = async () => {
+    if (linearAbortRef.current) {
+      linearAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    linearAbortRef.current = abortController;
+
+    setLinearOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const token = await startLinearOAuthFlow(
+        DEFAULT_LINEAR_CLIENT_ID,
+        undefined,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      // Successfully authorized
+      const plugin = PLUGINS_CATALOG.find((p) => p.id === "linear");
+      if (plugin) {
+        await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
+          LINEAR_API_KEY: token,
+        });
+
+        addToast("Linear successfully connected via 1-Click OAuth!", "success");
+        handleCloseModal();
+      }
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = err instanceof Error ? err.message : "Linear OAuth failed";
+      setLinearOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
       addToast(errorMsg, "error");
     }
   };
@@ -827,9 +903,85 @@ export function PluginsSection() {
                       </div>
                     )}
 
-                    {/* Input Fields (if service requires API token / OAuth Token and not in GitHub 1-Click mode) */}
+                    {/* Linear 1-Click PKCE OAuth Integration */}
+                    {activeModalPlugin.id === "linear" && (
+                      <div className="space-y-3 pt-1">
+                        {linearOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-[#5E6AD2]/40 bg-[#5E6AD2]/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#5E6AD2] font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for authorization in browser...</span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Linear. Click <strong>Authorize Sythoria</strong> to connect
+                              your workspace.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (linearAbortRef.current) {
+                                  linearAbortRef.current.abort();
+                                  linearAbortRef.current = null;
+                                }
+                                setLinearOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : linearOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-400 font-medium">{linearOAuth.error}</div>
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartLinearOAuth()}
+                                className="px-3 py-1 text-xs rounded-lg bg-[#5E6AD2] hover:bg-[#6D79E0] text-white font-medium transition-colors"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors"
+                              >
+                                Enter API Key manually
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartLinearOAuth()}
+                              className="w-full py-3 rounded-xl bg-[#5E6AD2] hover:bg-[#6D79E0] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                            >
+                              <BrandIcon name="linear" size={18} />
+                              <span>1-Click Connect with Linear</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter a Personal API Key manually"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Input Fields (if service requires API token / OAuth Token and not in 1-Click mode) */}
                     {activeModalPlugin.authFields.length > 0 &&
-                      (activeModalPlugin.id !== "github" || (showManualToken && !githubOAuth.isActive)) && (
+                      ((activeModalPlugin.id !== "github" && activeModalPlugin.id !== "linear") ||
+                        (showManualToken && !githubOAuth.isActive && !linearOAuth.isConnecting)) && (
                         <div className="space-y-3 pt-1">
                           {activeModalPlugin.authFields.map((field) => {
                             const isPassword = field.type === "password";
@@ -891,26 +1043,28 @@ export function PluginsSection() {
 
                   {/* Modal Footer (ChatGPT Authorize Buttons) */}
                   <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
-                    {/* Generic Authorize Button (shown if not in GitHub 1-click active state) */}
-                    {!githubOAuth.isActive && (activeModalPlugin.id !== "github" || showManualToken) && (
-                      <button
-                        onClick={() => void handleConnectPlugin()}
-                        disabled={isSubmitting}
-                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-                      >
-                        {isSubmitting ? (
-                          <>
-                            <RefreshCw size={14} className="animate-spin" />
-                            <span>Authorizing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>Authorize {activeModalPlugin.name}</span>
-                            <ArrowRight size={14} />
-                          </>
-                        )}
-                      </button>
-                    )}
+                    {/* Generic Authorize Button (shown if not in 1-click active state) */}
+                    {!githubOAuth.isActive &&
+                      !linearOAuth.isConnecting &&
+                      ((activeModalPlugin.id !== "github" && activeModalPlugin.id !== "linear") || showManualToken) && (
+                        <button
+                          onClick={() => void handleConnectPlugin()}
+                          disabled={isSubmitting}
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" />
+                              <span>Authorizing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Authorize {activeModalPlugin.name}</span>
+                              <ArrowRight size={14} />
+                            </>
+                          )}
+                        </button>
+                      )}
 
                     <div className="flex items-center justify-between pt-1">
                       {installedPluginMap.has(activeModalPlugin.id) ? (
