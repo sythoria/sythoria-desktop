@@ -244,26 +244,24 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
     #[cfg(windows)]
     {
         // Guarantee critical Windows environment variables for batch/cmd/node child processes
-        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATHEXT")) {
-            cmd.env("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC");
-        }
-        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("SYSTEMROOT")) {
-            let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-            cmd.env("SystemRoot", sysroot);
-        }
-        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("SYSTEMDRIVE")) {
-            let sysdrive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
-            cmd.env("SystemDrive", sysdrive);
-        }
-        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("COMSPEC")) {
-            let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
-            cmd.env("COMSPEC", comspec);
-        }
-        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("TEMP")) {
-            let temp = std::env::temp_dir();
-            cmd.env("TEMP", &temp);
-            cmd.env("TMP", &temp);
-        }
+        cmd.env(
+            "PATHEXT",
+            std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC".to_string()),
+        );
+        let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        cmd.env("SystemRoot", &sysroot);
+        cmd.env(
+            "SystemDrive",
+            std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string()),
+        );
+        cmd.env(
+            "COMSPEC",
+            std::env::var("COMSPEC").unwrap_or_else(|_| format!("{}\\System32\\cmd.exe", sysroot)),
+        );
+        let temp = std::env::temp_dir();
+        cmd.env("TEMP", &temp);
+        cmd.env("TMP", &temp);
     }
 
     let current_path = std::env::var_os("PATH").unwrap_or_default();
