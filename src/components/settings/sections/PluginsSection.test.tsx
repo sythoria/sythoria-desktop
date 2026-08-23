@@ -63,4 +63,21 @@ describe("PluginsSection", () => {
     expect(screen.getByPlaceholderText("ghp_...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Authorize GitHub/i })).toBeInTheDocument();
   });
+
+  it("opens modal for Linear and displays 1-Click OAuth", () => {
+    render(<PluginsSection />);
+
+    const linearCard = screen.getByTestId("plugin-card-linear");
+    fireEvent.click(linearCard);
+
+    expect(screen.getByText(/1-Click Connect with Linear/i)).toBeInTheDocument();
+    expect(screen.getByText(/Or enter a Personal API Key manually/i)).toBeInTheDocument();
+
+    // Click manual token toggle
+    fireEvent.click(screen.getByText(/Or enter a Personal API Key manually/i));
+
+    expect(screen.getByText("Linear Personal API Key")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("lin_api_...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
+  });
 });
