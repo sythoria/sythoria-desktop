@@ -185,8 +185,51 @@ async fn find_executable(name: &str) -> String {
 }
 
 fn create_shell_command(program: &str, args: &[String]) -> Command {
-    let mut cmd = Command::new(program);
-    cmd.args(args);
+    let program_path = std::path::Path::new(program);
+    let mut cmd = if cfg!(windows) {
+        // On Windows, running `npx.cmd` directly through batch execution can fail if npm
+        // fails to resolve shims via cmd.exe without PATHEXT. If `npx` or `npx.cmd` is invoked
+        // and `node.exe` with `npx-cli.js` exists beside it, invoke `node.exe <npx-cli.js>` directly.
+        let is_npx = program.eq_ignore_ascii_case("npx")
+            || program.to_ascii_lowercase().ends_with("npx.cmd")
+            || program.to_ascii_lowercase().ends_with("npx.exe");
+        if is_npx {
+            let direct_node = if program_path.is_absolute() {
+                if let Some(parent) = program_path.parent() {
+                    let node_exe = parent.join("node.exe");
+                    let npx_cli = parent.join("node_modules").join("npm").join("bin").join("npx-cli.js");
+                    if node_exe.exists() && npx_cli.exists() {
+                        Some((node_exe, npx_cli))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some((node_exe, npx_cli)) = direct_node {
+                let mut c = Command::new(node_exe);
+                c.arg(npx_cli);
+                c.args(args);
+                c
+            } else {
+                let mut c = Command::new(program);
+                c.args(args);
+                c
+            }
+        } else {
+            let mut c = Command::new(program);
+            c.args(args);
+            c
+        }
+    } else {
+        let mut c = Command::new(program);
+        c.args(args);
+        c
+    };
 
     // MCP stdio servers are renderer-configurable executables. Do not let them
     // implicitly inherit credentials or ambient desktop integration sockets.
@@ -195,6 +238,31 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
         let normalized = key.to_string_lossy().to_ascii_uppercase();
         if MCP_RUNTIME_ENV_ALLOWLIST.contains(&normalized.as_str()) {
             cmd.env(key, value);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // Guarantee critical Windows environment variables for batch/cmd/node child processes
+        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("PATHEXT")) {
+            cmd.env("PATHEXT", ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC");
+        }
+        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("SYSTEMROOT")) {
+            let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+            cmd.env("SystemRoot", sysroot);
+        }
+        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("SYSTEMDRIVE")) {
+            let sysdrive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+            cmd.env("SystemDrive", sysdrive);
+        }
+        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("COMSPEC")) {
+            let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+            cmd.env("COMSPEC", comspec);
+        }
+        if !cmd.get_envs().any(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("TEMP")) {
+            let temp = std::env::temp_dir();
+            cmd.env("TEMP", &temp);
+            cmd.env("TMP", &temp);
         }
     }
 
