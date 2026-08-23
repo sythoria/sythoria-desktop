@@ -22,9 +22,9 @@
     "id": "linear",
     "name": "Linear",
     "description": "Linear issue tracker integration for software planning.",
-    "homepageUrl": "https://github.com/linear/mcp-server",
+    "homepageUrl": "https://github.com/jerhadf/linear-mcp-server",
     "command": "npx",
-    "args": ["-y", "@linear/mcp-server"],
+    "args": ["-y", "linear-mcp-server"],
     "envKeys": ["LINEAR_API_KEY"]
   },
   "keywords": ["linear", "issues", "tickets", "bugs", "sprints", "project", "kanban"]
