@@ -68,6 +68,9 @@ const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
     "COMPUTERNAME",
     "USERDOMAIN",
     "NODE_PATH",
+    "NODE_OPTIONS",
+    "NPM_CONFIG_CACHE",
+    "NPM_CONFIG_PREFIX",
 ];
 
 fn is_explicit_env_key_allowed(key: &str) -> bool {
@@ -329,6 +332,35 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
                 }
             }
         }
+    }
+
+    #[cfg(windows)]
+    {
+        let win_dirs = [
+            "C:\\Windows\\System32",
+            "C:\\Windows",
+            "C:\\Windows\\System32\\Wbem",
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0",
+            "C:\\Program Files\\nodejs",
+        ];
+        for dir in &win_dirs {
+            let pb = std::path::PathBuf::from(dir);
+            if pb.exists() && !new_paths.contains(&pb) {
+                new_paths.push(pb);
+            }
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_roaming = std::path::PathBuf::from(appdata).join("npm");
+            if npm_roaming.exists() && !new_paths.contains(&npm_roaming) {
+                new_paths.push(npm_roaming);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        cmd.env_remove("Path");
+        cmd.env_remove("path");
     }
 
     if let Ok(joined) = std::env::join_paths(new_paths) {
