@@ -80,4 +80,21 @@ describe("PluginsSection", () => {
     expect(screen.getByPlaceholderText("lin_api_...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
   });
+
+  it("opens modal for Google Drive and displays 1-Click OAuth", () => {
+    render(<PluginsSection />);
+
+    const gdriveCard = screen.getByTestId("plugin-card-google-drive");
+    fireEvent.click(gdriveCard);
+
+    expect(screen.getByText(/1-Click Connect with Google/i)).toBeInTheDocument();
+    expect(screen.getByText(/Or enter Service Account credentials manually/i)).toBeInTheDocument();
+
+    // Click manual token toggle
+    fireEvent.click(screen.getByText(/Or enter Service Account credentials manually/i));
+
+    expect(screen.getByText(/Google Service Account Credentials/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("/path/to/credentials.json")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Authorize Google Drive/i })).toBeInTheDocument();
+  });
 });
