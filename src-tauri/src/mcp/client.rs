@@ -60,6 +60,14 @@ const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
     "PATHEXT",
     "ALLUSERSPROFILE",
     "PUBLIC",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "NUMBER_OF_PROCESSORS",
+    "USERNAME",
+    "COMPUTERNAME",
+    "USERDOMAIN",
+    "NODE_PATH",
 ];
 
 fn is_explicit_env_key_allowed(key: &str) -> bool {
