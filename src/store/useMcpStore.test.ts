@@ -252,4 +252,34 @@ describe("useMcpStore capability revocation", () => {
     await expect(toolCall).resolves.toMatchObject({ isError: true });
     expect(mocks.invoke).toHaveBeenCalledWith("mcp_cancel_tool_call", { requestId: trackedRequestId });
   });
+
+  it("interpolates argument placeholders and un-enables failed server on error", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_start_server") {
+        return Promise.reject(new Error("Handshake failed: process exited"));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const preset = {
+      id: "postgres-preset",
+      name: "PostgreSQL Database",
+      description: "Postgres database",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-postgres", "<DATABASE_URL>"],
+      envKeys: ["DATABASE_URL"],
+    };
+
+    const result = await useMcpStore.getState().addMcpConfigWithSecrets(preset, {
+      DATABASE_URL: "postgresql://localhost:5432/mydb",
+    });
+
+    expect(result).toBe(false);
+    const created = useMcpStore.getState().mcpConfigs.find((c) => c.name === preset.name);
+    expect(created).toBeDefined();
+    expect(created?.args).toEqual(["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost:5432/mydb"]);
+    // Since connection failed, server should NOT remain in enabledServerIds
+    expect(useMcpStore.getState().enabledServerIds.has(created!.id)).toBe(false);
+    expect(useMcpStore.getState().serverStatuses[created!.id]).toBe("error");
+  });
 });
