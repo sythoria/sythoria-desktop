@@ -29,8 +29,8 @@ interface ProjectState {
     path: string,
     permissions?: ProjectPermission,
     config?: Omit<Partial<Project>, "id" | "name" | "path" | "permissions">,
-  ) => string;
-  updateProject: (id: string, updates: Partial<Project>) => void;
+  ) => Promise<string>;
+  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => void;
   setActiveProject: (id: string | null) => void;
   setWorktree: (path: string | null, branch: string | null) => Promise<void>;
@@ -85,19 +85,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     saveProjectsDefaultPermission(perm);
   },
 
-  addProject: (name, path, permissions = get().defaultPermission, config) => {
+  addProject: async (name, path, permissions = get().defaultPermission, config) => {
     const id = generateId();
     const newProject: Project = { id, name, path, permissions, ...config };
     set((state) => ({ projects: [...state.projects, newProject] }));
-    get().persistProjects();
+    await get().persistProjects();
     return id;
   },
 
-  updateProject: (id, updates) => {
+  updateProject: async (id, updates) => {
     set((state) => ({
       projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)),
     }));
-    get().persistProjects();
+    await get().persistProjects();
   },
 
   deleteProject: (id) => {

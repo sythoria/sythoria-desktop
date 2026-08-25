@@ -584,7 +584,7 @@ export default memo(function InputBar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const handleToggleProjectPermission = (perm: ProjectPermission) => {
+  const handleToggleProjectPermission = async (perm: ProjectPermission) => {
     if (!activeProject) return;
     if (perm === "full" && activeProject.permissions !== "full") {
       const confirmed = window.confirm(
@@ -592,8 +592,15 @@ export default memo(function InputBar({
       );
       if (!confirmed) return;
     }
-    updateProject(activeProject.id, { permissions: perm });
-    setProjectDropdownOpen(false);
+    try {
+      await updateProject(activeProject.id, { permissions: perm });
+      setProjectDropdownOpen(false);
+    } catch (error) {
+      addToast(
+        `Could not save project permissions: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
   };
 
   const handleSubmit = useCallback(async () => {

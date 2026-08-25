@@ -119,7 +119,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           finalPath = await invoke<string>("create_project_dir", { name: name.trim() });
         }
 
-        const newId = addProject(name.trim(), finalPath, permissions, configData);
+        const newId = await addProject(name.trim(), finalPath, permissions, configData);
         if (activeConversationHasPendingWorktree) {
           addToast(
             `${t("projectForm.added", { name })} Resolve pending workspace changes before switching to it.`,
@@ -130,7 +130,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           addToast(t("projectForm.added", { name }), "success");
         }
       } else if (mode === "edit" && id) {
-        updateProject(id, {
+        await updateProject(id, {
           name: name.trim(),
           path,
           permissions,

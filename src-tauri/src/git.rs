@@ -342,17 +342,41 @@ async fn apply_worktree_changes(
 
 #[tauri::command]
 pub async fn git_detect_repo(start_path: String) -> Result<Option<String>, AppError> {
-    let mut current_dir = PathBuf::from(&start_path);
-    loop {
-        let git_dir = current_dir.join(".git");
-        if git_dir.is_dir() {
-            return Ok(Some(current_dir.to_string_lossy().into_owned()));
-        }
-        if !current_dir.pop() {
-            break;
-        }
+    detect_git_repository(Path::new(&start_path))
+        .await
+        .map(|path| path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+async fn detect_git_repository(start_path: &Path) -> Result<Option<PathBuf>, AppError> {
+    if !start_path.exists() {
+        return Ok(None);
     }
-    Ok(None)
+    let search_root = if start_path.is_file() {
+        start_path.parent().ok_or_else(|| {
+            AppError::GitError("Cannot inspect a repository from this path".to_string())
+        })?
+    } else {
+        start_path
+    };
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(search_root)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to detect Git repository: {e}")))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if root.is_empty() {
+        return Ok(None);
+    }
+    Path::new(&root)
+        .canonicalize()
+        .map(Some)
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize Git repository: {e}")))
 }
 
 #[tauri::command]
@@ -828,11 +852,19 @@ pub async fn git_worktree_create(
     project_id: String,
     conversation_id: String,
 ) -> Result<(String, String, String), AppError> {
+    create_worktree_for_project(&state, &project_id, &conversation_id).await
+}
+
+async fn create_worktree_for_project(
+    state: &crate::project::ProjectRegistry,
+    project_id: &str,
+    conversation_id: &str,
+) -> Result<(String, String, String), AppError> {
     let project = state
         .projects
         .lock()
         .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
-        .get(&project_id)
+        .get(project_id)
         .cloned()
         .ok_or_else(|| {
             AppError::GitError("Access denied: Project not found in registry".to_string())
@@ -863,9 +895,9 @@ pub async fn git_worktree_create(
         .arg(&repo_path_str)
         .arg("worktree")
         .arg("add")
-        .arg(&worktree_path_str)
         .arg("-b")
         .arg(&branch_name)
+        .arg(&worktree_path_str)
         .output()
         .await
         .map_err(|e| AppError::GitError(format!("Failed to run git worktree add: {}", e)))?;
@@ -876,24 +908,36 @@ pub async fn git_worktree_create(
         ));
     }
 
-    let projects_guard = state
-        .projects
-        .lock()
-        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?;
-    let project = projects_guard.get(&project_id).ok_or_else(|| {
-        AppError::GitError("Access denied: Project not found in registry".to_string())
-    })?;
-    crate::project::validate_owned_worktree(project, &worktree_path_str, Some(&branch_name))
+    crate::project::validate_owned_worktree(&project, &worktree_path_str, Some(&branch_name))
         .map_err(|e| AppError::GitError(e.to_string()))?;
 
     let run_token = crate::project::register_project_run(
-        &state,
-        &project_id,
-        &conversation_id,
+        state,
+        project_id,
+        conversation_id,
         Some(&worktree_path_str),
         Some(&branch_name),
-    )
-    .map_err(|e| AppError::GitError(e.to_string()))?;
+    );
+
+    let run_token = match run_token {
+        Ok(run_token) => run_token,
+        Err(error) => {
+            let cleanup_error = cleanup_worktree_internal(
+                &project,
+                &repo_path_str,
+                &worktree_path_str,
+                &branch_name,
+            )
+            .await
+            .err();
+            let cleanup_detail = cleanup_error
+                .map(|cleanup| format!(" Cleanup also failed: {cleanup}"))
+                .unwrap_or_default();
+            return Err(AppError::GitError(format!(
+                "Failed to register project run: {error}.{cleanup_detail}"
+            )));
+        }
+    };
 
     Ok((worktree_path_str, branch_name, run_token))
 }
@@ -1031,8 +1075,12 @@ async fn cleanup_worktree_internal(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_worktree_changes, create_commit_in_repository, parse_changed_paths,
+        apply_worktree_changes, cleanup_worktree_internal, create_commit_in_repository,
+        create_worktree_for_project, detect_git_repository, parse_changed_paths,
         resolve_git_relative_path, switch_branch_in_repository,
+    };
+    use crate::project::{
+        validate_project_run_access, Project, ProjectPermission, ProjectRegistry,
     };
     use std::path::Path;
     use std::process::Command as StdCommand;
@@ -1102,6 +1150,27 @@ mod tests {
         );
     }
 
+    fn register_project(registry: &ProjectRegistry, repo: &Path) {
+        registry
+            .projects
+            .lock()
+            .expect("lock project registry")
+            .insert(
+                "project".to_string(),
+                Project {
+                    id: "project".to_string(),
+                    name: "Project".to_string(),
+                    path: repo.to_string_lossy().into_owned(),
+                    permissions: ProjectPermission::Write,
+                    exclude_patterns: None,
+                    system_prompt_override: None,
+                    model_override: None,
+                    is_auto_commit_enabled: None,
+                    auto_commit_msg_template: None,
+                },
+            );
+    }
+
     #[test]
     fn git_paths_cannot_escape_the_workspace() {
         let root = std::env::current_dir().expect("current directory");
@@ -1120,6 +1189,72 @@ mod tests {
         assert!(parse_changed_paths(b"A\0").is_err());
         assert!(parse_changed_paths(b"R100\0old.txt\0new.txt\0").is_err());
         assert!(parse_changed_paths(b"A\0../outside\0").is_ok());
+    }
+
+    #[tokio::test]
+    async fn repository_detection_supports_linked_worktrees() {
+        let fixture = TestRepository::new();
+        let nested = fixture.worktree.join("nested");
+        std::fs::create_dir_all(&nested).expect("create nested worktree directory");
+
+        assert_eq!(
+            detect_git_repository(&nested)
+                .await
+                .expect("detect linked worktree"),
+            Some(
+                fixture
+                    .worktree
+                    .canonicalize()
+                    .expect("canonical linked worktree"),
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn worktree_creation_registers_a_write_capability_without_hanging() {
+        let fixture = TestRepository::new();
+        let registry = ProjectRegistry::new();
+        register_project(&registry, &fixture.repo);
+
+        let (worktree_path, branch, run_token) = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            create_worktree_for_project(&registry, "project", "conversation"),
+        )
+        .await
+        .expect("worktree creation timed out")
+        .expect("create registered worktree");
+
+        let root = validate_project_run_access(
+            &registry,
+            &run_token,
+            "project",
+            Some(&worktree_path),
+            true,
+        )
+        .expect("validate write capability")
+        .expect("write capability has worktree");
+        assert_eq!(
+            root,
+            Path::new(&worktree_path)
+                .canonicalize()
+                .expect("canonical created worktree"),
+        );
+
+        let project = registry
+            .projects
+            .lock()
+            .expect("lock project registry")
+            .get("project")
+            .expect("registered project")
+            .clone();
+        cleanup_worktree_internal(
+            &project,
+            &fixture.repo.to_string_lossy(),
+            &worktree_path,
+            &branch,
+        )
+        .await
+        .expect("clean up created worktree");
     }
 
     #[tokio::test]

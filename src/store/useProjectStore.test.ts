@@ -27,7 +27,7 @@ import { useProjectStore } from "./useProjectStore";
 describe("useProjectStore", () => {
   beforeEach(() => {
     mocks.invoke.mockReset().mockResolvedValue(undefined);
-    mocks.saveProjects.mockClear();
+    mocks.saveProjects.mockReset().mockResolvedValue(undefined);
     mocks.deleteProjectChats.mockClear();
     useProjectStore.setState({
       projects: [],
@@ -40,10 +40,10 @@ describe("useProjectStore", () => {
   });
 
   it("persists project mutations and keeps worktree selection UI-only", async () => {
-    const id = useProjectStore.getState().addProject("One", "C:/one", "read");
-    await vi.waitFor(() => expect(mocks.saveProjects).toHaveBeenCalledTimes(1));
-    useProjectStore.getState().updateProject(id, { name: "Latest" });
-    await vi.waitFor(() => expect(mocks.saveProjects).toHaveBeenCalledTimes(2));
+    const id = await useProjectStore.getState().addProject("One", "C:/one", "read");
+    expect(mocks.saveProjects).toHaveBeenCalledTimes(1);
+    await useProjectStore.getState().updateProject(id, { name: "Latest" });
+    expect(mocks.saveProjects).toHaveBeenCalledTimes(2);
     await useProjectStore.getState().setWorktree("C:/worktrees/one", "sythoria-agent-a1b2c3d4");
 
     expect(useProjectStore.getState().projects[0].name).toBe("Latest");
@@ -54,14 +54,37 @@ describe("useProjectStore", () => {
   it("uses the configured default permission when none is supplied", async () => {
     useProjectStore.setState({ defaultPermission: "write" });
 
-    useProjectStore.getState().addProject("One", "C:/one");
+    await useProjectStore.getState().addProject("One", "C:/one");
 
-    await vi.waitFor(() => expect(mocks.saveProjects).toHaveBeenCalledTimes(1));
+    expect(mocks.saveProjects).toHaveBeenCalledTimes(1);
     expect(useProjectStore.getState().projects[0].permissions).toBe("write");
   });
 
+  it("does not resolve a project mutation before the native registry is updated", async () => {
+    let resolveSave: (() => void) | undefined;
+    mocks.saveProjects.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    const mutation = useProjectStore.getState().addProject("One", "C:/one", "write");
+    let settled = false;
+    void mutation.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(useProjectStore.getState().projects).toHaveLength(1);
+
+    resolveSave?.();
+    await expect(mutation).resolves.toBe("project-1");
+  });
+
   it("clears native selection and associated chats when deleting the active project", async () => {
-    const id = useProjectStore.getState().addProject("One", "C:/one", "read");
+    const id = await useProjectStore.getState().addProject("One", "C:/one", "read");
     useProjectStore.getState().setActiveProject(id);
     useProjectStore.getState().deleteProject(id);
 

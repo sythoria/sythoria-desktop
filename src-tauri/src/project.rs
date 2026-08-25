@@ -466,23 +466,13 @@ pub(crate) fn validate_project_run_access(
     requested_worktree: Option<&str>,
     write_required: bool,
 ) -> Result<Option<PathBuf>, AppError> {
-    if write_required {
-        let capabilities = state
-            .run_capabilities
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        let capability = capabilities.get(run_token).ok_or_else(|| {
-            AppError::AppPath(
-                "Access denied: Project run capability is invalid or expired".to_string(),
-            )
-        })?;
-        if capability.read_only {
-            return Err(AppError::AppPath(
-                "Access denied: Project browser capability is read-only".to_string(),
-            ));
-        }
+    let capability = get_project_run_capability(state, run_token)?;
+    if write_required && capability.read_only {
+        return Err(AppError::AppPath(
+            "Access denied: Project browser capability is read-only".to_string(),
+        ));
     }
-    validate_project_run(state, run_token, project_id, requested_worktree)
+    validate_project_run_capability(state, &capability, project_id, requested_worktree)
 }
 
 pub(crate) fn validate_project_run(
@@ -491,7 +481,15 @@ pub(crate) fn validate_project_run(
     project_id: &str,
     requested_worktree: Option<&str>,
 ) -> Result<Option<PathBuf>, AppError> {
-    let capability = state
+    let capability = get_project_run_capability(state, run_token)?;
+    validate_project_run_capability(state, &capability, project_id, requested_worktree)
+}
+
+fn get_project_run_capability(
+    state: &ProjectRegistry,
+    run_token: &str,
+) -> Result<ProjectRunCapability, AppError> {
+    state
         .run_capabilities
         .lock()
         .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
@@ -501,8 +499,15 @@ pub(crate) fn validate_project_run(
             AppError::AppPath(
                 "Access denied: Project run capability is invalid or expired".to_string(),
             )
-        })?;
+        })
+}
 
+fn validate_project_run_capability(
+    state: &ProjectRegistry,
+    capability: &ProjectRunCapability,
+    project_id: &str,
+    requested_worktree: Option<&str>,
+) -> Result<Option<PathBuf>, AppError> {
     if capability.project_id != project_id {
         return Err(AppError::AppPath(
             "Access denied: Project run capability belongs to another project".to_string(),
@@ -699,7 +704,8 @@ mod tests {
     use super::{
         is_sythoria_agent_branch, parse_git_worktrees, register_project_run,
         sythoria_worktree_root, validate_owned_worktree, validate_project_path,
-        validate_project_run, Project, ProjectExclusions, ProjectPermission, ProjectRegistry,
+        validate_project_run, validate_project_run_access, Project, ProjectExclusions,
+        ProjectPermission, ProjectRegistry,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -866,6 +872,7 @@ mod tests {
         run_git(&repo, &["init"]);
         run_git(&repo, &["config", "user.name", "Sythoria Test"]);
         run_git(&repo, &["config", "user.email", "test@sythoria.local"]);
+        run_git(&repo, &["config", "commit.gpgsign", "false"]);
         fs::write(repo.join("shared.txt"), "base").expect("write fixture file");
         run_git(&repo, &["add", "shared.txt"]);
         run_git(&repo, &["commit", "-m", "fixture"]);
@@ -905,6 +912,22 @@ mod tests {
             Some(&branch_two),
         )
         .expect("register second run");
+
+        assert_eq!(
+            validate_project_run_access(
+                &registry,
+                &token_one,
+                "project",
+                Some(&worktree_one_arg),
+                true,
+            )
+            .expect("validate write access"),
+            Some(
+                worktree_one
+                    .canonicalize()
+                    .expect("canonical first worktree")
+            )
+        );
 
         assert!(
             validate_project_run(&registry, &token_one, "project", Some(&worktree_two_arg))
