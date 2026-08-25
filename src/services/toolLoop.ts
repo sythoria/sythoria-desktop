@@ -55,7 +55,18 @@ interface ProjectRunContext {
 type ToolResultDiffSummary = NonNullable<NonNullable<Message["toolResult"]>["diffSummary"]>;
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const structuredMessage = Object.values(error).find((value): value is string => typeof value === "string");
+    if (structuredMessage) return structuredMessage;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      // Fall through to the generic coercion for non-serializable host values.
+    }
+  }
+  return String(error);
 }
 
 const pendingSubagentMessages = new Map<string, Message[]>();
@@ -543,7 +554,7 @@ export function buildToolDefinitions(
   return tools;
 }
 
-function buildProjectToolDefinitions(project: Project | null) {
+export function buildProjectToolDefinitions(project: Project | null) {
   if (!project) return [];
   const tools: ToolDefinition[] = [];
 
@@ -673,7 +684,10 @@ function buildProjectToolDefinitions(project: Project | null) {
         parameters: {
           type: "object",
           properties: {
-            file_path: { type: "string", description: "Relative or absolute path to the file" },
+            file_path: {
+              type: "string",
+              description: "Project-relative path to the file. Absolute paths and paths outside the workspace are rejected.",
+            },
             content: { type: "string", description: "The content to write" },
           },
           required: ["file_path", "content"],
@@ -692,7 +706,8 @@ function buildProjectToolDefinitions(project: Project | null) {
           properties: {
             file_path: {
               type: "string",
-              description: "The absolute or relative path string pointing to the target file.",
+              description:
+                "Project-relative path to the target file. Absolute paths and paths outside the workspace are rejected.",
             },
             old_string: {
               type: "string",
@@ -2401,18 +2416,6 @@ async function runWithToolLoop(
                   : m,
               ),
             ),
-            ...(isError
-              ? {
-                  generationState: "error" as GenerationState,
-                  generationLabel: `Tool failed: ${fnName}`,
-                  generationByConversation: setConversationGeneration(
-                    state,
-                    convId,
-                    "error" as GenerationState,
-                    `Tool failed: ${fnName}`,
-                  ),
-                }
-              : {}),
           }));
 
           uiStore.completeTask(toolCall.id, isError ? "error" : "completed");

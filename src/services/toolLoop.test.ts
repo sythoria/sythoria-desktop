@@ -6,6 +6,7 @@ import {
   TOOL_DEFINITIONS,
   assertUsableFinishReason,
   buildConversationContextMessages,
+  buildProjectToolDefinitions,
   buildToolDefinitions,
   buildToolSystemPrompt,
   cancelConversationGenerationQueue,
@@ -445,6 +446,24 @@ describe("requiresToolConfirmation", () => {
   });
 });
 
+describe("buildProjectToolDefinitions", () => {
+  it("tells the model that file mutations require project-relative paths", () => {
+    const tools = buildProjectToolDefinitions({
+      id: "project-1",
+      name: "Project",
+      path: "/workspace/project",
+      permissions: "write",
+    });
+
+    for (const name of ["project_write", "project_edit"]) {
+      const tool = tools.find((candidate) => candidate.function.name === name);
+      const filePath = tool?.function.parameters.properties.file_path as { description?: string } | undefined;
+      expect(filePath?.description).toContain("Project-relative");
+      expect(filePath?.description).toContain("Absolute paths");
+    }
+  });
+});
+
 describe("sendWithToolLoop", () => {
   it("runs tools with the captured read-only project when global navigation points elsewhere", async () => {
     mockMaxToolSteps = 2;
@@ -651,6 +670,81 @@ describe("sendWithToolLoop", () => {
     const modelCalls = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
     expect(modelCalls).toHaveLength(2);
     expect(modelCalls[1][1]).toMatchObject({ tools: "[]" });
+  });
+
+  it("keeps the agent running after a recoverable tool error and exposes structured Tauri details", async () => {
+    mockMaxToolSteps = 2;
+    mockStreamContent = "";
+    invokeMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "I’ll try the tool.",
+                tool_calls: [
+                  {
+                    id: "failed-search",
+                    function: { name: "search_query", arguments: JSON.stringify({ query: "test" }) },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "Recovered after tool error." } }] }),
+      );
+
+    mockConversations.push({
+      id: "conv-tool-error",
+      title: "Tool error",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-tool-error", role: "user", content: "Try the tool", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-tool-error": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      makeRunContext("conv-tool-error", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
+      set,
+      () => state,
+      vi.fn().mockRejectedValue({ SearchError: "Provider unavailable" }),
+      vi.fn(),
+    );
+
+    const failedTool = state.conversations[0].messages.find((message) => message.toolCall?.id === "failed-search");
+    expect(failedTool?.toolResult?.content).toBe("Provider unavailable");
+    expect(state.conversations[0].messages.at(-1)?.content).toContain("Recovered after tool error.");
+    expect(invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools")).toHaveLength(2);
+    expect(state.generationByConversation["conv-tool-error"]).toBeUndefined();
   });
 
   it("does not count provider pause turns against the tool execution limit", async () => {

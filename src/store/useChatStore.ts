@@ -890,13 +890,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
               worktreePath: worktree.path,
               branchName: worktree.branch,
             });
-            try {
-              await invoke("set_project_path_override", { projectId: worktree.projectId, pathOverride: null });
-            } catch (error) {
-              logWarn("git", "Discarded deleted chat worktree but could not clear its project path override", {
-                details: String(error),
-              });
-            }
             return { ...worktree, discarded: true as const };
           } catch (error) {
             logError("chat", "Failed to discard worktree during chat deletion", {
@@ -1400,11 +1393,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchName: conv.pendingWorktree.branch,
       });
 
-      try {
-        await invoke("set_project_path_override", { projectId, pathOverride: null });
-      } catch (error) {
-        logWarn("git", "Applied worktree but could not clear its project path override", { details: String(error) });
-      }
       const projectStore = useProjectStore.getState();
       if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
         useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
@@ -1451,13 +1439,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         branchName: conv.pendingWorktree.branch,
       });
 
-      try {
-        await invoke("set_project_path_override", { projectId, pathOverride: null });
-      } catch (error) {
-        logWarn("git", "Discarded worktree but could not clear its project path override", {
-          details: String(error),
-        });
-      }
       const projectStore = useProjectStore.getState();
       if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
         useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });

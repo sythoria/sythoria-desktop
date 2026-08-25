@@ -331,7 +331,6 @@ describe("transactional chat deletion", () => {
         events.push(`discard:${String((args as { worktreePath: string }).worktreePath)}`);
         return undefined;
       }
-      if (command === "set_project_path_override") return undefined;
       if (command === "save_encrypted_conversations") {
         events.push("persist");
         expect(useChatStore.getState().conversations.map((conversation) => conversation.id)).toEqual([destination.id]);
@@ -388,7 +387,6 @@ describe("transactional chat deletion", () => {
         }
         return undefined;
       }
-      if (command === "set_project_path_override") return undefined;
       throw new Error(`Unexpected command: ${command}`);
     });
 
@@ -485,7 +483,6 @@ describe("worktree approval", () => {
     const originalAutoCommit = useGitStore.getState().autoCommitIfNeeded;
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_worktree_apply") return ["src/ai.ts", "src/new.ts"];
-      if (command === "set_project_path_override") return undefined;
       throw new Error(`Unexpected command: ${command}`);
     });
     useGitStore.setState({ autoCommitIfNeeded });
@@ -582,7 +579,7 @@ describe("worktree approval", () => {
   it("can discard a legacy detached worktree using its captured project scope", async () => {
     const invokeMock = vi.mocked(invoke);
     invokeMock.mockImplementation(async (command) => {
-      if (command === "git_worktree_discard" || command === "set_project_path_override") return undefined;
+      if (command === "git_worktree_discard") return undefined;
       throw new Error(`Unexpected command: ${command}`);
     });
     useChatStore.setState({

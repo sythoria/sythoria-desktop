@@ -308,7 +308,7 @@ export interface ModelConfig {
 | `check_downloaded_whisper_models`                                         | Lists cached local Whisper files                                |
 | `transcribe_audio`                                                        | Transcribes recorded audio buffer via whisper.cpp               |
 | `load_projects` / `save_projects`                                         | Workspace configs storage                                       |
-| `set_active_project` / `set_project_path_override`                        | Maps workspace and branch context overrides                     |
+| `set_active_project`                                                      | Maps the active workspace selection                              |
 | `project_run_begin`                                                       | Binds a run to the root or a validated worktree                 |
 | `project_browse_begin`                                                    | Issues a read-only Files panel capability                       |
 | `git_detect_repo` / `git_get_status`                                      | Identifies local repositories and dirty tracking                |
