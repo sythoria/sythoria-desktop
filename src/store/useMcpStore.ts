@@ -84,7 +84,7 @@ interface McpState {
 
   addMcpConfig: () => void;
   addMcpConfigFromPreset: (preset: McpServerPreset) => void;
-  addMcpConfigWithSecrets: (preset: McpServerPreset, secrets: Record<string, string>) => Promise<void>;
+  addMcpConfigWithSecrets: (preset: McpServerPreset, secrets: Record<string, string>) => Promise<boolean>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
   connectServer: (id: string) => Promise<void>;
@@ -205,12 +205,25 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const existing = mcpConfigs.find((c) => c.name === preset.name);
     const targetId = existing?.id || generateId();
 
+    // Interpolate any `<KEY>` placeholders in args with values from secrets
+    const interpolatedArgs = (preset.args || []).map((arg) => {
+      let resolved = arg;
+      for (const [key, value] of Object.entries(secrets)) {
+        if (!value) continue;
+        const placeholder = `<${key}>`;
+        if (resolved.includes(placeholder)) {
+          resolved = resolved.replaceAll(placeholder, value);
+        }
+      }
+      return resolved;
+    });
+
     const newConfig: McpServerConfig = {
       id: targetId,
       name: preset.name,
       transport: "stdio",
       command: preset.command,
-      args: [...preset.args],
+      args: interpolatedArgs,
       enabled: true,
       trustLevel: "untrusted",
     };
@@ -239,6 +252,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
     ]);
 
     await connectServer(targetId);
+
+    // If initial connection failed, remove from enabledServerIds so it doesn't fail on every app restart
+    if (get().serverStatuses[targetId] === "error") {
+      const rollbackEnabled = new Set(get().enabledServerIds);
+      rollbackEnabled.delete(targetId);
+      set({ enabledServerIds: rollbackEnabled });
+      await saveEnabledMcpServers(Array.from(rollbackEnabled));
+      return false;
+    }
+    return true;
   },
 
   updateMcpConfig: async (id, updates) => {
