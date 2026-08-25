@@ -310,9 +310,7 @@ describe("ChatArea", () => {
     rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
     await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toBeInTheDocument());
     expect(screen.getByTestId("working-collapsed-preview")).not.toHaveClass("pl-5");
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent(
-      "I’m checking the component state now.",
-    );
+    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("I’m checking the component state now.");
 
     const completedFinal = {
       ...streamingFinal,
