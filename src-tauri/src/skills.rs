@@ -141,9 +141,6 @@ fn resolve_skill_dir(skills_dir: &Path, id: &str) -> Result<PathBuf, String> {
 }
 
 fn normalized_resource_path(path: &Path) -> Result<String, String> {
-    if path.as_os_str().to_string_lossy().contains('\\') {
-        return Err("Invalid skill resource path".to_string());
-    }
     let mut parts = Vec::new();
     for component in path.components() {
         match component {
