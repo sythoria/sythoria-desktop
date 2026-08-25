@@ -100,6 +100,7 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const descriptionId = useId();
   useDialogFocus({ isOpen, onClose: onCancel, containerRef: modalRef });
 
   if (!isOpen) return null;
@@ -110,6 +111,7 @@ export function ConfirmModal({
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
     >
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -127,7 +129,9 @@ export function ConfirmModal({
           <h3 id={titleId} className="text-sm font-semibold text-text-primary">
             {title}
           </h3>
-          <p className="mt-1.5 text-sm text-text-secondary leading-relaxed">{message}</p>
+          <p id={descriptionId} className="mt-1.5 text-sm text-text-secondary leading-relaxed">
+            {message}
+          </p>
         </div>
         <div className="flex gap-2 p-4 pt-3">
           <button
@@ -246,6 +250,7 @@ interface ToolConfirmationModalProps {
 export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmationModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const descriptionId = useId();
   const rejectConfirmation = useCallback(() => {
     if (confirmation) onRespond(confirmation.id, false);
   }, [confirmation, onRespond]);
@@ -351,6 +356,7 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
     >
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -368,7 +374,9 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
           <h3 id={titleId} className="text-sm font-semibold text-text-primary">
             Tool Execution Authorization
           </h3>
-          <p className="mt-1 text-xs text-red-500 font-medium">{warnMessage}</p>
+          <p id={descriptionId} className="mt-1 text-xs text-red-500 font-medium">
+            {warnMessage}
+          </p>
           <div className="mt-3 py-1 border-t border-border">
             <div className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-2">
               Tool Name: <span className="font-mono text-accent">{toolName}</span>
@@ -378,12 +386,14 @@ export function ToolConfirmationModal({ confirmation, onRespond }: ToolConfirmat
         </div>
         <div className="flex gap-2.5 p-6 pt-4">
           <button
+            type="button"
             onClick={() => onRespond(id, false)}
             className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:bg-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px] border border-border"
           >
             Reject
           </button>
           <button
+            type="button"
             onClick={() => onRespond(id, true)}
             className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-accent text-accent-foreground hover:bg-accent-hover transition-[color,background-color,border-color,box-shadow,transform] min-h-[40px]"
           >

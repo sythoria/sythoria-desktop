@@ -752,6 +752,9 @@ export const en = {
   "projectForm.permissionLevel": "Default Permission Level",
   "projectForm.fullShellConfirm":
     "WARNING: Full Shell lets the AI run arbitrary commands on your system. Enable it only for trusted tasks and projects. Continue?",
+  "projectForm.skipCommandConfirmations": "Skip shell command confirmations",
+  "projectForm.skipCommandConfirmationsDesc":
+    "Run AI-requested commands in this workspace without asking each time. Enable only for trusted workspaces.",
   "projectForm.promptOverride": "Project-Specific Prompt Override",
   "projectForm.promptOverrideDesc": "Injected when working in this project",
   "projectForm.excludePatterns": "Exclude Patterns",

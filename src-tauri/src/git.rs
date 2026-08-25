@@ -1012,58 +1012,126 @@ pub async fn git_worktree_discard(
     Ok(())
 }
 
+fn validate_stale_worktree_identity(
+    worktree_path: &str,
+    branch_name: &str,
+) -> Result<PathBuf, AppError> {
+    let suffix = branch_name
+        .strip_prefix("sythoria-agent-")
+        .filter(|suffix| suffix.len() == 8 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            AppError::GitError(
+                "Access denied: stale worktree branch is not owned by Sythoria".to_string(),
+            )
+        })?;
+    let expected_path = crate::project::sythoria_worktree_root().join(suffix);
+    if Path::new(worktree_path) != expected_path {
+        return Err(AppError::GitError(
+            "Access denied: stale worktree path does not match its Sythoria branch".to_string(),
+        ));
+    }
+    Ok(expected_path)
+}
+
 async fn cleanup_worktree_internal(
     project: &crate::project::Project,
     repo_path: &str,
     worktree_path: &str,
     branch_name: &str,
 ) -> Result<(), AppError> {
-    let verified =
-        crate::project::validate_owned_worktree(project, worktree_path, Some(branch_name))
-            .map_err(|e| AppError::GitError(e.to_string()))?;
+    let cleanup_path =
+        match crate::project::validate_owned_worktree(project, worktree_path, Some(branch_name)) {
+            Ok(verified) => {
+                // Remove a live, verified worktree through Git. Never recursively
+                // delete a renderer-supplied path as a fallback.
+                let remove_output = Command::new("git")
+                    .arg("-C")
+                    .arg(repo_path)
+                    .arg("worktree")
+                    .arg("remove")
+                    .arg("--force")
+                    .arg("--")
+                    .arg(&verified.path)
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        AppError::GitError(format!("Failed to remove git worktree: {e}"))
+                    })?;
 
-    // 1. Remove the worktree using git worktree remove --force
-    let remove_output = Command::new("git")
+                if !remove_output.status.success() {
+                    return Err(AppError::GitError(format!(
+                        "Git refused to remove the verified worktree: {}",
+                        String::from_utf8_lossy(&remove_output.stderr).trim()
+                    )));
+                }
+                verified.path
+            }
+            Err(_) if !Path::new(worktree_path).exists() => {
+                let expected_path = validate_stale_worktree_identity(worktree_path, branch_name)?;
+
+                // The directory was removed outside Sythoria. Prune Git's stale
+                // registration before deleting the reserved temporary branch.
+                let prune_output = Command::new("git")
+                    .arg("-C")
+                    .arg(repo_path)
+                    .arg("worktree")
+                    .arg("prune")
+                    .arg("--expire")
+                    .arg("now")
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        AppError::GitError(format!("Failed to prune stale worktree metadata: {e}"))
+                    })?;
+                if !prune_output.status.success() {
+                    return Err(AppError::GitError(format!(
+                        "Git refused to prune stale worktree metadata: {}",
+                        String::from_utf8_lossy(&prune_output.stderr).trim()
+                    )));
+                }
+                expected_path
+            }
+            Err(error) => return Err(AppError::GitError(error.to_string())),
+        };
+
+    let branch_ref = format!("refs/heads/{branch_name}");
+    let branch_check = Command::new("git")
         .arg("-C")
         .arg(repo_path)
-        .arg("worktree")
-        .arg("remove")
-        .arg("--force")
-        .arg("--")
-        .arg(&verified.path)
+        .arg("show-ref")
+        .arg("--verify")
+        .arg("--quiet")
+        .arg(&branch_ref)
         .output()
         .await
-        .map_err(|e| AppError::GitError(format!("Failed to remove git worktree: {}", e)))?;
+        .map_err(|e| AppError::GitError(format!("Failed to inspect temporary branch: {e}")))?;
 
-    if !remove_output.status.success() {
+    if branch_check.status.success() {
+        let delete_output = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .arg("branch")
+            .arg("-D")
+            .arg("--")
+            .arg(branch_name)
+            .output()
+            .await
+            .map_err(|e| AppError::GitError(format!("Failed to delete temporary branch: {e}")))?;
+
+        if !delete_output.status.success() {
+            return Err(AppError::GitError(format!(
+                "Worktree was removed, but its temporary branch could not be deleted: {}",
+                String::from_utf8_lossy(&delete_output.stderr).trim()
+            )));
+        }
+    } else if branch_check.status.code() != Some(1) {
         return Err(AppError::GitError(format!(
-            "Git refused to remove the verified worktree: {}",
-            String::from_utf8_lossy(&remove_output.stderr).trim()
+            "Git could not determine whether the temporary branch exists: {}",
+            String::from_utf8_lossy(&branch_check.stderr).trim()
         )));
     }
 
-    // 2. Delete the temporary branch using git branch -D
-    let delete_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("branch")
-        .arg("-D")
-        .arg("--")
-        .arg(branch_name)
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to delete temporary branch: {}", e)))?;
-
-    if !delete_output.status.success() {
-        return Err(AppError::GitError(format!(
-            "Worktree was removed, but its temporary branch could not be deleted: {}",
-            String::from_utf8_lossy(&delete_output.stderr).trim()
-        )));
-    }
-
-    // Git is the sole authority allowed to remove a worktree. Never recursively
-    // delete a renderer-supplied path as a fallback.
-    if verified.path.exists() {
+    if cleanup_path.exists() {
         return Err(AppError::GitError(
             "Git reported success but the worktree directory still exists".to_string(),
         ));
@@ -1077,7 +1145,7 @@ mod tests {
     use super::{
         apply_worktree_changes, cleanup_worktree_internal, create_commit_in_repository,
         create_worktree_for_project, detect_git_repository, parse_changed_paths,
-        resolve_git_relative_path, switch_branch_in_repository,
+        resolve_git_relative_path, switch_branch_in_repository, validate_stale_worktree_identity,
     };
     use crate::project::{
         validate_project_run_access, Project, ProjectPermission, ProjectRegistry,
@@ -1162,6 +1230,7 @@ mod tests {
                     name: "Project".to_string(),
                     path: repo.to_string_lossy().into_owned(),
                     permissions: ProjectPermission::Write,
+                    skip_command_confirmations: None,
                     exclude_patterns: None,
                     system_prompt_override: None,
                     model_override: None,
@@ -1189,6 +1258,26 @@ mod tests {
         assert!(parse_changed_paths(b"A\0").is_err());
         assert!(parse_changed_paths(b"R100\0old.txt\0new.txt\0").is_err());
         assert!(parse_changed_paths(b"A\0../outside\0").is_ok());
+    }
+
+    #[test]
+    fn stale_worktree_identity_requires_the_reserved_path_and_branch_pair() {
+        let branch = "sythoria-agent-a1b2c3d4";
+        let expected = crate::project::sythoria_worktree_root().join("a1b2c3d4");
+
+        assert_eq!(
+            validate_stale_worktree_identity(&expected.to_string_lossy(), branch)
+                .expect("validate owned stale identity"),
+            expected
+        );
+        assert!(validate_stale_worktree_identity("/tmp/unrelated", branch).is_err());
+        assert!(validate_stale_worktree_identity(
+            &crate::project::sythoria_worktree_root()
+                .join("a1b2c3d4")
+                .to_string_lossy(),
+            "feature/user-branch",
+        )
+        .is_err());
     }
 
     #[tokio::test]
@@ -1255,6 +1344,44 @@ mod tests {
         )
         .await
         .expect("clean up created worktree");
+    }
+
+    #[tokio::test]
+    async fn worktree_cleanup_succeeds_when_the_owned_directory_is_already_missing() {
+        let fixture = TestRepository::new();
+        let registry = ProjectRegistry::new();
+        register_project(&registry, &fixture.repo);
+
+        let (worktree_path, branch, _) =
+            create_worktree_for_project(&registry, "project", "conversation")
+                .await
+                .expect("create registered worktree");
+        std::fs::remove_dir_all(&worktree_path).expect("remove worktree outside Sythoria");
+
+        let project = registry
+            .projects
+            .lock()
+            .expect("lock project registry")
+            .get("project")
+            .expect("registered project")
+            .clone();
+        cleanup_worktree_internal(
+            &project,
+            &fixture.repo.to_string_lossy(),
+            &worktree_path,
+            &branch,
+        )
+        .await
+        .expect("clean up stale worktree record");
+
+        let branch_ref = format!("refs/heads/{branch}");
+        let branch_status = StdCommand::new("git")
+            .arg("-C")
+            .arg(&fixture.repo)
+            .args(["show-ref", "--verify", "--quiet", &branch_ref])
+            .status()
+            .expect("inspect temporary branch");
+        assert_eq!(branch_status.code(), Some(1));
     }
 
     #[tokio::test]

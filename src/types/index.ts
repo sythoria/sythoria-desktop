@@ -103,6 +103,7 @@ export interface Project {
   name: string;
   path: string;
   permissions: ProjectPermission;
+  skipCommandConfirmations?: boolean;
   excludePatterns?: string[];
   systemPromptOverride?: string;
   isAutoCommitEnabled?: boolean;

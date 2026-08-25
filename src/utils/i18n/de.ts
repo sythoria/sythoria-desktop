@@ -773,6 +773,9 @@ export const de = {
   "projectForm.permissionLevel": "Standard-Berechtigungsstufe",
   "projectForm.fullShellConfirm":
     "WARNUNG: Die vollständige Shell erlaubt der KI beliebige Systembefehle. Aktivieren Sie sie nur für vertrauenswürdige Aufgaben und Projekte. Fortfahren?",
+  "projectForm.skipCommandConfirmations": "Bestätigungen für Shell-Befehle überspringen",
+  "projectForm.skipCommandConfirmationsDesc":
+    "Von der KI angeforderte Befehle in diesem Arbeitsbereich ohne Rückfrage ausführen. Nur für vertrauenswürdige Arbeitsbereiche aktivieren.",
   "projectForm.promptOverride": "Projektspezifische Anweisungen",
   "projectForm.promptOverrideDesc": "Werden bei der Arbeit in diesem Projekt eingefügt",
   "projectForm.excludePatterns": "Ausschlussmuster",

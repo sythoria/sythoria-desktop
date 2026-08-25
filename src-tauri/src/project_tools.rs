@@ -10,6 +10,10 @@ const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 120_000;
 const MAX_COMMAND_TIMEOUT_MS: u64 = 600_000;
 const MAX_COMMAND_OUTPUT_BYTES: usize = 1024 * 1024;
 
+fn command_confirmation_authorized(project: &crate::project::Project, acknowledged: bool) -> bool {
+    project.skip_command_confirmations.unwrap_or(false) || acknowledged
+}
+
 struct ValidatedProjectAccess {
     path: PathBuf,
     exclusions: ProjectExclusions,
@@ -215,7 +219,6 @@ fn list_project_directory(access: ValidatedProjectAccess) -> Result<Vec<String>,
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn project_bash(
-    app: AppHandle,
     state: tauri::State<'_, ProjectRegistry>,
     project_id: String,
     run_token: String,
@@ -224,6 +227,7 @@ pub async fn project_bash(
     timeout: Option<u64>,
     run_in_background: Option<bool>,
     worktree_path: Option<String>,
+    confirmation_acknowledged: bool,
 ) -> Result<String, AppError> {
     // Validate the immutable run capability and retrieve its project config.
     let capability_root = crate::project::validate_project_run_access(
@@ -257,6 +261,11 @@ pub async fn project_bash(
             "Permission denied: full shell access not allowed".to_string(),
         ));
     }
+    if !command_confirmation_authorized(&project, confirmation_acknowledged) {
+        return Err(AppError::AppPath(
+            "Command execution requires in-app confirmation".to_string(),
+        ));
+    }
 
     // 2. Validate cwd is exactly the registered project root
     let root_path = Path::new(&project.path)
@@ -269,28 +278,6 @@ pub async fn project_bash(
     if root_path != cwd_path {
         return Err(AppError::AppPath(
             "Access denied: command execution directory must be the project root".to_string(),
-        ));
-    }
-
-    // 3. Require native confirmation
-    use tauri_plugin_dialog::DialogExt;
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog()
-        .message(format!(
-            "The assistant wants to execute the following terminal command in the project directory '{}':\n\n$ {}\n\nWarning: Running commands can modify files or run arbitrary code.",
-            project.name, command
-        ))
-        .title("Execute Command Confirmation")
-        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-        .show(move |confirmed| {
-            let _ = tx.send(confirmed);
-        });
-
-    let confirmed = rx.await.unwrap_or(false);
-
-    if !confirmed {
-        return Err(AppError::AppPath(
-            "Command execution rejected by user".to_string(),
         ));
     }
 
@@ -745,8 +732,8 @@ fn glob_project_files(
 #[cfg(test)]
 mod tests {
     use super::{
-        glob_project_files, grep_project_files, list_project_directory, GrepResult,
-        ValidatedProjectAccess,
+        command_confirmation_authorized, glob_project_files, grep_project_files,
+        list_project_directory, GrepResult, ValidatedProjectAccess,
     };
     use crate::project::{Project, ProjectExclusions, ProjectPermission};
     use std::path::{Path, PathBuf};
@@ -773,6 +760,7 @@ mod tests {
             name: "Project".to_string(),
             path: root.to_string_lossy().into_owned(),
             permissions: ProjectPermission::Read,
+            skip_command_confirmations: None,
             exclude_patterns: Some(vec!["node_modules".into(), ".git".into(), ".env".into()]),
             system_prompt_override: None,
             model_override: None,
@@ -790,6 +778,19 @@ mod tests {
             path: path.canonicalize().expect("canonical access path"),
             exclusions: ProjectExclusions::new(project, &root).expect("compile exclusions"),
         }
+    }
+
+    #[test]
+    fn shell_commands_require_acknowledgement_unless_the_project_opts_out() {
+        let (root, mut project) = fixture();
+        project.permissions = ProjectPermission::Full;
+
+        assert!(!command_confirmation_authorized(&project, false));
+        assert!(command_confirmation_authorized(&project, true));
+
+        project.skip_command_confirmations = Some(true);
+        assert!(command_confirmation_authorized(&project, false));
+        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]

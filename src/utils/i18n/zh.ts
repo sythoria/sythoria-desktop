@@ -724,6 +724,8 @@ export const zh = {
   "projectForm.documents": "文档文件夹中：",
   "projectForm.permissionLevel": "默认权限级别",
   "projectForm.fullShellConfirm": "警告：完整 Shell 允许 AI 在系统上运行任意命令。仅对可信任务和项目启用。是否继续？",
+  "projectForm.skipCommandConfirmations": "跳过 Shell 命令确认",
+  "projectForm.skipCommandConfirmationsDesc": "无需每次询问即可运行 AI 在此工作区请求的命令。仅对可信工作区启用。",
   "projectForm.promptOverride": "项目专用提示词覆盖",
   "projectForm.promptOverrideDesc": "处理此项目时注入",
   "projectForm.excludePatterns": "排除模式",

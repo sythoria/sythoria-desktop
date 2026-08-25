@@ -752,6 +752,9 @@ export const fr = {
   "projectForm.permissionLevel": "Niveau d’autorisation par défaut",
   "projectForm.fullShellConfirm":
     "AVERTISSEMENT : le terminal intégral permet à l’IA d’exécuter des commandes arbitraires. Activez-le uniquement pour des tâches et projets fiables. Continuer ?",
+  "projectForm.skipCommandConfirmations": "Ignorer les confirmations de commandes shell",
+  "projectForm.skipCommandConfirmationsDesc":
+    "Exécute les commandes demandées par l’IA dans cet espace sans confirmation. À activer uniquement pour un espace fiable.",
   "projectForm.promptOverride": "Instructions propres au projet",
   "projectForm.promptOverrideDesc": "Ajoutées lorsque vous travaillez sur ce projet",
   "projectForm.excludePatterns": "Motifs exclus",

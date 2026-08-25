@@ -756,6 +756,9 @@ export const ja = {
   "projectForm.permissionLevel": "既定の権限レベル",
   "projectForm.fullShellConfirm":
     "警告: 完全な Shell は AI にシステム上で任意のコマンドを実行する権限を与えます。信頼できるタスクとプロジェクトでのみ有効にしてください。続行しますか？",
+  "projectForm.skipCommandConfirmations": "Shell コマンドの確認を省略",
+  "projectForm.skipCommandConfirmationsDesc":
+    "このワークスペースで AI が要求したコマンドを毎回確認せずに実行します。信頼できるワークスペースでのみ有効にしてください。",
   "projectForm.promptOverride": "プロジェクト固有のプロンプト",
   "projectForm.promptOverrideDesc": "このプロジェクトで作業するときに挿入",
   "projectForm.excludePatterns": "除外パターン",

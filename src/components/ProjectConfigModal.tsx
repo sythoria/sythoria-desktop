@@ -49,6 +49,9 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
     projectToEdit?.excludePatterns?.join(", ") ?? "node_modules, .git, dist, build, target",
   );
   const [systemPromptOverride, setSystemPromptOverride] = useState(projectToEdit?.systemPromptOverride ?? "");
+  const [skipCommandConfirmations, setSkipCommandConfirmations] = useState(
+    projectToEdit?.skipCommandConfirmations ?? false,
+  );
   const [isAutoCommitEnabled, setIsAutoCommitEnabled] = useState(
     projectToEdit ? (projectToEdit.isAutoCommitEnabled ?? false) : gitConfig.isAutoCommitEnabled,
   );
@@ -107,6 +110,7 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
         .filter((p) => p.length > 0);
 
       const configData = {
+        skipCommandConfirmations,
         excludePatterns: parsedExcludes,
         systemPromptOverride: systemPromptOverride.trim() || undefined,
         isAutoCommitEnabled,
@@ -338,11 +342,21 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
             </div>
 
             {permissions === "full" && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
-                <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" />
-                <div>
-                  <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
-                  {t("settings.projects.warningDesc")}
+              <div className="space-y-2.5">
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
+                  <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" aria-hidden="true" />
+                  <div>
+                    <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
+                    {t("settings.projects.warningDesc")}
+                  </div>
+                </div>
+                <div className="p-3 bg-active/20 rounded-xl border border-border/40">
+                  <Switch
+                    checked={skipCommandConfirmations}
+                    onChange={setSkipCommandConfirmations}
+                    label={t("projectForm.skipCommandConfirmations")}
+                    description={t("projectForm.skipCommandConfirmationsDesc")}
+                  />
                 </div>
               </div>
             )}

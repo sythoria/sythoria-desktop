@@ -22,6 +22,8 @@ pub struct Project {
     pub name: String,
     pub path: String,
     pub permissions: ProjectPermission,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_command_confirmations: Option<bool>,
     #[serde(default)]
     pub exclude_patterns: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -719,6 +721,7 @@ mod tests {
             name: "Project".to_string(),
             path: path.to_string_lossy().into_owned(),
             permissions: ProjectPermission::Full,
+            skip_command_confirmations: None,
             exclude_patterns: None,
             system_prompt_override: None,
             model_override: None,
@@ -732,6 +735,7 @@ mod tests {
         let mut project = test_project(PathBuf::from("C:/workspace"));
         project.system_prompt_override = Some("Be concise".to_string());
         project.model_override = Some("model-x".to_string());
+        project.skip_command_confirmations = Some(true);
         project.is_auto_commit_enabled = Some(true);
         project.auto_commit_msg_template = Some("feat: {summary}".to_string());
 
@@ -743,12 +747,14 @@ mod tests {
             project.system_prompt_override
         );
         assert_eq!(decoded.model_override, project.model_override);
+        assert_eq!(decoded.skip_command_confirmations, Some(true));
         assert_eq!(decoded.is_auto_commit_enabled, Some(true));
         assert_eq!(
             decoded.auto_commit_msg_template,
             project.auto_commit_msg_template
         );
         assert!(json.contains("systemPromptOverride"));
+        assert!(json.contains("skipCommandConfirmations"));
         assert!(json.contains("isAutoCommitEnabled"));
     }
 

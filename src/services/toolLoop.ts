@@ -927,6 +927,21 @@ function toKnownToolName(name: string): KnownToolName | "unknown" {
   return KNOWN_TOOLS.has(name) ? (name as KnownToolName) : "unknown";
 }
 
+export function requiresToolConfirmation(toolName: string, rawName: string, project: Project | null): boolean {
+  if (toolName === "project_bash") {
+    return project?.skipCommandConfirmations !== true;
+  }
+
+  const requiresHitl =
+    toolName === "project_write" ||
+    toolName === "project_edit" ||
+    toolName === "project_multi_replace_file_content" ||
+    toolName === "project_git_commit" ||
+    rawName === "git_create_commit";
+
+  return requiresHitl && project?.permissions !== "full";
+}
+
 interface ToolCallData {
   id: string;
   function: { name: string; arguments: string };
@@ -1788,17 +1803,8 @@ async function runWithToolLoop(
             }
 
             // 1. Check HITL gate
-            const hasFullAccess = project?.permissions === "full";
-
-            const requiresHitl =
-              fnName === "project_write" ||
-              fnName === "project_edit" ||
-              fnName === "project_multi_replace_file_content" ||
-              fnName === "project_git_commit" ||
-              fnName === "project_bash" ||
-              rawName === "git_create_commit";
-
-            const isHitl = requiresHitl && !hasFullAccess;
+            const isHitl = requiresToolConfirmation(fnName, rawName, project);
+            let commandConfirmationAcknowledged = false;
 
             if (isHitl) {
               const approved = await new Promise<boolean>((resolve) => {
@@ -1813,6 +1819,7 @@ async function runWithToolLoop(
               if (!approved) {
                 throw new Error("Tool execution rejected by the user.");
               }
+              commandConfirmationAcknowledged = fnName === "project_bash";
             }
 
             if (!isConvStreaming(get, convId)) {
@@ -2172,6 +2179,7 @@ async function runWithToolLoop(
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
                     worktreePath: projectRun!.worktreePath,
+                    confirmationAcknowledged: commandConfirmationAcknowledged,
                   });
                   break;
                 case "project_git_status":

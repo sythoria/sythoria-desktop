@@ -11,6 +11,7 @@ const ProjectSchema = z.object({
   name: z.string(),
   path: z.string(),
   permissions: z.enum(["read", "write", "full"]),
+  skipCommandConfirmations: z.boolean().optional(),
   excludePatterns: z.array(z.string()).optional(),
   systemPromptOverride: z.string().optional(),
   isAutoCommitEnabled: z.boolean().optional(),
