@@ -212,7 +212,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     longDescription:
       "Searches your personal or workspace Google Drive to read document text, extract spreadsheet data, and reference presentation outlines.",
     iconName: "googledrive",
-    authType: "api_key",
+    authType: "oauth",
     authFields: [
       {
         key: "GOOGLE_APPLICATION_CREDENTIALS",
@@ -228,10 +228,10 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "google-drive",
       name: "Google Drive & Docs",
       description: "Read, search, and parse Google Drive documents and spreadsheets.",
-      homepageUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive",
+      homepageUrl: "https://github.com/piotr-agier/google-drive-mcp",
       command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-gdrive"],
-      envKeys: ["GOOGLE_APPLICATION_CREDENTIALS"],
+      args: ["-y", "@piotr-agier/google-drive-mcp"],
+      envKeys: ["GOOGLE_DRIVE_OAUTH_CREDENTIALS", "GOOGLE_DRIVE_MCP_TOKEN_PATH", "GOOGLE_APPLICATION_CREDENTIALS"],
     },
     keywords: ["google drive", "gdrive", "docs", "sheets", "slides", "files", "cloud storage"],
   },
@@ -941,7 +941,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     badge: "Popular",
     description: "Check schedule availability, view meetings, and create calendar events.",
     iconName: "Calendar",
-    authType: "api_key",
+    authType: "oauth",
     authFields: [
       {
         key: "GOOGLE_CALENDAR_CREDENTIALS",
@@ -957,8 +957,8 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "Google Calendar",
       description: "Manage events and check schedule availability on Google Calendar.",
       command: "npx",
-      args: ["-y", "mcp-server-google-calendar"],
-      envKeys: ["GOOGLE_CALENDAR_CREDENTIALS"],
+      args: ["-y", "@piotr-agier/google-drive-mcp"],
+      envKeys: ["GOOGLE_DRIVE_OAUTH_CREDENTIALS", "GOOGLE_DRIVE_MCP_TOKEN_PATH", "GOOGLE_CALENDAR_CREDENTIALS"],
     },
     keywords: ["google calendar", "calendar", "events", "meetings", "schedule", "availability"],
   },
@@ -974,7 +974,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     badge: "Popular",
     description: "Search email threads, summarize inbox newsletters, and draft message replies.",
     iconName: "Mail",
-    authType: "api_key",
+    authType: "oauth",
     authFields: [
       {
         key: "GMAIL_CREDENTIALS_PATH",
@@ -990,7 +990,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "Gmail",
       description: "Search, summarize, and draft emails with Gmail API.",
       command: "npx",
-      args: ["-y", "mcp-server-gmail"],
+      args: ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
       envKeys: ["GMAIL_CREDENTIALS_PATH"],
     },
     keywords: ["gmail", "email", "mail", "inbox", "threads", "draft", "google"],
