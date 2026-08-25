@@ -166,6 +166,26 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
   );
 }
 
+function ShellTranscript({ command, output }: { command: string; output?: string }) {
+  return (
+    <section
+      className="overflow-hidden rounded-xl border border-border/60 bg-surface/80 shadow-sm"
+      aria-label="Shell command output"
+    >
+      <div className="border-b border-border/40 px-4 py-2 text-sm font-medium text-text-secondary">Shell</div>
+      <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-sm leading-relaxed text-text-secondary">
+        <code>
+          <span className="select-none text-text-muted" aria-hidden="true">
+            ${" "}
+          </span>
+          <span>{command}</span>
+          {output ? <>{`\n${output}`}</> : null}
+        </code>
+      </pre>
+    </section>
+  );
+}
+
 async function openSafeUrl(href: string): Promise<void> {
   await openExternalUrl(href, { confirmInsecure: true });
 }
@@ -418,6 +438,13 @@ function formatToolName(name: string): string {
   return name;
 }
 
+function getShellCommand(name: string, args: Record<string, string> | undefined): string {
+  if (name === "project_git_status") return "git status";
+  if (name === "project_git_diff") return "git diff";
+  if (name === "project_git_commit") return "git commit";
+  return args?.command || formatToolName(name);
+}
+
 function getNativeToolDisplayInfo(
   name: string,
   args: Record<string, string> | undefined,
@@ -484,14 +511,7 @@ function getNativeToolDisplayInfo(
 
   // 1. Bash / Commands
   if (lowerName === "bash" || lowerName === "git_status" || lowerName === "git_diff" || lowerName === "git_commit") {
-    let commandStr =
-      lowerName === "git_status"
-        ? "git status"
-        : lowerName === "git_diff"
-          ? "git diff"
-          : lowerName === "git_commit"
-            ? "git commit"
-            : args.command;
+    let commandStr = getShellCommand(name, args);
     if (commandStr && commandStr.length > 40) commandStr = commandStr.substring(0, 40) + "...";
     return {
       type: "bash",
@@ -815,7 +835,8 @@ function ToolCallDisplay({ message }: { message: Message }) {
   if (isCollapsible) {
     const formattedArgs = JSON.stringify(message.toolCall?.arguments || {}, null, 2);
 
-    let formattedResult = message.toolResult?.content || "";
+    const rawResult = message.toolResult?.content || "";
+    let formattedResult = rawResult;
     let resultLanguage = "plaintext";
     if (formattedResult) {
       try {
@@ -864,7 +885,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
                     className={`${nativeInfo.colorClass} shrink-0`}
                     aria-hidden="true"
                   />
-                  <span className="font-mono text-xs text-text-primary">{nativeInfo.label}</span>
+                  <span>{nativeInfo.label}</span>
                 </>
               ) : (
                 <>
@@ -922,6 +943,11 @@ function ToolCallDisplay({ message }: { message: Message }) {
             >
               {isWaitSubagents ? (
                 <SubagentEmbeddedChats message={message} />
+              ) : nativeInfo?.type === "bash" ? (
+                <ShellTranscript
+                  command={getShellCommand(name, message.toolCall?.arguments)}
+                  output={isCompleted ? rawResult : undefined}
+                />
               ) : (
                 <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                   {/* Arguments */}

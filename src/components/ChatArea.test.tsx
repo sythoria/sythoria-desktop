@@ -204,6 +204,38 @@ describe("ChatArea", () => {
     expect(screen.getByText("Images")).toBeInTheDocument();
   });
 
+  it("renders project shell commands as a terminal transcript", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Command completed",
+        toolCall: {
+          id: "shell-call",
+          name: "project_bash",
+          arguments: { command: "printf 'hello\\n' && pwd" },
+        },
+        toolResult: {
+          id: "shell-call",
+          name: "project_bash",
+          content: "hello\n/tmp/project",
+        },
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    const commandLabel = screen.getByText("Ran printf 'hello\\n' && pwd");
+    expect(commandLabel.parentElement).toHaveClass("text-sm");
+    expect(commandLabel).not.toHaveClass("font-mono", "text-xs", "text-text-primary");
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+
+    const transcript = screen.getByRole("region", { name: "Shell command output" });
+    expect(transcript).toHaveTextContent("$ printf 'hello\\n' && pwd hello /tmp/project");
+    expect(transcript).not.toHaveTextContent("Arguments");
+    expect(transcript).not.toHaveTextContent("Result");
+  });
+
   it("keeps tool activity expanded while working and collapses it after the final response", async () => {
     const startedAt = Date.now() - 5_000;
     const userMessage = makeMessage({
