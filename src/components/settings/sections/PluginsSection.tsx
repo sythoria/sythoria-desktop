@@ -26,7 +26,12 @@ import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrim
 import { BrandIcon } from "../../ui/BrandIcons";
 import { startGitHubDeviceFlow, pollGitHubDeviceToken } from "../../../services/githubOAuth";
 import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../services/linearOAuth";
-import { startGoogleOAuthFlow, DEFAULT_GOOGLE_CLIENT_ID } from "../../../services/googleOAuth";
+import {
+  startGoogleOAuthFlow,
+  saveGoogleMcpTokens,
+  DEFAULT_GOOGLE_CLIENT_ID,
+  DEFAULT_GOOGLE_SCOPES,
+} from "../../../services/googleOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
 
 // Sythoria Desktop Official Brand Logo Mark
@@ -175,6 +180,7 @@ export function PluginsSection() {
     error: null,
   });
   const googleAbortRef = useRef<AbortController | null>(null);
+
   const [showManualToken, setShowManualToken] = useState(false);
 
   // Clean up pending OAuth polling on unmount
@@ -323,12 +329,14 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "github");
       if (plugin) {
-        await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
+        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
           GITHUB_PERSONAL_ACCESS_TOKEN: token,
         });
 
-        addToast("GitHub successfully authorized via 1-Click OAuth!", "success");
-        handleCloseModal();
+        if (success) {
+          addToast(`Connected ${plugin.name}`, "success");
+          handleCloseModal();
+        }
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
@@ -368,12 +376,15 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "linear");
       if (plugin) {
-        await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
+        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
           LINEAR_API_KEY: token,
+          LINEAR_ACCESS_TOKEN: token,
         });
 
-        addToast("Linear successfully connected via 1-Click OAuth!", "success");
-        handleCloseModal();
+        if (success) {
+          addToast(`Connected ${plugin.name}`, "success");
+          handleCloseModal();
+        }
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
@@ -388,8 +399,7 @@ export function PluginsSection() {
   };
 
   // 1-Click Google PKCE OAuth
-  const handleStartGoogleOAuth = async () => {
-    if (!activeModalPlugin) return;
+  const handleStartGoogleOAuth = async (plugin: PluginItem) => {
     if (googleAbortRef.current) {
       googleAbortRef.current.abort();
     }
@@ -403,24 +413,39 @@ export function PluginsSection() {
     });
 
     try {
-      const { accessToken } = await startGoogleOAuthFlow(
+      const tokens = await startGoogleOAuthFlow(
         DEFAULT_GOOGLE_CLIENT_ID,
-        undefined,
+        DEFAULT_GOOGLE_SCOPES,
         undefined,
         undefined,
         abortController.signal,
       );
 
-      // Save token to active Google plugin
-      const plugin = activeModalPlugin;
-      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
-        GOOGLE_APPLICATION_CREDENTIALS: accessToken,
-        GOOGLE_ACCESS_TOKEN: accessToken,
-        GDRIVE_OAUTH_TOKEN: accessToken,
-      });
+      // Save token files atomically for MCP servers
+      const paths = await saveGoogleMcpTokens(
+        DEFAULT_GOOGLE_CLIENT_ID,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.expiresIn,
+        tokens.scope,
+      );
 
-      addToast(`${plugin.name} successfully connected via 1-Click Google OAuth!`, "success");
-      handleCloseModal();
+      // Build secrets map
+      const secrets: Record<string, string> = {
+        GOOGLE_ACCESS_TOKEN: tokens.accessToken,
+        GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
+        GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
+        GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
+        GOOGLE_CALENDAR_CREDENTIALS: paths.tokenPath,
+        GOOGLE_APPLICATION_CREDENTIALS: paths.credentialsPath,
+      };
+
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
       const errorMsg = err instanceof Error ? err.message : "Google OAuth failed";
@@ -450,13 +475,12 @@ export function PluginsSection() {
         }
       }
 
-      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secretsToSave);
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secretsToSave);
 
-      addToast(
-        installedInfo ? `Updated authorization for ${plugin.name}` : `Successfully authorized ${plugin.name}`,
-        "success",
-      );
-      handleCloseModal();
+      if (success) {
+        addToast(installedInfo ? `Updated authorization for ${plugin.name}` : `Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
     } catch {
       addToast(`Failed to authorize ${activeModalPlugin.name}`, "error");
     } finally {
@@ -473,8 +497,10 @@ export function PluginsSection() {
     }
 
     try {
-      await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {});
-      addToast(`Authorized ${plugin.name}`, "success");
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {});
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+      }
     } catch {
       addToast(`Failed to authorize ${plugin.name}`, "error");
     }
@@ -524,22 +550,37 @@ export function PluginsSection() {
               const isConnected = info?.isConnected;
 
               return (
-                <button
+                <div
                   key={plugin.id}
-                  onClick={() => handleOpenModal(plugin)}
-                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-border/80 bg-hover/40 hover:bg-hover hover:border-accent/40 text-xs font-medium text-text-primary transition-all group"
-                  title={`Configure ${plugin.name}`}
+                  className="flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-xl border border-border/80 bg-hover/40 hover:bg-hover hover:border-accent/40 text-xs font-medium text-text-primary transition-all group"
                 >
-                  <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0">
-                    <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={18} />
-                  </div>
-                  <span>{plugin.name}</span>
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isConnected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-text-muted/40"
-                    }`}
-                  />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenModal(plugin)}
+                    className="flex items-center gap-2 text-text-primary hover:text-accent transition-colors focus:outline-none"
+                    title={`Configure ${plugin.name}`}
+                  >
+                    <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0">
+                      <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={18} />
+                    </div>
+                    <span>{plugin.name}</span>
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        isConnected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-text-muted/40"
+                      }`}
+                    />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleDisconnectPlugin(plugin, e)}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-500/15 transition-all focus:outline-none"
+                    title={`Revoke access for ${plugin.name}`}
+                    aria-label={`Revoke access for ${plugin.name}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1055,20 +1096,19 @@ export function PluginsSection() {
                       </div>
                     )}
 
-                    {/* Google 1-Click PKCE OAuth Integration */}
+                    {/* Google 1-Click PKCE OAuth Integration (Google Drive, Google Calendar, Gmail) */}
                     {(activeModalPlugin.id === "google-drive" ||
                       activeModalPlugin.id === "google-calendar" ||
                       activeModalPlugin.id === "gmail") && (
                       <div className="space-y-3 pt-1">
                         {googleOAuth.isConnecting ? (
-                          <div className="p-4 rounded-xl border border-[#4285F4]/40 bg-[#4285F4]/10 space-y-3 text-center">
-                            <div className="flex items-center justify-center gap-2 text-xs text-[#4285F4] font-semibold pt-1">
+                          <div className="p-4 rounded-xl border border-blue-500/40 bg-blue-500/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-blue-400 font-semibold pt-1">
                               <RefreshCw size={15} className="animate-spin" />
-                              <span>Waiting for Google authorization in browser...</span>
+                              <span>Waiting for Google Authorization in browser...</span>
                             </div>
                             <p className="text-xs text-text-muted leading-relaxed">
-                              Your browser has opened to Google. Choose your Google account and click{" "}
-                              <strong>Allow</strong>.
+                              Your browser has opened to Google sign-in. Grant access to connect your account.
                             </p>
                             <button
                               type="button"
@@ -1090,8 +1130,8 @@ export function PluginsSection() {
                             <div className="flex items-center justify-center gap-2 pt-1">
                               <button
                                 type="button"
-                                onClick={() => void handleStartGoogleOAuth()}
-                                className="px-3 py-1 text-xs rounded-lg bg-[#4285F4] hover:bg-[#3367D6] text-white font-medium transition-colors cursor-pointer"
+                                onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                                className="px-3 py-1 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors cursor-pointer"
                               >
                                 Try Again
                               </button>
@@ -1108,26 +1148,32 @@ export function PluginsSection() {
                           <div className="space-y-3">
                             <button
                               type="button"
-                              onClick={() => void handleStartGoogleOAuth()}
-                              className="w-full py-3 rounded-xl bg-white text-gray-900 hover:bg-gray-100 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer border border-gray-200"
+                              onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                              className="w-full py-3 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
-                              <BrandIcon name="googledrive" size={18} />
-                              <span>1-Click Connect with Google</span>
-                              <ArrowRight
-                                size={14}
-                                className="group-hover:translate-x-0.5 transition-transform text-gray-600"
+                              <BrandIcon
+                                name={
+                                  activeModalPlugin.id === "gmail"
+                                    ? "Mail"
+                                    : activeModalPlugin.id === "google-calendar"
+                                      ? "Calendar"
+                                      : "googledrive"
+                                }
+                                size={18}
                               />
+                              <span>1-Click Connect with Google</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
 
                             <div className="text-center">
                               <button
                                 type="button"
                                 onClick={() => setShowManualToken((prev) => !prev)}
-                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
                               >
                                 {showManualToken
                                   ? "Switch back to 1-Click OAuth"
-                                  : "Or enter Service Account credentials manually"}
+                                  : "Or enter Service Account / credentials manually"}
                               </button>
                             </div>
                           </div>
@@ -1220,7 +1266,7 @@ export function PluginsSection() {
                         <button
                           onClick={() => void handleConnectPlugin()}
                           disabled={isSubmitting}
-                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                         >
                           {isSubmitting ? (
                             <>
