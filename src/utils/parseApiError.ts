@@ -307,8 +307,11 @@ function userFriendlyMcpError(mcpMessage: string, raw: string): ParsedError {
     lower.includes("PeerPlugin") ||
     lower.includes("not supported")
   ) {
+    const formatted = mcpMessage.toLowerCase().startsWith("mcp handshake failed")
+      ? mcpMessage
+      : `MCP handshake failed: ${mcpMessage}`;
     return {
-      message: `MCP handshake failed: ${mcpMessage}`,
+      message: formatted,
       action:
         "Check that the MCP server is running correctly, its port/URL is reachable, and any command arguments are valid.",
       category: "mcp",
