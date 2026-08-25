@@ -386,3 +386,131 @@ pub async fn google_exchange_token(
 
     Ok(result)
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleMcpTokenPaths {
+    pub oauth_keys_path: String,
+    pub token_path: String,
+    pub credentials_path: String,
+}
+
+/// Saves Google OAuth tokens into structured credential files for MCP servers.
+#[tauri::command]
+pub async fn save_google_mcp_tokens(
+    app: tauri::AppHandle,
+    client_id: Option<String>,
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+    scope: Option<String>,
+) -> Result<GoogleMcpTokenPaths, AppError> {
+    use tauri::Manager;
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::AppPath(format!("Failed to get app data directory: {e}")))?;
+
+    let google_dir = app_dir.join("google-oauth");
+    std::fs::create_dir_all(&google_dir)
+        .map_err(|e| AppError::AppPath(format!("Failed to create google-oauth directory: {e}")))?;
+
+    let cid = client_id.unwrap_or_else(|| DEFAULT_GOOGLE_CLIENT_ID.to_string());
+
+    // 1. gcp-oauth.keys.json
+    let oauth_keys = serde_json::json!({
+        "installed": {
+            "client_id": cid,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://127.0.0.1:54321/oauth/callback", "http://localhost"]
+        }
+    });
+    let oauth_keys_path = google_dir.join("gcp-oauth.keys.json");
+    crate::atomic_file::write_atomic(
+        &oauth_keys_path,
+        serde_json::to_string_pretty(&oauth_keys).unwrap_or_default().as_bytes(),
+    )
+    .map_err(|e| AppError::AppPath(format!("Failed to write gcp-oauth.keys.json: {e}")))?;
+
+    // 2. tokens.json
+    let expiry_date = chrono::Utc::now().timestamp_millis() + (expires_in.unwrap_or(3600) as i64 * 1000);
+    let mut token_obj = serde_json::json!({
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expiry_date": expiry_date,
+        "scope": scope.clone().unwrap_or_default()
+    });
+    if let Some(ref rt) = refresh_token {
+        token_obj["refresh_token"] = serde_json::Value::String(rt.clone());
+    }
+    let token_path = google_dir.join("tokens.json");
+    crate::atomic_file::write_atomic(
+        &token_path,
+        serde_json::to_string_pretty(&token_obj).unwrap_or_default().as_bytes(),
+    )
+    .map_err(|e| AppError::AppPath(format!("Failed to write tokens.json: {e}")))?;
+
+    // 3. credentials.json for Gmail / Python
+    let scopes_vec: Vec<String> = scope
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    let mut creds_obj = serde_json::json!({
+        "token": access_token,
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "client_id": cid,
+        "scopes": scopes_vec
+    });
+    if let Some(ref rt) = refresh_token {
+        creds_obj["refresh_token"] = serde_json::Value::String(rt.clone());
+    }
+    let credentials_path = google_dir.join("credentials.json");
+    crate::atomic_file::write_atomic(
+        &credentials_path,
+        serde_json::to_string_pretty(&creds_obj).unwrap_or_default().as_bytes(),
+    )
+    .map_err(|e| AppError::AppPath(format!("Failed to write credentials.json: {e}")))?;
+
+    // Also populate user's home paths (~/.config/google-drive-mcp, ~/.gmail-mcp, ~/.gdrive-server-credentials.json)
+    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
+        let home_path = std::path::PathBuf::from(home);
+
+        let legacy_gdrive_path = home_path.join(".gdrive-server-credentials.json");
+        let _ = crate::atomic_file::write_atomic(
+            &legacy_gdrive_path,
+            serde_json::to_string_pretty(&token_obj).unwrap_or_default().as_bytes(),
+        );
+
+        let cfg_gdrive = home_path.join(".config").join("google-drive-mcp");
+        if std::fs::create_dir_all(&cfg_gdrive).is_ok() {
+            let _ = crate::atomic_file::write_atomic(
+                &cfg_gdrive.join("gcp-oauth.keys.json"),
+                serde_json::to_string_pretty(&oauth_keys).unwrap_or_default().as_bytes(),
+            );
+            let _ = crate::atomic_file::write_atomic(
+                &cfg_gdrive.join("tokens.json"),
+                serde_json::to_string_pretty(&token_obj).unwrap_or_default().as_bytes(),
+            );
+        }
+
+        let gmail_dir = home_path.join(".gmail-mcp");
+        if std::fs::create_dir_all(&gmail_dir).is_ok() {
+            let _ = crate::atomic_file::write_atomic(
+                &gmail_dir.join("credentials.json"),
+                serde_json::to_string_pretty(&creds_obj).unwrap_or_default().as_bytes(),
+            );
+            let _ = crate::atomic_file::write_atomic(
+                &gmail_dir.join("tokens.json"),
+                serde_json::to_string_pretty(&token_obj).unwrap_or_default().as_bytes(),
+            );
+        }
+    }
+
+    Ok(GoogleMcpTokenPaths {
+        oauth_keys_path: oauth_keys_path.to_string_lossy().to_string(),
+        token_path: token_path.to_string_lossy().to_string(),
+        credentials_path: credentials_path.to_string_lossy().to_string(),
+    })
+}
