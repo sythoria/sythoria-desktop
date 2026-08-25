@@ -163,6 +163,154 @@ fn parse_changed_paths(output: &[u8]) -> Result<Vec<String>, AppError> {
     Ok(paths)
 }
 
+async fn resolve_optional_head(repo_path: &Path, label: &str) -> Result<Option<String>, AppError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to resolve {label} HEAD: {e}")))?;
+
+    if output.status.success() {
+        let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if head.is_empty() {
+            return Err(AppError::GitError(format!(
+                "Failed to resolve {label} HEAD: Git returned an empty revision"
+            )));
+        }
+        return Ok(Some(head));
+    }
+
+    if output.status.code() == Some(1) && output.stderr.is_empty() {
+        return Ok(None);
+    }
+
+    Err(AppError::GitError(format!(
+        "Failed to resolve {label} HEAD: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )))
+}
+
+async fn resolve_merge_base(
+    worktree_dir: &Path,
+    worktree_head: &str,
+    primary_head: &str,
+) -> Result<String, AppError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .args(["merge-base", worktree_head, primary_head])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to resolve worktree merge base: {e}")))?;
+    if !output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to resolve worktree merge base: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let merge_base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if merge_base.is_empty() {
+        return Err(AppError::GitError(
+            "Failed to resolve worktree merge base: Git returned an empty revision".to_string(),
+        ));
+    }
+    Ok(merge_base)
+}
+
+async fn resolve_empty_tree(repo_path: &Path) -> Result<String, AppError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["hash-object", "-t", "tree", "--stdin"])
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to resolve Git's empty tree: {e}")))?;
+    if !output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to resolve Git's empty tree: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    let empty_tree = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if empty_tree.is_empty() {
+        return Err(AppError::GitError(
+            "Failed to resolve Git's empty tree: Git returned an empty object ID".to_string(),
+        ));
+    }
+    Ok(empty_tree)
+}
+
+/// Reports changes in the isolated workspace relative to the commit it was
+/// created from. This includes untracked and uncommitted files as well as clean
+/// commits on the temporary branch.
+async fn worktree_has_changes(repo_path: &Path, worktree_dir: &Path) -> Result<bool, AppError> {
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(worktree_dir)
+        .args(["status", "--porcelain=v1", "--untracked-files=normal"])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to inspect worktree changes: {e}")))?;
+    if !status.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to inspect worktree changes: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        )));
+    }
+    if !status.stdout.is_empty() {
+        return Ok(true);
+    }
+
+    let worktree_head = resolve_optional_head(worktree_dir, "worktree").await?;
+    let primary_head = resolve_optional_head(repo_path, "primary").await?;
+    match (worktree_head, primary_head) {
+        (None, None) => Ok(false),
+        (None, Some(_)) => Ok(true),
+        (Some(worktree_head), None) => {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(worktree_dir)
+                .args(["ls-tree", "-r", "--name-only", &worktree_head, "--"])
+                .output()
+                .await
+                .map_err(|e| {
+                    AppError::GitError(format!("Failed to inspect the worktree commit: {e}"))
+                })?;
+            if !output.status.success() {
+                return Err(AppError::GitError(format!(
+                    "Failed to inspect the worktree commit: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )));
+            }
+            Ok(!output.stdout.is_empty())
+        }
+        (Some(worktree_head), Some(primary_head)) => {
+            let merge_base =
+                resolve_merge_base(worktree_dir, &worktree_head, &primary_head).await?;
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(worktree_dir)
+                .args(["diff", "--quiet", &merge_base, &worktree_head, "--"])
+                .output()
+                .await
+                .map_err(|e| {
+                    AppError::GitError(format!("Failed to compare worktree commits: {e}"))
+                })?;
+            match output.status.code() {
+                Some(0) => Ok(false),
+                Some(1) => Ok(true),
+                _ => Err(AppError::GitError(format!(
+                    "Failed to compare worktree commits: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ))),
+            }
+        }
+    }
+}
+
 async fn run_git_apply(
     repo_path: &Path,
     patch: &[u8],
@@ -234,57 +382,39 @@ async fn apply_worktree_changes(
         )));
     }
 
-    let primary_head_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to resolve primary HEAD: {e}")))?;
-    if !primary_head_output.status.success() {
-        return Err(AppError::GitError(format!(
-            "Failed to resolve primary HEAD: {}",
-            String::from_utf8_lossy(&primary_head_output.stderr).trim()
-        )));
-    }
-    let primary_head = String::from_utf8_lossy(&primary_head_output.stdout)
-        .trim()
-        .to_string();
-    let merge_base_output = Command::new("git")
-        .arg("-C")
-        .arg(worktree_dir)
-        .args(["merge-base", "HEAD", &primary_head])
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to resolve worktree merge base: {e}")))?;
-    if !merge_base_output.status.success() {
-        return Err(AppError::GitError(format!(
-            "Failed to resolve worktree merge base: {}",
-            String::from_utf8_lossy(&merge_base_output.stderr).trim()
-        )));
-    }
-    let merge_base = String::from_utf8_lossy(&merge_base_output.stdout)
-        .trim()
-        .to_string();
-    if merge_base.is_empty() {
-        return Err(AppError::GitError(
-            "Failed to resolve worktree merge base: Git returned an empty revision".to_string(),
-        ));
-    }
+    let worktree_head = resolve_optional_head(worktree_dir, "worktree").await?;
+    let primary_head = resolve_optional_head(repo_path, "primary").await?;
+    let comparison_base = match (worktree_head, primary_head) {
+        (Some(worktree_head), Some(primary_head)) => {
+            Some(resolve_merge_base(worktree_dir, &worktree_head, &primary_head).await?)
+        }
+        (Some(_), None) => Some(resolve_empty_tree(worktree_dir).await?),
+        (None, None) => None,
+        (None, Some(_)) => {
+            return Err(AppError::GitError(
+                "Cannot apply an unborn worktree to a repository that already has commits"
+                    .to_string(),
+            ))
+        }
+    };
 
     // Disabling rename detection gives one explicit path per create/delete, so
     // every path embedded in the patch can be validated against both roots.
     // Comparing the staged worktree state to the branch merge base includes
     // both committed branch-ahead changes and current uncommitted changes.
-    let names_output = Command::new("git")
+    let mut names_command = Command::new("git");
+    names_command
         .arg("-C")
         .arg(worktree_dir)
         .arg("diff")
         .arg("--cached")
         .arg("--name-status")
         .arg("-z")
-        .arg("--no-renames")
-        .arg(&merge_base)
+        .arg("--no-renames");
+    if let Some(base) = comparison_base.as_deref() {
+        names_command.arg(base);
+    }
+    let names_output = names_command
         .arg("--")
         .output()
         .await
@@ -306,7 +436,8 @@ async fn apply_worktree_changes(
         return Ok(changed_paths);
     }
 
-    let patch_output = Command::new("git")
+    let mut patch_command = Command::new("git");
+    patch_command
         .arg("-C")
         .arg(worktree_dir)
         .arg("diff")
@@ -314,8 +445,11 @@ async fn apply_worktree_changes(
         .arg("--binary")
         .arg("--full-index")
         .arg("--no-ext-diff")
-        .arg("--no-renames")
-        .arg(&merge_base)
+        .arg("--no-renames");
+    if let Some(base) = comparison_base.as_deref() {
+        patch_command.arg(base);
+    }
+    let patch_output = patch_command
         .arg("--")
         .output()
         .await
@@ -981,6 +1115,38 @@ pub async fn git_worktree_apply(
 }
 
 #[tauri::command]
+pub async fn git_worktree_cleanup_if_empty(
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    worktree_path: String,
+    branch_name: String,
+) -> Result<bool, AppError> {
+    let project = state
+        .projects
+        .lock()
+        .map_err(|_| AppError::GitError("Poisoned lock".to_string()))?
+        .get(&project_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::GitError("Access denied: Project not found in registry".to_string())
+        })?;
+    let repo_path = Path::new(&project.path)
+        .canonicalize()
+        .map_err(|e| AppError::GitError(format!("Failed to canonicalize project root: {e}")))?;
+    let repo_path_str = repo_path.to_string_lossy().into_owned();
+    let verified =
+        crate::project::validate_owned_worktree(&project, &worktree_path, Some(&branch_name))
+            .map_err(|e| AppError::GitError(e.to_string()))?;
+
+    if worktree_has_changes(&repo_path, &verified.path).await? {
+        return Ok(false);
+    }
+
+    cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn git_worktree_discard(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
@@ -1146,6 +1312,7 @@ mod tests {
         apply_worktree_changes, cleanup_worktree_internal, create_commit_in_repository,
         create_worktree_for_project, detect_git_repository, parse_changed_paths,
         resolve_git_relative_path, switch_branch_in_repository, validate_stale_worktree_identity,
+        worktree_has_changes,
     };
     use crate::project::{
         validate_project_run_access, Project, ProjectPermission, ProjectRegistry,
@@ -1467,6 +1634,90 @@ mod tests {
             [0, 1, 2, 0xff]
         );
         assert!(fixture.worktree.exists(), "apply helper must not clean up");
+    }
+
+    #[tokio::test]
+    async fn empty_unborn_worktree_applies_without_resolving_head() {
+        let root = std::env::temp_dir().join(format!(
+            "sythoria-unborn-worktree-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&repo).expect("create unborn repository");
+        run_git(&repo, &["init"]);
+        run_git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "sythoria-agent-unborn",
+                worktree.to_str().expect("UTF-8 test path"),
+            ],
+        );
+
+        let changed_paths = apply_worktree_changes(&repo, &worktree)
+            .await
+            .expect("apply empty unborn worktree");
+
+        assert!(changed_paths.is_empty());
+        std::fs::remove_dir_all(&root).expect("clean up unborn fixture");
+    }
+
+    #[tokio::test]
+    async fn unborn_worktree_applies_its_initial_files() {
+        let root = std::env::temp_dir().join(format!(
+            "sythoria-unborn-worktree-changes-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&repo).expect("create unborn repository");
+        run_git(&repo, &["init"]);
+        run_git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "sythoria-agent-unborn-changes",
+                worktree.to_str().expect("UTF-8 test path"),
+            ],
+        );
+        std::fs::write(worktree.join("created.txt"), b"first revision\n")
+            .expect("write unborn fixture change");
+
+        let changed_paths = apply_worktree_changes(&repo, &worktree)
+            .await
+            .expect("apply unborn worktree changes");
+
+        assert_eq!(changed_paths, ["created.txt".to_string()]);
+        assert_eq!(
+            std::fs::read(repo.join("created.txt")).expect("read applied unborn file"),
+            b"first revision\n"
+        );
+        std::fs::remove_dir_all(&root).expect("clean up unborn fixture");
+    }
+
+    #[tokio::test]
+    async fn worktree_change_detection_includes_clean_branch_commits() {
+        let fixture = TestRepository::new();
+        assert!(!worktree_has_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("inspect unchanged worktree"));
+
+        std::fs::write(
+            fixture.worktree.join("committed.txt"),
+            b"committed change\n",
+        )
+        .expect("write committed fixture");
+        run_git(&fixture.worktree, &["add", "--", "committed.txt"]);
+        run_git(&fixture.worktree, &["commit", "-m", "agent commit"]);
+
+        assert!(worktree_has_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("inspect committed worktree change"));
     }
 
     #[tokio::test]

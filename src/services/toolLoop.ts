@@ -17,6 +17,7 @@ import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
+import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
 import { assembleContext, formatContextDisclosure, type ApiContextMessage } from "./contextAssembler";
@@ -686,7 +687,8 @@ export function buildProjectToolDefinitions(project: Project | null) {
           properties: {
             file_path: {
               type: "string",
-              description: "Project-relative path to the file. Absolute paths and paths outside the workspace are rejected.",
+              description:
+                "Project-relative path to the file. Absolute paths and paths outside the workspace are rejected.",
             },
             content: { type: "string", description: "The content to write" },
           },
@@ -2671,6 +2673,50 @@ async function runWithToolLoop(
         logWarn("chat", "Failed to release project run capability", {
           details: error instanceof Error ? error.message : String(error),
         });
+      }
+    }
+
+    const completedConversation = get().conversations.find((conversation) => conversation.id === convId);
+    const finishedWorktree =
+      !wasAborted && project && worktree && completedConversation && !completedConversation.isSubagent
+        ? worktree
+        : null;
+    if (project && finishedWorktree) {
+      const currentState = get();
+      const hasOtherActiveWorktreeRun = currentState.conversations.some((conversation) => {
+        if (conversation.id === convId || conversation.pendingWorktree?.path !== finishedWorktree.path) return false;
+        const generation = currentState.generationByConversation[conversation.id];
+        return conversation.status === "running" || isGenerationActive(generation?.state);
+      });
+
+      if (!hasOtherActiveWorktreeRun) {
+        try {
+          const cleaned = await invoke<boolean>("git_worktree_cleanup_if_empty", {
+            projectId: project.id,
+            worktreePath: finishedWorktree.path,
+            branchName: finishedWorktree.branch,
+          });
+          if (cleaned) {
+            const projectState = useProjectStore.getState();
+            if (projectState.activeWorktreePath === finishedWorktree.path) {
+              useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+            }
+            set((state) => ({
+              conversations: state.conversations.map((conversation) =>
+                conversation.pendingWorktree?.path === finishedWorktree.path &&
+                conversation.pendingWorktree.branch === finishedWorktree.branch
+                  ? { ...conversation, pendingWorktree: undefined }
+                  : conversation,
+              ),
+            }));
+            await get().persistConversations?.();
+            logInfo("git", "Removed an unchanged isolated worktree after the project run completed");
+          }
+        } catch (error) {
+          logWarn("git", "Failed to clean up an unchanged isolated worktree", {
+            details: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
 

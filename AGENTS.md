@@ -174,7 +174,7 @@ src-tauri/src/
 
 1. Tool loop triggers workspace write → backend creates isolated worktree (`git_worktree_create`).
 2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
-3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea always renders a recovery card, even when status is empty, committed/binary-only, loading, or unavailable.
+3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea renders a recovery card for real changes, including committed/binary-only or temporarily unavailable status. A successfully completed root run automatically removes a truly unchanged worktree after all runs sharing it become idle.
 4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete. Apply compares the staged worktree state to its merge base so committed branch-ahead and uncommitted changes are both preserved, then returns the authoritative AI-changed path list; optional auto-commit runs only afterward and commits only those paths.
 5. Project switching/detachment and compare-mode teardown remain blocked until the recovery action completes; legacy detached records recover their project ID from `commitScope`.
 
@@ -308,12 +308,13 @@ export interface ModelConfig {
 | `check_downloaded_whisper_models`                                         | Lists cached local Whisper files                                |
 | `transcribe_audio`                                                        | Transcribes recorded audio buffer via whisper.cpp               |
 | `load_projects` / `save_projects`                                         | Workspace configs storage                                       |
-| `set_active_project`                                                      | Maps the active workspace selection                              |
+| `set_active_project`                                                      | Maps the active workspace selection                             |
 | `project_run_begin`                                                       | Binds a run to the root or a validated worktree                 |
 | `project_browse_begin`                                                    | Issues a read-only Files panel capability                       |
 | `git_detect_repo` / `git_get_status`                                      | Identifies local repositories and dirty tracking                |
 | `git_create_commit` / `git_undo_last_commit`                              | Creates commits, commits with AI msgs, soft-resets              |
 | `git_worktree_create` / `git_worktree_apply`                              | Create isolated workspace paths or apply changes                |
+| `git_worktree_cleanup_if_empty`                                           | Remove a verified isolated worktree only when it has no changes |
 | `git_worktree_discard`                                                    | Prunes isolated branches and deletes worktree dirs              |
 | `project_read` / `project_write` / `project_edit`                         | Workspace-scoped file tools                                     |
 | `project_list_dir` / `project_grep` / `project_glob`                      | Workspace directory traversal and search tools                  |

@@ -2595,6 +2595,7 @@ pub fn run() {
             git::git_diff_changes,
             git::git_worktree_create,
             git::git_worktree_apply,
+            git::git_worktree_cleanup_if_empty,
             git::git_worktree_discard,
             project_tools::project_read,
             project_tools::project_write,
