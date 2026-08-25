@@ -1973,10 +1973,7 @@ function ChatAreaBase({
   const activeToolActivityId = isConversationWorking
     ? [...renderItems]
         .reverse()
-        .find(
-          (item): item is ToolActivityGroup =>
-            "kind" in item && item.kind === "tool-activity" && item.isActive,
-        )?.id
+        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity" && item.isActive)?.id
     : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
@@ -2147,10 +2144,7 @@ function ChatAreaBase({
                   </div>
                 )}
                 {/* Keep the final message scrollable above the floating composer. */}
-                <div
-                  aria-hidden="true"
-                  style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
-                />
+                <div aria-hidden="true" style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }} />
               </>
             ),
           }}
