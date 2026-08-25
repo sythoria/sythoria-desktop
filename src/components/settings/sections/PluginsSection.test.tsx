@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { PluginsSection } from "./PluginsSection";
 import { useMcpStore } from "../../../store/useMcpStore";
 import { useUIStore } from "../../../store/useUIStore";
@@ -81,20 +86,59 @@ describe("PluginsSection", () => {
     expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
   });
 
-  it("opens modal for Google Drive and displays 1-Click OAuth", () => {
+  it("opens modal for Google Drive and displays 1-Click OAuth with manual fallback", () => {
     render(<PluginsSection />);
 
     const gdriveCard = screen.getByTestId("plugin-card-google-drive");
     fireEvent.click(gdriveCard);
 
     expect(screen.getByText(/1-Click Connect with Google/i)).toBeInTheDocument();
-    expect(screen.getByText(/Or enter Service Account credentials manually/i)).toBeInTheDocument();
+    expect(screen.getByText(/Or enter Service Account \/ credentials manually/i)).toBeInTheDocument();
 
     // Click manual token toggle
-    fireEvent.click(screen.getByText(/Or enter Service Account credentials manually/i));
+    fireEvent.click(screen.getByText(/Or enter Service Account \/ credentials manually/i));
 
     expect(screen.getByText(/Google Service Account Credentials/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("/path/to/credentials.json")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Authorize Google Drive/i })).toBeInTheDocument();
+  });
+
+  it("renders installed plugins ribbon and revokes access when cross button is clicked", async () => {
+    useMcpStore.setState({
+      mcpConfigs: [
+        {
+          id: "linear-mcp-1",
+          name: "Linear",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "linear-mcp-server"],
+          enabled: true,
+          trustLevel: "untrusted",
+        },
+      ],
+      serverStatuses: {
+        "linear-mcp-1": "connected",
+      },
+      enabledServerIds: new Set(["linear-mcp-1"]),
+    });
+
+    render(<PluginsSection />);
+
+    expect(screen.getByText(/Installed Plugins \(1\)/i)).toBeInTheDocument();
+    expect(screen.getByTitle("Configure Linear")).toBeInTheDocument();
+
+    const revokeButton = screen.getByRole("button", { name: /Revoke access for Linear/i });
+    expect(revokeButton).toBeInTheDocument();
+
+    fireEvent.click(revokeButton);
+
+    await waitFor(() => {
+      expect(useUIStore.getState().toasts).toContainEqual(
+        expect.objectContaining({
+          message: "Revoked access for Linear",
+          variant: "info",
+        }),
+      );
+    });
   });
 });
