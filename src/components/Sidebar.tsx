@@ -115,9 +115,7 @@ function getLatestMessageTimestamp(conversation: Conversation) {
 }
 
 function sortConversationsByLatestMessage(conversations: Conversation[]) {
-  return [...conversations].sort(
-    (left, right) => getLatestMessageTimestamp(right) - getLatestMessageTimestamp(left),
-  );
+  return [...conversations].sort((left, right) => getLatestMessageTimestamp(right) - getLatestMessageTimestamp(left));
 }
 
 export default memo(function Sidebar({
