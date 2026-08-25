@@ -445,11 +445,10 @@ describe("InputBar", () => {
 
     await user.click(screen.getByLabelText("Send message"));
 
-    expect(onSend).toHaveBeenCalledWith(
-      "Open this using [MCP: Documents][MCP: Documents] please",
-      undefined,
-      ["documents", "documents"],
-    );
+    expect(onSend).toHaveBeenCalledWith("Open this using [MCP: Documents][MCP: Documents] please", undefined, [
+      "documents",
+      "documents",
+    ]);
     expect(editor).toHaveTextContent("");
   });
 
