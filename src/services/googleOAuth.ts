@@ -45,13 +45,20 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
  * 4. Captures authorization code on loopback redirect.
  * 5. Exchanges code for Google OAuth access and refresh tokens.
  */
+export interface GoogleOAuthResult {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  scope?: string;
+}
+
 export async function startGoogleOAuthFlow(
   clientId: string = DEFAULT_GOOGLE_CLIENT_ID,
   scope: string = DEFAULT_GOOGLE_SCOPES,
   redirectUri: string = DEFAULT_GOOGLE_REDIRECT_URI,
   port: number = DEFAULT_GOOGLE_PORT,
   signal?: AbortSignal,
-): Promise<{ accessToken: string; refreshToken?: string }> {
+): Promise<GoogleOAuthResult> {
   const codeVerifier = generateRandomString(64);
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   const state = generateRandomString(32);
@@ -108,5 +115,29 @@ export async function startGoogleOAuthFlow(
   return {
     accessToken: tokenResult.access_token,
     refreshToken: tokenResult.refresh_token,
+    expiresIn: tokenResult.expires_in,
+    scope: tokenResult.scope,
   };
+}
+
+export interface GoogleMcpTokenPaths {
+  oauthKeysPath: string;
+  tokenPath: string;
+  credentialsPath: string;
+}
+
+export async function saveGoogleMcpTokens(
+  clientId: string,
+  accessToken: string,
+  refreshToken?: string,
+  expiresIn?: number,
+  scope?: string,
+): Promise<GoogleMcpTokenPaths> {
+  return invoke<GoogleMcpTokenPaths>("save_google_mcp_tokens", {
+    clientId,
+    accessToken,
+    refreshToken,
+    expiresIn,
+    scope,
+  });
 }
