@@ -11,6 +11,9 @@ use std::sync::Arc;
 use tokio::process::Command;
 use zeroize::Zeroize;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 struct SensitiveEnvironment(HashMap<String, String>);
 
 impl Drop for SensitiveEnvironment {
@@ -69,8 +72,25 @@ const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
     "USERDOMAIN",
     "NODE_PATH",
     "NODE_OPTIONS",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
     "NPM_CONFIG_CACHE",
     "NPM_CONFIG_PREFIX",
+    "NPM_CONFIG_USERCONFIG",
+    "NPM_CONFIG_REGISTRY",
+    // Python and package-manager toolchain discovery.
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONUSERBASE",
+    "UV_CACHE_DIR",
+    "UV_PYTHON",
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+    "PIP_CACHE_DIR",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "BUN_INSTALL",
 ];
 
 fn is_explicit_env_key_allowed(key: &str) -> bool {
@@ -197,25 +217,45 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
             || program.to_ascii_lowercase().ends_with("npx.cmd")
             || program.to_ascii_lowercase().ends_with("npx.exe");
         if is_npx {
-            let direct_node = if program_path.is_absolute() {
+            let mut direct_node = None;
+            if program_path.is_absolute() {
                 if let Some(parent) = program_path.parent() {
                     let node_exe = parent.join("node.exe");
                     let npx_cli = parent.join("node_modules").join("npm").join("bin").join("npx-cli.js");
                     if node_exe.exists() && npx_cli.exists() {
-                        Some((node_exe, npx_cli))
-                    } else {
-                        None
+                        direct_node = Some((node_exe, npx_cli));
                     }
-                } else {
-                    None
                 }
-            } else {
-                None
-            };
+            }
+            if direct_node.is_none() {
+                let common_node_dirs = [
+                    "C:\\Program Files\\nodejs",
+                    "C:\\Program Files (x86)\\nodejs",
+                ];
+                for dir in &common_node_dirs {
+                    let pb = std::path::PathBuf::from(dir);
+                    let node_exe = pb.join("node.exe");
+                    let npx_cli = pb.join("node_modules").join("npm").join("bin").join("npx-cli.js");
+                    if node_exe.exists() && npx_cli.exists() {
+                        direct_node = Some((node_exe, npx_cli));
+                        break;
+                    }
+                }
+            }
 
             if let Some((node_exe, npx_cli)) = direct_node {
                 let mut c = Command::new(node_exe);
                 c.arg(npx_cli);
+                c.args(args);
+                c
+            } else if program.to_ascii_lowercase().ends_with(".cmd")
+                || program.to_ascii_lowercase().ends_with(".bat")
+            {
+                let comspec = std::env::var("COMSPEC")
+                    .unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+                let mut c = Command::new(comspec);
+                c.arg("/c");
+                c.arg(program);
                 c.args(args);
                 c
             } else {
@@ -223,6 +263,16 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
                 c.args(args);
                 c
             }
+        } else if program.to_ascii_lowercase().ends_with(".cmd")
+            || program.to_ascii_lowercase().ends_with(".bat")
+        {
+            let comspec = std::env::var("COMSPEC")
+                .unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+            let mut c = Command::new(comspec);
+            c.arg("/c");
+            c.arg(program);
+            c.args(args);
+            c
         } else {
             let mut c = Command::new(program);
             c.args(args);
@@ -233,6 +283,11 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
         c.args(args);
         c
     };
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
 
     // MCP stdio servers are renderer-configurable executables. Do not let them
     // implicitly inherit credentials or ambient desktop integration sockets.
@@ -361,6 +416,42 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
             let npm_roaming = std::path::PathBuf::from(appdata).join("npm");
             if npm_roaming.exists() && !new_paths.contains(&npm_roaming) {
                 new_paths.push(npm_roaming);
+            }
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let py_dir = std::path::PathBuf::from(&local_appdata).join("Programs").join("Python");
+            if let Ok(entries) = std::fs::read_dir(&py_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        let scripts = p.join("Scripts");
+                        if scripts.exists() && !new_paths.contains(&scripts) {
+                            new_paths.push(scripts);
+                        }
+                        if !new_paths.contains(&p) {
+                            new_paths.push(p);
+                        }
+                    }
+                }
+            }
+            let py_bin = std::path::PathBuf::from(&local_appdata).join("Python").join("bin");
+            if py_bin.exists() && !new_paths.contains(&py_bin) {
+                new_paths.push(py_bin);
+            }
+        }
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let user_profile_path = std::path::PathBuf::from(&userprofile);
+            let local_bin = user_profile_path.join(".local").join("bin");
+            if local_bin.exists() && !new_paths.contains(&local_bin) {
+                new_paths.push(local_bin);
+            }
+            let cargo_bin = user_profile_path.join(".cargo").join("bin");
+            if cargo_bin.exists() && !new_paths.contains(&cargo_bin) {
+                new_paths.push(cargo_bin);
+            }
+            let bun_bin = user_profile_path.join(".bun").join("bin");
+            if bun_bin.exists() && !new_paths.contains(&bun_bin) {
+                new_paths.push(bun_bin);
             }
         }
     }
@@ -537,7 +628,7 @@ pub async fn connect_server(
             let mut cmd = create_shell_command(&resolved_program, &resolved_args);
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::inherit());
+                .stderr(std::process::Stdio::null());
 
             for (key, value) in &env_secrets.0 {
                 if is_explicit_env_key_allowed(key) {
@@ -564,7 +655,17 @@ pub async fn connect_server(
             let mut running = client
                 .serve_with_ct(transport, ct)
                 .await
-                .map_err(|e| format!("MCP handshake failed for '{}': {}", resolved_program, e))?;
+                .map_err(|e| {
+                    let err_str = e.to_string();
+                    if err_str.contains("connection closed") || err_str.contains("Connection closed") {
+                        format!(
+                            "MCP handshake failed for '{}': the process exited unexpectedly before completing initialization. Verify that required credentials, arguments, and runtime dependencies are correctly configured.",
+                            resolved_program
+                        )
+                    } else {
+                        format!("MCP handshake failed for '{}': {}", resolved_program, err_str)
+                    }
+                })?;
 
             let tools_result = running
                 .peer()
