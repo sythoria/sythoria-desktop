@@ -209,6 +209,10 @@ export const es = {
   "settings.chat.temperatureDesc": "Controla la creatividad y aleatoriedad de las respuestas del modelo",
   "settings.chat.maxToolSteps": "Pasos Máximos de Herramienta",
   "settings.chat.maxToolStepsDesc": "Limita el número máximo de ciclos de ejecución de herramientas por mensaje",
+  "settings.chat.unlimitedToolSteps": "Ilimitado",
+  "settings.chat.unlimitedToolStepsDesc":
+    "Permite que el agente siga usando herramientas en este mensaje sin límite de pasos. El límite aplica a todo el mensaje, incluidos los subagentes y las continuaciones automáticas.",
+  "settings.chat.unlimitedToast": "Límite de pasos de herramienta desactivado para nuevos mensajes",
 
   // Settings: System Prompts (Personalization)
   "settings.prompts.title": "Prompts del Sistema",

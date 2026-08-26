@@ -206,6 +206,10 @@ export const ja = {
   "settings.chat.temperatureDesc": "モデルの回答の創造性とランダム性を調整します",
   "settings.chat.maxToolSteps": "最大ツール実行ステップ数",
   "settings.chat.maxToolStepsDesc": "1メッセージあたりのツール実行ループの上限を設定します",
+  "settings.chat.unlimitedToolSteps": "無制限",
+  "settings.chat.unlimitedToolStepsDesc":
+    "このメッセージではステップ上限なしでツールを使い続けられます。上限はサブエージェントや自動継続を含むメッセージ全体に適用されます。",
+  "settings.chat.unlimitedToast": "新しいメッセージのツールステップ上限を解除しました",
 
   // Settings: System Prompts (Personalization)
   "settings.prompts.title": "システムプロンプト",

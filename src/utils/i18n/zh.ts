@@ -206,6 +206,10 @@ export const zh = {
   "settings.chat.temperatureDesc": "控制模型回复的创造力与随机性",
   "settings.chat.maxToolSteps": "最大工具步骤数",
   "settings.chat.maxToolStepsDesc": "限制单条消息中工具执行循环的最大次数",
+  "settings.chat.unlimitedToolSteps": "无限制",
+  "settings.chat.unlimitedToolStepsDesc":
+    "允许智能体在此消息中不受步骤上限地持续使用工具。该限制适用于整条消息，包括子代理和自动续跑。",
+  "settings.chat.unlimitedToast": "新消息已停用工具步骤上限",
 
   // Settings: System Prompts (Personalization)
   "settings.prompts.title": "系统提示词",

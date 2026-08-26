@@ -19,7 +19,12 @@ import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
-import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
+import {
+  continueConversationRunContext,
+  createToolStepBudget,
+  type ConversationRunContext,
+  type ToolStepBudget,
+} from "./conversationRunContext";
 import { assembleContext, formatContextDisclosure, type ApiContextMessage } from "./contextAssembler";
 import {
   MAX_SUBAGENTS_PER_CALL,
@@ -29,6 +34,8 @@ import {
   MAX_TOOL_IMAGE_DATA_LENGTH,
   MAX_TOOL_IMAGES,
   MAX_TOOL_RESULT_LENGTH,
+  MAX_TOOL_STEPS_LIMIT,
+  MIN_TOOL_STEPS,
 } from "../config/constants";
 
 export interface ToolLoopSlice {
@@ -42,7 +49,7 @@ export interface ToolLoopSlice {
   activeStreamThinkingStart?: Record<string, number>;
   activeStreamThinkingEnd?: Record<string, number>;
   persistConversations?: () => Promise<void>;
-  resumeConversation?: (conversationId: string) => Promise<void>;
+  resumeConversation?: (conversationId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
 }
 
 interface ProjectRunContext {
@@ -1174,6 +1181,7 @@ function triggerParentResume(
   parentMsg: Message,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
+  stepBudget?: ToolStepBudget,
 ) {
   const currentConvs = get().conversations;
   const parentConv = currentConvs.find((c) => c.id === parentId);
@@ -1212,7 +1220,7 @@ function triggerParentResume(
       conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, parentMsg]),
     }));
     get()
-      .resumeConversation?.(parentId)
+      .resumeConversation?.(parentId, { stepBudget })
       .catch((e) => console.error("Parent auto-resume loop error:", e));
   }
 }
@@ -1286,6 +1294,7 @@ async function runWithToolLoop(
   const collectedSources: { title: string; url: string }[] = [];
   let contextDisclosureMessageId: string | null = null;
   let isFinalizingAfterToolLimit = false;
+  let stepBudget: ToolStepBudget | undefined;
   const completedToolResults: CompletedToolResult[] = [];
 
   try {
@@ -1488,12 +1497,24 @@ async function runWithToolLoop(
 
     const apiMessages: ApiContextMessage[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
-    const maxToolSteps = useModelStore.getState().maxToolSteps;
-    let completedToolRounds = 0;
+    // One shared step budget spans the whole message chain: subagents,
+    // follow-up messages, and notification-driven resumes all draw from the
+    // same pool so the configured limit cannot be reset by an auto-resume.
+    const modelStoreState = useModelStore.getState();
+    const budget: ToolStepBudget = (stepBudget =
+      runContext.stepBudget ??
+      createToolStepBudget(
+        modelStoreState.unlimitedToolSteps === true
+          ? null
+          : Math.min(
+              MAX_TOOL_STEPS_LIMIT,
+              Math.max(MIN_TOOL_STEPS, Math.round(modelStoreState.maxToolSteps) || MIN_TOOL_STEPS),
+            ),
+      ));
     let providerContinuationTurns = 0;
 
     while (true) {
-      if (completedToolRounds >= maxToolSteps && !isFinalizingAfterToolLimit) {
+      if (budget.limit !== null && budget.completedToolRounds >= budget.limit && !isFinalizingAfterToolLimit) {
         isFinalizingAfterToolLimit = true;
         apiMessages.push({
           role: "system",
@@ -1523,10 +1544,10 @@ async function runWithToolLoop(
         "chat",
         isFinalizingAfterToolLimit
           ? "Tool loop finalizing after tool limit"
-          : `Tool loop step ${completedToolRounds + 1}/${maxToolSteps}`,
+          : `Tool loop step ${budget.completedToolRounds + 1}/${budget.limit ?? "unlimited"}`,
         { details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}` },
       );
-      if (completedToolRounds > 0 || providerContinuationTurns > 0 || isFinalizingAfterToolLimit) {
+      if (budget.completedToolRounds > 0 || providerContinuationTurns > 0 || isFinalizingAfterToolLimit) {
         const continuationLabel = isFinalizingAfterToolLimit ? "Preparing final answer" : "Loading (continued)";
         set((state) => ({
           generationState: "loading" as GenerationState,
@@ -1848,7 +1869,7 @@ async function runWithToolLoop(
               const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
               if (mcpTool && mcpCallTool) {
                 logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
-                  details: `Server: ${mcpTool.serverName}, Step ${completedToolRounds + 1}`,
+                  details: `Server: ${mcpTool.serverName}, Step ${budget.completedToolRounds + 1}`,
                 });
 
                 let mcpOldContent = "";
@@ -2232,7 +2253,7 @@ async function runWithToolLoop(
               }
             } else if (fnName === "search_query" && useSearch && searchConfig) {
               logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
-                details: `Provider: ${searchConfig.provider}, Step ${completedToolRounds + 1}`,
+                details: `Provider: ${searchConfig.provider}, Step ${budget.completedToolRounds + 1}`,
               });
               const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
               resultContent = JSON.stringify(results);
@@ -2334,7 +2355,7 @@ async function runWithToolLoop(
               }
             } else if (fnName === "fetch_url" && useSearch) {
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
-                details: `Step ${completedToolRounds + 1}`,
+                details: `Step ${budget.completedToolRounds + 1}`,
               });
               const urlContent = await fetchUrlContent(fnArgs.url!, fnArgs.format);
               resultContent = JSON.stringify(urlContent);
@@ -2490,7 +2511,7 @@ async function runWithToolLoop(
             });
           }
         }
-        completedToolRounds += 1;
+        budget.completedToolRounds += 1;
       } else {
         providerContinuationTurns = 0;
         const assistantContent = msg.content || "";
@@ -2545,7 +2566,7 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-          triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+          triggerParentResume(updatedConv.parentId, parentMsg, set, get, budget);
         }
 
         return;
@@ -2612,7 +2633,7 @@ async function runWithToolLoop(
           timestamp: new Date(),
           isSystem: true,
         };
-        triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+        triggerParentResume(updatedConv.parentId, parentMsg, set, get, stepBudget);
       }
       return;
     }
@@ -2660,7 +2681,7 @@ async function runWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-      triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+      triggerParentResume(updatedConv.parentId, parentMsg, set, get, stepBudget);
     }
   } finally {
     if (projectCapability) {
@@ -2728,7 +2749,7 @@ async function runWithToolLoop(
           conversations: updateConversationMessages(s.conversations, convId, (msgs) => [...msgs, ...pending]),
         }));
         get()
-          .resumeConversation?.(convId)
+          .resumeConversation?.(convId, { stepBudget })
           .catch((e) => console.error("Auto-resume loop error:", e));
       }
     }

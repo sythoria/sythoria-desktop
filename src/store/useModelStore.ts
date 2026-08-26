@@ -10,6 +10,7 @@ import {
   saveSystemPrompt,
   saveAutoGenerateMemory,
   saveMaxToolSteps,
+  saveUnlimitedToolSteps,
   saveSelectedModel,
 } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
@@ -193,10 +194,12 @@ interface ModelState {
   systemPrompt: string;
   autoGenerateMemory: boolean;
   maxToolSteps: number;
+  unlimitedToolSteps: boolean;
 
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
   setMaxToolSteps: (steps: number) => void;
+  setUnlimitedToolSteps: (enabled: boolean) => void;
   updateModels: (models: ModelConfig[]) => void;
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
   deleteModel: (id: string) => void;
@@ -233,6 +236,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   systemPrompt: "",
   autoGenerateMemory: false,
   maxToolSteps: DEFAULT_MAX_TOOL_STEPS,
+  unlimitedToolSteps: false,
 
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
@@ -246,9 +250,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
   setTemperature: (t) => set({ temperature: t }),
   setMaxToolSteps: (t) => {
-    const clamped = Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(t)));
+    const clamped = Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(t) || MIN_TOOL_STEPS));
     set({ maxToolSteps: clamped });
     saveMaxToolSteps(clamped);
+  },
+  setUnlimitedToolSteps: (enabled) => {
+    set({ unlimitedToolSteps: enabled });
+    saveUnlimitedToolSteps(enabled);
   },
 
   updateModels: (models) => {

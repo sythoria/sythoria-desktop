@@ -245,6 +245,7 @@ const AUTO_GENERATE_MEMORY_KEY = "sythoria-auto-generate-memory";
 const SHOW_CONTEXT_WINDOW_KEY = "sythoria-show-context-window";
 const CONTEXT_TOKENIZATION_MODE_KEY = "sythoria-context-tokenization-mode";
 const MAX_TOOL_STEPS_KEY = "sythoria-max-tool-steps";
+const UNLIMITED_TOOL_STEPS_KEY = "sythoria-unlimited-tool-steps";
 const SELECTED_MODEL_KEY = "sythoria-selected-model";
 const LOGGING_ENABLED_KEY = "sythoria-is-logging-enabled";
 const DISABLE_BG_ACTIVITY_KEY = "sythoria-disable-bg-activity";
@@ -373,6 +374,7 @@ const LEGACY_BOOLEAN_KEYS = new Set([
   HAS_STARTED_KEY,
   PROJECTS_ENABLED_KEY,
   AUX_SUMMARY_PINNED_KEY,
+  UNLIMITED_TOOL_STEPS_KEY,
 ]);
 const LEGACY_NUMBER_KEYS = new Set([ZOOM_LEVEL_KEY, MAX_TOOL_STEPS_KEY, SIDEBAR_WIDTH_KEY, AUX_PANEL_WIDTH_KEY]);
 const LEGACY_JSON_KEYS = new Set([THEME_KEY, DOWNLOADED_THEMES_KEY, KEYBINDS_KEY]);
@@ -393,6 +395,7 @@ const LEGACY_PREFERENCE_KEYS = [
   SHOW_CONTEXT_WINDOW_KEY,
   CONTEXT_TOKENIZATION_MODE_KEY,
   MAX_TOOL_STEPS_KEY,
+  UNLIMITED_TOOL_STEPS_KEY,
   SELECTED_MODEL_KEY,
   LOGGING_ENABLED_KEY,
   DISABLE_BG_ACTIVITY_KEY,
@@ -1761,6 +1764,27 @@ export async function saveMaxToolSteps(value: number): Promise<void> {
     await store.save();
   } catch (e) {
     logError("storage", "Failed to save max tool steps setting", { error: e });
+  }
+}
+
+export async function loadUnlimitedToolSteps(): Promise<boolean> {
+  try {
+    const store = await getStore();
+    const raw = await store.get<unknown>(UNLIMITED_TOOL_STEPS_KEY);
+    if (typeof raw === "boolean") return raw;
+  } catch (e) {
+    logError("storage", "Failed to load unlimited tool steps setting", { error: e });
+  }
+  return false;
+}
+
+export async function saveUnlimitedToolSteps(value: boolean): Promise<void> {
+  try {
+    const store = await getStore();
+    await store.set(UNLIMITED_TOOL_STEPS_KEY, value);
+    await store.save();
+  } catch (e) {
+    logError("storage", "Failed to save unlimited tool steps setting", { error: e });
   }
 }
 

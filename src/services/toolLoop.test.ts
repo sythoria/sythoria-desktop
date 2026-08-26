@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectStore } from "../store/useProjectStore";
-import type { ConversationRunContext } from "./conversationRunContext";
+import {
+  continueConversationRunContext,
+  createToolStepBudget,
+  type ConversationRunContext,
+} from "./conversationRunContext";
 import {
   TOOL_DEFINITIONS,
   assertUsableFinishReason,
@@ -30,6 +34,7 @@ const mockAddToast = vi.fn((msg: unknown, variant: unknown) => {
 const mockAddTask = vi.fn();
 const mockCompleteTask = vi.fn();
 let mockMaxToolSteps = 25;
+let mockUnlimitedToolSteps = false;
 let mockStreamContent = "Simulated content chunk";
 let mockStreamReasoning = "";
 let mockStreamDone: (() => void) | null = null;
@@ -50,6 +55,7 @@ vi.mock("../store/useModelStore", () => ({
     getState: () => ({
       systemPrompt: "",
       maxToolSteps: mockMaxToolSteps,
+      unlimitedToolSteps: mockUnlimitedToolSteps,
       ensureStreamListeners: vi.fn().mockImplementation((_streamId, _convId, onChunk, onDone) => {
         mockStreamDone = onDone;
         // Trigger onChunk and onDone asynchronously to simulate completion
@@ -115,6 +121,7 @@ function makeRunContext(
 beforeEach(() => {
   invokeMock.mockReset();
   mockMaxToolSteps = 25;
+  mockUnlimitedToolSteps = false;
   mockStreamContent = "Simulated content chunk";
   mockStreamReasoning = "";
   mockStreamDone = null;
@@ -361,6 +368,22 @@ describe("conversation generation actor", () => {
     releaseActive();
     await active;
     await expect(followUp).rejects.toThrow("cancelled before it started");
+  });
+});
+
+describe("tool step budget propagation", () => {
+  it("shares one mutable budget across continued and derived run contexts", () => {
+    const budget = createToolStepBudget(5);
+    const parent = { ...makeRunContext("parent-conv"), stepBudget: budget };
+    const child = continueConversationRunContext(parent, "child-conv", null);
+    const grandChild = continueConversationRunContext(child, "grandchild-conv", null);
+
+    expect(child.stepBudget).toBe(budget);
+    expect(grandChild.stepBudget).toBe(budget);
+
+    budget.completedToolRounds += 2;
+    expect(child.stepBudget?.completedToolRounds).toBe(2);
+    expect(grandChild.stepBudget?.completedToolRounds).toBe(2);
   });
 });
 
@@ -822,6 +845,161 @@ describe("sendWithToolLoop", () => {
     expect(state.conversations[0].messages.at(-1)?.content).toBe("Finished after pause.");
   });
 
+  it("enforces an inherited exhausted budget instead of restarting the tool chain", async () => {
+    mockStreamContent = "";
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "chat_stream_tools") {
+        return JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                tool_calls: [
+                  {
+                    id: "should-not-run",
+                    function: { name: "search_query", arguments: JSON.stringify({ query: "keep going" }) },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockConversations.push({
+      id: "conv-inherited",
+      title: "Resumed parent",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-inherited", role: "user", content: "Continue researching", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-inherited": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    const inheritedBudget = createToolStepBudget(2);
+    inheritedBudget.completedToolRounds = 2;
+
+    await sendWithToolLoop(
+      makeRunContext("conv-inherited", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+        stepBudget: inheritedBudget,
+      }),
+      set,
+      () => state,
+      vi.fn().mockResolvedValue([]),
+      vi.fn(),
+    );
+
+    const modelCalls = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
+    expect(modelCalls).toHaveLength(1);
+    expect(modelCalls[0][1]).toMatchObject({ tools: "[]" });
+    expect(state.conversations[0].messages.some((message) => message.toolCall?.id === "should-not-run")).toBe(false);
+    expect(state.conversations[0].messages.at(-1)?.content).toContain("Tool limit reached");
+  });
+
+  it("runs past the configured cap when unlimited tool steps is enabled", async () => {
+    mockUnlimitedToolSteps = true;
+    mockMaxToolSteps = 1;
+    mockStreamContent = "";
+    let modelCalls = 0;
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "chat_stream_tools") {
+        modelCalls += 1;
+        if (modelCalls <= 5) {
+          return JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: "",
+                  tool_calls: [
+                    {
+                      id: `call-${modelCalls}`,
+                      function: { name: "search_query", arguments: JSON.stringify({ query: "deep dive" }) },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "Done eventually." } }] });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockConversations.push({
+      id: "conv-unlimited",
+      title: "Unlimited",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-unlimited", role: "user", content: "Research deeply", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-unlimited": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(
+      makeRunContext("conv-unlimited", {
+        searchConfig: {
+          id: "search-1",
+          name: "Search",
+          provider: "google",
+          baseUrl: "https://www.googleapis.com/customsearch/v1",
+          maxResults: 5,
+          enabled: true,
+        },
+        shouldUseTools: true,
+      }),
+      set,
+      () => state,
+      vi.fn().mockResolvedValue([]),
+      vi.fn(),
+    );
+
+    expect(invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools")).toHaveLength(6);
+    expect(state.conversations[0].messages.filter((message) => message.toolCall).length).toBeGreaterThanOrEqual(5);
+    expect(state.conversations[0].messages.at(-1)?.content).toBe("Done eventually.");
+  });
+
   it("preserves partial tool results and resumes the parent when subagent finalization fails", async () => {
     mockMaxToolSteps = 1;
     mockStreamContent = "";
@@ -909,7 +1087,12 @@ describe("sendWithToolLoop", () => {
     expect(subagent?.messages.at(-1)?.content).toContain("partial result preserved");
     expect(subagent?.messages.at(-1)?.content).toContain("Useful evidence");
     expect(parent?.messages.at(-1)?.content).toContain("reached its tool limit");
-    expect(mockResumeConversation).toHaveBeenCalledWith("parent-limit");
+    expect(mockResumeConversation).toHaveBeenCalledWith(
+      "parent-limit",
+      expect.objectContaining({
+        stepBudget: expect.objectContaining({ limit: 1, completedToolRounds: 1 }),
+      }),
+    );
   });
 
   it("appends an assistant error when the tool request fails before a placeholder exists", async () => {

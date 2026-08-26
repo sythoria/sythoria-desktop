@@ -207,6 +207,10 @@ export const en = {
   "settings.chat.temperatureDesc": "Control the creativity and randomness of the model's responses",
   "settings.chat.maxToolSteps": "Max Tool Steps",
   "settings.chat.maxToolStepsDesc": "Limit the maximum number of tool execution loops per message",
+  "settings.chat.unlimitedToolSteps": "Unlimited",
+  "settings.chat.unlimitedToolStepsDesc":
+    "Let the agent keep using tools for this message without a step cap. The limit applies to the whole message, including subagents and automatic continuations.",
+  "settings.chat.unlimitedToast": "Tool step limit disabled for new messages",
 
   // Settings: System Prompts (Personalization)
   "settings.prompts.title": "System Prompts",

@@ -209,6 +209,10 @@ export const fr = {
   "settings.chat.temperatureDesc": "Contrôler la créativité et le caractère aléatoire des réponses du modèle",
   "settings.chat.maxToolSteps": "Nombre maximal d'étapes d'outil",
   "settings.chat.maxToolStepsDesc": "Limiter le nombre maximal de boucles d'exécution d'outils par message",
+  "settings.chat.unlimitedToolSteps": "Illimité",
+  "settings.chat.unlimitedToolStepsDesc":
+    "Laisser l'agent continuer à utiliser des outils pour ce message sans limite d'étapes. La limite s'applique à tout le message, sous-agents et continuations automatiques inclus.",
+  "settings.chat.unlimitedToast": "Limite d'étapes d'outil désactivée pour les nouveaux messages",
 
   // Settings: System Prompts (Personalization)
   "settings.prompts.title": "Instructions système",

@@ -4,6 +4,7 @@ import type { ModelConfig } from "../types";
 const storageMocks = vi.hoisted(() => ({
   saveSelectedModel: vi.fn(),
   saveMaxToolSteps: vi.fn(),
+  saveUnlimitedToolSteps: vi.fn(),
 }));
 
 vi.mock("../utils/storage", () => ({
@@ -12,6 +13,7 @@ vi.mock("../utils/storage", () => ({
   saveTitleConfig: vi.fn(),
   saveSystemPrompt: vi.fn(),
   saveMaxToolSteps: storageMocks.saveMaxToolSteps,
+  saveUnlimitedToolSteps: storageMocks.saveUnlimitedToolSteps,
   saveSelectedModel: storageMocks.saveSelectedModel,
 }));
 
@@ -48,6 +50,7 @@ describe("useModelStore model selection", () => {
   beforeEach(() => {
     storageMocks.saveSelectedModel.mockReset();
     storageMocks.saveMaxToolSteps.mockReset();
+    storageMocks.saveUnlimitedToolSteps.mockReset();
     useModelStore.setState({
       models,
       selectedModel: "model-1",
@@ -55,6 +58,7 @@ describe("useModelStore model selection", () => {
         "model-1": "connected",
         "model-2": "connected",
       },
+      unlimitedToolSteps: false,
     });
   });
 
@@ -79,10 +83,24 @@ describe("useModelStore model selection", () => {
     expect(storageMocks.saveSelectedModel).toHaveBeenCalledWith("model-2");
   });
 
-  it("clamps the tool loop to the supported step range", () => {
+  it("accepts custom tool step amounts within the supported range", () => {
     useModelStore.getState().setMaxToolSteps(100);
 
-    expect(useModelStore.getState().maxToolSteps).toBe(25);
-    expect(storageMocks.saveMaxToolSteps).toHaveBeenCalledWith(25);
+    expect(useModelStore.getState().maxToolSteps).toBe(100);
+    expect(storageMocks.saveMaxToolSteps).toHaveBeenCalledWith(100);
+  });
+
+  it("clamps out-of-range tool step amounts to the supported range", () => {
+    useModelStore.getState().setMaxToolSteps(5000);
+    expect(useModelStore.getState().maxToolSteps).toBe(200);
+    useModelStore.getState().setMaxToolSteps(0);
+    expect(useModelStore.getState().maxToolSteps).toBe(1);
+  });
+
+  it("persists the unlimited tool steps toggle", () => {
+    useModelStore.getState().setUnlimitedToolSteps(true);
+
+    expect(useModelStore.getState().unlimitedToolSteps).toBe(true);
+    expect(storageMocks.saveUnlimitedToolSteps).toHaveBeenCalledWith(true);
   });
 });

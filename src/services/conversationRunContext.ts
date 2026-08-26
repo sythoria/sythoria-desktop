@@ -7,7 +7,20 @@ export type McpToolCaller = (
   conversationId: string,
 ) => Promise<McpToolResult>;
 
+// Mutable holder shared by reference across every run descending from one
+// user message (subagents, follow-up messages, notification-driven resumes)
+// so the configured tool-step limit cannot be reset mid-chain.
+export interface ToolStepBudget {
+  readonly limit: number | null;
+  completedToolRounds: number;
+}
+
+export function createToolStepBudget(limit: number | null): ToolStepBudget {
+  return { limit, completedToolRounds: 0 };
+}
+
 export interface ConversationRunContext {
+  readonly stepBudget?: ToolStepBudget;
   readonly conversationId: string;
   readonly modelConfig: ModelConfig;
   readonly temperature: number;
@@ -41,6 +54,7 @@ interface BuildConversationRunContextOptions {
   mcpTools: McpTool[];
   mcpCallTool: McpToolCaller | undefined;
   skills: readonly SkillInfo[];
+  stepBudget?: ToolStepBudget;
 }
 
 function cloneProject(project: Project | null): Project | null {
@@ -112,7 +126,16 @@ export function buildConversationRunContext(
     attachmentCapabilities,
     commitScope,
     shouldUseTools: Boolean(project || searchConfig || mcpTools.length > 0 || skills.length > 0),
+    ...(options.stepBudget ? { stepBudget: options.stepBudget } : {}),
   });
+}
+
+export function withToolStepBudget(
+  context: ConversationRunContext,
+  stepBudget: ToolStepBudget,
+): ConversationRunContext {
+  if (context.stepBudget === stepBudget) return context;
+  return Object.freeze({ ...context, stepBudget });
 }
 
 export function continueConversationRunContext(

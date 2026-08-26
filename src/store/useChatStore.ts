@@ -42,6 +42,7 @@ import {
   loadShowContextWindow,
   loadContextTokenizationMode,
   loadMaxToolSteps,
+  loadUnlimitedToolSteps,
   loadIsLoggingEnabled,
   loadDisableBgActivity,
   loadNetworkSettings,
@@ -58,6 +59,7 @@ import {
   DEFAULT_AUX_PANEL_WIDTH,
   MAX_AUX_PANEL_WIDTH,
   MIN_AUX_PANEL_WIDTH,
+  DEFAULT_MAX_TOOL_STEPS,
   TITLE_MAX_LENGTH,
 } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
@@ -68,7 +70,12 @@ import {
   sendWithToolLoop,
   waitForConversationToolLoops,
 } from "../services/toolLoop";
-import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
+import {
+  buildConversationRunContext,
+  withToolStepBudget,
+  type ConversationRunContext,
+  type ToolStepBudget,
+} from "../services/conversationRunContext";
 import { useSkillStore } from "./useSkillStore";
 import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
 import { validateFile } from "../utils/attachments";
@@ -302,7 +309,7 @@ interface ChatState {
   exportChat: (id: string) => void | Promise<void>;
   importConversations: (imported: Conversation[]) => Promise<void>;
   persistConversations: () => Promise<void>;
-  resumeConversation: (convId: string) => Promise<void>;
+  resumeConversation: (convId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
   clearAllChats: () => Promise<void>;
   applyPendingWorktree: (convId: string) => Promise<void>;
   discardPendingWorktree: (convId: string) => Promise<void>;
@@ -428,6 +435,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedShowContextWindow,
         loadedContextTokenizationMode,
         loadedMaxToolSteps,
+        loadedUnlimitedToolSteps,
         loadedIsLoggingEnabled,
         loadedDisableBgActivity,
         loadedNetworkSettings,
@@ -460,7 +468,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadOptionalStartupValue("auto-generate memory preference", loadAutoGenerateMemory, false),
         loadOptionalStartupValue("context-window preference", loadShowContextWindow, false),
         loadOptionalStartupValue("context-tokenization preference", loadContextTokenizationMode, "local" as const),
-        loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, 10),
+        loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, DEFAULT_MAX_TOOL_STEPS),
+        loadOptionalStartupValue("unlimited tool steps preference", loadUnlimitedToolSteps, false),
         loadOptionalStartupValue("logging preference", loadIsLoggingEnabled, true),
         loadOptionalStartupValue("background-activity preference", loadDisableBgActivity, false),
         loadOptionalStartupValue("network policy", loadNetworkSettings, {
@@ -518,6 +527,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         systemPrompt: loadedSystemPrompt,
         autoGenerateMemory: loadedAutoGenerateMemory,
         maxToolSteps: loadedMaxToolSteps,
+        unlimitedToolSteps: loadedUnlimitedToolSteps,
       });
       if (selectedModel !== loadedSelectedModel) {
         void saveSelectedModel(selectedModel);
@@ -1522,7 +1532,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  resumeConversation: async (convId) => {
+  resumeConversation: async (convId, options = {}) => {
     const { conversations } = get();
     const conv = conversations.find((c) => c.id === convId);
     if (!conv) return;
@@ -1532,7 +1542,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const lastUserMessage = [...conv.messages].reverse().find((message) => message.role === "user");
     await useSkillStore.getState().loadSkills(true);
     const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
-    const runContext = buildConversationRunContext({
+    let runContext = buildConversationRunContext({
       conversation: conv,
       models,
       selectedModel,
@@ -1547,6 +1557,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       uiToast("No enabled model configured — enable one in settings/model-providers", "error");
       return;
+    }
+    // Notification-driven resumes inherit the originating message's step
+    // budget; only fresh user sends start a new one.
+    if (options.stepBudget) {
+      runContext = withToolStepBudget(runContext, options.stepBudget);
     }
 
     if (runContext.shouldUseTools) {
