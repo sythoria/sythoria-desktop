@@ -34,6 +34,24 @@ export interface ContextDisclosure {
   assembledTokens: number;
 }
 
+export type DiffLineType = "add" | "del" | "context";
+
+/** One rendered row of a file-edit diff; UI-only metadata attached to tool results. */
+export interface DiffLine {
+  type: DiffLineType;
+  oldNumber?: number;
+  newNumber?: number;
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
@@ -56,6 +74,14 @@ export interface Message {
       deleted: number;
       isNew?: boolean;
       filename?: string;
+      /** Highlight language resolved from the filename for the inline diff view. */
+      language?: string;
+      /** True when diff hunks were capped and do not cover every change. */
+      truncated?: boolean;
+      /** True when the write/edit command failed; hunks describe the intended change only. */
+      error?: boolean;
+      /** Unified-diff hunks (with context) rendered by the file-edit diff view. */
+      hunks?: DiffHunk[];
     };
     subagentIds?: string[];
   };

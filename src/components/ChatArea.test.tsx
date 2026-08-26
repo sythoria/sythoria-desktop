@@ -204,6 +204,61 @@ describe("ChatArea", () => {
     expect(screen.getByText("Images")).toBeInTheDocument();
   });
 
+  it("renders a failed MCP file write as its intended diff instead of generic tool details", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Error: Failed to write file: No such file or directory (os error 2)",
+        toolCall: {
+          id: "failed-write",
+          name: "workspace__write_file",
+          arguments: {
+            file_path: "cap_bypass_poc.py",
+            content: "#!/usr/bin/env python3\nprint('proof')",
+          },
+        },
+        toolResult: {
+          id: "failed-write",
+          name: "workspace__write_file",
+          content: "Failed to write file: No such file or directory (os error 2)",
+          diffSummary: {
+            added: 2,
+            deleted: 0,
+            isNew: true,
+            filename: "cap_bypass_poc.py",
+            language: "python",
+            error: true,
+            hunks: [
+              {
+                oldStart: 0,
+                oldLines: 0,
+                newStart: 1,
+                newLines: 2,
+                lines: [
+                  { type: "add", newNumber: 1, content: "#!/usr/bin/env python3" },
+                  { type: "add", newNumber: 2, content: "print('proof')" },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+
+    expect(screen.getByText("Create failed")).toBeInTheDocument();
+    expect(screen.queryByText("Run: write_file")).not.toBeInTheDocument();
+    expect(screen.getAllByText("cap_bypass_poc.py")).toHaveLength(2);
+    expect(screen.getByText("#!/usr/bin/env python3")).toBeInTheDocument();
+    expect(screen.getByRole("log")).toHaveTextContent("print('proof')");
+    expect(screen.getByText(/Failed to write file: No such file or directory/)).toBeInTheDocument();
+    expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
   it("renders project shell commands as a terminal transcript", async () => {
     const user = userEvent.setup();
     const messages = [

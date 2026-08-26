@@ -35,6 +35,25 @@ const McpImageContentSchema = z
   })
   .passthrough();
 
+const DiffLineSchema = z
+  .object({
+    type: z.enum(["add", "del", "context"]),
+    oldNumber: z.number().optional(),
+    newNumber: z.number().optional(),
+    content: z.string(),
+  })
+  .passthrough();
+
+const DiffHunkSchema = z
+  .object({
+    oldStart: z.number(),
+    oldLines: z.number(),
+    newStart: z.number(),
+    newLines: z.number(),
+    lines: z.array(DiffLineSchema),
+  })
+  .passthrough();
+
 const ToolCallResultSchema = z
   .object({
     id: z.string(),
@@ -47,6 +66,10 @@ const ToolCallResultSchema = z
         deleted: z.number(),
         isNew: z.boolean().optional(),
         filename: z.string().optional(),
+        language: z.string().optional(),
+        truncated: z.boolean().optional(),
+        error: z.boolean().optional(),
+        hunks: z.array(DiffHunkSchema).optional(),
       })
       .passthrough()
       .optional(),

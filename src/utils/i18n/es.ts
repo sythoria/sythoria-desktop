@@ -730,6 +730,8 @@ export const es = {
   "chat.tools.created": "Creado",
   "chat.tools.edited": "Editado",
   "chat.tools.editing": "Editando",
+  "chat.tools.createFailed": "Error al crear",
+  "chat.tools.editFailed": "Error al editar",
   "chat.tools.itemsCount": "({count} elementos)",
   "chat.tools.matchesCount": "({count} coincidencias)",
   "chat.tools.filesCount": "({count} archivos)",

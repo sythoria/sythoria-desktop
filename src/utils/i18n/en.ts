@@ -715,6 +715,8 @@ export const en = {
   "chat.tools.created": "Created",
   "chat.tools.edited": "Edited",
   "chat.tools.editing": "Editing",
+  "chat.tools.createFailed": "Create failed",
+  "chat.tools.editFailed": "Edit failed",
   "chat.tools.itemsCount": "({count} items)",
   "chat.tools.matchesCount": "({count} matches)",
   "chat.tools.filesCount": "({count} files)",

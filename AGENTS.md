@@ -79,11 +79,13 @@ src/
     messageParser.ts    # Utility parsing text messages
     highlighter.ts      # Code syntax highlighting
     tokens.ts           # Token estimation/calculation helpers
+    lineDiff.ts         # Bounded line diff/hunk generation and file-language detection
   lib/
     motion-tokens.ts    # Animation tokens, springs, and motion config (reduced motion / low-end detection)
   components/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
-    ChatArea.tsx        # Messages, markdown, streaming, comparison columns, worktree approvals, attachments
+    ChatArea.tsx        # Messages, markdown, streaming, comparison columns, inline tool diffs, worktree approvals
+    FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
     InputBar.tsx        # Composer orchestration, model selector, tools, attachments, large-paste files, send/stop
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
@@ -168,6 +170,8 @@ src-tauri/src/
 
 **Tool loop**: `sendMessage()` refreshes installed skills → snapshots a `ConversationRunContext` from the target conversation, including its skill catalog → queues it through the conversation actor → assembles a budgeted provider request → runs up to `maxToolSteps` tool rounds from one per-message shared budget → executes declared read-only calls concurrently and resource mutations serially → collects sources → final assistant message. Compare, retry, resume, and subagent runs keep their originating conversation's project/model/skill context instead of consulting global navigation state. Follow-up subagent messages wait for the active generation boundary.
 
+Native and MCP file write/edit results capture bounded diff hunks for the inline diff card. When a write fails, the stored diff describes the intended change and carries the error separately instead of falling back to the generic arguments/result view. Failed writes to previously absent paths are classified as `Create failed`; failures against existing files are classified as `Edit failed`.
+
 **Chat deletion**: Discover the selected conversation and all descendant subagents → reject their pending tool confirmations → mark their runs stopped → await bounded stream and conversation-scoped MCP cancellation → discard each unique worktree → atomically remove conversation/history/compare records → persist. Discard is idempotent for an already-missing worktree only after its Sythoria path/branch identity is validated; stale Git metadata and the reserved temporary branch are cleaned up. If any other worktree cleanup fails, deletion pauses and keeps the failed recovery records. Non-empty temporary chats use this same full-deletion path when the user switches away.
 
 **Git Worktree Isolation Flow**: If writing to a project:
@@ -214,6 +218,10 @@ export interface Message {
       deleted: number;
       isNew?: boolean;
       filename?: string;
+      language?: string;
+      truncated?: boolean;
+      error?: boolean; // Failed write/edit; hunks describe the intended change
+      hunks?: DiffHunk[];
     };
   };
   sources?: { title: string; url: string }[];

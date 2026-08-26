@@ -19,6 +19,7 @@ import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
+import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/lineDiff";
 import {
   continueConversationRunContext,
   createToolStepBudget,
@@ -190,58 +191,6 @@ function setConversationGeneration(
   return {
     ...state.generationByConversation,
     [convId]: { state: generationState, label: generationLabel },
-  };
-}
-
-function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
-  const oldLines = oldContent ? oldContent.split(/\r?\n/) : [];
-  const newLines = newContent ? newContent.split(/\r?\n/) : [];
-
-  let start = 0;
-  let endOld = oldLines.length - 1;
-  let endNew = newLines.length - 1;
-
-  // Trim common prefix
-  while (start <= endOld && start <= endNew && oldLines[start] === newLines[start]) {
-    start++;
-  }
-
-  // Trim common suffix
-  while (endOld >= start && endNew >= start && oldLines[endOld] === newLines[endNew]) {
-    endOld--;
-    endNew--;
-  }
-
-  const N = endOld - start + 1;
-  const M = endNew - start + 1;
-
-  if (N <= 0) return { added: M > 0 ? M : 0, deleted: 0 };
-  if (M <= 0) return { added: 0, deleted: N > 0 ? N : 0 };
-
-  // Fallback for massive diffs to avoid freezing the thread
-  if (N * M > 1000000) {
-    return { added: M, deleted: N };
-  }
-
-  const dp = new Int32Array(M + 1);
-  for (let i = 1; i <= N; i++) {
-    let prev = 0;
-    const oldLine = oldLines[start + i - 1];
-    for (let j = 1; j <= M; j++) {
-      const temp = dp[j];
-      if (oldLine === newLines[start + j - 1]) {
-        dp[j] = prev + 1;
-      } else {
-        dp[j] = Math.max(dp[j], dp[j - 1]);
-      }
-      prev = temp;
-    }
-  }
-
-  const lcs = dp[M];
-  return {
-    added: M - lcs,
-    deleted: N - lcs,
   };
 }
 
@@ -1833,6 +1782,8 @@ async function runWithToolLoop(
           let images: McpImageContent[] | undefined = undefined;
           let isError = false;
           let toolResultDiffSummary: ToolResultDiffSummary | undefined = undefined;
+          // Captured before a mutating file tool runs so a failed write/edit can still show its intent.
+          let intendedDiffSummary: ToolResultDiffSummary | undefined = undefined;
           let toolResultSubagentIds: string[] | undefined = undefined;
 
           try {
@@ -1897,6 +1848,34 @@ async function runWithToolLoop(
                   } catch {
                     mcpIsNew = true;
                   }
+
+                  const intendedContent =
+                    typeof fnArgs.content === "string"
+                      ? fnArgs.content
+                      : !mcpIsNew &&
+                          typeof fnArgs.old_string === "string" &&
+                          typeof fnArgs.new_string === "string"
+                        ? simulateStringReplacement(
+                            mcpOldContent,
+                            fnArgs.old_string,
+                            fnArgs.new_string,
+                            fnArgs.replace_all === true,
+                          )
+                        : null;
+                  if (intendedContent !== null) {
+                    const intendedDiff = computeFileDiff(mcpIsNew ? "" : mcpOldContent, intendedContent);
+                    if (intendedDiff.added > 0 || intendedDiff.deleted > 0) {
+                      intendedDiffSummary = {
+                        added: intendedDiff.added,
+                        deleted: intendedDiff.deleted,
+                        isNew: mcpIsNew,
+                        filename: mcpFileChangeInfo.filename,
+                        language: languageForFilename(mcpFileChangeInfo.filename),
+                        truncated: intendedDiff.truncated,
+                        hunks: intendedDiff.hunks,
+                      };
+                    }
+                  }
                 }
 
                 const result = await mcpCallTool(mcpTool.serverId, mcpTool.name, fnArgs, convId);
@@ -1904,7 +1883,11 @@ async function runWithToolLoop(
                 images = result.images;
                 isError = result.isError;
 
-                if (mcpFileChangeInfo && !result.isError) {
+                if (result.isError) {
+                  if (intendedDiffSummary) {
+                    toolResultDiffSummary = { ...intendedDiffSummary, error: true };
+                  }
+                } else if (mcpFileChangeInfo) {
                   try {
                     const mcpNewContent = await invoke<string>("project_read", {
                       projectId: project?.id || "",
@@ -1914,17 +1897,21 @@ async function runWithToolLoop(
                       limit: null,
                       worktreePath: projectRun?.worktreePath ?? null,
                     });
-                    const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
+                    const diff = computeFileDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
                       added: diff.added,
                       deleted: diff.deleted,
                       isNew: mcpIsNew,
                       filename: mcpFileChangeInfo.filename,
+                      language: languageForFilename(mcpFileChangeInfo.filename),
+                      truncated: diff.truncated,
+                      hunks: diff.hunks,
                     };
                   } catch {
                     // Ignore
                   }
                 }
+                intendedDiffSummary = undefined;
               } else {
                 throw new Error(`Unknown tool: ${rawName}`);
               }
@@ -2142,6 +2129,19 @@ async function runWithToolLoop(
                     isNew = true;
                   }
 
+                  const diff = computeFileDiff(isNew ? "" : oldContent, fnArgs.content || "");
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+
+                  intendedDiffSummary = {
+                    added: diff.added,
+                    deleted: diff.deleted,
+                    isNew,
+                    filename,
+                    language: languageForFilename(filename),
+                    truncated: diff.truncated,
+                    hunks: diff.hunks,
+                  };
+
                   await invoke("project_write", {
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
@@ -2151,15 +2151,8 @@ async function runWithToolLoop(
                   });
                   resultContent = "File written successfully.";
 
-                  const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
-                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
-
-                  toolResultDiffSummary = {
-                    added: diff.added,
-                    deleted: diff.deleted,
-                    isNew,
-                    filename,
-                  };
+                  toolResultDiffSummary = intendedDiffSummary;
+                  intendedDiffSummary = undefined;
                   break;
                 }
                 case "project_edit": {
@@ -2178,6 +2171,26 @@ async function runWithToolLoop(
                     throw new Error("File does not exist or cannot be read.");
                   }
 
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+                  const intendedContent = simulateStringReplacement(
+                    oldContent,
+                    fnArgs.old_string || "",
+                    fnArgs.new_string || "",
+                    fnArgs.replace_all === true,
+                  );
+                  const intendedDiff = computeFileDiff(oldContent, intendedContent);
+                  if (intendedDiff.added > 0 || intendedDiff.deleted > 0) {
+                    intendedDiffSummary = {
+                      added: intendedDiff.added,
+                      deleted: intendedDiff.deleted,
+                      isNew: false,
+                      filename,
+                      language: languageForFilename(filename),
+                      truncated: intendedDiff.truncated,
+                      hunks: intendedDiff.hunks,
+                    };
+                  }
+
                   await invoke("project_edit", {
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
@@ -2188,6 +2201,7 @@ async function runWithToolLoop(
                     worktreePath: projectRun!.worktreePath,
                   });
                   resultContent = "File content replaced successfully.";
+                  intendedDiffSummary = undefined;
 
                   const newContent = await invoke<string>("project_read", {
                     projectId: project.id,
@@ -2197,14 +2211,16 @@ async function runWithToolLoop(
                     limit: null,
                     worktreePath: projectRun!.worktreePath,
                   });
-                  const diff = computeLineDiff(oldContent, newContent);
-                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+                  const diff = computeFileDiff(oldContent, newContent);
 
                   toolResultDiffSummary = {
                     added: diff.added,
                     deleted: diff.deleted,
                     isNew: false,
                     filename,
+                    language: languageForFilename(filename),
+                    truncated: diff.truncated,
+                    hunks: diff.hunks,
                   };
                   break;
                 }
@@ -2370,6 +2386,10 @@ async function runWithToolLoop(
           } catch (err: unknown) {
             isError = true;
             resultContent = errorMessage(err);
+            if (intendedDiffSummary) {
+              toolResultDiffSummary = { ...intendedDiffSummary, error: true };
+              intendedDiffSummary = undefined;
+            }
           }
 
           if (resultContent.length > MAX_TOOL_RESULT_LENGTH) {

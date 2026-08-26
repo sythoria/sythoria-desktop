@@ -689,6 +689,8 @@ export const zh = {
   "chat.tools.created": "已创建",
   "chat.tools.edited": "已编辑",
   "chat.tools.editing": "正在编辑",
+  "chat.tools.createFailed": "创建失败",
+  "chat.tools.editFailed": "编辑失败",
   "chat.tools.itemsCount": "（{count} 个项）",
   "chat.tools.matchesCount": "（{count} 个匹配）",
   "chat.tools.filesCount": "（{count} 个文件）",

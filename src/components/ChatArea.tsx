@@ -56,6 +56,7 @@ import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
+import { FileEditDiffCard } from "./FileEditDiffCard";
 import { parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
 
 const messageVariants = {
@@ -467,10 +468,12 @@ function getNativeToolDisplayInfo(
     return null;
   }
 
-  // Strictly only target native project tools (start with project_ and must not be MCP tools containing __)
-  if (!name.startsWith("project_") || name.includes("__")) return null;
+  const isNativeProjectTool = name.startsWith("project_") && !name.includes("__");
+  const isMcpFileChange =
+    name.includes("__") && !!result?.diffSummary?.filename && !!result.diffSummary.hunks?.length;
+  if (!isNativeProjectTool && !isMcpFileChange) return null;
 
-  const cleanName = name.replace("project_", "");
+  const cleanName = isNativeProjectTool ? name.replace("project_", "") : name.split("__").at(-1) || name;
   const lowerName = cleanName.toLowerCase();
 
   // Helper to determine icon & color
@@ -577,17 +580,19 @@ function getNativeToolDisplayInfo(
   }
 
   // 3. Write / Edit
-  const isWriteName = lowerName === "write" || lowerName === "edit";
+  const isWriteName = lowerName === "write" || lowerName === "edit" || isMcpFileChange;
 
   if (isWriteName) {
-    const pathKeys = ["file_path"];
+    const pathKeys = ["file_path", "path", "filepath", "filePath", "relative_path", "filename", "file"];
     for (const key of pathKeys) {
       if (typeof args[key] === "string") {
         const fullPath = args[key];
-        const filename = fullPath.split(/[/\\]/).pop() || fullPath;
+        const filename = result?.diffSummary?.filename || fullPath.split(/[/\\]/).pop() || fullPath;
         const { IconComponent, colorClass } = getFileIcon(filename);
 
         const isTodo = filename.toLowerCase().includes("todo");
+        const isNew = result?.diffSummary?.isNew === true;
+        const failed = result?.diffSummary?.error === true;
 
         return {
           type: isTodo ? "todo" : "edit",
@@ -595,9 +600,13 @@ function getNativeToolDisplayInfo(
           IconComponent,
           colorClass,
           label: isCompleted
-            ? result?.diffSummary?.isNew
-              ? t("chat.tools.created")
-              : t("chat.tools.edited")
+            ? failed
+              ? isNew
+                ? t("chat.tools.createFailed")
+                : t("chat.tools.editFailed")
+              : isNew
+                ? t("chat.tools.created")
+                : t("chat.tools.edited")
             : t("chat.tools.editing"),
           isTodo,
         };
@@ -786,7 +795,6 @@ function SubagentToolCard({
 
 function ToolCallDisplay({ message }: { message: Message }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
   const [dots, setDots] = useState(".");
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -798,6 +806,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const isWaitSubagents = name === "wait_subagents";
   const isCompleted = !!message.toolResult;
   const isCollapsible = isMcp || isProject || isWaitSubagents;
+  const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
+  const diffSummary = message.toolResult?.diffSummary;
+  const isFileEditDiff =
+    isCompleted &&
+    !!diffSummary?.hunks?.length &&
+    (nativeInfo?.type === "edit" || (isMcp && !message.toolResult?.images?.length));
+  const [expanded, setExpanded] = useState(isFileEditDiff);
 
   useEffect(() => {
     if (!isWaitSubagents || isCompleted) return;
@@ -810,6 +825,15 @@ function ToolCallDisplay({ message }: { message: Message }) {
     }, 500);
     return () => clearInterval(interval);
   }, [isWaitSubagents, isCompleted]);
+
+  // Reveal the diff as soon as a file edit completes instead of waiting for a manual expand.
+  const wasCompletedRef = useRef(isCompleted);
+  useEffect(() => {
+    if (!wasCompletedRef.current && isCompleted && isFileEditDiff) {
+      setExpanded(true);
+    }
+    wasCompletedRef.current = isCompleted;
+  }, [isCompleted, isFileEditDiff]);
 
   if (name === "invoke_subagent") {
     const args = message.toolCall?.arguments || {};
@@ -858,7 +882,6 @@ function ToolCallDisplay({ message }: { message: Message }) {
     });
 
     const displayName = formatToolName(name);
-    const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
 
     return (
       <div ref={cardRef} className="flex flex-col max-w-full">
@@ -908,12 +931,18 @@ function ToolCallDisplay({ message }: { message: Message }) {
               {!isWaitSubagents && !isCompleted && <span>...</span>}
               {isCompleted && message.toolResult?.diffSummary && nativeInfo.type === "edit" && (
                 <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
-                  <span className="text-emerald-600 dark:text-emerald-500 font-medium">
-                    +{message.toolResult.diffSummary.added}
-                  </span>
-                  <span className="text-rose-500 dark:text-rose-400 font-medium">
-                    -{message.toolResult.diffSummary.deleted}
-                  </span>
+                  {message.toolResult.diffSummary.error ? (
+                    <AlertTriangle size={13} className="text-amber-500" aria-label="Write failed" />
+                  ) : (
+                    <>
+                      <span className="text-emerald-600 dark:text-emerald-500 font-medium">
+                        +{message.toolResult.diffSummary.added}
+                      </span>
+                      <span className="text-rose-500 dark:text-rose-400 font-medium">
+                        -{message.toolResult.diffSummary.deleted}
+                      </span>
+                    </>
+                  )}
                 </span>
               )}
             </span>
@@ -943,6 +972,24 @@ function ToolCallDisplay({ message }: { message: Message }) {
             >
               {isWaitSubagents ? (
                 <SubagentEmbeddedChats message={message} />
+              ) : isFileEditDiff && diffSummary?.hunks ? (
+                <div className="flex flex-col gap-2 min-w-0">
+                  <FileEditDiffCard
+                    filename={diffSummary.filename || nativeInfo?.filename || name}
+                    added={diffSummary.added}
+                    deleted={diffSummary.deleted}
+                    hunks={diffSummary.hunks}
+                    language={diffSummary.language || "plaintext"}
+                    truncated={diffSummary.truncated}
+                    failed={diffSummary.error}
+                  />
+                  {diffSummary.error && (
+                    <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertTriangle size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="font-mono break-words min-w-0">{rawResult}</span>
+                    </div>
+                  )}
+                </div>
               ) : nativeInfo?.type === "bash" ? (
                 <ShellTranscript
                   command={getShellCommand(name, message.toolCall?.arguments)}

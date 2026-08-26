@@ -594,6 +594,122 @@ describe("sendWithToolLoop", () => {
     });
   });
 
+  it("preserves an intended diff when an MCP file write returns an error", async () => {
+    mockMaxToolSteps = 2;
+    mockStreamContent = "";
+    let modelCall = 0;
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "project_read") {
+        throw new Error("No such file or directory");
+      }
+      if (command === "chat_stream_tools") {
+        modelCall += 1;
+        if (modelCall === 1) {
+          return JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: "I’ll create the file.",
+                  tool_calls: [
+                    {
+                      id: "failed-mcp-write",
+                      function: {
+                        name: "workspace__write_file",
+                        arguments: JSON.stringify({
+                          file_path: "cap_bypass_poc.py",
+                          content: "#!/usr/bin/env python3\nprint('proof')",
+                        }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
+        return JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "The write failed." } }],
+        });
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockConversations.push({
+      id: "conv-mcp-write-error",
+      title: "Failed MCP write",
+      timestamp: new Date(),
+      model: "model-1",
+      messages: [{ id: "msg-mcp-write", role: "user", content: "Create the file", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-mcp-write-error": { state: "loading", label: "Loading" } },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+    const mcpCallTool = vi.fn().mockResolvedValue({
+      content: "Failed to write file: No such file or directory (os error 2)",
+      isError: true,
+    });
+
+    await sendWithToolLoop(
+      makeRunContext("conv-mcp-write-error", {
+        mcpTools: [
+          {
+            name: "write_file",
+            namespacedName: "workspace__write_file",
+            description: "Write a file",
+            inputSchema: {
+              type: "object",
+              properties: { file_path: { type: "string" }, content: { type: "string" } },
+              required: ["file_path", "content"],
+            },
+            serverId: "workspace",
+            serverName: "Workspace",
+          },
+        ],
+        mcpCallTool,
+      }),
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+    );
+
+    const failedWrite = state.conversations[0].messages.find(
+      (message) => message.toolCall?.id === "failed-mcp-write",
+    );
+    expect(mcpCallTool).toHaveBeenCalledWith(
+      "workspace",
+      "write_file",
+      expect.objectContaining({ file_path: "cap_bypass_poc.py" }),
+      "conv-mcp-write-error",
+    );
+    expect(failedWrite?.toolResult?.diffSummary).toMatchObject({
+      added: 2,
+      deleted: 0,
+      isNew: true,
+      filename: "cap_bypass_poc.py",
+      language: "python",
+      error: true,
+    });
+    expect(failedWrite?.toolResult?.diffSummary?.hunks?.[0].lines).toEqual([
+      { type: "add", newNumber: 1, content: "#!/usr/bin/env python3" },
+      { type: "add", newNumber: 2, content: "print('proof')" },
+    ]);
+  });
+
   it("keeps assistant narration visible when the same response requests a tool call", async () => {
     mockMaxToolSteps = 1;
     mockStreamReasoning = "";

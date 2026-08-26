@@ -718,6 +718,8 @@ export const ja = {
   "chat.tools.created": "新規作成しました",
   "chat.tools.edited": "編集しました",
   "chat.tools.editing": "編集中",
+  "chat.tools.createFailed": "作成に失敗",
+  "chat.tools.editFailed": "編集に失敗",
   "chat.tools.itemsCount": "（{count} 件）",
   "chat.tools.matchesCount": "（{count} 件の該当）",
   "chat.tools.filesCount": "（{count} 個のファイル）",
