@@ -636,9 +636,10 @@ pub(crate) fn validate_project_path(
 
     let user_path = Path::new(relative_path);
     if user_path.is_absolute() {
-        return Err(AppError::AppPath(
-            "Absolute paths are not allowed".to_string(),
-        ));
+        return Err(AppError::AppPath(format!(
+            "Absolute paths are not allowed. Use a path relative to the workspace root '{}' instead (for example 'src/main.rs').",
+            root.display()
+        )));
     }
     let full_path = root_canonical.join(user_path);
 
@@ -663,16 +664,18 @@ pub(crate) fn validate_project_path(
             AppError::AppPath(format!("Failed to canonicalize resolved path: {}", e))
         })?
     } else {
+        // Collect the not-yet-existing components from deepest to shallowest so
+        // they can be re-joined onto the closest existing ancestor. Pushing an
+        // empty PathBuf into the suffix would append a trailing separator, which
+        // made fs::write fail with ENOENT for every brand-new file.
         let mut ancestor = clean_path.as_path();
-        let mut suffix = PathBuf::new();
+        let mut missing_components = Vec::new();
         while let Some(parent) = ancestor.parent() {
             if ancestor.exists() {
                 break;
             }
             if let Some(name) = ancestor.file_name() {
-                let mut new_suffix = PathBuf::from(name);
-                new_suffix.push(&suffix);
-                suffix = new_suffix;
+                missing_components.push(name.to_os_string());
             }
             ancestor = parent;
         }
@@ -680,7 +683,11 @@ pub(crate) fn validate_project_path(
             let canon_ancestor = ancestor.canonicalize().map_err(|e| {
                 AppError::AppPath(format!("Failed to canonicalize ancestor: {}", e))
             })?;
-            canon_ancestor.join(suffix)
+            let mut resolved = canon_ancestor;
+            for name in missing_components.into_iter().rev() {
+                resolved.push(name);
+            }
+            resolved
         } else {
             clean_path.clone()
         }
@@ -709,6 +716,7 @@ mod tests {
         validate_project_run, validate_project_run_access, Project, ProjectExclusions,
         ProjectPermission, ProjectRegistry,
     };
+    use super::AppError;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -816,6 +824,62 @@ mod tests {
         assert!(validate_project_path(&project, "visible.txt", "read").is_ok());
 
         std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    #[test]
+    fn new_files_resolve_to_writable_paths_without_trailing_separators() {
+        let root = std::env::temp_dir().join(format!("sythoria-write-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+        std::fs::write(root.join("existing.txt"), "old content").expect("write existing file");
+
+        let mut project = test_project(root.clone());
+        project.permissions = ProjectPermission::Write;
+
+        // Regression: creating a brand-new file used to resolve with a trailing
+        // separator, which made fs::write fail with ENOENT (os error 2).
+        let new_at_root = validate_project_path(&project, "cap_bypass_poc.py", "write")
+            .expect("new file at workspace root");
+        assert!(
+            !new_at_root.to_string_lossy().ends_with('/'),
+            "resolved path must not end with a separator: {}",
+            new_at_root.display()
+        );
+        std::fs::write(&new_at_root, "poc").expect("write new file at workspace root");
+
+        let nested = validate_project_path(&project, "poc/sub/new.py", "write")
+            .expect("nested new file");
+        assert!(!nested.to_string_lossy().ends_with('/'));
+        std::fs::create_dir_all(nested.parent().expect("nested parent directory"))
+            .expect("create missing parent directories");
+        std::fs::write(&nested, "nested").expect("write nested new file");
+
+        let overwritten =
+            validate_project_path(&project, "existing.txt", "write").expect("existing file");
+        std::fs::write(&overwritten, "new content").expect("overwrite existing file");
+
+        assert!(absolute_paths_are_rejected_with_guidance(&project));
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("cap_bypass_poc.py")).expect("root file"),
+            "poc"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("poc/sub/new.py")).expect("nested file"),
+            "nested"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("existing.txt")).expect("overwritten file"),
+            "new content"
+        );
+
+        std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    fn absolute_paths_are_rejected_with_guidance(project: &Project) -> bool {
+        matches!(
+            validate_project_path(project, "/tmp/cap_bypass_poc.py", "write"),
+            Err(AppError::AppPath(message)) if message.contains("Absolute paths are not allowed") && message.contains("relative to the workspace root")
+        )
     }
 
     #[cfg(unix)]

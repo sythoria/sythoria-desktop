@@ -681,14 +681,14 @@ export function buildProjectToolDefinitions(project: Project | null) {
       function: {
         name: "project_write",
         description:
-          "Write content to a file within the project, overwriting it entirely. Creates directories if needed.",
+          "Write content to a file within the project, creating a new file or overwriting it entirely. Missing parent directories are created automatically. Paths must be workspace-relative; absolute paths are rejected.",
         parameters: {
           type: "object",
           properties: {
             file_path: {
               type: "string",
               description:
-                "Project-relative path to the file. Absolute paths and paths outside the workspace are rejected.",
+                "Project-relative path to the file (for example 'src/main.py'). Absolute paths and paths outside the workspace are rejected.",
             },
             content: { type: "string", description: "The content to write" },
           },

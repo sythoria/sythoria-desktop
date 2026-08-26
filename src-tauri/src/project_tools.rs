@@ -153,8 +153,13 @@ pub async fn project_write(
             fs::create_dir_all(parent)
                 .map_err(|e| AppError::AppPath(format!("Failed to create directories: {}", e)))?;
         }
-        fs::write(validated_path, content)
-            .map_err(|e| AppError::AppPath(format!("Failed to write file: {}", e)))
+        fs::write(&validated_path, content).map_err(|e| {
+            AppError::AppPath(format!(
+                "Failed to write file '{}': {}",
+                validated_path.display(),
+                e
+            ))
+        })
     })
     .await
     .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
