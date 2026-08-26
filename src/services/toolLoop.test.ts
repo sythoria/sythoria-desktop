@@ -594,6 +594,67 @@ describe("sendWithToolLoop", () => {
     });
   });
 
+  it("automatically publishes a successful root worktree after the run becomes idle", async () => {
+    mockStreamContent = "";
+    const project = {
+      id: "project-write",
+      name: "Write project",
+      path: "/workspace/write-project",
+      permissions: "write" as const,
+    };
+    const applyPendingWorktree = vi.fn().mockResolvedValue(true);
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_detect_repo") return project.path;
+      if (command === "git_worktree_create") {
+        return ["/worktrees/auto", "sythoria-agent-auto", "run-token"] as never;
+      }
+      if (command === "project_read") return "";
+      if (command === "chat_stream_tools") {
+        return JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "Implementation complete." } }],
+        });
+      }
+      if (command === "project_run_end") return undefined;
+      if (command === "git_worktree_cleanup_if_empty") return false;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockConversations.push({
+      id: "conv-write",
+      title: "Write project",
+      timestamp: new Date(),
+      model: "model-1",
+      projectId: project.id,
+      messages: [{ id: "msg-write", role: "user", content: "Implement it", timestamp: new Date() }],
+    });
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: true,
+      generationState: "loading",
+      generationLabel: "Loading",
+      generationByConversation: { "conv-write": { state: "loading", label: "Loading" } },
+      applyPendingWorktree,
+    };
+    const set = (fn: (current: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    await sendWithToolLoop(makeRunContext("conv-write", { project }), set, () => state, vi.fn(), vi.fn());
+
+    expect(applyPendingWorktree).toHaveBeenCalledWith("conv-write", { automatic: true });
+    expect(invokeMock).toHaveBeenCalledWith("git_worktree_cleanup_if_empty", {
+      projectId: project.id,
+      worktreePath: "/worktrees/auto",
+      branchName: "sythoria-agent-auto",
+    });
+  });
+
   it("preserves an intended diff when an MCP file write returns an error", async () => {
     mockMaxToolSteps = 2;
     mockStreamContent = "";

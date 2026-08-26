@@ -200,6 +200,15 @@ function ReviewPane({
   const [error, setError] = useState<string | null>(null);
   const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+  const isConversationWorking = useChatStore((state) => {
+    if (!conversationId) return false;
+    return (
+      isGenerationActive(state.generationByConversation[conversationId]?.state) ||
+      state.conversations.some(
+        (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+      )
+    );
+  });
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -208,11 +217,17 @@ function ReviewPane({
     try {
       const [nextStatus, diff] = await Promise.all([
         invoke<GitStatus>("git_get_status", { projectId, worktreePath: worktreePath || null }),
-        invoke<string>("git_diff_changes", { projectId, worktreePath: worktreePath || null }),
+        invoke<string>("git_diff_changes", {
+          projectId,
+          worktreePath: worktreePath || null,
+          files: null,
+          runToken: null,
+        }),
       ]);
       const parsed = parseGitDiff(diff);
       const parsedPaths = new Set(parsed.flatMap((file) => [file.path, file.oldPath]));
       const statusOnlyFiles = [...new Set([...nextStatus.stagedFiles, ...nextStatus.unstagedFiles])]
+        .filter((path) => !path.endsWith("/"))
         .filter((path) => !parsedPaths.has(path))
         .map<DiffFile>((path) => ({
           path,
@@ -296,26 +311,32 @@ function ReviewPane({
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
-        {worktreePath && conversationId && (
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={() => void resolveWorktree("discard")}
-              disabled={!!actionLoading}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-            >
-              {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-              Discard
-            </button>
-            <button
-              onClick={() => void resolveWorktree("apply")}
-              disabled={!!actionLoading}
-              className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
-            >
-              {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-              Apply changes
-            </button>
-          </div>
-        )}
+        {worktreePath &&
+          conversationId &&
+          (isConversationWorking ? (
+            <p className="mt-3 text-[11px] text-text-muted" role="status">
+              Live agent changes are isolated until the run finishes.
+            </p>
+          ) : (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => void resolveWorktree("discard")}
+                disabled={!!actionLoading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+              >
+                {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Discard
+              </button>
+              <button
+                onClick={() => void resolveWorktree("apply")}
+                disabled={!!actionLoading}
+                className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
+              >
+                {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Apply changes
+              </button>
+            </div>
+          ))}
       </div>
 
       {error ? (
@@ -1205,7 +1226,6 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
           <ChatArea
             messages={messages}
             conversationId={conversationId}
-            pendingWorktree={conversation.pendingWorktree}
             onRetry={() => void retryLastMessage(conversationId)}
           />
         )}

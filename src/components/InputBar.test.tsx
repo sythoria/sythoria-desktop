@@ -7,6 +7,10 @@ import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
 
+vi.mock("./WorkspaceChangeIndicator", () => ({
+  WorkspaceChangeIndicator: () => <button aria-label="Live workspace changes">1 file changed</button>,
+}));
+
 const mockModels: ModelConfig[] = [
   {
     id: "model-1",
@@ -39,6 +43,41 @@ const defaultMcpProps = {
 };
 
 describe("InputBar", () => {
+  it("keeps the file-change indicator inside the composer dock above the editor", () => {
+    useChatStore.setState({
+      activeId: "changed-chat",
+      conversations: [
+        {
+          id: "changed-chat",
+          title: "Changed chat",
+          timestamp: new Date(),
+          messages: [],
+          model: "model-1",
+          projectId: "project-a",
+        },
+      ],
+    });
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const indicator = screen.getByRole("button", { name: "Live workspace changes" });
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    expect(indicator.closest(".chat-composer-dock")).toBe(editor.closest(".chat-composer-dock"));
+    expect(indicator.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    useChatStore.setState({ activeId: null, conversations: [] });
+  });
+
   it("renders the placeholder outside the editable DOM", () => {
     render(
       <InputBar
@@ -445,11 +484,10 @@ describe("InputBar", () => {
 
     await user.click(screen.getByLabelText("Send message"));
 
-    expect(onSend).toHaveBeenCalledWith(
-      "Open this using [MCP: Documents][MCP: Documents] please",
-      undefined,
-      ["documents", "documents"],
-    );
+    expect(onSend).toHaveBeenCalledWith("Open this using [MCP: Documents][MCP: Documents] please", undefined, [
+      "documents",
+      "documents",
+    ]);
     expect(editor).toHaveTextContent("");
   });
 

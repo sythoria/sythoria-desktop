@@ -34,6 +34,8 @@ const defaultProps = {
 describe("ChatArea", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    useProjectStore.setState({ isProjectsEnabled: true });
+    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: null, activeAuxConversationId: null });
   });
   it("shows empty state when no messages", () => {
     render(<ChatArea messages={[]} {...defaultProps} />);
@@ -79,6 +81,90 @@ describe("ChatArea", () => {
 
     expect(screen.getByRole("log")).toBeInTheDocument();
     expect(screen.getByText("bold")).toBeInTheDocument();
+  });
+
+  it("shows completed file edits with an expandable list and opens the full Review", async () => {
+    const user = userEvent.setup();
+    const messages = [makeMessage({ id: "published-answer", role: "assistant", content: "Finished the changes." })];
+    const conversation: Conversation = {
+      id: "published-chat",
+      title: "Published chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+      workspaceChanges: {
+        projectId: "project-a",
+        appliedAt: new Date(),
+        undoToken: "undo-token",
+        files: [
+          { path: "src/one.ts", additions: 4, deletions: 1 },
+          { path: "src/two.ts", additions: 3, deletions: 2 },
+          { path: "src/three.ts", additions: 2, deletions: 0 },
+          { path: "src/four.ts", additions: 1, deletions: 1 },
+          { path: "src/five.ts", additions: 5, deletions: 0 },
+        ],
+      },
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    const summary = screen.getByRole("region", { name: "Workspace change summary" });
+    expect(summary).toHaveTextContent("Edited 5 files");
+    expect(summary).toHaveTextContent("+15");
+    expect(summary).toHaveTextContent("−4");
+    expect(screen.getByText("src/three.ts")).toBeInTheDocument();
+    expect(screen.queryByText("src/four.ts")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show 2 more files" }));
+    expect(screen.getByText("src/four.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/five.ts")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(useUIStore.getState().activeAuxTab).toBe("review");
+    expect(useUIStore.getState().activeAuxConversationId).toBe(conversation.id);
+    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
+  });
+
+  it("safely undoes the published agent patch from the completed edit card", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockResolvedValue(undefined as never);
+    const messages = [makeMessage({ id: "undo-answer", role: "assistant", content: "Finished." })];
+    const conversation: Conversation = {
+      id: "undo-chat",
+      title: "Undo chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+      workspaceChanges: {
+        projectId: "project-a",
+        appliedAt: new Date(),
+        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+        files: [{ path: "src/App.tsx", additions: 2, deletions: 1 }],
+      },
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("git_worktree_undo", {
+        projectId: "project-a",
+        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Workspace change summary" })).not.toBeInTheDocument(),
+    );
   });
 
   it("shows loading text when assistant is streaming with empty content", () => {
@@ -397,9 +483,7 @@ describe("ChatArea", () => {
     rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
     await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toBeInTheDocument());
     expect(screen.getByTestId("working-collapsed-preview")).not.toHaveClass("pl-5");
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent(
-      "I’m checking the component state now.",
-    );
+    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("I’m checking the component state now.");
 
     const completedFinal = {
       ...streamingFinal,
@@ -609,288 +693,5 @@ describe("ChatArea", () => {
     await user.click(workDisclosure);
     expect(screen.getByText("Thought for 6s")).toBeInTheDocument();
     expect(document.querySelector('[aria-label="Assistant message: "]')).not.toBeInTheDocument();
-  });
-
-  it("keeps recovery actions visible when the worktree status is empty", async () => {
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") return { unstagedFiles: [], stagedFiles: [] } as never;
-      if (command === "git_diff_changes") return "" as never;
-      return undefined as never;
-    });
-    const pendingWorktree = {
-      path: "/worktrees/run-a",
-      branch: "sythoria-agent-a",
-      commitScope: {
-        projectId: "project-a",
-        projectRoot: "/projects/a",
-        modelId: "model-a",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "pending-chat",
-          title: "Pending chat",
-          timestamp: new Date(),
-          messages: [makeMessage()],
-          model: "model-a",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage()]}
-        {...defaultProps}
-        conversationId="pending-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    expect(await screen.findByText(/Committed or binary-only changes/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
-    expect(invokeMock).toHaveBeenCalledWith("git_get_status", {
-      projectId: "project-a",
-      worktreePath: "/worktrees/run-a",
-    });
-  });
-
-  it("keeps recovery actions and retry visible when status loading fails", async () => {
-    invokeMock.mockRejectedValue(new Error("status unavailable"));
-    const pendingWorktree = {
-      path: "/worktrees/run-b",
-      branch: "sythoria-agent-b",
-      commitScope: {
-        projectId: "project-b",
-        projectRoot: "/projects/b",
-        modelId: "model-b",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "errored-pending-chat",
-          title: "Errored pending chat",
-          timestamp: new Date(),
-          messages: [makeMessage()],
-          model: "model-b",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage()]}
-        {...defaultProps}
-        conversationId="errored-pending-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/file list could not be loaded/i);
-    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
-  });
-
-  it("renders a Codex-style inline change summary and opens review", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") {
-        return { unstagedFiles: ["src/App.tsx"], stagedFiles: [] } as never;
-      }
-      if (command === "git_diff_changes") {
-        return `diff --git a/src/App.tsx b/src/App.tsx
---- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -1 +1 @@
--old
-+new` as never;
-      }
-      return undefined as never;
-    });
-    const pendingWorktree = {
-      path: "/worktrees/run-c",
-      branch: "sythoria-agent-c",
-      commitScope: {
-        projectId: "project-c",
-        projectRoot: "/projects/c",
-        modelId: "model-c",
-      },
-    };
-    useProjectStore.setState({ isProjectsEnabled: true });
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: "files", activeAuxConversationId: null });
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "changed-chat",
-          title: "Changed chat",
-          timestamp: new Date(),
-          messages: [makeMessage({ role: "assistant", content: "Implemented the change." })],
-          model: "model-c",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage({ role: "assistant", content: "Implemented the change." })]}
-        {...defaultProps}
-        conversationId="changed-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const summary = await screen.findByRole("region", { name: "Workspace change summary" });
-    expect(summary).toHaveTextContent("Edited 1 file");
-    expect(summary).toHaveTextContent("src/App.tsx");
-    expect(summary).toHaveTextContent("+1");
-    expect(summary).toHaveTextContent("−1");
-
-    await user.click(screen.getByRole("button", { name: "Review" }));
-    expect(useUIStore.getState().activeAuxTab).toBe("review");
-    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
-    expect(useUIStore.getState().activeAuxConversationId).toBe("changed-chat");
-  });
-
-  it("shows a live changed-file pill while generation is active", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") {
-        return { unstagedFiles: ["src/App.tsx", "src/Sidebar.tsx"], stagedFiles: [] } as never;
-      }
-      if (command === "git_diff_changes") {
-        return `diff --git a/src/App.tsx b/src/App.tsx
---- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -1 +1 @@
--old
-+new
-diff --git a/src/Sidebar.tsx b/src/Sidebar.tsx
---- a/src/Sidebar.tsx
-+++ b/src/Sidebar.tsx
-@@ -1 +1 @@
--old
-+new` as never;
-      }
-      return undefined as never;
-    });
-    const assistantMessage = makeMessage({ role: "assistant", content: "Still working...", isStreaming: true });
-    const pendingWorktree = {
-      path: "/worktrees/run-live",
-      branch: "sythoria-agent-live",
-      commitScope: {
-        projectId: "project-live",
-        projectRoot: "/projects/live",
-        modelId: "model-live",
-      },
-    };
-    useProjectStore.setState({ isProjectsEnabled: true });
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: "files", activeAuxConversationId: null });
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "live-chat",
-          title: "Live chat",
-          timestamp: new Date(),
-          messages: [assistantMessage],
-          model: "model-live",
-          pendingWorktree,
-        },
-      ],
-      generationByConversation: {
-        "live-chat": { state: "responding", label: "Responding" },
-      },
-    });
-
-    render(
-      <ChatArea
-        messages={[assistantMessage]}
-        {...defaultProps}
-        conversationId="live-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const liveSummary = await screen.findByRole("button", { name: /2 files changed/i });
-    expect(liveSummary).toHaveTextContent("+2");
-    expect(liveSummary).toHaveTextContent("−2");
-    expect(screen.queryByRole("region", { name: "Workspace change summary" })).not.toBeInTheDocument();
-
-    await user.click(liveSummary);
-    expect(useUIStore.getState().activeAuxTab).toBe("review");
-    expect(useUIStore.getState().activeAuxConversationId).toBe("live-chat");
-  });
-
-  it("shows three edited files initially and expands the remaining files in place", async () => {
-    const user = userEvent.setup();
-    const paths = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") return { unstagedFiles: paths, stagedFiles: [] } as never;
-      if (command === "git_diff_changes") {
-        return paths
-          .map(
-            (path) => `diff --git a/${path} b/${path}
---- a/${path}
-+++ b/${path}
-@@ -1 +1 @@
--old
-+new`,
-          )
-          .join("\n");
-      }
-      return undefined as never;
-    });
-    const assistantMessage = makeMessage({ role: "assistant", content: "Implemented all requested changes." });
-    const pendingWorktree = {
-      path: "/worktrees/run-expanded",
-      branch: "sythoria-agent-expanded",
-      commitScope: {
-        projectId: "project-expanded",
-        projectRoot: "/projects/expanded",
-        modelId: "model-expanded",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "expanded-chat",
-          title: "Expanded chat",
-          timestamp: new Date(),
-          messages: [assistantMessage],
-          model: "model-expanded",
-          pendingWorktree,
-        },
-      ],
-      generationByConversation: {
-        "expanded-chat": { state: "idle", label: "" },
-      },
-    });
-
-    render(
-      <ChatArea
-        messages={[assistantMessage]}
-        {...defaultProps}
-        conversationId="expanded-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const summary = await screen.findByRole("region", { name: "Workspace change summary" });
-    expect(summary).toHaveTextContent("Edited 4 files");
-    expect(screen.getByText("src/a.ts")).toBeInTheDocument();
-    expect(screen.getByText("src/c.ts")).toBeInTheDocument();
-    expect(screen.queryByText("src/d.ts")).not.toBeInTheDocument();
-
-    const expandButton = screen.getByRole("button", { name: "Show 1 more file" });
-    expect(expandButton).toHaveAttribute("aria-expanded", "false");
-    await user.click(expandButton);
-    expect(screen.getByText("src/d.ts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show fewer files" })).toHaveAttribute("aria-expanded", "true");
   });
 });

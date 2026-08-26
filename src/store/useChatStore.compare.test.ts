@@ -476,13 +476,18 @@ describe("transactional chat deletion", () => {
   });
 });
 
-describe("worktree approval", () => {
-  it("auto-commits only returned worktree paths after apply succeeds", async () => {
+describe("worktree publishing", () => {
+  it("publishes one shared worktree, records its files, and auto-commits only returned paths", async () => {
     const invokeMock = vi.mocked(invoke);
     const autoCommitIfNeeded = vi.fn().mockResolvedValue(undefined);
     const originalAutoCommit = useGitStore.getState().autoCommitIfNeeded;
     invokeMock.mockImplementation(async (command) => {
-      if (command === "git_worktree_apply") return ["src/ai.ts", "src/new.ts"];
+      if (command === "git_worktree_apply") {
+        return {
+          changedPaths: ["src/ai.ts", "src/new.ts"],
+          undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+        };
+      }
       throw new Error(`Unexpected command: ${command}`);
     });
     useGitStore.setState({ autoCommitIfNeeded });
@@ -515,6 +520,22 @@ describe("worktree approval", () => {
             },
           },
         },
+        {
+          ...comparisonConversation,
+          id: "shared-subagent",
+          parentId: primaryConversation.id,
+          isSubagent: true,
+          projectId: "project-a",
+          pendingWorktree: {
+            path: "/worktrees/run-a",
+            branch: "sythoria-agent-a",
+            commitScope: {
+              projectId: "project-a",
+              projectRoot: "/projects/a",
+              modelId: "model-a",
+            },
+          },
+        },
       ],
       activeId: primaryConversation.id,
     });
@@ -528,7 +549,15 @@ describe("worktree approval", () => {
         modelId: "model-a",
         files: ["src/ai.ts", "src/new.ts"],
       });
-      expect(useChatStore.getState().conversations[0].pendingWorktree).toBeUndefined();
+      expect(useChatStore.getState().conversations.every((conversation) => !conversation.pendingWorktree)).toBe(true);
+      expect(useChatStore.getState().conversations[0].workspaceChanges).toMatchObject({
+        projectId: "project-a",
+        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+        files: [
+          { path: "src/ai.ts", additions: 0, deletions: 0 },
+          { path: "src/new.ts", additions: 0, deletions: 0 },
+        ],
+      });
     } finally {
       useGitStore.setState({ autoCommitIfNeeded: originalAutoCommit });
       invokeMock.mockReset();

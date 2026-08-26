@@ -84,9 +84,9 @@ src/
     motion-tokens.ts    # Animation tokens, springs, and motion config (reduced motion / low-end detection)
   components/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
-    ChatArea.tsx        # Messages, markdown, streaming, comparison columns, inline tool diffs, worktree approvals
+    ChatArea.tsx        # Messages, markdown, streaming, completed edit summaries, comparison columns, and inline tool diffs
     FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
-    InputBar.tsx        # Composer orchestration, model selector, tools, attachments, large-paste files, send/stop
+    InputBar.tsx        # Composer orchestration, live changed-files indicator, model selector, tools, attachments, send/stop
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
     settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)
@@ -127,7 +127,7 @@ src-tauri/src/
 
 ## State (11 Zustand stores)
 
-- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `applyPendingWorktree()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence. Project reassignment and compare teardown are blocked while their conversations own pending worktrees.
+- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `applyPendingWorktree()`, `undoWorkspaceChanges()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Successfully completed root runs publish their shared isolated worktree automatically and persist a `workspaceChanges` summary for the final assistant edit card. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence. Project reassignment and compare teardown are blocked only while their conversations own unresolved recovery worktrees.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, 1–200) with an `unlimitedToolSteps` toggle that disables the cap entirely, `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), and stream handlers keyed by native `streamId`.
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, and persisted `enabledServerIds` for native execution/startup reconnect. Composer drafts reference connected servers with repeatable inline labels; each accepted send snapshots the referenced IDs and exposes tools only from those servers. Removing a draft label never stops a connected server; Settings disable/disconnect controls its lifecycle. The store also maintains connection generations that prevent stale connection publication, conversation-scoped active tool-call request IDs, transactional async disable/delete, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `cancelConversationToolCalls()`, `toggleServerEnabled()`, `getToolsForServers()`, `setEnvSecrets()`.
@@ -148,7 +148,7 @@ src-tauri/src/
 - **Agent Skills**: Sythoria discovers portable packages only from `~/.agents/skills/<id>/SKILL.md`. `read_skill` paginates `SKILL.md`; `list_skill_resources` and `read_skill_resource` expose bounded UTF-8 package files while rejecting traversal, symlinks, excessive depth/count, and oversized content. Settings edits preserve unknown YAML frontmatter and use atomic writes. Codex-private `.codex/skills/.system` packages are intentionally excluded because they may require Codex-only tools and resource providers.
 - **Inline MCP references**: The composer uses removable, repeatable MCP labels inside the prompt editor. Submitted message text preserves each label as a readable `[MCP: server name]` marker for model context and copy actions, while user-message rendering turns that marker back into a visual MCP chip. The message also stores `mcpServerIds` metadata so retries can recreate the same per-turn tool scope. A referenced server contributes tools only when its ID appears in that prompt snapshot; sends are rejected instead of silently falling back when a referenced server exposes no tools.
 - **Context assembly**: Every model request reserves provider-specific output and tool capacity, structurally summarizes oversized tool results, prioritizes the system prompt and latest turn, and slides or summarizes older history to fit the configured context size. Unknown context sizes remain explicit and use a conservative internal assembly ceiling. The stored transcript is not rewritten; the UI adds a disclosure when request context is condensed.
-- **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`) from an internal snapshot of the current working copy, including uncommitted tracked files and non-ignored untracked files. A private baseline ref keeps those pre-existing files readable without classifying them as agent changes. Subsequent file writes, edits, and commands execute in the isolated path (`worktreePath`) without polluting the main directory. The changes are displayed as a pending worktree in the UI for user review.
+- **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`) from an internal snapshot of the current working copy, including uncommitted tracked files and non-ignored untracked files. A private baseline ref keeps those pre-existing files readable without classifying them as agent changes. File writes, edits, commands, and subagents execute in the isolated path (`worktreePath`) while the run is active. When the root run and every worktree-sharing subagent are idle, a successful run publishes the complete patch to the main workspace automatically. Cancelled, failed, or conflicting runs keep the worktree intact for explicit recovery.
 
 ## Logging System
 
@@ -178,9 +178,10 @@ Native and MCP file write/edit results capture bounded diff hunks for the inline
 
 1. A write-capable tool loop starts → backend snapshots the current working copy and creates an isolated worktree (`git_worktree_create`) from that snapshot.
 2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
-3. Conversation gains `pendingWorktree` details, including its captured commit scope → ChatArea renders a recovery card for real changes, including committed/binary-only or temporarily unavailable status. A successfully completed root run automatically removes a truly unchanged worktree after all runs sharing it become idle.
-4. User selects **Apply** (`git_worktree_apply`) to merge, or **Discard** (`git_worktree_discard`) to delete. Apply compares the staged worktree state to its private creation baseline so committed branch-ahead and uncommitted agent changes are preserved without reapplying the user's pre-existing working-copy changes, then returns the authoritative AI-changed path list; optional auto-commit runs only afterward and commits only those paths.
-5. Project switching/detachment and compare-mode teardown remain blocked until the recovery action completes; legacy detached records recover their project ID from `commitScope`.
+3. Conversation gains `pendingWorktree` details, including its captured commit scope → while the run is active, the composer renders a compact live changed-files indicator and Review reads the worktree relative to its private baseline, including committed and newly created files.
+4. Once a successful root run and all worktree-sharing subagents are idle, `git_worktree_apply` publishes the patch automatically, removes the worktree, and stores the authoritative changed paths/counts plus an opaque undo token in `workspaceChanges`. The compact composer indicator disappears and the final assistant response renders an expandable edit summary. Review then targets the real project and always shows every staged, unstaged, and untracked change; optional auto-commit runs only afterward and commits only the agent paths.
+5. Completed-edit **Undo** reverses the exact saved agent patch only after a native reverse dry-run succeeds. Later conflicting workspace edits are never overwritten; Git rejects the undo and leaves them intact.
+6. If generation is cancelled, fails, or automatic publishing conflicts with the working copy, the worktree remains intact. Manual **Apply changes** / **Discard** actions remain available in Review. Project switching/detachment and compare teardown are blocked only until this recovery action completes; legacy detached records recover their project ID from `commitScope`.
 
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
@@ -240,6 +241,13 @@ export interface PendingWorktree {
   };
 }
 
+export interface WorkspaceChangeSet {
+  projectId: string;
+  files: { path: string; additions: number; deletions: number }[];
+  appliedAt: Date;
+  undoToken?: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -248,6 +256,7 @@ export interface Conversation {
   model: string;
   projectId?: string;
   pendingWorktree?: PendingWorktree;
+  workspaceChanges?: WorkspaceChangeSet;
   isPinned?: boolean;
 }
 
@@ -321,7 +330,7 @@ export interface ModelConfig {
 | `project_browse_begin`                                                    | Issues a read-only Files panel capability                       |
 | `git_detect_repo` / `git_get_status`                                      | Identifies local repositories and dirty tracking                |
 | `git_create_commit` / `git_undo_last_commit`                              | Creates commits, commits with AI msgs, soft-resets              |
-| `git_worktree_create` / `git_worktree_apply`                              | Create isolated workspace paths or apply changes                |
+| `git_worktree_create` / `git_worktree_apply` / `git_worktree_undo`        | Create, publish, or safely reverse isolated workspace patches   |
 | `git_worktree_cleanup_if_empty`                                           | Remove a verified isolated worktree only when it has no changes |
 | `git_worktree_discard`                                                    | Prunes isolated branches and deletes worktree dirs              |
 | `project_read` / `project_write` / `project_edit`                         | Workspace-scoped file tools                                     |

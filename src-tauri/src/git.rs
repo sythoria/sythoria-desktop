@@ -2,11 +2,24 @@ use crate::AppError;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 const WORKTREE_BASELINE_REF_PREFIX: &str = "refs/sythoria/baselines";
+const WORKSPACE_UNDO_DIR: &str = "workspace-undo";
+
+struct AppliedWorktreeChanges {
+    changed_paths: Vec<String>,
+    patch: Vec<u8>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeApplyResult {
+    pub changed_paths: Vec<String>,
+    pub undo_token: Option<String>,
+}
 
 struct TemporaryGitIndex {
     path: PathBuf,
@@ -557,7 +570,7 @@ async fn run_git_apply(
 async fn apply_worktree_changes(
     repo_path: &Path,
     worktree_dir: &Path,
-) -> Result<Vec<String>, AppError> {
+) -> Result<AppliedWorktreeChanges, AppError> {
     let add_output = Command::new("git")
         .arg("-C")
         .arg(worktree_dir)
@@ -630,7 +643,10 @@ async fn apply_worktree_changes(
     }
 
     if changed_paths.is_empty() {
-        return Ok(changed_paths);
+        return Ok(AppliedWorktreeChanges {
+            changed_paths,
+            patch: Vec::new(),
+        });
     }
 
     let mut patch_command = Command::new("git");
@@ -668,7 +684,48 @@ async fn apply_worktree_changes(
     )
     .await?;
 
-    Ok(changed_paths)
+    Ok(AppliedWorktreeChanges {
+        changed_paths,
+        patch: patch_output.stdout,
+    })
+}
+
+fn workspace_undo_patch_path(app: &AppHandle, token: &str) -> Result<PathBuf, AppError> {
+    let parsed = uuid::Uuid::parse_str(token)
+        .map_err(|_| AppError::GitError("Invalid workspace undo token".to_string()))?;
+    let undo_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::GitError(format!("Failed to resolve app data directory: {e}")))?
+        .join(WORKSPACE_UNDO_DIR);
+    Ok(undo_dir.join(format!("{parsed}.patch")))
+}
+
+fn store_workspace_undo_patch(app: &AppHandle, patch: &[u8]) -> Result<String, AppError> {
+    let token = uuid::Uuid::new_v4().to_string();
+    let patch_path = workspace_undo_patch_path(app, &token)?;
+    let undo_dir = patch_path
+        .parent()
+        .ok_or_else(|| AppError::GitError("Invalid workspace undo directory".to_string()))?;
+    std::fs::create_dir_all(undo_dir).map_err(|e| {
+        AppError::GitError(format!("Failed to create workspace undo directory: {e}"))
+    })?;
+    std::fs::write(&patch_path, patch)
+        .map_err(|e| AppError::GitError(format!("Failed to save workspace undo patch: {e}")))?;
+    Ok(token)
+}
+
+async fn undo_workspace_patch(repo_path: &Path, patch: &[u8]) -> Result<(), AppError> {
+    // The reverse dry-run prevents Undo from overwriting edits made after the
+    // agent patch was published. Conflicting follow-up work is left untouched.
+    run_git_apply(
+        repo_path,
+        patch,
+        &["--reverse", "--check"],
+        "workspace undo check",
+    )
+    .await?;
+    run_git_apply(repo_path, patch, &["--reverse"], "workspace undo").await
 }
 
 #[tauri::command]
@@ -769,12 +826,14 @@ pub async fn git_get_status(
         .trim()
         .to_string();
 
-    // 3. Get status --porcelain
+    // 3. Enumerate untracked files rather than collapsing their parent folders
+    // (for example, report `.claude/skills.md`, never `.claude/`).
     let status_output = Command::new("git")
         .arg("-C")
         .arg(&repo_path_str)
         .arg("status")
         .arg("--porcelain")
+        .arg("--untracked-files=all")
         .output()
         .await
         .map_err(|e| AppError::GitError(e.to_string()))?;
@@ -1130,48 +1189,146 @@ pub async fn git_diff_changes(
         run_token.as_deref(),
     )?;
     let repo_path_str = repo_path.to_string_lossy().into_owned();
-
-    let mut diff_cmd = Command::new("git");
-    diff_cmd.arg("-C").arg(&repo_path_str).arg("diff").arg("--");
-    if let Some(file_list) = files.as_ref() {
-        diff_cmd.args(file_list);
-    }
-    let output = diff_cmd
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to run git diff: {}", e)))?;
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-
-    // Also include cached diff (staged)
-    let mut cached_diff_cmd = Command::new("git");
-    cached_diff_cmd
-        .arg("-C")
-        .arg(&repo_path_str)
-        .arg("diff")
-        .arg("--cached")
-        .arg("--");
-    if let Some(file_list) = files.as_ref() {
-        cached_diff_cmd.args(file_list);
-    }
-    let cached_output = cached_diff_cmd
-        .output()
-        .await
-        .map_err(|e| AppError::GitError(format!("Failed to run git diff --cached: {}", e)))?;
-
-    let cached_str = String::from_utf8_lossy(&cached_output.stdout);
+    let worktree_baseline = if worktree_path.is_some() {
+        resolve_optional_worktree_baseline(&repo_path).await?
+    } else {
+        None
+    };
 
     let mut combined_diff = String::new();
-    if !stdout_str.is_empty() {
-        combined_diff.push_str("--- UNSTAGED CHANGES ---\n");
-        combined_diff.push_str(&stdout_str);
+
+    if let Some(baseline) = worktree_baseline.as_deref() {
+        // A worktree may contain both committed and uncommitted agent edits.
+        // Comparing its live filesystem to the private creation baseline keeps
+        // Review complete without including the user's pre-existing dirty state.
+        let mut diff_cmd = Command::new("git");
+        diff_cmd
+            .arg("-C")
+            .arg(&repo_path_str)
+            .arg("diff")
+            .arg(baseline)
+            .arg("--");
+        if let Some(file_list) = files.as_ref() {
+            diff_cmd.args(file_list);
+        }
+        let output = diff_cmd
+            .output()
+            .await
+            .map_err(|e| AppError::GitError(format!("Failed to run worktree git diff: {e}")))?;
+        if !output.status.success() {
+            return Err(AppError::GitError(format!(
+                "Failed to run worktree git diff: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        combined_diff.push_str(&String::from_utf8_lossy(&output.stdout));
+    } else {
+        let mut diff_cmd = Command::new("git");
+        diff_cmd.arg("-C").arg(&repo_path_str).arg("diff").arg("--");
+        if let Some(file_list) = files.as_ref() {
+            diff_cmd.args(file_list);
+        }
+        let output = diff_cmd
+            .output()
+            .await
+            .map_err(|e| AppError::GitError(format!("Failed to run git diff: {e}")))?;
+        if !output.status.success() {
+            return Err(AppError::GitError(format!(
+                "Failed to run git diff: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+
+        if !output.stdout.is_empty() {
+            combined_diff.push_str("--- UNSTAGED CHANGES ---\n");
+            combined_diff.push_str(&String::from_utf8_lossy(&output.stdout));
+        }
+
+        // Also include cached diff (staged).
+        let mut cached_diff_cmd = Command::new("git");
+        cached_diff_cmd
+            .arg("-C")
+            .arg(&repo_path_str)
+            .arg("diff")
+            .arg("--cached")
+            .arg("--");
+        if let Some(file_list) = files.as_ref() {
+            cached_diff_cmd.args(file_list);
+        }
+        let cached_output = cached_diff_cmd
+            .output()
+            .await
+            .map_err(|e| AppError::GitError(format!("Failed to run git diff --cached: {e}")))?;
+        if !cached_output.status.success() {
+            return Err(AppError::GitError(format!(
+                "Failed to run git diff --cached: {}",
+                String::from_utf8_lossy(&cached_output.stderr).trim()
+            )));
+        }
+        if !cached_output.stdout.is_empty() {
+            if !combined_diff.is_empty() {
+                combined_diff.push('\n');
+            }
+            combined_diff.push_str("--- STAGED CHANGES ---\n");
+            combined_diff.push_str(&String::from_utf8_lossy(&cached_output.stdout));
+        }
     }
-    if !cached_str.is_empty() {
+
+    // `git diff` omits untracked files. Add no-index patches so newly created
+    // files report real line counts and render normally in Review.
+    let mut untracked_cmd = Command::new("git");
+    untracked_cmd.arg("-C").arg(&repo_path_str).args([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+    ]);
+    if let Some(file_list) = files.as_ref() {
+        untracked_cmd.args(file_list);
+    }
+    let untracked_output = untracked_cmd
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to list untracked files: {e}")))?;
+    if !untracked_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to list untracked files: {}",
+            String::from_utf8_lossy(&untracked_output.stderr).trim()
+        )));
+    }
+    for raw_path in untracked_output.stdout.split(|byte| *byte == 0) {
+        if raw_path.is_empty() {
+            continue;
+        }
+        let path = String::from_utf8(raw_path.to_vec()).map_err(|_| {
+            AppError::GitError("Git returned a non-UTF-8 untracked path".to_string())
+        })?;
+        resolve_git_relative_path(&repo_path, &path)?;
+        let patch_output = Command::new("git")
+            .arg("-C")
+            .arg(&repo_path_str)
+            .args(["diff", "--no-index", "--binary", "--", "/dev/null"])
+            .arg(&path)
+            .output()
+            .await
+            .map_err(|e| {
+                AppError::GitError(format!("Failed to diff untracked file {path}: {e}"))
+            })?;
+        if !matches!(patch_output.status.code(), Some(0 | 1)) {
+            return Err(AppError::GitError(format!(
+                "Failed to diff untracked file {path}: {}",
+                String::from_utf8_lossy(&patch_output.stderr).trim()
+            )));
+        }
+        if patch_output.stdout.is_empty() {
+            continue;
+        }
         if !combined_diff.is_empty() {
             combined_diff.push('\n');
         }
-        combined_diff.push_str("--- STAGED CHANGES ---\n");
-        combined_diff.push_str(&cached_str);
+        combined_diff.push_str("--- UNTRACKED CHANGE ---\n");
+        combined_diff.push_str(&String::from_utf8_lossy(&patch_output.stdout));
     }
 
     Ok(combined_diff)
@@ -1312,11 +1469,12 @@ async fn create_worktree_for_project(
 
 #[tauri::command]
 pub async fn git_worktree_apply(
+    app: AppHandle,
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
     worktree_path: String,
     branch_name: String,
-) -> Result<Vec<String>, AppError> {
+) -> Result<WorktreeApplyResult, AppError> {
     let project = state
         .projects
         .lock()
@@ -1342,10 +1500,36 @@ pub async fn git_worktree_apply(
 
     // Cleanup is intentionally unreachable until the complete patch has been
     // applied and independently verified by Git.
-    let changed_paths = apply_worktree_changes(&repo_path, &worktree_dir).await?;
+    let applied = apply_worktree_changes(&repo_path, &worktree_dir).await?;
+    let undo_token = if applied.patch.is_empty() {
+        None
+    } else {
+        Some(store_workspace_undo_patch(&app, &applied.patch)?)
+    };
     cleanup_worktree_internal(&project, &repo_path_str, &worktree_path, &branch_name).await?;
 
-    Ok(changed_paths)
+    Ok(WorktreeApplyResult {
+        changed_paths: applied.changed_paths,
+        undo_token,
+    })
+}
+
+#[tauri::command]
+pub async fn git_worktree_undo(
+    app: AppHandle,
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    undo_token: String,
+) -> Result<(), AppError> {
+    let repo_path = get_and_validate_git_project(&state, &project_id, true, None, false, None)?;
+    let patch_path = workspace_undo_patch_path(&app, &undo_token)?;
+    let patch = std::fs::read(&patch_path)
+        .map_err(|e| AppError::GitError(format!("This change can no longer be undone: {e}")))?;
+
+    undo_workspace_patch(&repo_path, &patch).await?;
+    std::fs::remove_file(&patch_path)
+        .map_err(|e| AppError::GitError(format!("Changes were undone, but cleanup failed: {e}")))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1560,8 +1744,8 @@ mod tests {
     use super::{
         apply_worktree_changes, cleanup_worktree_internal, create_commit_in_repository,
         create_worktree_for_project, detect_git_repository, parse_changed_paths,
-        resolve_git_relative_path, switch_branch_in_repository, validate_stale_worktree_identity,
-        worktree_has_changes,
+        resolve_git_relative_path, switch_branch_in_repository, undo_workspace_patch,
+        validate_stale_worktree_identity, worktree_has_changes,
     };
     use crate::project::{
         validate_project_run_access, Project, ProjectPermission, ProjectRegistry,
@@ -1792,11 +1976,11 @@ mod tests {
 
         std::fs::write(worktree.join("main.py"), b"print('agent edit')\n")
             .expect("edit snapshotted file");
-        let changed_paths = apply_worktree_changes(&fixture.repo, worktree)
+        let applied = apply_worktree_changes(&fixture.repo, worktree)
             .await
             .expect("apply only agent delta");
 
-        assert_eq!(changed_paths, ["main.py".to_string()]);
+        assert_eq!(applied.changed_paths, ["main.py".to_string()]);
         assert_eq!(
             std::fs::read(fixture.repo.join("main.py")).expect("read applied agent edit"),
             b"print('agent edit')\n"
@@ -1961,12 +2145,12 @@ mod tests {
         std::fs::create_dir_all(&nested).expect("create nested fixture");
         std::fs::write(nested.join("payload.bin"), [0, 1, 2, 0xff]).expect("write binary fixture");
 
-        let changed_paths = apply_worktree_changes(&fixture.repo, &fixture.worktree)
+        let applied = apply_worktree_changes(&fixture.repo, &fixture.worktree)
             .await
             .expect("apply complete worktree");
 
         assert_eq!(
-            changed_paths,
+            applied.changed_paths,
             [
                 "deleted.txt".to_string(),
                 "modified.txt".to_string(),
@@ -1985,6 +2169,55 @@ mod tests {
             [0, 1, 2, 0xff]
         );
         assert!(fixture.worktree.exists(), "apply helper must not clean up");
+    }
+
+    #[tokio::test]
+    async fn workspace_undo_reverses_only_the_saved_agent_patch() {
+        let fixture = TestRepository::new();
+        std::fs::write(fixture.worktree.join("modified.txt"), b"agent change\n")
+            .expect("modify fixture");
+        std::fs::write(fixture.worktree.join("created.txt"), b"agent file\n")
+            .expect("create fixture file");
+
+        let applied = apply_worktree_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("apply agent patch");
+        std::fs::write(fixture.repo.join("unrelated.txt"), b"user change\n")
+            .expect("write unrelated user change");
+
+        undo_workspace_patch(&fixture.repo, &applied.patch)
+            .await
+            .expect("undo exact agent patch");
+
+        assert_eq!(
+            std::fs::read(fixture.repo.join("modified.txt")).expect("read restored file"),
+            b"original\n"
+        );
+        assert!(!fixture.repo.join("created.txt").exists());
+        assert_eq!(
+            std::fs::read(fixture.repo.join("unrelated.txt")).expect("read unrelated change"),
+            b"user change\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_undo_refuses_to_overwrite_a_follow_up_edit() {
+        let fixture = TestRepository::new();
+        std::fs::write(fixture.worktree.join("modified.txt"), b"agent change\n")
+            .expect("modify fixture");
+        let applied = apply_worktree_changes(&fixture.repo, &fixture.worktree)
+            .await
+            .expect("apply agent patch");
+        std::fs::write(fixture.repo.join("modified.txt"), b"later user change\n")
+            .expect("write conflicting user change");
+
+        assert!(undo_workspace_patch(&fixture.repo, &applied.patch)
+            .await
+            .is_err());
+        assert_eq!(
+            std::fs::read(fixture.repo.join("modified.txt")).expect("read protected user edit"),
+            b"later user change\n"
+        );
     }
 
     #[tokio::test]
@@ -2008,11 +2241,11 @@ mod tests {
             ],
         );
 
-        let changed_paths = apply_worktree_changes(&repo, &worktree)
+        let applied = apply_worktree_changes(&repo, &worktree)
             .await
             .expect("apply empty unborn worktree");
 
-        assert!(changed_paths.is_empty());
+        assert!(applied.changed_paths.is_empty());
         std::fs::remove_dir_all(&root).expect("clean up unborn fixture");
     }
 
@@ -2039,11 +2272,11 @@ mod tests {
         std::fs::write(worktree.join("created.txt"), b"first revision\n")
             .expect("write unborn fixture change");
 
-        let changed_paths = apply_worktree_changes(&repo, &worktree)
+        let applied = apply_worktree_changes(&repo, &worktree)
             .await
             .expect("apply unborn worktree changes");
 
-        assert_eq!(changed_paths, ["created.txt".to_string()]);
+        assert_eq!(applied.changed_paths, ["created.txt".to_string()]);
         assert_eq!(
             std::fs::read(repo.join("created.txt")).expect("read applied unborn file"),
             b"first revision\n"
@@ -2087,12 +2320,12 @@ mod tests {
         )
         .expect("write uncommitted fixture");
 
-        let changed_paths = apply_worktree_changes(&fixture.repo, &fixture.worktree)
+        let applied = apply_worktree_changes(&fixture.repo, &fixture.worktree)
             .await
             .expect("apply complete branch state");
 
         assert_eq!(
-            changed_paths,
+            applied.changed_paths,
             ["committed.txt".to_string(), "uncommitted.txt".to_string()]
         );
         assert_eq!(

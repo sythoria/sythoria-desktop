@@ -104,6 +104,21 @@ export interface PendingWorktree {
   };
 }
 
+export interface WorkspaceChangeFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** The last successfully published agent change set for a conversation. */
+export interface WorkspaceChangeSet {
+  projectId: string;
+  files: WorkspaceChangeFile[];
+  appliedAt: Date;
+  /** Opaque native token for safely reversing this exact published patch. */
+  undoToken?: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -112,6 +127,7 @@ export interface Conversation {
   model: string;
   projectId?: string;
   pendingWorktree?: PendingWorktree;
+  workspaceChanges?: WorkspaceChangeSet;
   isPinned?: boolean;
   // Subagent fields
   parentId?: string;

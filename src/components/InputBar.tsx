@@ -48,6 +48,7 @@ import { useTranslation } from "../utils/i18n";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
 import { useShallow } from "zustand/react/shallow";
 import { PromptEditor, type PromptDraft, type PromptDraftChangeOrigin, type PromptEditorHandle } from "./PromptEditor";
+import { WorkspaceChangeIndicator } from "./WorkspaceChangeIndicator";
 
 interface InputBarProps {
   models: ModelConfig[];
@@ -962,6 +963,9 @@ export default memo(function InputBar({
             : "chat-column-content"
         } ${centered ? "" : "pt-2"}`}
       >
+        {!centered && !conversation?.isSubagent && (
+          <WorkspaceChangeIndicator conversationId={activeConversationId ?? undefined} />
+        )}
         {conversation?.isSubagent ? (
           <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
             <Bot size={24} className="mb-2 text-text-muted/70" />

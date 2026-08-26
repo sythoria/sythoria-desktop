@@ -1568,7 +1568,6 @@ function App() {
                             virtuosoRef={primaryVirtuosoRef}
                             onRetry={handleRetry}
                             conversationId={activeId || undefined}
-                            pendingWorktree={activeConversation?.pendingWorktree}
                           />
                         )}
                       </Suspense>

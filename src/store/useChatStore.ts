@@ -108,12 +108,41 @@ import { useProjectStore } from "./useProjectStore";
 import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
 import { collectConversationTreeIds, reduceConversationDeletion } from "./conversationLifecycle";
+import { parseGitDiff } from "../utils/gitDiff";
 
 const processingTokens = new Set<string>();
 const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
 const CANCELLED_ASSISTANT_MESSAGE = "Cancelled agent execution.";
 let conversationDeletionTail: Promise<void> = Promise.resolve();
 const activeNormalRuns = new Map<string, Set<Promise<void>>>();
+const activeWorktreeApplies = new Map<string, Promise<boolean>>();
+const projectWorktreeApplyTails = new Map<string, Promise<void>>();
+
+interface ApplyWorktreeOptions {
+  automatic?: boolean;
+}
+
+interface WorktreeApplyResult {
+  changedPaths: string[];
+  undoToken?: string;
+}
+
+async function serializeProjectWorktreeApply<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+  const previous = projectWorktreeApplyTails.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => turn);
+  projectWorktreeApplyTails.set(projectId, tail);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (projectWorktreeApplyTails.get(projectId) === tail) projectWorktreeApplyTails.delete(projectId);
+  }
+}
 
 interface ConversationDeletionOptions {
   preferredActiveId?: string | null;
@@ -311,7 +340,8 @@ interface ChatState {
   persistConversations: () => Promise<void>;
   resumeConversation: (convId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
   clearAllChats: () => Promise<void>;
-  applyPendingWorktree: (convId: string) => Promise<void>;
+  applyPendingWorktree: (convId: string, options?: ApplyWorktreeOptions) => Promise<boolean>;
+  undoWorkspaceChanges: (convId: string) => Promise<boolean>;
   discardPendingWorktree: (convId: string) => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
@@ -983,7 +1013,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
     set((state) => ({
-      conversations: state.conversations.map((c) => (c.id === id ? { ...c, projectId } : c)),
+      conversations: state.conversations.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              projectId,
+              workspaceChanges: c.projectId === projectId ? c.workspaceChanges : undefined,
+            }
+          : c,
+      ),
     }));
     get().persistConversations();
   },
@@ -1169,6 +1207,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 : fallbackTitle
               : undefined,
           recursionDepth: 0,
+          workspaceChanges: undefined,
         }),
       }));
 
@@ -1368,7 +1407,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((state) => ({
       conversations: state.conversations.map((c) =>
-        c.id === convId ? { ...c, messages: trimmed, timestamp: new Date() } : c,
+        c.id === convId ? { ...c, messages: trimmed, timestamp: new Date(), workspaceChanges: undefined } : c,
       ),
     }));
 
@@ -1385,86 +1424,196 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  applyPendingWorktree: async (convId) => {
+  applyPendingWorktree: async (convId, options = {}) => {
     const conv = get().conversations.find((c) => c.id === convId);
-    if (!conv || !conv.pendingWorktree) return;
-    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    if (!conv || !conv.pendingWorktree) return false;
+    const pendingWorktree = conv.pendingWorktree;
+    const projectId = conv.projectId ?? pendingWorktree.commitScope?.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
-      return;
+      return false;
     }
 
-    uiLoading("toolExecution", true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const changedPaths = await invoke<string[]>("git_worktree_apply", {
-        projectId,
-        worktreePath: conv.pendingWorktree.path,
-        branchName: conv.pendingWorktree.branch,
-      });
+    const applyKey = `${projectId}\u0000${pendingWorktree.path}\u0000${pendingWorktree.branch}`;
+    const activeApply = activeWorktreeApplies.get(applyKey);
+    if (activeApply) return activeApply;
 
-      const projectStore = useProjectStore.getState();
-      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
-        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
-      }
+    const apply = serializeProjectWorktreeApply(projectId, async () => {
+      uiLoading("toolExecution", true);
+      try {
+        let capturedFiles = new Map<string, { additions: number; deletions: number }>();
+        try {
+          const [diff, status] = await Promise.all([
+            invoke<string>("git_diff_changes", {
+              projectId,
+              worktreePath: pendingWorktree.path,
+              files: null,
+              runToken: null,
+            }),
+            invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
+              projectId,
+              worktreePath: pendingWorktree.path,
+            }),
+          ]);
+          for (const file of parseGitDiff(diff)) {
+            const previous = capturedFiles.get(file.path);
+            capturedFiles.set(file.path, {
+              additions: (previous?.additions ?? 0) + file.additions,
+              deletions: (previous?.deletions ?? 0) + file.deletions,
+            });
+          }
+          for (const path of [...status.unstagedFiles, ...status.stagedFiles]) {
+            if (path.endsWith("/")) continue;
+            if (!capturedFiles.has(path)) capturedFiles.set(path, { additions: 0, deletions: 0 });
+          }
+        } catch (error) {
+          logWarn("git", "Could not capture worktree diff statistics before applying", {
+            details: error instanceof Error ? error.message : String(error),
+          });
+        }
 
-      set((state) => ({
-        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
-      }));
-      get().persistConversations();
-      uiToast("Changes applied successfully to workspace!", "success");
-
-      const commitScope = conv.pendingWorktree.commitScope;
-      if (commitScope && commitScope.projectId === projectId) {
-        await useGitStore.getState().autoCommitIfNeeded({
-          ...commitScope,
-          files: changedPaths,
+        const applyResult = await invoke<WorktreeApplyResult>("git_worktree_apply", {
+          projectId,
+          worktreePath: pendingWorktree.path,
+          branchName: pendingWorktree.branch,
         });
-      } else if (changedPaths.length > 0) {
-        logWarn("git", "Skipped auto-commit because the applied worktree had no captured run scope");
+        const changedPaths = applyResult.changedPaths;
+
+        const workspaceChanges = {
+          projectId,
+          appliedAt: new Date(),
+          undoToken: applyResult.undoToken,
+          files: changedPaths.map((path) => ({
+            path,
+            additions: capturedFiles.get(path)?.additions ?? 0,
+            deletions: capturedFiles.get(path)?.deletions ?? 0,
+          })),
+        };
+
+        const projectStore = useProjectStore.getState();
+        if (projectStore.activeWorktreePath === pendingWorktree.path) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.pendingWorktree?.path === pendingWorktree.path &&
+            candidate.pendingWorktree.branch === pendingWorktree.branch
+              ? { ...candidate, pendingWorktree: undefined, workspaceChanges }
+              : candidate,
+          ),
+        }));
+        await get().persistConversations();
+        if (!options.automatic) uiToast("Changes applied successfully to workspace!", "success");
+
+        const commitScope = pendingWorktree.commitScope;
+        if (commitScope && commitScope.projectId === projectId) {
+          await useGitStore.getState().autoCommitIfNeeded({
+            ...commitScope,
+            files: changedPaths,
+          });
+        } else if (changedPaths.length > 0) {
+          logWarn("git", "Skipped auto-commit because the applied worktree had no captured run scope");
+        }
+        return true;
+      } catch (err) {
+        logError("chat", "Failed to apply worktree changes", { error: err });
+        uiToast(
+          options.automatic
+            ? "Changes are still safely isolated because they could not be published. Open Review to resolve them."
+            : "Failed to apply changes: " + parseApiError(err).message,
+          "error",
+        );
+        return false;
+      } finally {
+        uiLoading("toolExecution", false);
       }
-    } catch (err) {
-      logError("chat", "Failed to apply worktree changes", { error: err });
-      uiToast("Failed to apply changes: " + parseApiError(err).message, "error");
+    });
+
+    activeWorktreeApplies.set(applyKey, apply);
+    try {
+      return await apply;
     } finally {
-      uiLoading("toolExecution", false);
+      if (activeWorktreeApplies.get(applyKey) === apply) activeWorktreeApplies.delete(applyKey);
     }
+  },
+
+  undoWorkspaceChanges: async (convId) => {
+    const workspaceChanges = get().conversations.find((candidate) => candidate.id === convId)?.workspaceChanges;
+    if (!workspaceChanges?.undoToken) {
+      uiToast("This change can no longer be undone automatically.", "info");
+      return false;
+    }
+
+    return serializeProjectWorktreeApply(workspaceChanges.projectId, async () => {
+      uiLoading("toolExecution", true);
+      try {
+        await invoke("git_worktree_undo", {
+          projectId: workspaceChanges.projectId,
+          undoToken: workspaceChanges.undoToken,
+        });
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.workspaceChanges?.undoToken === workspaceChanges.undoToken
+              ? { ...candidate, workspaceChanges: undefined }
+              : candidate,
+          ),
+        }));
+        await get().persistConversations();
+        uiToast("Agent changes were undone.", "success");
+        return true;
+      } catch (err) {
+        logError("chat", "Failed to undo published workspace changes", { error: err });
+        uiToast("Could not undo changes: " + parseApiError(err).message, "error");
+        return false;
+      } finally {
+        uiLoading("toolExecution", false);
+      }
+    });
   },
 
   discardPendingWorktree: async (convId) => {
     const conv = get().conversations.find((c) => c.id === convId);
     if (!conv || !conv.pendingWorktree) return;
-    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    const pendingWorktree = conv.pendingWorktree;
+    const projectId = conv.projectId ?? pendingWorktree.commitScope?.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
       return;
     }
 
-    uiLoading("toolExecution", true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("git_worktree_discard", {
-        projectId,
-        worktreePath: conv.pendingWorktree.path,
-        branchName: conv.pendingWorktree.branch,
-      });
+    await serializeProjectWorktreeApply(projectId, async () => {
+      uiLoading("toolExecution", true);
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("git_worktree_discard", {
+          projectId,
+          worktreePath: pendingWorktree.path,
+          branchName: pendingWorktree.branch,
+        });
 
-      const projectStore = useProjectStore.getState();
-      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
-        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        const projectStore = useProjectStore.getState();
+        if (projectStore.activeWorktreePath === pendingWorktree.path) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.pendingWorktree?.path === pendingWorktree.path &&
+            candidate.pendingWorktree.branch === pendingWorktree.branch
+              ? { ...candidate, pendingWorktree: undefined, workspaceChanges: undefined }
+              : candidate,
+          ),
+        }));
+        get().persistConversations();
+        uiToast("Changes discarded successfully.", "info");
+      } catch (err) {
+        logError("chat", "Failed to discard worktree changes", { error: err });
+        uiToast("Failed to discard changes: " + parseApiError(err).message, "error");
+      } finally {
+        uiLoading("toolExecution", false);
       }
-
-      set((state) => ({
-        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
-      }));
-      get().persistConversations();
-      uiToast("Changes discarded successfully.", "info");
-    } catch (err) {
-      logError("chat", "Failed to discard worktree changes", { error: err });
-      uiToast("Failed to discard changes: " + parseApiError(err).message, "error");
-    } finally {
-      uiLoading("toolExecution", false);
-    }
+    });
   },
 
   exportChat: async (id) => {

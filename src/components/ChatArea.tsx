@@ -50,14 +50,13 @@ import {
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { isGenerationActive, type Message, type Attachment, type PendingWorktree } from "../types";
+import { isGenerationActive, type Message, type Attachment, type WorkspaceChangeSet } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { FileEditDiffCard } from "./FileEditDiffCard";
-import { parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -71,7 +70,6 @@ interface ChatAreaProps {
   onRetry?: () => void;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   autoExpandReasoning?: boolean;
   showEmptyState?: boolean;
@@ -469,8 +467,7 @@ function getNativeToolDisplayInfo(
   }
 
   const isNativeProjectTool = name.startsWith("project_") && !name.includes("__");
-  const isMcpFileChange =
-    name.includes("__") && !!result?.diffSummary?.filename && !!result.diffSummary.hunks?.length;
+  const isMcpFileChange = name.includes("__") && !!result?.diffSummary?.filename && !!result.diffSummary.hunks?.length;
   if (!isNativeProjectTool && !isMcpFileChange) return null;
 
   const cleanName = isNativeProjectTool ? name.replace("project_", "") : name.split("__").at(-1) || name;
@@ -1491,13 +1488,142 @@ function SystemNotificationBubble({ message }: { message: Message }) {
   );
 }
 
+function openWorkspaceReview(conversationId: string) {
+  const ui = useUIStore.getState();
+  ui.setActiveAuxConversationId(conversationId);
+  ui.setActiveAuxTab("review");
+  ui.setAuxPanelOpen(true);
+}
+
+function PublishedWorkspaceChangeSummary({
+  conversationId,
+  changes,
+}: {
+  conversationId: string;
+  changes: WorkspaceChangeSet;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const fileListId = useId();
+  const undoWorkspaceChanges = useChatStore((state) => state.undoWorkspaceChanges);
+  const visibleFiles = expanded ? changes.files : changes.files.slice(0, 3);
+  const hiddenFileCount = Math.max(changes.files.length - 3, 0);
+  const additions = changes.files.reduce((total, file) => total + file.additions, 0);
+  const deletions = changes.files.reduce((total, file) => total + file.deletions, 0);
+  const summaryTitle = `Edited ${changes.files.length} ${changes.files.length === 1 ? "file" : "files"}`;
+
+  const handleUndo = async () => {
+    setUndoing(true);
+    try {
+      await undoWorkspaceChanges(conversationId);
+    } finally {
+      setUndoing(false);
+    }
+  };
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={motionTransitions.content}
+      className="my-4 w-full overflow-hidden rounded-xl border border-border/60 bg-surface/65 shadow-sm"
+      aria-label="Workspace change summary"
+    >
+      <div className="flex flex-wrap items-center gap-3 px-3 py-3">
+        <button
+          type="button"
+          onClick={() => openWorkspaceReview(conversationId)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          aria-label={`Open ${summaryTitle.toLowerCase()} in review`}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-chat/65 text-text-muted">
+            <FileTextIcon size={16} aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-text-primary">{summaryTitle}</span>
+            <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
+              <span className="text-emerald-500">+{additions}</span>
+              <span className="text-red-400">−{deletions}</span>
+            </span>
+          </span>
+        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {changes.undoToken && (
+            <button
+              type="button"
+              onClick={() => void handleUndo()}
+              disabled={undoing}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+              title="Undo this agent patch without touching unrelated workspace changes"
+            >
+              {undoing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Undo2 size={12} aria-hidden="true" />
+              )}
+              <span>{undoing ? "Undoing" : "Undo"}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => openWorkspaceReview(conversationId)}
+            disabled={undoing}
+            className="inline-flex items-center rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+          >
+            Review
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-border/50">
+        <div id={fileListId}>
+          {visibleFiles.map((file) => (
+            <button
+              key={file.path}
+              type="button"
+              onClick={() => openWorkspaceReview(conversationId)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+              aria-label={`Review workspace changes including ${file.path}`}
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
+                {file.path}
+              </span>
+              <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+                <span className="text-emerald-500">+{file.additions}</span>
+                <span className="text-red-400">−{file.deletions}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {hiddenFileCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-expanded={expanded}
+            aria-controls={fileListId}
+            className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-hover/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+          >
+            <span>
+              {expanded
+                ? "Show fewer files"
+                : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
+            </span>
+            <ChevronRight
+              size={13}
+              className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+        )}
+      </div>
+    </motion.section>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   hideReasoningActivity = false,
   animateEntrance = false,
@@ -1505,9 +1631,6 @@ const MessageBubble = memo(function MessageBubble({
   message: Message;
   onRetry?: () => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   hideReasoningActivity?: boolean;
   animateEntrance?: boolean;
@@ -1535,14 +1658,12 @@ const MessageBubble = memo(function MessageBubble({
     return !next || next.role === "user";
   });
 
-  const isLatestAssistantMessage = useChatStore((s) => {
-    if (message.role !== "assistant" || !conversationId) return false;
-    const messages = s.conversations.find((conversation) => conversation.id === conversationId)?.messages;
-    if (!messages) return false;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === "assistant") return messages[index].id === message.id;
-    }
-    return false;
+  const publishedWorkspaceChanges = useChatStore((state) => {
+    if (message.role !== "assistant" || !conversationId) return undefined;
+    const conversation = state.conversations.find((candidate) => candidate.id === conversationId);
+    if (!conversation?.workspaceChanges?.files.length) return undefined;
+    const latestAssistant = [...conversation.messages].reverse().find((candidate) => candidate.role === "assistant");
+    return latestAssistant?.id === message.id ? conversation.workspaceChanges : undefined;
   });
 
   const isSystem = message.isSystem;
@@ -1735,17 +1856,9 @@ const MessageBubble = memo(function MessageBubble({
           !isGenerating &&
           !isAnySubagentRunning &&
           isLastInSequence &&
-          isLatestAssistantMessage &&
-          pendingWorktree &&
-          conversationId &&
-          onApplyWorktree &&
-          onDiscardWorktree && (
-            <WorkspaceChangeSummary
-              conversationId={conversationId}
-              pendingWorktree={pendingWorktree}
-              onApply={onApplyWorktree}
-              onDiscard={onDiscardWorktree}
-            />
+          publishedWorkspaceChanges &&
+          conversationId && (
+            <PublishedWorkspaceChangeSummary conversationId={conversationId} changes={publishedWorkspaceChanges} />
           )}
         {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
@@ -1773,9 +1886,6 @@ function ToolActivityDisclosure({
   isActive,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   animateMessageIds,
 }: {
@@ -1783,9 +1893,6 @@ function ToolActivityDisclosure({
   isActive: boolean;
   onRetry?: () => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
@@ -1894,9 +2001,6 @@ function ToolActivityDisclosure({
               message={collapsedPreviewMessage}
               onRetry={onRetry}
               conversationId={conversationId}
-              pendingWorktree={pendingWorktree}
-              onApplyWorktree={onApplyWorktree}
-              onDiscardWorktree={onDiscardWorktree}
               autoExpandReasoning={autoExpandReasoning}
               animateEntrance={false}
             />
@@ -1918,9 +2022,6 @@ function ToolActivityDisclosure({
                 message={message}
                 onRetry={onRetry}
                 conversationId={conversationId}
-                pendingWorktree={pendingWorktree}
-                onApplyWorktree={onApplyWorktree}
-                onDiscardWorktree={onDiscardWorktree}
                 autoExpandReasoning={autoExpandReasoning}
                 animateEntrance={animateMessageIds.has(message.id)}
               />
@@ -1947,9 +2048,6 @@ function ChatRenderItemView({
   activeToolActivityId,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   animateMessageIds,
 }: {
@@ -1957,9 +2055,6 @@ function ChatRenderItemView({
   activeToolActivityId?: string;
   onRetry?: () => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
@@ -1971,9 +2066,6 @@ function ChatRenderItemView({
         isActive={item.id === activeToolActivityId}
         onRetry={onRetry}
         conversationId={conversationId}
-        pendingWorktree={pendingWorktree}
-        onApplyWorktree={onApplyWorktree}
-        onDiscardWorktree={onDiscardWorktree}
         autoExpandReasoning={autoExpandReasoning}
         animateMessageIds={animateMessageIds}
       />
@@ -1986,9 +2078,6 @@ function ChatRenderItemView({
         message={item.message}
         onRetry={onRetry}
         conversationId={conversationId}
-        pendingWorktree={pendingWorktree}
-        onApplyWorktree={onApplyWorktree}
-        onDiscardWorktree={onDiscardWorktree}
         autoExpandReasoning={autoExpandReasoning}
         hideReasoningActivity
         animateEntrance={animateMessageIds.has(item.id)}
@@ -2001,9 +2090,6 @@ function ChatRenderItemView({
       message={item}
       onRetry={onRetry}
       conversationId={conversationId}
-      pendingWorktree={pendingWorktree}
-      onApplyWorktree={onApplyWorktree}
-      onDiscardWorktree={onDiscardWorktree}
       autoExpandReasoning={autoExpandReasoning}
       animateEntrance={animateMessageIds.has(item.id)}
     />
@@ -2019,13 +2105,10 @@ function ChatAreaBase({
   onRetry,
   onScroll,
   conversationId,
-  pendingWorktree,
   scrollContainerRef,
   autoExpandReasoning,
   showEmptyState = true,
 }: ChatAreaProps) {
-  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
-  const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const isConversationWorking = useChatStore((s) => {
     if (!conversationId) return false;
     return (
@@ -2038,7 +2121,6 @@ function ChatAreaBase({
   const isTemporary = useChatStore(
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
   );
-  const hasAssistantMessage = messages.some((message) => message.role === "assistant");
   const renderItems = useMemo(
     () => buildChatRenderItems(messages, isConversationWorking),
     [isConversationWorking, messages],
@@ -2046,10 +2128,7 @@ function ChatAreaBase({
   const activeToolActivityId = isConversationWorking
     ? [...renderItems]
         .reverse()
-        .find(
-          (item): item is ToolActivityGroup =>
-            "kind" in item && item.kind === "tool-activity" && item.isActive,
-        )?.id
+        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity" && item.isActive)?.id
     : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
@@ -2182,9 +2261,6 @@ function ChatAreaBase({
                 activeToolActivityId={activeToolActivityId}
                 onRetry={onRetry}
                 conversationId={conversationId}
-                pendingWorktree={pendingWorktree}
-                onApplyWorktree={applyPendingWorktree}
-                onDiscardWorktree={discardPendingWorktree}
                 autoExpandReasoning={autoExpandReasoning}
                 animateMessageIds={currentAnimationState.entering}
               />
@@ -2208,21 +2284,6 @@ function ChatAreaBase({
               ),
             Footer: () => (
               <div className="chat-column-content">
-                {pendingWorktree && conversationId && isConversationWorking && (
-                  <div className="py-6">
-                    <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
-                  </div>
-                )}
-                {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
-                  <div className="py-6">
-                    <WorkspaceChangeSummary
-                      conversationId={conversationId}
-                      pendingWorktree={pendingWorktree}
-                      onApply={applyPendingWorktree}
-                      onDiscard={discardPendingWorktree}
-                    />
-                  </div>
-                )}
                 {/* Keep the final message scrollable above the floating composer. */}
                 <div aria-hidden="true" style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }} />
               </div>
@@ -2239,12 +2300,7 @@ function ChatAreaBase({
       renderItems={renderItems}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
-      pendingWorktree={pendingWorktree}
       conversationId={conversationId}
-      onApply={applyPendingWorktree}
-      onDiscard={discardPendingWorktree}
-      isConversationWorking={isConversationWorking}
-      hasAssistantMessage={hasAssistantMessage}
       scrollContainerRef={scrollContainerRef}
       onScroll={onScroll}
       autoExpandReasoning={autoExpandReasoning}
@@ -2258,12 +2314,7 @@ function NonVirtualizedChatArea({
   renderItems,
   setIsAtBottom,
   onRetry,
-  pendingWorktree,
   conversationId,
-  onApply,
-  onDiscard,
-  isConversationWorking,
-  hasAssistantMessage,
   scrollContainerRef,
   onScroll,
   autoExpandReasoning,
@@ -2273,12 +2324,7 @@ function NonVirtualizedChatArea({
   renderItems: ChatRenderItem[];
   setIsAtBottom?: (v: boolean) => void;
   onRetry?: () => void;
-  pendingWorktree?: PendingWorktree;
   conversationId?: string;
-  onApply: (id: string) => Promise<void>;
-  onDiscard: (id: string) => Promise<void>;
-  isConversationWorking: boolean;
-  hasAssistantMessage: boolean;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
   autoExpandReasoning?: boolean;
@@ -2374,354 +2420,13 @@ function NonVirtualizedChatArea({
             activeToolActivityId={activeToolActivityId}
             onRetry={onRetry}
             conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApplyWorktree={onApply}
-            onDiscardWorktree={onDiscard}
             autoExpandReasoning={autoExpandReasoning}
             animateMessageIds={animateMessageIds}
           />
         ))}
-        {pendingWorktree && conversationId && isConversationWorking && (
-          <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
-        )}
-        {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
-          <WorkspaceChangeSummary
-            conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApply={onApply}
-            onDiscard={onDiscard}
-          />
-        )}
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>
-  );
-}
-
-type WorkspaceChangeStatus = "loading" | "ready" | "empty" | "error";
-
-function openWorkspaceReview(conversationId: string) {
-  const ui = useUIStore.getState();
-  ui.setActiveAuxConversationId(conversationId);
-  ui.setActiveAuxTab("review");
-  ui.setAuxPanelOpen(true);
-}
-
-function useWorkspaceChanges({
-  conversationId,
-  pendingWorktree,
-  refreshKey = 0,
-  poll = false,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-  refreshKey?: number;
-  poll?: boolean;
-}) {
-  const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
-  const [statusState, setStatusState] = useState<WorkspaceChangeStatus>("loading");
-  const [statusError, setStatusError] = useState("");
-  const conversationProjectId = useChatStore(
-    (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
-  );
-  const recoveryProjectId = pendingWorktree.commitScope?.projectId ?? conversationProjectId;
-
-  useEffect(() => {
-    let active = true;
-    let pollTimer: number | undefined;
-
-    const loadStatus = async (showLoading: boolean) => {
-      if (showLoading) {
-        setStatusState("loading");
-        setStatusError("");
-      }
-      if (!recoveryProjectId) {
-        setStatusState("error");
-        setStatusError(
-          "The original project could not be identified. The worktree remains intact; restore its project assignment before applying or discarding it.",
-        );
-        return;
-      }
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const [status, diff] = await Promise.all([
-          invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
-            projectId: recoveryProjectId,
-            worktreePath: pendingWorktree.path,
-          }),
-          invoke<string>("git_diff_changes", {
-            projectId: recoveryProjectId,
-            worktreePath: pendingWorktree.path,
-          }),
-        ]);
-        if (!active) return;
-        const filesByPath = new Map<string, DiffFile>();
-        for (const file of parseGitDiff(diff)) {
-          const previous = filesByPath.get(file.path);
-          filesByPath.set(
-            file.path,
-            previous
-              ? {
-                  ...file,
-                  additions: previous.additions + file.additions,
-                  deletions: previous.deletions + file.deletions,
-                  lines: [...previous.lines, ...file.lines],
-                }
-              : file,
-          );
-        }
-        for (const path of [...new Set([...(status.unstagedFiles || []), ...(status.stagedFiles || [])])]) {
-          if (!filesByPath.has(path)) {
-            filesByPath.set(path, {
-              path,
-              oldPath: path,
-              status: "modified",
-              additions: 0,
-              deletions: 0,
-              lines: [],
-            });
-          }
-        }
-        const files = [...filesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
-        setDiffFiles(files);
-        setStatusState(files.length === 0 ? "empty" : "ready");
-        setStatusError("");
-      } catch (error) {
-        if (!active) return;
-        console.error("Failed to load worktree git status:", error);
-        setStatusState("error");
-        setStatusError("The file list could not be loaded. You can retry, apply, or discard this worktree.");
-      } finally {
-        if (active && poll) {
-          pollTimer = window.setTimeout(() => void loadStatus(false), 1000);
-        }
-      }
-    };
-
-    void loadStatus(true);
-    return () => {
-      active = false;
-      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
-    };
-  }, [pendingWorktree.path, pendingWorktree.branch, poll, recoveryProjectId, refreshKey]);
-
-  return {
-    diffFiles,
-    statusState,
-    statusError,
-    additions: diffFiles.reduce((total, file) => total + file.additions, 0),
-    deletions: diffFiles.reduce((total, file) => total + file.deletions, 0),
-  };
-}
-
-function WorkingChangeSummary({
-  conversationId,
-  pendingWorktree,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-}) {
-  const { diffFiles, statusState, additions, deletions } = useWorkspaceChanges({
-    conversationId,
-    pendingWorktree,
-    poll: true,
-  });
-
-  if (statusState !== "ready" || diffFiles.length === 0) return null;
-
-  const fileLabel = `${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"} changed`;
-
-  return (
-    <motion.button
-      type="button"
-      initial={{ opacity: 0, y: 6, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 6, scale: 0.98 }}
-      transition={motionTransitions.content}
-      onClick={() => openWorkspaceReview(conversationId)}
-      className="mx-auto mt-5 flex items-center gap-2 rounded-full border border-border/70 bg-surface/85 px-4 py-2 text-xs font-medium text-text-secondary shadow-sm transition-colors hover:border-text-muted hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-      aria-label={`${fileLabel}, ${additions} additions and ${deletions} deletions. Open review.`}
-    >
-      <span aria-live="polite">{fileLabel}</span>
-      <span className="font-mono text-emerald-500">+{additions}</span>
-      <span className="font-mono text-red-400">−{deletions}</span>
-    </motion.button>
-  );
-}
-
-function WorkspaceChangeSummary({
-  conversationId,
-  pendingWorktree,
-  onApply,
-  onDiscard,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-  onApply: (id: string) => void | Promise<void>;
-  onDiscard: (id: string) => void | Promise<void>;
-}) {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const fileListId = useId();
-  const { diffFiles, statusState, statusError, additions, deletions } = useWorkspaceChanges({
-    conversationId,
-    pendingWorktree,
-    refreshKey,
-  });
-
-  const runAction = async (kind: "apply" | "discard", action: (id: string) => void | Promise<void>) => {
-    setActionLoading(kind);
-    try {
-      await action(conversationId);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const visibleFiles = expanded ? diffFiles : diffFiles.slice(0, 3);
-  const hiddenFileCount = Math.max(diffFiles.length - 3, 0);
-  const summaryTitle =
-    diffFiles.length > 0
-      ? `Edited ${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"}`
-      : "Workspace changes ready";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={motionTransitions.content}
-      className="my-4 w-full overflow-hidden rounded-xl border border-border/60 bg-surface/65 shadow-sm"
-      role="region"
-      aria-label="Workspace change summary"
-    >
-      <div className="flex flex-wrap items-center gap-3 px-3 py-3">
-        <button
-          type="button"
-          onClick={() => openWorkspaceReview(conversationId)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-          aria-label={`Open ${summaryTitle.toLowerCase()} in review`}
-        >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-chat/65 text-text-muted">
-            {statusState === "loading" ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <FileTextIcon size={16} aria-hidden="true" />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-text-primary">
-              {statusState === "loading" ? "Loading workspace changes..." : summaryTitle}
-            </span>
-            {statusState === "ready" && (
-              <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
-                <span className="text-emerald-500">+{additions}</span>
-                <span className="text-red-400">−{deletions}</span>
-              </span>
-            )}
-            {statusState === "empty" && (
-              <span className="mt-0.5 block truncate text-[11px] text-text-muted">
-                Committed or binary-only changes
-              </span>
-            )}
-          </span>
-        </button>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {statusState === "error" && (
-            <button
-              type="button"
-              onClick={() => setRefreshKey((key) => key + 1)}
-              className="rounded-md px-2 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
-            >
-              Retry
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void runAction("discard", onDiscard)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-            title="Discard the isolated workspace changes"
-          >
-            {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
-            <span>Undo</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => openWorkspaceReview(conversationId)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-          >
-            Review
-          </button>
-          <button
-            type="button"
-            onClick={() => void runAction("apply", onApply)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-            title="Apply the isolated changes to the project"
-          >
-            {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            <span>Apply</span>
-          </button>
-        </div>
-      </div>
-
-      {statusState === "error" && (
-        <div
-          className="flex items-center gap-1.5 border-t border-border/50 px-4 py-3 text-[11px] text-red-400"
-          role="alert"
-        >
-          <AlertTriangle size={12} className="shrink-0" aria-hidden="true" />
-          <span>{statusError}</span>
-        </div>
-      )}
-
-      {statusState === "ready" && (
-        <div className="border-t border-border/50">
-          <div id={fileListId}>
-            {visibleFiles.map((file) => (
-              <button
-                key={file.path}
-                type="button"
-                onClick={() => openWorkspaceReview(conversationId)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
-                aria-label={`Review changes for ${file.path}`}
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
-                  {file.path}
-                </span>
-                <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
-                  <span className="text-emerald-500">+{file.additions}</span>
-                  <span className="text-red-400">−{file.deletions}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-          {hiddenFileCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((current) => !current)}
-              aria-expanded={expanded}
-              aria-controls={fileListId}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-hover/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
-            >
-              <span>
-                {expanded
-                  ? "Show fewer files"
-                  : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
-              </span>
-              <ChevronRight
-                size={13}
-                className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-          )}
-        </div>
-      )}
-    </motion.div>
   );
 }
 

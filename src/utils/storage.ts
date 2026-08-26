@@ -154,6 +154,21 @@ export const ConversationSchema = z
       })
       .passthrough()
       .optional(),
+    workspaceChanges: z
+      .object({
+        projectId: z.string(),
+        files: z.array(
+          z.object({
+            path: z.string(),
+            additions: z.number().int().nonnegative(),
+            deletions: z.number().int().nonnegative(),
+          }),
+        ),
+        appliedAt: z.coerce.date(),
+        undoToken: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 

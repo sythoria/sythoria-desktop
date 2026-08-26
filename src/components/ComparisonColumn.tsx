@@ -110,7 +110,6 @@ export const ComparisonColumn = React.memo(
             onRetry={onRetry}
             onScroll={onScroll}
             conversationId={conversation.id}
-            pendingWorktree={conversation.pendingWorktree}
             scrollContainerRef={nonVirtualizedRef}
             showEmptyState={false}
           />

@@ -51,6 +51,7 @@ export interface ToolLoopSlice {
   activeStreamThinkingEnd?: Record<string, number>;
   persistConversations?: () => Promise<void>;
   resumeConversation?: (conversationId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
+  applyPendingWorktree?: (conversationId: string, options?: { automatic?: boolean }) => Promise<boolean>;
 }
 
 interface ProjectRunContext {
@@ -1239,6 +1240,7 @@ async function runWithToolLoop(
   useUIStore.getState().setLoading("toolExecution", false);
 
   let wasAborted = false;
+  let completedSuccessfully = false;
   let projectCapability: ProjectRunContext | null = null;
   const collectedSources: { title: string; url: string }[] = [];
   let contextDisclosureMessageId: string | null = null;
@@ -1384,7 +1386,9 @@ async function runWithToolLoop(
         };
         set((state) => ({
           conversations: state.conversations.map((conversation) =>
-            conversation.id === convId ? { ...conversation, pendingWorktree } : conversation,
+            conversation.id === convId
+              ? { ...conversation, pendingWorktree, workspaceChanges: undefined }
+              : conversation,
           ),
         }));
       }
@@ -2575,6 +2579,7 @@ async function runWithToolLoop(
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
 
+        completedSuccessfully = true;
         await get().persistConversations?.();
 
         const updatedConv = get().conversations.find((c) => c.id === convId);
@@ -2730,7 +2735,8 @@ async function runWithToolLoop(
         return conversation.status === "running" || isGenerationActive(generation?.state);
       });
 
-      if (!hasOtherActiveWorktreeRun) {
+      const hasQueuedResume = (pendingSubagentMessages.get(convId)?.length ?? 0) > 0;
+      if (!hasOtherActiveWorktreeRun && !hasQueuedResume) {
         try {
           const cleaned = await invoke<boolean>("git_worktree_cleanup_if_empty", {
             projectId: project.id,
@@ -2752,6 +2758,9 @@ async function runWithToolLoop(
             }));
             await get().persistConversations?.();
             logInfo("git", "Removed an unchanged isolated worktree after the project run completed");
+          } else if (completedSuccessfully && get().applyPendingWorktree) {
+            const applied = await get().applyPendingWorktree?.(convId, { automatic: true });
+            if (applied) logInfo("git", "Published completed agent changes to the project workspace");
           }
         } catch (error) {
           logWarn("git", "Failed to clean up an unchanged isolated worktree", {
