@@ -744,7 +744,7 @@ describe("InputBar", () => {
     });
   });
 
-  it("blocks project detachment while workspace changes are pending", async () => {
+  it("allows project detachment while workspace publication is pending", async () => {
     const user = userEvent.setup();
     act(() => {
       useProjectStore.setState({
@@ -783,7 +783,15 @@ describe("InputBar", () => {
 
     await user.click(screen.getByRole("button", { name: "Project context" }));
 
-    expect(screen.getByRole("menuitem", { name: "Detach Project" })).toBeDisabled();
-    expect(screen.getByText(/Apply or discard the pending workspace changes/i)).toBeInTheDocument();
+    const detachButton = screen.getByRole("menuitem", { name: "Detach Project" });
+    expect(detachButton).toBeEnabled();
+
+    await user.click(detachButton);
+
+    expect(useChatStore.getState().conversations[0].projectId).toBeUndefined();
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual({
+      path: "/worktrees/a",
+      branch: "sythoria-agent-a",
+    });
   });
 });

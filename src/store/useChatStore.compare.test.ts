@@ -477,7 +477,7 @@ describe("transactional chat deletion", () => {
 });
 
 describe("worktree publishing", () => {
-  it("publishes one shared worktree, records its files, and auto-commits only returned paths", async () => {
+  it("publishes one shared worktree against its captured project after project selection changes", async () => {
     const invokeMock = vi.mocked(invoke);
     const autoCommitIfNeeded = vi.fn().mockResolvedValue(undefined);
     const originalAutoCommit = useGitStore.getState().autoCommitIfNeeded;
@@ -509,7 +509,7 @@ describe("worktree publishing", () => {
       conversations: [
         {
           ...primaryConversation,
-          projectId: "project-a",
+          projectId: "project-b",
           pendingWorktree: {
             path: "/worktrees/run-a",
             branch: "sythoria-agent-a",
@@ -541,7 +541,7 @@ describe("worktree publishing", () => {
     });
 
     try {
-      await useChatStore.getState().applyPendingWorktree(primaryConversation.id);
+      await useChatStore.getState().publishPendingWorktree(primaryConversation.id);
 
       expect(autoCommitIfNeeded).toHaveBeenCalledWith({
         projectId: "project-a",
@@ -564,7 +564,7 @@ describe("worktree publishing", () => {
     }
   });
 
-  it("rejects project detachment while a worktree is pending", () => {
+  it("allows project detachment while background worktree publication is pending", () => {
     useChatStore.setState({
       conversations: [
         {
@@ -578,10 +578,14 @@ describe("worktree publishing", () => {
 
     useChatStore.getState().setConversationProject(primaryConversation.id, undefined);
 
-    expect(useChatStore.getState().conversations[0].projectId).toBe("project-a");
+    expect(useChatStore.getState().conversations[0].projectId).toBeUndefined();
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual({
+      path: "/worktrees/run-a",
+      branch: "sythoria-agent-a",
+    });
   });
 
-  it("keeps compare conversations visible until their pending worktrees are resolved", () => {
+  it("leaves compare mode and switches chats while a comparison worktree is publishing", async () => {
     const pendingComparison = {
       ...comparisonConversation,
       pendingWorktree: { path: "/worktrees/compare", branch: "sythoria-agent-compare" },
@@ -595,14 +599,54 @@ describe("worktree publishing", () => {
     });
 
     const compareModeChanged = useChatStore.getState().setIsCompareMode(false);
-    useChatStore.getState().setActiveId(destination.id);
+    const switched = await useChatStore.getState().setActiveId(destination.id);
 
     const state = useChatStore.getState();
-    expect(compareModeChanged).toBe(false);
-    expect(state.activeId).toBe(primaryConversation.id);
-    expect(state.isCompareMode).toBe(true);
-    expect(state.compareIds).toEqual([pendingComparison.id]);
+    expect(compareModeChanged).toBe(true);
+    expect(switched).toBe(true);
+    expect(state.activeId).toBe(destination.id);
+    expect(state.isCompareMode).toBe(false);
+    expect(state.compareIds).toEqual([]);
     expect(state.conversations.some((conversation) => conversation.id === pendingComparison.id)).toBe(true);
+  });
+
+  it("switches away from a generating project chat while its worktree is active", async () => {
+    const generating = {
+      ...primaryConversation,
+      id: "generating-project-chat",
+      projectId: "project-a",
+      pendingWorktree: {
+        path: "/worktrees/active-run",
+        branch: "sythoria-agent-active",
+        commitScope: {
+          projectId: "project-a",
+          projectRoot: "/projects/a",
+          modelId: "model-a",
+        },
+      },
+    };
+    const destination = { ...primaryConversation, id: "background-destination" };
+    useChatStore.setState({
+      conversations: [generating, destination],
+      activeId: generating.id,
+      generationByConversation: {
+        [generating.id]: { state: "mcp_executing", label: "Editing files" },
+      },
+      navigationHistory: [generating.id],
+      navigationIndex: 0,
+      compareIds: [],
+      isCompareMode: false,
+    });
+
+    const switched = await useChatStore.getState().setActiveId(destination.id);
+
+    expect(switched).toBe(true);
+    expect(useChatStore.getState().activeId).toBe(destination.id);
+    expect(useChatStore.getState().generationByConversation[generating.id]).toEqual({
+      state: "mcp_executing",
+      label: "Editing files",
+    });
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual(generating.pendingWorktree);
   });
 
   it("can discard a legacy detached worktree using its captured project scope", async () => {

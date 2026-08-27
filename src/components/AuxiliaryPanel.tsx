@@ -196,9 +196,9 @@ function ReviewPane({
   const [files, setFiles] = useState<DiffFile[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
+  const [actionLoading, setActionLoading] = useState<"publish" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
+  const publishPendingWorktree = useChatStore((s) => s.publishPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const isConversationWorking = useChatStore((state) => {
     if (!conversationId) return false;
@@ -258,11 +258,11 @@ function ReviewPane({
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
 
-  const resolveWorktree = async (action: "apply" | "discard") => {
+  const resolveWorktree = async (action: "publish" | "discard") => {
     if (!conversationId) return;
     setActionLoading(action);
     try {
-      if (action === "apply") await applyPendingWorktree(conversationId);
+      if (action === "publish") await publishPendingWorktree(conversationId);
       else await discardPendingWorktree(conversationId);
       setFiles([]);
       setStatus(null);
@@ -328,12 +328,12 @@ function ReviewPane({
                 Discard
               </button>
               <button
-                onClick={() => void resolveWorktree("apply")}
+                onClick={() => void resolveWorktree("publish")}
                 disabled={!!actionLoading}
                 className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
               >
-                {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                Apply changes
+                {actionLoading === "publish" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Publish changes
               </button>
             </div>
           ))}
@@ -1208,7 +1208,7 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       <EmptyState
         icon={MessageSquare}
         title="Side chat unavailable"
-        detail="Resolve pending workspace changes, then open Side chat again."
+        detail="Close and reopen the Side chat tab to start a new temporary conversation."
       />
     );
   }
@@ -1281,7 +1281,8 @@ export function AuxiliaryPanel() {
       activeWorktreeBranch: state.activeWorktreeBranch,
     })),
   );
-  const projectId = activeConversation?.projectId || activeProjectId;
+  const projectId =
+    activeConversation?.pendingWorktree?.commitScope?.projectId || activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
   const worktreeBranch = activeConversation?.pendingWorktree?.branch || activeWorktreeBranch || undefined;

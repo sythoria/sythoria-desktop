@@ -602,7 +602,7 @@ describe("sendWithToolLoop", () => {
       path: "/workspace/write-project",
       permissions: "write" as const,
     };
-    const applyPendingWorktree = vi.fn().mockResolvedValue(true);
+    const publishPendingWorktree = vi.fn().mockResolvedValue(true);
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_detect_repo") return project.path;
       if (command === "git_worktree_create") {
@@ -633,7 +633,7 @@ describe("sendWithToolLoop", () => {
       generationState: "loading",
       generationLabel: "Loading",
       generationByConversation: { "conv-write": { state: "loading", label: "Loading" } },
-      applyPendingWorktree,
+      publishPendingWorktree,
     };
     const set = (fn: (current: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
       const next = fn(state);
@@ -647,7 +647,7 @@ describe("sendWithToolLoop", () => {
 
     await sendWithToolLoop(makeRunContext("conv-write", { project }), set, () => state, vi.fn(), vi.fn());
 
-    expect(applyPendingWorktree).toHaveBeenCalledWith("conv-write", { automatic: true });
+    expect(publishPendingWorktree).toHaveBeenCalledWith("conv-write", { automatic: true });
     expect(invokeMock).toHaveBeenCalledWith("git_worktree_cleanup_if_empty", {
       projectId: project.id,
       worktreePath: "/worktrees/auto",

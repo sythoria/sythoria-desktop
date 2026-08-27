@@ -8,8 +8,6 @@ import { useUIStore } from "../store/useUIStore";
 import { isGenerationActive, type WorkspaceChangeFile } from "../types";
 import { parseGitDiff } from "../utils/gitDiff";
 
-type IndicatorState = "idle" | "loading" | "ready" | "empty" | "error";
-
 function mergeWorkspaceFiles(diff: string, statusPaths: string[]): WorkspaceChangeFile[] {
   const files = new Map<string, WorkspaceChangeFile>();
   for (const file of parseGitDiff(diff)) {
@@ -47,7 +45,6 @@ export function WorkspaceChangeIndicator({ conversationId }: { conversationId?: 
   const pendingWorktree = conversation?.pendingWorktree;
   const recoveryProjectId = pendingWorktree?.commitScope?.projectId ?? conversation?.projectId;
   const [liveFiles, setLiveFiles] = useState<WorkspaceChangeFile[]>([]);
-  const [indicatorState, setIndicatorState] = useState<IndicatorState>("idle");
 
   useEffect(() => {
     let active = true;
@@ -55,17 +52,14 @@ export function WorkspaceChangeIndicator({ conversationId }: { conversationId?: 
 
     if (!pendingWorktree || !isWorking) {
       setLiveFiles([]);
-      setIndicatorState("idle");
       return () => undefined;
     }
     if (!recoveryProjectId) {
       setLiveFiles([]);
-      setIndicatorState("error");
       return () => undefined;
     }
 
-    const load = async (showLoading: boolean) => {
-      if (showLoading) setIndicatorState("loading");
+    const load = async () => {
       try {
         const [status, diff] = await Promise.all([
           invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
@@ -82,16 +76,15 @@ export function WorkspaceChangeIndicator({ conversationId }: { conversationId?: 
         if (!active) return;
         const files = mergeWorkspaceFiles(diff, [...status.unstagedFiles, ...status.stagedFiles]);
         setLiveFiles(files);
-        setIndicatorState(files.length > 0 ? "ready" : "empty");
       } catch {
-        if (!active) return;
-        setIndicatorState("error");
+        // A transient status failure should not create a generic "changes ready"
+        // indicator. Keep the last verified file list until polling succeeds.
       } finally {
-        if (active && isWorking) pollTimer = window.setTimeout(() => void load(false), 1000);
+        if (active && isWorking) pollTimer = window.setTimeout(() => void load(), 1000);
       }
     };
 
-    void load(true);
+    void load();
     return () => {
       active = false;
       if (pollTimer !== undefined) window.clearTimeout(pollTimer);
@@ -105,13 +98,9 @@ export function WorkspaceChangeIndicator({ conversationId }: { conversationId?: 
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   const hasKnownFiles = files.length > 0;
 
-  if (indicatorState === "loading" && !hasKnownFiles) return null;
+  if (!hasKnownFiles) return null;
 
-  const fileLabel = hasKnownFiles
-    ? `${files.length} ${files.length === 1 ? "file" : "files"} changed`
-    : indicatorState === "error"
-      ? "Workspace changes unavailable"
-      : "Workspace changes ready";
+  const fileLabel = `${files.length} ${files.length === 1 ? "file" : "files"} changed`;
 
   return (
     <motion.div

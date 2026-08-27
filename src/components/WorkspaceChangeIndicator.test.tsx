@@ -66,6 +66,38 @@ new file mode 100644
     expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
   });
 
+  it("stays hidden when an active project run has not changed any files", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") return { unstagedFiles: [], stagedFiles: [] } as never;
+      if (command === "git_diff_changes") return "" as never;
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    useChatStore.setState({
+      conversations: [
+        {
+          id: "unchanged-chat",
+          title: "Unchanged chat",
+          timestamp: new Date(),
+          messages: [],
+          model: "model-a",
+          projectId: "project-a",
+          pendingWorktree: {
+            path: "/worktrees/unchanged",
+            branch: "sythoria-agent-unchanged",
+            commitScope: { projectId: "project-a", projectRoot: "/projects/a", modelId: "model-a" },
+          },
+        },
+      ],
+      generationByConversation: { "unchanged-chat": { state: "responding", label: "Responding" } },
+    });
+
+    const { unmount } = render(<WorkspaceChangeIndicator conversationId="unchanged-chat" />);
+
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledWith("git_diff_changes", expect.anything()));
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    unmount();
+  });
+
   it("hides the compact indicator after published changes finish", () => {
     useChatStore.setState({
       conversations: [

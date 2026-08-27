@@ -5,7 +5,6 @@ import { Folder, FolderPlus, ShieldAlert, Info, Sliders, Terminal, GitBranch } f
 import { useProjectStore } from "../store/useProjectStore";
 import { useUIStore } from "../store/useUIStore";
 import { useGitStore } from "../store/useGitStore";
-import { useChatStore } from "../store/useChatStore";
 import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
 import type { ProjectPermission } from "../types";
@@ -31,11 +30,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
     })),
   );
   const gitConfig = useGitStore((s) => s.config);
-  const activeConversationHasPendingWorktree = useChatStore((state) => {
-    const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);
-    return Boolean(activeConversation?.pendingWorktree);
-  });
-
   const projectToEdit = id ? projects.find((p) => p.id === id) : null;
 
   // Initialize form state directly on mount
@@ -124,15 +118,8 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
         }
 
         const newId = await addProject(name.trim(), finalPath, permissions, configData);
-        if (activeConversationHasPendingWorktree) {
-          addToast(
-            `${t("projectForm.added", { name })} Resolve pending workspace changes before switching to it.`,
-            "success",
-          );
-        } else {
-          setActiveProject(newId);
-          addToast(t("projectForm.added", { name }), "success");
-        }
+        setActiveProject(newId);
+        addToast(t("projectForm.added", { name }), "success");
       } else if (mode === "edit" && id) {
         await updateProject(id, {
           name: name.trim(),

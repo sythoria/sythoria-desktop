@@ -115,32 +115,32 @@ const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
 const CANCELLED_ASSISTANT_MESSAGE = "Cancelled agent execution.";
 let conversationDeletionTail: Promise<void> = Promise.resolve();
 const activeNormalRuns = new Map<string, Set<Promise<void>>>();
-const activeWorktreeApplies = new Map<string, Promise<boolean>>();
-const projectWorktreeApplyTails = new Map<string, Promise<void>>();
+const activeWorktreePublications = new Map<string, Promise<boolean>>();
+const projectWorktreePublicationTails = new Map<string, Promise<void>>();
 
-interface ApplyWorktreeOptions {
+interface PublishWorktreeOptions {
   automatic?: boolean;
 }
 
-interface WorktreeApplyResult {
+interface WorktreePublicationResult {
   changedPaths: string[];
   undoToken?: string;
 }
 
-async function serializeProjectWorktreeApply<T>(projectId: string, task: () => Promise<T>): Promise<T> {
-  const previous = projectWorktreeApplyTails.get(projectId) ?? Promise.resolve();
+async function serializeProjectWorktreePublication<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+  const previous = projectWorktreePublicationTails.get(projectId) ?? Promise.resolve();
   let release!: () => void;
   const turn = new Promise<void>((resolve) => {
     release = resolve;
   });
   const tail = previous.then(() => turn);
-  projectWorktreeApplyTails.set(projectId, tail);
+  projectWorktreePublicationTails.set(projectId, tail);
   await previous;
   try {
     return await task();
   } finally {
     release();
-    if (projectWorktreeApplyTails.get(projectId) === tail) projectWorktreeApplyTails.delete(projectId);
+    if (projectWorktreePublicationTails.get(projectId) === tail) projectWorktreePublicationTails.delete(projectId);
   }
 }
 
@@ -340,7 +340,7 @@ interface ChatState {
   persistConversations: () => Promise<void>;
   resumeConversation: (convId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
   clearAllChats: () => Promise<void>;
-  applyPendingWorktree: (convId: string, options?: ApplyWorktreeOptions) => Promise<boolean>;
+  publishPendingWorktree: (convId: string, options?: PublishWorktreeOptions) => Promise<boolean>;
   undoWorkspaceChanges: (convId: string) => Promise<boolean>;
   discardPendingWorktree: (convId: string) => Promise<void>;
   cleanup: () => void;
@@ -401,19 +401,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => {
-    if (!isCompareMode) {
-      const state = get();
-      const pendingComparison = state.compareIds
-        .map((compareId) => state.conversations.find((conversation) => conversation.id === compareId))
-        .find((conversation) => conversation?.pendingWorktree);
-      if (pendingComparison) {
-        uiToast(
-          `Apply or discard pending workspace changes in “${pendingComparison.title}” before leaving compare mode.`,
-          "error",
-        );
-        return false;
-      }
-    }
     set({ isCompareMode });
     return true;
   },
@@ -706,28 +693,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveId: (id, isHistoryMove = false) => {
-    const { activeId, navigationHistory, navigationIndex, conversations, compareIds } = get();
+    const { activeId, navigationHistory, navigationIndex, conversations } = get();
     if (activeId === id) return Promise.resolve(true);
 
     const activeConversation = conversations.find((conversation) => conversation.id === activeId);
-    if (activeConversation?.pendingWorktree) {
-      uiToast(
-        `Apply or discard pending workspace changes in “${activeConversation.title}” before switching conversations.`,
-        "error",
-      );
-      return Promise.resolve(false);
-    }
-
-    const pendingComparison = compareIds
-      .map((compareId) => conversations.find((conversation) => conversation.id === compareId))
-      .find((conversation) => conversation?.pendingWorktree);
-    if (pendingComparison) {
-      uiToast(
-        `Resolve pending workspace changes in “${pendingComparison.title}” before switching conversations.`,
-        "error",
-      );
-      return Promise.resolve(false);
-    }
 
     if (activeConversation?.isTemporary) {
       return get().deleteConversationTrees([activeConversation.id], {
@@ -777,11 +746,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting another chat.", "error");
-      return currentConversation.id;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = generateId();
@@ -802,11 +766,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newTemporaryChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting a temporary chat.", "error");
-      return currentConversation.id;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = "temp-" + generateId();
@@ -828,11 +787,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newSideChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting a side chat.", "error");
-      return null;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = "side-" + generateId();
@@ -908,7 +862,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const missingProjectWorktrees = new Set<string>();
       for (const conversation of get().conversations) {
         if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) continue;
-        const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+        const projectId = conversation.pendingWorktree.commitScope?.projectId ?? conversation.projectId;
         if (!projectId) {
           missingProjectWorktrees.add(conversation.id);
           continue;
@@ -946,7 +900,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((state) => ({
           conversations: state.conversations.map((conversation) => {
             if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) return conversation;
-            const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+            const projectId = conversation.pendingWorktree.commitScope?.projectId ?? conversation.projectId;
             if (!projectId) return conversation;
             const key = `${projectId}\u0000${conversation.pendingWorktree.path}\u0000${conversation.pendingWorktree.branch}`;
             return discardedKeys.has(key) ? { ...conversation, pendingWorktree: undefined } : conversation;
@@ -1007,11 +961,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setConversationProject: (id, projectId) => {
-    const conversation = get().conversations.find((candidate) => candidate.id === id);
-    if (conversation?.pendingWorktree && conversation.projectId !== projectId) {
-      uiToast("Apply or discard pending workspace changes before changing this conversation's project.", "error");
-      return;
-    }
     set((state) => ({
       conversations: state.conversations.map((c) =>
         c.id === id
@@ -1424,21 +1373,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  applyPendingWorktree: async (convId, options = {}) => {
+  publishPendingWorktree: async (convId, options = {}) => {
     const conv = get().conversations.find((c) => c.id === convId);
     if (!conv || !conv.pendingWorktree) return false;
     const pendingWorktree = conv.pendingWorktree;
-    const projectId = conv.projectId ?? pendingWorktree.commitScope?.projectId;
+    const projectId = pendingWorktree.commitScope?.projectId ?? conv.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
       return false;
     }
 
-    const applyKey = `${projectId}\u0000${pendingWorktree.path}\u0000${pendingWorktree.branch}`;
-    const activeApply = activeWorktreeApplies.get(applyKey);
-    if (activeApply) return activeApply;
+    const publicationKey = `${projectId}\u0000${pendingWorktree.path}\u0000${pendingWorktree.branch}`;
+    const activePublication = activeWorktreePublications.get(publicationKey);
+    if (activePublication) return activePublication;
 
-    const apply = serializeProjectWorktreeApply(projectId, async () => {
+    const publication = serializeProjectWorktreePublication(projectId, async () => {
       uiLoading("toolExecution", true);
       try {
         let capturedFiles = new Map<string, { additions: number; deletions: number }>();
@@ -1467,22 +1416,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (!capturedFiles.has(path)) capturedFiles.set(path, { additions: 0, deletions: 0 });
           }
         } catch (error) {
-          logWarn("git", "Could not capture worktree diff statistics before applying", {
+          logWarn("git", "Could not capture worktree diff statistics before publishing", {
             details: error instanceof Error ? error.message : String(error),
           });
         }
 
-        const applyResult = await invoke<WorktreeApplyResult>("git_worktree_apply", {
+        const publicationResult = await invoke<WorktreePublicationResult>("git_worktree_apply", {
           projectId,
           worktreePath: pendingWorktree.path,
           branchName: pendingWorktree.branch,
         });
-        const changedPaths = applyResult.changedPaths;
+        const changedPaths = publicationResult.changedPaths;
 
         const workspaceChanges = {
           projectId,
           appliedAt: new Date(),
-          undoToken: applyResult.undoToken,
+          undoToken: publicationResult.undoToken,
           files: changedPaths.map((path) => ({
             path,
             additions: capturedFiles.get(path)?.additions ?? 0,
@@ -1504,7 +1453,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ),
         }));
         await get().persistConversations();
-        if (!options.automatic) uiToast("Changes applied successfully to workspace!", "success");
+        if (!options.automatic) uiToast("Changes published to the workspace.", "success");
 
         const commitScope = pendingWorktree.commitScope;
         if (commitScope && commitScope.projectId === projectId) {
@@ -1513,15 +1462,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
             files: changedPaths,
           });
         } else if (changedPaths.length > 0) {
-          logWarn("git", "Skipped auto-commit because the applied worktree had no captured run scope");
+          logWarn("git", "Skipped auto-commit because the published worktree had no captured run scope");
         }
         return true;
       } catch (err) {
-        logError("chat", "Failed to apply worktree changes", { error: err });
+        logError("chat", "Failed to publish worktree changes", { error: err });
         uiToast(
           options.automatic
             ? "Changes are still safely isolated because they could not be published. Open Review to resolve them."
-            : "Failed to apply changes: " + parseApiError(err).message,
+            : "Failed to publish changes: " + parseApiError(err).message,
           "error",
         );
         return false;
@@ -1530,11 +1479,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     });
 
-    activeWorktreeApplies.set(applyKey, apply);
+    activeWorktreePublications.set(publicationKey, publication);
     try {
-      return await apply;
+      return await publication;
     } finally {
-      if (activeWorktreeApplies.get(applyKey) === apply) activeWorktreeApplies.delete(applyKey);
+      if (activeWorktreePublications.get(publicationKey) === publication) {
+        activeWorktreePublications.delete(publicationKey);
+      }
     }
   },
 
@@ -1545,7 +1496,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return false;
     }
 
-    return serializeProjectWorktreeApply(workspaceChanges.projectId, async () => {
+    return serializeProjectWorktreePublication(workspaceChanges.projectId, async () => {
       uiLoading("toolExecution", true);
       try {
         await invoke("git_worktree_undo", {
@@ -1576,13 +1527,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = get().conversations.find((c) => c.id === convId);
     if (!conv || !conv.pendingWorktree) return;
     const pendingWorktree = conv.pendingWorktree;
-    const projectId = conv.projectId ?? pendingWorktree.commitScope?.projectId;
+    const projectId = pendingWorktree.commitScope?.projectId ?? conv.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
       return;
     }
 
-    await serializeProjectWorktreeApply(projectId, async () => {
+    await serializeProjectWorktreePublication(projectId, async () => {
       uiLoading("toolExecution", true);
       try {
         const { invoke } = await import("@tauri-apps/api/core");
