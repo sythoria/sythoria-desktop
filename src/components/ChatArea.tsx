@@ -1908,22 +1908,27 @@ function ToolActivityDisclosure({
   }, [isActive]);
 
   const startedAt = new Date(activity.messages[0].timestamp).getTime();
+  const activeRunStartedAt = useChatStore((state) =>
+    isActive && conversationId ? state.activeStreamStartTime[conversationId] : undefined,
+  );
+  const elapsedStartedAt = activeRunStartedAt ?? startedAt;
   const completedDuration = activity.finalMessage?.workingDuration;
   const [elapsed, setElapsed] = useState(() => {
     if (completedDuration !== undefined) return completedDuration;
     const endedAt = isActive
       ? Date.now()
       : (activity.finalMessage?.timestamp ?? activity.messages[activity.messages.length - 1].timestamp);
-    return Math.max(0, Math.round((new Date(endedAt).getTime() - startedAt) / 1000));
+    return Math.max(0, Math.round((new Date(endedAt).getTime() - elapsedStartedAt) / 1000));
   });
 
   useEffect(() => {
     if (!isActive) return;
 
-    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - elapsedStartedAt) / 1000)));
+    updateElapsed();
     const timer = window.setInterval(updateElapsed, 1000);
     return () => window.clearInterval(timer);
-  }, [isActive, startedAt]);
+  }, [elapsedStartedAt, isActive]);
 
   const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
   const streamedFinalContent = useChatStore((state) =>

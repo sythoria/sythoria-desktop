@@ -49,6 +49,7 @@ export interface ToolLoopSlice {
   activeStreamReasoning?: Record<string, string>;
   activeStreamThinkingStart?: Record<string, number>;
   activeStreamThinkingEnd?: Record<string, number>;
+  activeStreamStartTime?: Record<string, number>;
   persistConversations?: () => Promise<void>;
   resumeConversation?: (conversationId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
   publishPendingWorktree?: (conversationId: string, options?: { automatic?: boolean }) => Promise<boolean>;
@@ -1237,6 +1238,10 @@ async function runWithToolLoop(
     generationState: "loading" as GenerationState,
     generationLabel: "Loading",
     generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
+    activeStreamStartTime: {
+      ...(state.activeStreamStartTime ?? {}),
+      [convId]: workingStartedAt,
+    },
   }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);

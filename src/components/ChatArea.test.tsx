@@ -507,6 +507,43 @@ describe("ChatArea", () => {
     expect(screen.getByText("The project uses React.")).toBeInTheDocument();
   });
 
+  it("uses the full run start for the live working duration", async () => {
+    const runStartedAt = Date.now() - 10_000;
+    const latestThinkingStartedAt = Date.now() - 2_000;
+    const conversationId = "full-working-duration";
+    const messages = [
+      makeMessage({
+        id: "full-working-user",
+        role: "user",
+        content: "Inspect the project",
+        timestamp: new Date(runStartedAt),
+      }),
+      makeMessage({
+        id: "latest-thinking",
+        role: "assistant",
+        content: "I’m checking the latest result.",
+        timestamp: new Date(latestThinkingStartedAt),
+      }),
+      makeMessage({
+        id: "full-working-tool",
+        role: "tool",
+        content: "Project: read",
+        timestamp: new Date(latestThinkingStartedAt + 100),
+        toolCall: { id: "full-working-call", name: "project_read", arguments: { file_path: "src/App.tsx" } },
+        toolResult: { id: "full-working-call", name: "project_read", content: "export default function App() {}" },
+      }),
+    ];
+
+    useChatStore.setState({
+      generationByConversation: { [conversationId]: { state: "loading", label: "Loading" } },
+      activeStreamStartTime: { [conversationId]: runStartedAt },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversationId} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Working for 10s" })).toBeInTheDocument());
+  });
+
   it("keeps the working disclosure mounted when another tool is called", () => {
     const startedAt = Date.now() - 3_000;
     const userMessage = makeMessage({
