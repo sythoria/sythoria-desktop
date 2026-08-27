@@ -290,6 +290,78 @@ describe("ChatArea", () => {
     expect(screen.getByText("Images")).toBeInTheDocument();
   });
 
+  it("renders native skill reads as a skill disclosure instead of a generic tool result", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Reading Skill: react-patterns",
+        toolCall: {
+          id: "skill-call",
+          name: "read_skill",
+          arguments: { id: "react-patterns", offset: "0" },
+        },
+        toolResult: {
+          id: "skill-call",
+          name: "read_skill",
+          content: JSON.stringify({
+            path: "SKILL.md",
+            content: "# React Patterns\n\nUse semantic components.",
+            offset: 0,
+            nextOffset: null,
+            totalCharacters: 43,
+          }),
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+
+    expect(screen.getByText("Read skill")).toBeInTheDocument();
+    expect(screen.getByText("react-patterns").parentElement).toHaveClass("text-red-600");
+    expect(screen.queryByText("Tool result")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+    expect(screen.getByRole("region", { name: "Skill content" })).toHaveTextContent("SKILL.md");
+    expect(screen.getByText("# React Patterns")).toBeInTheDocument();
+    expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
+  it("renders packaged skill resources as a native resource list", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Listing Skill Resources: react-patterns",
+        toolCall: {
+          id: "skill-resource-call",
+          name: "list_skill_resources",
+          arguments: { id: "react-patterns" },
+        },
+        toolResult: {
+          id: "skill-resource-call",
+          name: "list_skill_resources",
+          content: JSON.stringify([
+            { path: "rules/hooks.md", size: 2048 },
+            { path: "examples/forms.md", size: 512 },
+          ]),
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    expect(screen.getByText("Listed skill resources")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+    const resources = screen.getByRole("list", { name: "Skill resources" });
+    expect(resources).toHaveTextContent("rules/hooks.md");
+    expect(resources).toHaveTextContent("2.0 KB");
+    expect(resources).toHaveTextContent("examples/forms.md");
+  });
+
   it("renders a failed MCP file write as its intended diff instead of generic tool details", async () => {
     const user = userEvent.setup();
     const messages = [

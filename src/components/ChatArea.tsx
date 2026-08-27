@@ -47,6 +47,8 @@ import {
   Undo2,
   Users,
   Cpu,
+  BookOpen,
+  PackageOpen,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
@@ -466,6 +468,30 @@ function getNativeToolDisplayInfo(
     return null;
   }
 
+  if (name === "read_skill" || name === "list_skill_resources" || name === "read_skill_resource") {
+    const skillId = args.id || "skill";
+    const isResource = name === "read_skill_resource";
+    const isResourceList = name === "list_skill_resources";
+    return {
+      type: "skill",
+      skillId,
+      resourcePath: isResource ? args.path : undefined,
+      IconComponent: isResourceList ? PackageOpen : BookOpen,
+      colorClass: "text-red-600 dark:text-red-400",
+      label: isResourceList
+        ? isCompleted
+          ? t("chat.tools.listedSkillResources")
+          : t("chat.tools.listingSkillResources")
+        : isResource
+          ? isCompleted
+            ? t("chat.tools.readSkillResource")
+            : t("chat.tools.readingSkillResource")
+          : isCompleted
+            ? t("chat.tools.readSkill")
+            : t("chat.tools.readingSkill"),
+    };
+  }
+
   const isNativeProjectTool = name.startsWith("project_") && !name.includes("__");
   const isMcpFileChange = name.includes("__") && !!result?.diffSummary?.filename && !!result.diffSummary.hunks?.length;
   if (!isNativeProjectTool && !isMcpFileChange) return null;
@@ -612,6 +638,82 @@ function getNativeToolDisplayInfo(
   }
 
   return null;
+}
+
+interface SkillResourceContent {
+  path: string;
+  content: string;
+  offset: number;
+  nextOffset?: number | null;
+  totalCharacters: number;
+}
+
+interface SkillResourceInfo {
+  path: string;
+  size: number;
+}
+
+function parseSkillResult<T>(content: string): T | null {
+  try {
+    return JSON.parse(content) as T;
+  } catch {
+    return null;
+  }
+}
+
+function SkillToolDetails({ message }: { message: Message }) {
+  const { t } = useTranslation();
+  const name = message.toolCall?.name;
+  const rawResult = message.toolResult?.content || "";
+
+  if (name === "list_skill_resources") {
+    const resources = parseSkillResult<SkillResourceInfo[]>(rawResult);
+    if (!Array.isArray(resources)) {
+      return <SyntaxCodeBlock code={rawResult} language="plaintext" maxHeight="400px" />;
+    }
+    if (resources.length === 0) {
+      return <p className="text-sm text-text-muted">{t("chat.tools.noSkillResources")}</p>;
+    }
+    return (
+      <ul className="flex flex-col gap-1.5" aria-label={t("chat.tools.skillResources")}>
+        {resources.map((resource) => (
+          <li
+            key={resource.path}
+            className="flex min-w-0 items-center gap-2 rounded-lg border border-border/40 bg-input/20 px-2.5 py-2"
+          >
+            <FileTextIcon size={14} className="shrink-0 text-red-500" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{resource.path}</span>
+            <span className="shrink-0 text-xs text-text-muted">{formatFileSize(resource.size)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  const resource = parseSkillResult<SkillResourceContent>(rawResult);
+  if (!resource || typeof resource.content !== "string") {
+    return <SyntaxCodeBlock code={rawResult} language="plaintext" maxHeight="400px" />;
+  }
+
+  const extension = resource.path.split(".").pop()?.toLowerCase();
+  const language = extension === "md" ? "markdown" : extension === "json" ? "json" : "plaintext";
+  const chunkEnd = Math.min(resource.offset + Array.from(resource.content).length, resource.totalCharacters);
+
+  return (
+    <section className="min-w-0" aria-label={t("chat.tools.skillContent")}>
+      <div className="mb-1.5 flex items-center justify-between gap-3 px-1 text-[11px] text-text-muted">
+        <span className="truncate font-medium text-text-secondary">{resource.path}</span>
+        <span className="shrink-0 font-mono">
+          {t("chat.tools.skillCharacterRange", {
+            start: String(resource.offset + 1),
+            end: String(chunkEnd),
+            total: String(resource.totalCharacters),
+          })}
+        </span>
+      </div>
+      <SyntaxCodeBlock code={resource.content} language={language} maxHeight="400px" />
+    </section>
+  );
 }
 
 function useSubagentConversationIds(message: Message): string[] {
@@ -800,9 +902,10 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const isFetch = name === "fetch_url";
   const isProject = name.startsWith("project_");
   const isMcp = name.includes("__");
+  const isSkill = name === "read_skill" || name === "list_skill_resources" || name === "read_skill_resource";
   const isWaitSubagents = name === "wait_subagents";
   const isCompleted = !!message.toolResult;
-  const isCollapsible = isMcp || isProject || isWaitSubagents;
+  const isCollapsible = isMcp || isProject || isSkill || isWaitSubagents;
   const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
   const diffSummary = message.toolResult?.diffSummary;
   const isFileEditDiff =
@@ -907,6 +1010,19 @@ function ToolCallDisplay({ message }: { message: Message }) {
                   />
                   <span>{nativeInfo.label}</span>
                 </>
+              ) : nativeInfo.type === "skill" ? (
+                <>
+                  <span>{nativeInfo.label}</span>
+                  <span className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 text-[0.9em] font-medium leading-none text-red-600 dark:text-red-400">
+                    <nativeInfo.IconComponent size={13} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{nativeInfo.skillId}</span>
+                  </span>
+                  {nativeInfo.resourcePath && (
+                    <span className="max-w-[16rem] truncate font-medium text-text-primary">
+                      {nativeInfo.resourcePath}
+                    </span>
+                  )}
+                </>
               ) : (
                 <>
                   <span>{nativeInfo.label}</span>
@@ -992,6 +1108,17 @@ function ToolCallDisplay({ message }: { message: Message }) {
                   command={getShellCommand(name, message.toolCall?.arguments)}
                   output={isCompleted ? rawResult : undefined}
                 />
+              ) : nativeInfo?.type === "skill" ? (
+                <div className="rounded-xl border border-red-500/15 bg-red-500/[0.035] p-3">
+                  {isCompleted ? (
+                    <SkillToolDetails message={message} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-text-muted" role="status">
+                      <Loader2 size={14} className="shrink-0 animate-spin text-red-500" aria-hidden="true" />
+                      <span>{nativeInfo.label}...</span>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                   {/* Arguments */}
@@ -1495,13 +1622,7 @@ function openWorkspaceReview(conversationId: string) {
   ui.setAuxPanelOpen(true);
 }
 
-function WorkspaceChangeSummary({
-  conversationId,
-  changes,
-}: {
-  conversationId: string;
-  changes: WorkspaceChangeSet;
-}) {
+function WorkspaceChangeSummary({ conversationId, changes }: { conversationId: string; changes: WorkspaceChangeSet }) {
   const [expanded, setExpanded] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const fileListId = useId();
@@ -1857,9 +1978,7 @@ const MessageBubble = memo(function MessageBubble({
           !isAnySubagentRunning &&
           isLastInSequence &&
           workspaceChanges &&
-          conversationId && (
-            <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />
-          )}
+          conversationId && <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />}
         {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
