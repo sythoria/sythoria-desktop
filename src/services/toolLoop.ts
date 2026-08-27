@@ -17,9 +17,9 @@ import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
-import { useProjectStore } from "../store/useProjectStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/lineDiff";
+import { parseGitDiff } from "../utils/gitDiff";
 import {
   continueConversationRunContext,
   createToolStepBudget,
@@ -57,9 +57,13 @@ export interface ToolLoopSlice {
 interface ProjectRunContext {
   readonly conversationId: string;
   readonly projectId: string;
-  readonly worktreePath: string | null;
-  readonly branch: string | null;
   readonly capabilityToken: string;
+}
+
+interface WorkspaceSnapshotResult {
+  changedPaths: string[];
+  diff: string;
+  undoToken?: string;
 }
 
 type ToolResultDiffSummary = NonNullable<NonNullable<Message["toolResult"]>["diffSummary"]>;
@@ -750,7 +754,6 @@ function resolveToolEffect(
   args: Record<string, unknown>,
   convId: string,
   project: Project | null,
-  projectRun: ProjectRunContext | null,
   mcpTools: McpTool[],
 ): ResolvedToolEffect {
   let resourceKey: string | null = null;
@@ -760,7 +763,7 @@ function resolveToolEffect(
       break;
     case "project":
       if (project) {
-        resourceKey = `project:${project.id}:${projectRun?.worktreePath ?? project.path}`;
+        resourceKey = `project:${project.id}:${project.path}`;
       }
       break;
     case "mcp-server": {
@@ -846,7 +849,7 @@ export function buildToolSystemPrompt(
 
   if (project) {
     prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
-    prompt += `\nWhen using project tools, you can use paths relative to the project path.`;
+    prompt += `\nAll project file tools and project_bash operate directly in this exact project folder. Files written by one tool are immediately visible to every other tool and to the user. Use paths relative to the project path; do not assume an isolated worktree or a separate shell directory. Preserve pre-existing user changes and inspect the current file or Git diff before overwriting anything.`;
   }
   return prompt;
 }
@@ -1218,7 +1221,7 @@ async function runWithToolLoop(
 ) {
   const workingStartedAt = Date.now();
   let hasUsedTools = false;
-  let runContext = initialRunContext;
+  const runContext = continueConversationRunContext(initialRunContext, initialRunContext.conversationId);
   const {
     conversationId: convId,
     modelConfig,
@@ -1229,7 +1232,6 @@ async function runWithToolLoop(
     mcpCallTool,
     project,
   } = runContext;
-  let worktree = runContext.worktree ? { ...runContext.worktree } : null;
   set((state) => ({
     isStreaming: true,
     generationState: "loading" as GenerationState,
@@ -1241,6 +1243,7 @@ async function runWithToolLoop(
 
   let wasAborted = false;
   let projectCapability: ProjectRunContext | null = null;
+  let workspaceSnapshotActive = false;
   const collectedSources: { title: string; url: string }[] = [];
   let contextDisclosureMessageId: string | null = null;
   let isFinalizingAfterToolLimit = false;
@@ -1326,68 +1329,41 @@ async function runWithToolLoop(
     };
 
     if (project) {
-      if (project.permissions === "read") {
-        const capabilityToken = await invoke<string>("project_run_begin", {
-          projectId: project.id,
-          conversationId: convId,
-          worktreePath: null,
-          branch: null,
-        });
-        projectCapability = Object.freeze({
-          conversationId: convId,
-          projectId: project.id,
-          worktreePath: null,
-          branch: null,
-          capabilityToken,
-        });
-      } else {
-        const isGit = await invoke<string | null>("git_detect_repo", { startPath: project.path });
-        if (!isGit) {
-          throw new Error("Write-capable project tools require a Git repository for worktree isolation.");
+      if (conv?.pendingWorktree && !conv.isSubagent) {
+        const published = await get().publishPendingWorktree?.(convId, { automatic: true });
+        if (!published) {
+          throw new Error(
+            "This conversation still has legacy isolated changes that could not be published. Resolve them in Review before starting another project run.",
+          );
         }
+      }
 
-        if (!worktree) {
-          const [path, branch, capabilityToken] = await invoke<[string, string, string]>("git_worktree_create", {
+      const capabilityToken = await invoke<string>("project_run_begin", {
+        projectId: project.id,
+        conversationId: convId,
+        worktreePath: null,
+        branch: null,
+      });
+      projectCapability = Object.freeze({
+        conversationId: convId,
+        projectId: project.id,
+        capabilityToken,
+      });
+
+      if (project.permissions !== "read") {
+        try {
+          workspaceSnapshotActive = await invoke<boolean>("git_workspace_snapshot_create", {
             projectId: project.id,
-            conversationId: convId,
+            runToken: capabilityToken,
           });
-          worktree = { path, branch };
-          projectCapability = Object.freeze({
-            conversationId: convId,
-            projectId: project.id,
-            worktreePath: path,
-            branch,
-            capabilityToken,
-          });
-        } else {
-          const capabilityToken = await invoke<string>("project_run_begin", {
-            projectId: project.id,
-            conversationId: convId,
-            worktreePath: worktree.path,
-            branch: worktree.branch,
-          });
-          projectCapability = Object.freeze({
-            conversationId: convId,
-            projectId: project.id,
-            worktreePath: worktree.path,
-            branch: worktree.branch,
-            capabilityToken,
+        } catch (error) {
+          logWarn("git", "Could not initialize direct workspace change tracking", {
+            details: error instanceof Error ? error.message : String(error),
           });
         }
-        runContext = continueConversationRunContext(runContext, convId, worktree);
-        const pendingWorktree = {
-          ...worktree,
-          commitScope: {
-            projectId: project.id,
-            projectRoot: project.path,
-            modelId: modelConfig.id,
-          },
-        };
         set((state) => ({
           conversations: state.conversations.map((conversation) =>
-            conversation.id === convId
-              ? { ...conversation, pendingWorktree, workspaceChanges: undefined }
-              : conversation,
+            conversation.id === convId ? { ...conversation, workspaceChanges: undefined } : conversation,
           ),
         }));
       }
@@ -1396,7 +1372,7 @@ async function runWithToolLoop(
       throw new Error("Project run capability could not be established.");
     }
     const projectRun = projectCapability;
-    logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
+    logInfo("chat", `sendWithToolLoop: direct project run ready for ${convId}`);
     const baseMessages = buildConversationContextMessages(conv?.messages ?? []);
 
     const useSearch = !!searchConfig;
@@ -1433,7 +1409,7 @@ async function runWithToolLoop(
           path: "AGENTS.md",
           offset: null,
           limit: null,
-          worktreePath: projectRun?.worktreePath ?? null,
+          worktreePath: null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
           userSystemPrompt += `\n\n<user_rules>\nThe following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any following instructions.\nReview them carefully and always take them into account when you generate responses and code:\n<RULE[AGENTS.md]>\n${agentsMdContent.trim()}\n</RULE[AGENTS.md]>\n</user_rules>`;
@@ -1686,7 +1662,7 @@ async function runWithToolLoop(
           const fnName = toKnownToolName(rawName);
           const fnArgs = parseToolArguments(toolCall, toolDefinitions);
           const definition = toolDefinitions.find((candidate) => candidate.function.name === rawName)!;
-          const effect = resolveToolEffect(definition, fnArgs, convId, project, projectRun, mcpTools);
+          const effect = resolveToolEffect(definition, fnArgs, convId, project, mcpTools);
           const toolCallMsgId = generateId();
           const isProjectTool = fnName.startsWith("project_");
 
@@ -1846,7 +1822,7 @@ async function runWithToolLoop(
                       path: getRelativePath(resolvedPath),
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun?.worktreePath ?? null,
+                      worktreePath: null,
                     });
                   } catch {
                     mcpIsNew = true;
@@ -1898,7 +1874,7 @@ async function runWithToolLoop(
                       path: getRelativePath(mcpFileChangeInfo.path),
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun?.worktreePath ?? null,
+                      worktreePath: null,
                     });
                     const diff = computeFileDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
@@ -1954,17 +1930,6 @@ async function runWithToolLoop(
                   ],
                   model: modelConfig.id,
                   projectId: project?.id,
-                  pendingWorktree:
-                    worktree && project
-                      ? {
-                          ...worktree,
-                          commitScope: {
-                            projectId: project.id,
-                            projectRoot: project.path,
-                            modelId: modelConfig.id,
-                          },
-                        }
-                      : undefined,
                   parentId: convId,
                   role: subagentRole,
                   isSubagent: true,
@@ -1974,7 +1939,7 @@ async function runWithToolLoop(
                 set((s) => ({ conversations: [...s.conversations, newConv] }));
 
                 sendWithToolLoop(
-                  continueConversationRunContext(runContext, subagentId, worktree),
+                  continueConversationRunContext(runContext, subagentId),
                   set,
                   get,
                   performSearch,
@@ -2046,7 +2011,7 @@ async function runWithToolLoop(
                 timestamp: new Date(),
               };
               enqueueToolLoopRun(
-                continueConversationRunContext(runContext, targetId, worktree),
+                continueConversationRunContext(runContext, targetId),
                 set,
                 get,
                 performSearch,
@@ -2072,7 +2037,7 @@ async function runWithToolLoop(
                       runToken: projectRun!.capabilityToken,
                       path: "",
                       pattern: fnArgs.pattern,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2084,7 +2049,7 @@ async function runWithToolLoop(
                       projectId: project.id,
                       runToken: projectRun!.capabilityToken,
                       path: relativeDir,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2097,7 +2062,7 @@ async function runWithToolLoop(
                     path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   break;
                 }
@@ -2110,7 +2075,7 @@ async function runWithToolLoop(
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2126,7 +2091,7 @@ async function runWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     });
                   } catch {
                     isNew = true;
@@ -2150,7 +2115,7 @@ async function runWithToolLoop(
                     runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     content: fnArgs.content,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   resultContent = "File written successfully.";
 
@@ -2168,7 +2133,7 @@ async function runWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
@@ -2201,7 +2166,7 @@ async function runWithToolLoop(
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   resultContent = "File content replaced successfully.";
                   intendedDiffSummary = undefined;
@@ -2212,7 +2177,7 @@ async function runWithToolLoop(
                     path: relativeFile,
                     offset: null,
                     limit: null,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   const diff = computeFileDiff(oldContent, newContent);
 
@@ -2232,10 +2197,10 @@ async function runWithToolLoop(
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
                     command: fnArgs.command,
-                    cwd: projectRun!.worktreePath ?? project.path,
+                    cwd: project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                     confirmationAcknowledged: commandConfirmationAcknowledged,
                   });
                   break;
@@ -2244,7 +2209,7 @@ async function runWithToolLoop(
                     await invoke("git_get_status", {
                       projectId: project.id,
                       runToken: projectRun!.capabilityToken,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2252,7 +2217,7 @@ async function runWithToolLoop(
                   resultContent = await invoke<string>("git_diff_changes", {
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                     files: null,
                   });
                   break;
@@ -2266,7 +2231,7 @@ async function runWithToolLoop(
                     authorName: null,
                     authorEmail: null,
                     bypassHooks: false,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   break;
               }
@@ -2707,6 +2672,20 @@ async function runWithToolLoop(
       triggerParentResume(updatedConv.parentId, parentMsg, set, get, stepBudget);
     }
   } finally {
+    let workspaceSnapshot: WorkspaceSnapshotResult | null = null;
+    if (projectCapability && project && workspaceSnapshotActive) {
+      try {
+        workspaceSnapshot = await invoke<WorkspaceSnapshotResult | null>("git_workspace_snapshot_finish", {
+          projectId: project.id,
+          runToken: projectCapability.capabilityToken,
+        });
+      } catch (error) {
+        logWarn("git", "Failed to capture direct workspace changes", {
+          details: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     if (projectCapability) {
       try {
         await invoke("project_run_end", {
@@ -2721,48 +2700,38 @@ async function runWithToolLoop(
     }
 
     const completedConversation = get().conversations.find((conversation) => conversation.id === convId);
-    const finishedWorktree =
-      project && worktree && completedConversation && !completedConversation.isSubagent ? worktree : null;
-    if (project && finishedWorktree) {
-      const currentState = get();
-      const hasOtherActiveWorktreeRun = currentState.conversations.some((conversation) => {
-        if (conversation.id === convId || conversation.pendingWorktree?.path !== finishedWorktree.path) return false;
-        const generation = currentState.generationByConversation[conversation.id];
-        return conversation.status === "running" || isGenerationActive(generation?.state);
-      });
+    if (project && workspaceSnapshot?.changedPaths.length) {
+      const filesByPath = new Map(
+        parseGitDiff(workspaceSnapshot.diff).map((file) => [
+          file.path,
+          { path: file.path, additions: file.additions, deletions: file.deletions },
+        ]),
+      );
+      const files = workspaceSnapshot.changedPaths.map(
+        (path) => filesByPath.get(path) ?? { path, additions: 0, deletions: 0 },
+      );
+      const workspaceChanges = {
+        projectId: project.id,
+        files,
+        appliedAt: new Date(),
+        undoToken: workspaceSnapshot.undoToken,
+      };
+      set((state) => ({
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === convId ? { ...conversation, workspaceChanges } : conversation,
+        ),
+      }));
+      await get().persistConversations?.();
+      logInfo("git", "Captured changes made during the direct project run");
 
-      const hasQueuedResume = (pendingSubagentMessages.get(convId)?.length ?? 0) > 0;
-      if (!hasOtherActiveWorktreeRun && !hasQueuedResume) {
-        try {
-          const cleaned = await invoke<boolean>("git_worktree_cleanup_if_empty", {
-            projectId: project.id,
-            worktreePath: finishedWorktree.path,
-            branchName: finishedWorktree.branch,
-          });
-          if (cleaned) {
-            const projectState = useProjectStore.getState();
-            if (projectState.activeWorktreePath === finishedWorktree.path) {
-              useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
-            }
-            set((state) => ({
-              conversations: state.conversations.map((conversation) =>
-                conversation.pendingWorktree?.path === finishedWorktree.path &&
-                conversation.pendingWorktree.branch === finishedWorktree.branch
-                  ? { ...conversation, pendingWorktree: undefined }
-                  : conversation,
-              ),
-            }));
-            await get().persistConversations?.();
-            logInfo("git", "Removed an unchanged isolated worktree after the project run completed");
-          } else if (get().publishPendingWorktree) {
-            const published = await get().publishPendingWorktree?.(convId, { automatic: true });
-            if (published) logInfo("git", "Published agent changes to the project workspace");
-          }
-        } catch (error) {
-          logWarn("git", "Failed to clean up an unchanged isolated worktree", {
-            details: error instanceof Error ? error.message : String(error),
-          });
-        }
+      if (!completedConversation?.isSubagent) {
+        const { useGitStore } = await import("../store/useGitStore");
+        await useGitStore.getState().autoCommitIfNeeded({
+          projectId: project.id,
+          projectRoot: project.path,
+          modelId: modelConfig.id,
+          files: workspaceSnapshot.changedPaths,
+        });
       }
     }
 

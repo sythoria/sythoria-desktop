@@ -48,6 +48,7 @@ struct ProjectRunCapability {
     project_id: String,
     worktree_path: Option<PathBuf>,
     branch: Option<String>,
+    workspace_baseline: Option<String>,
     read_only: bool,
 }
 
@@ -379,11 +380,6 @@ pub(crate) fn register_project_run(
             (Some(verified.path), Some(verified.branch))
         }
         None => {
-            if project.permissions != ProjectPermission::Read {
-                return Err(AppError::AppPath(
-                    "Write-capable project runs require an isolated Git worktree".to_string(),
-                ));
-            }
             if branch.is_some() {
                 return Err(AppError::AppPath(
                     "A worktree branch cannot be supplied without a worktree path".to_string(),
@@ -405,6 +401,7 @@ pub(crate) fn register_project_run(
                 project_id: project_id.to_string(),
                 worktree_path: canonical_worktree,
                 branch: verified_branch,
+                workspace_baseline: None,
                 read_only: false,
             },
         );
@@ -455,6 +452,7 @@ fn register_project_browser(
                 project_id: project_id.to_string(),
                 worktree_path: canonical_worktree,
                 branch: verified_branch,
+                workspace_baseline: None,
                 read_only: true,
             },
         );
@@ -477,6 +475,7 @@ pub(crate) fn validate_project_run_access(
     validate_project_run_capability(state, &capability, project_id, requested_worktree)
 }
 
+#[cfg(test)]
 pub(crate) fn validate_project_run(
     state: &ProjectRegistry,
     run_token: &str,
@@ -502,6 +501,66 @@ fn get_project_run_capability(
                 "Access denied: Project run capability is invalid or expired".to_string(),
             )
         })
+}
+
+pub(crate) fn set_project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+    baseline: String,
+) -> Result<(), AppError> {
+    let mut capabilities = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let capability = capabilities.get_mut(run_token).ok_or_else(|| {
+        AppError::AppPath("Access denied: Project run capability is invalid or expired".to_string())
+    })?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    capability.workspace_baseline = Some(baseline);
+    Ok(())
+}
+
+pub(crate) fn project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+) -> Result<Option<String>, AppError> {
+    let capability = get_project_run_capability(state, run_token)?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    Ok(capability.workspace_baseline)
+}
+
+pub(crate) fn clear_project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+) -> Result<(), AppError> {
+    let mut capabilities = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let capability = capabilities.get_mut(run_token).ok_or_else(|| {
+        AppError::AppPath("Access denied: Project run capability is invalid or expired".to_string())
+    })?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    capability.workspace_baseline = None;
+    Ok(())
 }
 
 fn validate_project_run_capability(
@@ -544,7 +603,8 @@ fn validate_project_run_capability(
         }
         (None, None) => Ok(None),
         _ => Err(AppError::AppPath(
-            "Access denied: Every project command must use the run's explicit worktree".to_string(),
+            "Access denied: Every project command must use the run's bound workspace root"
+                .to_string(),
         )),
     }
 }
@@ -800,6 +860,25 @@ mod tests {
         let current = std::env::current_dir().expect("current directory");
         let project = test_project(current.clone());
         assert!(validate_owned_worktree(&project, &current.to_string_lossy(), None).is_err());
+    }
+
+    #[test]
+    fn write_capability_can_bind_directly_to_the_registered_project() {
+        let current = std::env::current_dir().expect("current directory");
+        let registry = ProjectRegistry::new();
+        registry
+            .projects
+            .lock()
+            .expect("lock registry")
+            .insert("project".to_string(), test_project(current));
+
+        let token = register_project_run(&registry, "project", "conversation", None, None)
+            .expect("register direct project run");
+        assert_eq!(
+            validate_project_run_access(&registry, &token, "project", None, true)
+                .expect("validate direct write access"),
+            None
+        );
     }
 
     #[test]

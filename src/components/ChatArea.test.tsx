@@ -157,7 +157,7 @@ describe("ChatArea", () => {
     await user.click(screen.getByRole("button", { name: "Undo" }));
 
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith("git_worktree_undo", {
+      expect(invokeMock).toHaveBeenCalledWith("git_workspace_undo", {
         projectId: "project-a",
         undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
       }),

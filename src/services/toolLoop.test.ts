@@ -85,7 +85,6 @@ function makeRunContext(
   overrides: Partial<ConversationRunContext> = {},
 ): ConversationRunContext {
   const project = overrides.project ?? null;
-  const worktree = overrides.worktree ?? null;
   return {
     conversationId,
     modelConfig: {
@@ -97,7 +96,6 @@ function makeRunContext(
     },
     temperature: 0.7,
     project,
-    worktree,
     searchConfig: undefined,
     searchApiKey: "",
     mcpTools: [],
@@ -108,8 +106,6 @@ function makeRunContext(
       projectId: project?.id ?? null,
       projectRoot: project?.path ?? null,
       modelId: "model-1",
-      worktreePath: worktree?.path ?? null,
-      worktreeBranch: worktree?.branch ?? null,
     },
     shouldUseTools: Boolean(
       project || overrides.searchConfig || overrides.mcpTools?.length || overrides.skills?.length,
@@ -375,8 +371,8 @@ describe("tool step budget propagation", () => {
   it("shares one mutable budget across continued and derived run contexts", () => {
     const budget = createToolStepBudget(5);
     const parent = { ...makeRunContext("parent-conv"), stepBudget: budget };
-    const child = continueConversationRunContext(parent, "child-conv", null);
-    const grandChild = continueConversationRunContext(child, "grandchild-conv", null);
+    const child = continueConversationRunContext(parent, "child-conv");
+    const grandChild = continueConversationRunContext(child, "grandchild-conv");
 
     expect(child.stepBudget).toBe(budget);
     expect(grandChild.stepBudget).toBe(budget);
@@ -594,28 +590,64 @@ describe("sendWithToolLoop", () => {
     });
   });
 
-  it("automatically publishes a successful root worktree after the run becomes idle", async () => {
+  it("runs write-capable tools in the real project folder and captures the resulting changes", async () => {
     mockStreamContent = "";
     const project = {
       id: "project-write",
       name: "Write project",
       path: "/workspace/write-project",
-      permissions: "write" as const,
+      permissions: "full" as const,
+      skipCommandConfirmations: true,
     };
-    const publishPendingWorktree = vi.fn().mockResolvedValue(true);
+    let modelCall = 0;
     invokeMock.mockImplementation(async (command) => {
-      if (command === "git_detect_repo") return project.path;
-      if (command === "git_worktree_create") {
-        return ["/worktrees/auto", "sythoria-agent-auto", "run-token"] as never;
-      }
+      if (command === "project_run_begin") return "run-token";
+      if (command === "git_workspace_snapshot_create") return true;
       if (command === "project_read") return "";
+      if (command === "project_write") return undefined;
+      if (command === "project_bash") return "src/direct.ts";
       if (command === "chat_stream_tools") {
+        modelCall += 1;
+        if (modelCall === 1) {
+          return JSON.stringify({
+            choices: [
+              {
+                finish_reason: "tool_calls",
+                message: {
+                  content: "Creating and checking the file.",
+                  tool_calls: [
+                    {
+                      id: "write-direct",
+                      function: {
+                        name: "project_write",
+                        arguments: JSON.stringify({ file_path: "src/direct.ts", content: "export {};\n" }),
+                      },
+                    },
+                    {
+                      id: "bash-direct",
+                      function: {
+                        name: "project_bash",
+                        arguments: JSON.stringify({ command: "test -f src/direct.ts && echo src/direct.ts" }),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          });
+        }
         return JSON.stringify({
           choices: [{ finish_reason: "stop", message: { content: "Implementation complete." } }],
         });
       }
+      if (command === "git_workspace_snapshot_finish") {
+        return {
+          changedPaths: ["src/direct.ts"],
+          diff: "diff --git a/src/direct.ts b/src/direct.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/direct.ts\n@@ -0,0 +1 @@\n+export {};\n",
+          undoToken: "undo-token",
+        };
+      }
       if (command === "project_run_end") return undefined;
-      if (command === "git_worktree_cleanup_if_empty") return false;
       throw new Error(`Unexpected command: ${command}`);
     });
 
@@ -633,7 +665,6 @@ describe("sendWithToolLoop", () => {
       generationState: "loading",
       generationLabel: "Loading",
       generationByConversation: { "conv-write": { state: "loading", label: "Loading" } },
-      publishPendingWorktree,
     };
     const set = (fn: (current: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
       const next = fn(state);
@@ -647,11 +678,39 @@ describe("sendWithToolLoop", () => {
 
     await sendWithToolLoop(makeRunContext("conv-write", { project }), set, () => state, vi.fn(), vi.fn());
 
-    expect(publishPendingWorktree).toHaveBeenCalledWith("conv-write", { automatic: true });
-    expect(invokeMock).toHaveBeenCalledWith("git_worktree_cleanup_if_empty", {
+    expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
       projectId: project.id,
-      worktreePath: "/worktrees/auto",
-      branchName: "sythoria-agent-auto",
+      conversationId: "conv-write",
+      worktreePath: null,
+      branch: null,
+    });
+    expect(invokeMock).toHaveBeenCalledWith("git_workspace_snapshot_create", {
+      projectId: project.id,
+      runToken: "run-token",
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith("git_worktree_create", expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith("project_write", {
+      projectId: project.id,
+      runToken: "run-token",
+      path: "src/direct.ts",
+      content: "export {};\n",
+      worktreePath: null,
+    });
+    expect(invokeMock).toHaveBeenCalledWith("project_bash", {
+      projectId: project.id,
+      runToken: "run-token",
+      command: "test -f src/direct.ts && echo src/direct.ts",
+      cwd: project.path,
+      timeout: null,
+      runInBackground: false,
+      worktreePath: null,
+      confirmationAcknowledged: false,
+    });
+    expect(state.conversations[0].pendingWorktree).toBeUndefined();
+    expect(state.conversations[0].workspaceChanges).toMatchObject({
+      projectId: project.id,
+      undoToken: "undo-token",
+      files: [{ path: "src/direct.ts", additions: 1, deletions: 0 }],
     });
   });
 

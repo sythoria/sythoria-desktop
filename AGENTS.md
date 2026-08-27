@@ -35,12 +35,12 @@ src/
   types/index.ts        # Core types (Message, Conversation, Project, configs) + helpers
   types/log.ts          # LogEntry, LogLevel, LogSource
   store/
-    useChatStore.ts     # Conversations, streaming, generation state, compare/pin/worktree, attachments
+    useChatStore.ts     # Conversations, streaming, generation state, compare/pin/workspace changes, attachments
     useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
     useSearchStore.ts   # Search configs, search toggle
     useMcpStore.ts      # MCP server configs, available tools, masked env-secret state, server statuses
     useUIStore.ts       # View, theme, layout, toasts, logs, tasks, tool confirmations, native app updates
-    useProjectStore.ts  # Project configuration, active project, and worktree overrides
+    useProjectStore.ts  # Project configuration, active project, and legacy recovery-worktree selection
     useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
     useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
     useGitStore.ts      # Git repo detection, commits, AI commit messages, auto-commit
@@ -52,7 +52,7 @@ src/
   services/
     toolLoop.ts         # Agentic tool loop: search_query + fetch_url + MCP + project workspace tools (limit 25)
     contextAssembler.ts # Provider-aware budgets, tool summaries, sliding history, and condensation disclosure
-    conversationRunContext.ts # Immutable per-run model, project, tool, worktree, attachment, and commit scope
+    conversationRunContext.ts # Immutable per-run model, project, tool, attachment, and commit scope
   config/
     constants.ts        # MAX_INPUT_LENGTH, DEFAULT_TEMPERATURE, ID_LENGTH, etc.
     providerPresets.ts  # OpenAI, Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
@@ -109,10 +109,10 @@ src-tauri/src/
   ws_handler.rs         # WebSocket: generation-scoped sessions, cancellation, reconnect backoff (1s–30s, max 5)
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
   appshots.rs           # Screen capture, auto-cleanup, permissions check, custom path configuration
-  git.rs                # Git status, commits, soft-reset, checkout, worktree creation/apply/discard
-  project.rs            # Workspace registration, permissions, worktree mapping, compiled root-relative exclusions
+  git.rs                # Git status, commits, direct-workspace snapshots/undo, and legacy worktree recovery
+  project.rs            # Workspace registration, direct-run capabilities, legacy worktree validation, exclusions
   project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
-  terminal.rs           # User-driven PTY sessions that launch the default shell in a registered project/worktree
+  terminal.rs           # User-driven PTY sessions launched in the registered project folder
   skills.rs             # Sandboxed Agent Skill discovery, YAML editing, and bounded resource/document reads
   commands/
     config.rs           # Encrypted settings/config commands, native secret-store bridges, and full data wipe
@@ -127,7 +127,7 @@ src-tauri/src/
 
 ## State (11 Zustand stores)
 
-- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `publishPendingWorktree()`, `undoWorkspaceChanges()`, `discardPendingWorktree()`, `setDraftAttachments()`, `setConversationProject()`. Root runs publish their shared isolated worktree automatically once all worktree-sharing runs are idle and persist a `workspaceChanges` summary for the final assistant edit card. Active or recovery worktrees never block conversation, compare-mode, or project navigation. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence.
+- **useChatStore**: `conversations`, `activeId`, `isStreaming`, `generationState` (idle/thinking/searching/fetching/responding/mcp_executing/error), `generationByConversation` (per-conversation state), `compareIds`, `isCompareMode`, `draftAttachments`, `init()`, `sendMessage()`, `retryLastMessage()`, `stopStreaming()`, `deleteConversationTrees()`, `togglePinChat()`, `undoWorkspaceChanges()`, `setDraftAttachments()`, `setConversationProject()`. Write-capable runs edit the registered project folder directly. Git projects capture a before/after workspace snapshot so the final assistant edit card can report the run's paths and safely offer Undo. `publishPendingWorktree()` and `discardPendingWorktree()` remain only for conversations persisted by older versions with an isolated recovery worktree. Conversation deletion is descendant-aware and ordered through confirmation rejection, bounded stream/MCP cancellation, legacy worktree cleanup, the pure `conversationLifecycle.ts` state transition, and persistence.
 - **useModelStore**: `models`, `selectedModel`, `temperature` (0–2, default 0.7), `maxToolSteps` (user-configurable step limit, 1–200) with an `unlimitedToolSteps` toggle that disables the cap entirely, `apiKeys`, `modelStatuses`, `titleConfig`, health checks (5min interval), and stream handlers keyed by native `streamId`.
 - **useSearchStore**: `searchConfigs`, `activeSearchId`, `isSearchEnabled`, `performSearch()`, `fetchUrlContent()`.
 - **useMcpStore**: `mcpConfigs` (including per-server `trustLevel`, defaulting to untrusted), `envSecrets`, `serverStatuses` (disconnected/connecting/connected/error), `availableTools`, and persisted `enabledServerIds` for native execution/startup reconnect. Composer drafts reference connected servers with repeatable inline labels; each accepted send snapshots the referenced IDs and exposes tools only from those servers. Removing a draft label never stops a connected server; Settings disable/disconnect controls its lifecycle. The store also maintains connection generations that prevent stale connection publication, conversation-scoped active tool-call request IDs, transactional async disable/delete, `addMcpConfig()`, `updateMcpConfig()`, `deleteMcpConfig()`, `connectServer()`, `disconnectServer()`, `connectAllEnabled()`, `callTool()`, `cancelConversationToolCalls()`, `toggleServerEnabled()`, `getToolsForServers()`, `setEnvSecrets()`.
@@ -144,11 +144,11 @@ src-tauri/src/
 
 - **`buildToolDefinitions(mcpTools, includeSearch, skills)`**: Merges only the capabilities available to the immutable run: installed-skill readers, native search tools (`search_query`, `fetch_url`), workspace tools (`project_read`, `project_grep`, `project_glob`, etc.), and MCP tools. Skill IDs are constrained to the run snapshot. MCP tools use `namespacedName` (`serverName__toolName`) and are prefixed with `[MCP: serverName]` in descriptions.
 - **`buildToolSystemPrompt(toolDefinitions, project, skills)`**: Generates the prompt from the exact API tool definitions. Explicitly named and clearly matching skills must be read completely before substantive work; required package resources must also be read.
-- **`sendWithToolLoop()`**: If skills, search, MCP, or project workspaces are available, runs iterative tool execution. The user-configurable limit (1–200, or unlimited via Settings) counts completed tool-execution rounds rather than provider continuation turns. One shared step budget spans the whole message chain — spawned subagents, queued follow-up messages, and notification-driven auto-resumes all draw from the same pool — so an automatic resume can never reset the cap; only a fresh user send starts a new budget. After the limit, one uncounted request with tools disabled synthesizes the completed results; if that request fails, a bounded partial-result summary is persisted so completed work remains available to follow-up turns. Tool definitions carry read/mutation metadata: declared read-only calls can overlap, while mutations are serialized per conversation, project/worktree, or MCP server. Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
+- **`sendWithToolLoop()`**: If skills, search, MCP, or project workspaces are available, runs iterative tool execution. The user-configurable limit (1–200, or unlimited via Settings) counts completed tool-execution rounds rather than provider continuation turns. One shared step budget spans the whole message chain — spawned subagents, queued follow-up messages, and notification-driven auto-resumes all draw from the same pool — so an automatic resume can never reset the cap; only a fresh user send starts a new budget. After the limit, one uncounted request with tools disabled synthesizes the completed results; if that request fails, a bounded partial-result summary is persisted so completed work remains available to follow-up turns. Tool definitions carry read/mutation metadata: declared read-only calls can overlap, while mutations are serialized per conversation, direct project folder, or MCP server. Rust requires a native confirmation for every untrusted MCP tool call and issues a 60-second single-use capability bound to server connection, tool, argument hash, and conversation; a server explicitly marked trusted in Settings can execute without a capability. MCP tool calls execute via `mcpCallTool(serverId, toolName, args, conversationId)`, returning structured `{ content, isError, images }`; the conversation scope allows deletion/stop flows to cancel only matching native requests.
 - **Agent Skills**: Sythoria discovers portable packages only from `~/.agents/skills/<id>/SKILL.md`. `read_skill` paginates `SKILL.md`; `list_skill_resources` and `read_skill_resource` expose bounded UTF-8 package files while rejecting traversal, symlinks, excessive depth/count, and oversized content. Settings edits preserve unknown YAML frontmatter and use atomic writes. Codex-private `.codex/skills/.system` packages are intentionally excluded because they may require Codex-only tools and resource providers.
 - **Inline MCP references**: The composer uses removable, repeatable MCP labels inside the prompt editor. Submitted message text preserves each label as a readable `[MCP: server name]` marker for model context and copy actions, while user-message rendering turns that marker back into a visual MCP chip. The message also stores `mcpServerIds` metadata so retries can recreate the same per-turn tool scope. A referenced server contributes tools only when its ID appears in that prompt snapshot; sends are rejected instead of silently falling back when a referenced server exposes no tools.
 - **Context assembly**: Every model request reserves provider-specific output and tool capacity, structurally summarizes oversized tool results, prioritizes the system prompt and latest turn, and slides or summarizes older history to fit the configured context size. Unknown context sizes remain explicit and use a conservative internal assembly ceiling. The stored transcript is not rewritten; the UI adds a disclosure when request context is condensed.
-- **Git Worktree Isolation**: For write operations in project workspaces, the agent automatically spawns a git worktree (`git_worktree_create`) from an internal snapshot of the current working copy, including uncommitted tracked files and non-ignored untracked files. A private baseline ref keeps those pre-existing files readable without classifying them as agent changes. File writes, edits, commands, and subagents execute in the isolated path (`worktreePath`) while the run is active. Once the root run and every worktree-sharing subagent are idle, unchanged worktrees are removed silently and changed worktrees publish to the main workspace automatically, including edits completed before cancellation or a later run error. Navigation remains independent of this lifecycle; only a genuine publication conflict leaves an explicit recovery worktree.
+- **Direct Workspace Execution**: Project file tools, Git tools, the agent shell, the Files panel, and the terminal all use the registered project folder as the same authoritative filesystem. A file created with `project_write` is therefore immediately visible to `project_bash` and to the user. Git projects take an internal before/after snapshot without changing the user's index or branch; the resulting exact patch powers the final change summary and conflict-safe Undo. Non-Git projects can still use write/full permissions, but do not receive Git-based summaries or Undo.
 
 ## Logging System
 
@@ -172,16 +172,16 @@ src-tauri/src/
 
 Native and MCP file write/edit results capture bounded diff hunks for the inline diff card. When a write fails, the stored diff describes the intended change and carries the error separately instead of falling back to the generic arguments/result view. Failed writes to previously absent paths are classified as `Create failed`; failures against existing files are classified as `Edit failed`.
 
-**Chat deletion**: Discover the selected conversation and all descendant subagents → reject their pending tool confirmations → mark their runs stopped → await bounded stream and conversation-scoped MCP cancellation → discard each unique worktree → atomically remove conversation/history/compare records → persist. Discard is idempotent for an already-missing worktree only after its Sythoria path/branch identity is validated; stale Git metadata and the reserved temporary branch are cleaned up. If any other worktree cleanup fails, deletion pauses and keeps the failed recovery records. Non-empty temporary chats use this same full-deletion path when the user switches away.
+**Chat deletion**: Discover the selected conversation and all descendant subagents → reject their pending tool confirmations → mark their runs stopped → await bounded stream and conversation-scoped MCP cancellation → discard any unique legacy recovery worktree → atomically remove conversation/history/compare records → persist. Legacy discard is idempotent for an already-missing worktree only after its Sythoria path/branch identity is validated. Non-empty temporary chats use this same full-deletion path when the user switches away.
 
-**Git Worktree Isolation Flow**: If writing to a project:
+**Direct Workspace Change Flow**: If writing to a project:
 
-1. A write-capable tool loop starts → backend snapshots the current working copy and creates an isolated worktree (`git_worktree_create`) from that snapshot.
-2. Tools (`project_write`, `project_edit`, `project_bash`) execute inside `worktreePath`.
-3. Conversation gains `pendingWorktree` details, including its captured commit scope → while the run is active, the composer renders a compact indicator only after Git reports one or more changed files. Review reads the worktree relative to its private baseline, including committed and newly created files.
-4. Once the root run and all worktree-sharing subagents are idle, `git_worktree_apply` publishes any completed edits automatically, removes the worktree, and stores the authoritative changed paths/counts plus an opaque undo token in `workspaceChanges`. This happens after success, cancellation, or a later run error; unchanged worktrees disappear without a bubble. The compact composer indicator disappears and the final assistant response renders an expandable edit summary. Review then targets the real project and always shows every staged, unstaged, and untracked change; optional auto-commit runs only afterward and commits only the agent paths.
-5. Completed-edit **Undo** reverses the exact saved agent patch only after a native reverse dry-run succeeds. Later conflicting workspace edits are never overwritten; Git rejects the undo and leaves them intact.
-6. If automatic publishing conflicts with the working copy, the worktree remains intact and **Publish changes** / **Discard** recovery actions remain available in Review. The recovery record stays bound to its captured `commitScope`, but it never blocks chat switching, project switching/detachment, or compare teardown.
+1. `project_run_begin` binds the run capability to the registered project root; write/full projects no longer require a Git repository.
+2. For a Git project, `git_workspace_snapshot_create` records the current tracked, staged, unstaged, and non-ignored untracked file state through a temporary index without touching the user's branch or index.
+3. `project_write`, `project_edit`, `project_bash`, Git tools, subagents, Files, Review, and Terminal all operate on the actual project folder.
+4. When the run ends, `git_workspace_snapshot_finish` compares the live folder to the captured baseline and stores authoritative changed paths/counts plus an opaque undo token in `workspaceChanges`. Optional auto-commit then commits only those captured paths.
+5. Completed-edit **Undo** reverses the exact saved patch only after a native reverse dry-run succeeds. Later conflicting workspace edits are never overwritten; Git rejects the undo and leaves them intact.
+6. `pendingWorktree` and its **Publish changes** / **Discard** actions are retained strictly to recover isolated changes saved by older Sythoria versions; new runs never create one.
 
 **Appshots**: Trigger capture (`capture_screen`) → backend saves file and returns token → frontend fetches details (`read_file_from_token`) and maps it to a base64 `Attachment` → appended to chat input.
 
@@ -232,6 +232,7 @@ export interface Message {
 }
 
 export interface PendingWorktree {
+  // Legacy recovery record; current runs execute in the project root.
   path: string;
   branch: string;
   commitScope?: {
@@ -326,16 +327,18 @@ export interface ModelConfig {
 | `transcribe_audio`                                                        | Transcribes recorded audio buffer via whisper.cpp               |
 | `load_projects` / `save_projects`                                         | Workspace configs storage                                       |
 | `set_active_project`                                                      | Maps the active workspace selection                             |
-| `project_run_begin`                                                       | Binds a run to the root or a validated worktree                 |
+| `project_run_begin`                                                       | Binds a run directly to its registered project root             |
 | `project_browse_begin`                                                    | Issues a read-only Files panel capability                       |
 | `git_detect_repo` / `git_get_status`                                      | Identifies local repositories and dirty tracking                |
 | `git_create_commit` / `git_undo_last_commit`                              | Creates commits, commits with AI msgs, soft-resets              |
-| `git_worktree_create` / `git_worktree_apply` / `git_worktree_undo`        | Create, publish, or safely reverse isolated workspace patches   |
+| `git_workspace_snapshot_create` / `git_workspace_snapshot_finish`         | Capture direct-run changes without modifying branch/index       |
+| `git_workspace_undo`                                                      | Safely reverse an exact captured direct-workspace patch         |
+| `git_worktree_apply`                                                      | Publish a legacy isolated recovery worktree                     |
 | `git_worktree_cleanup_if_empty`                                           | Remove a verified isolated worktree only when it has no changes |
 | `git_worktree_discard`                                                    | Prunes isolated branches and deletes worktree dirs              |
 | `project_read` / `project_write` / `project_edit`                         | Workspace-scoped file tools                                     |
 | `project_list_dir` / `project_grep` / `project_glob`                      | Workspace directory traversal and search tools                  |
-| `project_bash`                                                            | Execute system shells inside worktree directory                 |
+| `project_bash`                                                            | Execute system shells in the actual registered project folder   |
 | `terminal_start` / `terminal_write` / `terminal_resize` / `terminal_stop` | Run an interactive user-controlled project PTY                  |
 | `capture_screen` / `list_appshots`                                        | Take screenshots, query galleries                               |
 | `has_screen_capture_permission`                                           | Check macOS screen recording permissions                        |
@@ -362,7 +365,7 @@ export interface ModelConfig {
 
 - **Tailwind v4**: `@theme` directive, `@import "tailwindcss"` — no `tailwind.config.js`.
 - **VS Code Themes**: Settings > Appearance houses customizable themes fetched from a marketplace, dynamically mapped to stylesheet CSS properties.
-- **Git Worktree Isolation**: Highly secure write actions. Modifications execute inside a worktree sandbox before confirmation, preventing accidental main-branch workspace writes.
+- **Direct project filesystem**: Write actions execute in the registered folder so file tools, shell commands, panels, and the user all see the same state. Permission tiers, run capabilities, path validation, exclusions, and shell confirmation remain enforced natively.
 - **Project exclusions**: Project patterns use root-relative Git-ignore semantics, cannot use negation, and are enforced before and after canonicalization as well as during list/grep/glob traversal.
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.

@@ -27,7 +27,7 @@ fn get_and_validate_project(
     required_permission: &str,
     worktree_path: Option<&str>,
 ) -> Result<ValidatedProjectAccess, AppError> {
-    // Native run capabilities authorize an immutable project/worktree pair.
+    // Native run capabilities authorize one immutable project filesystem root.
     // The currently visible project is intentionally irrelevant to an active run.
     let capability_root = crate::project::validate_project_run_access(
         state,

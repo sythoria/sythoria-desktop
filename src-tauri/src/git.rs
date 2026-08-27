@@ -21,6 +21,14 @@ pub struct WorktreeApplyResult {
     pub undo_token: Option<String>,
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSnapshotResult {
+    pub changed_paths: Vec<String>,
+    pub diff: String,
+    pub undo_token: Option<String>,
+}
+
 struct TemporaryGitIndex {
     path: PathBuf,
 }
@@ -373,6 +381,77 @@ async fn create_workspace_snapshot_commit(
     }
 
     Ok(commit)
+}
+
+async fn diff_workspace_snapshots(
+    repo_path: &Path,
+    baseline: &str,
+    current: &str,
+) -> Result<AppliedWorktreeChanges, AppError> {
+    let names_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args([
+            "diff",
+            "--relative",
+            "--name-status",
+            "-z",
+            "--no-renames",
+            baseline,
+            current,
+            "--",
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::GitError(format!("Failed to list direct workspace changes: {e}")))?;
+    if !names_output.status.success() {
+        return Err(AppError::GitError(format!(
+            "Failed to list direct workspace changes: {}",
+            String::from_utf8_lossy(&names_output.stderr).trim()
+        )));
+    }
+
+    let changed_paths = parse_changed_paths(&names_output.stdout)?;
+    for path in &changed_paths {
+        resolve_git_relative_path(repo_path, path)?;
+    }
+    if changed_paths.is_empty() {
+        return Ok(AppliedWorktreeChanges {
+            changed_paths,
+            patch: Vec::new(),
+        });
+    }
+
+    let patch_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args([
+            "diff",
+            "--relative",
+            "--binary",
+            "--full-index",
+            "--no-ext-diff",
+            "--no-renames",
+            baseline,
+            current,
+            "--",
+        ])
+        .output()
+        .await
+        .map_err(|e| {
+            AppError::GitError(format!("Failed to capture direct workspace changes: {e}"))
+        })?;
+    if !patch_output.status.success() || patch_output.stdout.is_empty() {
+        return Err(AppError::GitError(format!(
+            "Failed to capture direct workspace changes: {}",
+            String::from_utf8_lossy(&patch_output.stderr).trim()
+        )));
+    }
+
+    Ok(AppliedWorktreeChanges {
+        changed_paths,
+        patch: patch_output.stdout,
+    })
 }
 
 async fn resolve_merge_base(
@@ -1335,14 +1414,80 @@ pub async fn git_diff_changes(
 }
 
 #[tauri::command]
-pub async fn git_worktree_create(
+pub async fn git_workspace_snapshot_create(
     state: tauri::State<'_, crate::project::ProjectRegistry>,
     project_id: String,
-    conversation_id: String,
-) -> Result<(String, String, String), AppError> {
-    create_worktree_for_project(&state, &project_id, &conversation_id).await
+    run_token: String,
+) -> Result<bool, AppError> {
+    let project_root =
+        get_and_validate_git_project(&state, &project_id, true, None, false, Some(&run_token))?;
+    if detect_git_repository(&project_root).await?.is_none() {
+        return Ok(false);
+    }
+
+    let snapshot_root = std::env::temp_dir().join("sythoria-workspace-snapshots");
+    std::fs::create_dir_all(&snapshot_root).map_err(|e| {
+        AppError::GitError(format!("Failed to create workspace snapshot root: {e}"))
+    })?;
+    let snapshot_id = uuid::Uuid::new_v4().simple().to_string();
+    let baseline =
+        create_workspace_snapshot_commit(&project_root, &snapshot_root, &snapshot_id[0..8]).await?;
+    crate::project::set_project_run_workspace_baseline(&state, &run_token, &project_id, baseline)
+        .map_err(|e| AppError::GitError(e.to_string()))?;
+    Ok(true)
 }
 
+#[tauri::command]
+pub async fn git_workspace_snapshot_finish(
+    app: AppHandle,
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    run_token: String,
+) -> Result<Option<WorkspaceSnapshotResult>, AppError> {
+    let Some(baseline) =
+        crate::project::project_run_workspace_baseline(&state, &run_token, &project_id)
+            .map_err(|e| AppError::GitError(e.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let project_root =
+        get_and_validate_git_project(&state, &project_id, true, None, false, Some(&run_token))?;
+    let snapshot_root = std::env::temp_dir().join("sythoria-workspace-snapshots");
+    std::fs::create_dir_all(&snapshot_root).map_err(|e| {
+        AppError::GitError(format!("Failed to create workspace snapshot root: {e}"))
+    })?;
+    let snapshot_id = uuid::Uuid::new_v4().simple().to_string();
+    let current =
+        create_workspace_snapshot_commit(&project_root, &snapshot_root, &snapshot_id[0..8]).await?;
+    let changes = diff_workspace_snapshots(&project_root, &baseline, &current).await?;
+    let undo_token = if changes.patch.is_empty() {
+        None
+    } else {
+        Some(store_workspace_undo_patch(&app, &changes.patch)?)
+    };
+    let diff = String::from_utf8(changes.patch)
+        .map_err(|_| AppError::GitError("Git returned a non-UTF-8 workspace patch".to_string()))?;
+    crate::project::clear_project_run_workspace_baseline(&state, &run_token, &project_id)
+        .map_err(|e| AppError::GitError(e.to_string()))?;
+
+    Ok(Some(WorkspaceSnapshotResult {
+        changed_paths: changes.changed_paths,
+        diff,
+        undo_token,
+    }))
+}
+
+#[tauri::command]
+pub async fn git_workspace_undo(
+    app: AppHandle,
+    state: tauri::State<'_, crate::project::ProjectRegistry>,
+    project_id: String,
+    undo_token: String,
+) -> Result<(), AppError> {
+    git_worktree_undo(app, state, project_id, undo_token).await
+}
+
+#[cfg(test)]
 async fn create_worktree_for_project(
     state: &crate::project::ProjectRegistry,
     project_id: &str,
@@ -1743,9 +1888,10 @@ async fn cleanup_worktree_internal(
 mod tests {
     use super::{
         apply_worktree_changes, cleanup_worktree_internal, create_commit_in_repository,
-        create_worktree_for_project, detect_git_repository, parse_changed_paths,
-        resolve_git_relative_path, switch_branch_in_repository, undo_workspace_patch,
-        validate_stale_worktree_identity, worktree_has_changes,
+        create_workspace_snapshot_commit, create_worktree_for_project, detect_git_repository,
+        diff_workspace_snapshots, parse_changed_paths, resolve_git_relative_path,
+        switch_branch_in_repository, undo_workspace_patch, validate_stale_worktree_identity,
+        worktree_has_changes,
     };
     use crate::project::{
         validate_project_run_access, Project, ProjectPermission, ProjectRegistry,
@@ -1858,6 +2004,38 @@ mod tests {
         assert!(parse_changed_paths(b"A\0").is_err());
         assert!(parse_changed_paths(b"R100\0old.txt\0new.txt\0").is_err());
         assert!(parse_changed_paths(b"A\0../outside\0").is_ok());
+    }
+
+    #[tokio::test]
+    async fn direct_workspace_snapshots_capture_and_reverse_only_run_changes() {
+        let fixture = TestRepository::new();
+        let snapshot_root = fixture.root.join("snapshots");
+        std::fs::create_dir_all(&snapshot_root).expect("create snapshot root");
+        let baseline = create_workspace_snapshot_commit(&fixture.repo, &snapshot_root, "baseline")
+            .await
+            .expect("capture baseline");
+
+        std::fs::write(fixture.repo.join("modified.txt"), b"agent change\n")
+            .expect("modify tracked file directly");
+        std::fs::write(fixture.repo.join("created.txt"), b"created directly\n")
+            .expect("create direct file");
+
+        let current = create_workspace_snapshot_commit(&fixture.repo, &snapshot_root, "current")
+            .await
+            .expect("capture current workspace");
+        let changes = diff_workspace_snapshots(&fixture.repo, &baseline, &current)
+            .await
+            .expect("diff direct workspace snapshots");
+
+        assert_eq!(changes.changed_paths, ["created.txt", "modified.txt"]);
+        undo_workspace_patch(&fixture.repo, &changes.patch)
+            .await
+            .expect("reverse exact direct changes");
+        assert!(!fixture.repo.join("created.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(fixture.repo.join("modified.txt")).expect("read restored file"),
+            "original\n"
+        );
     }
 
     #[test]

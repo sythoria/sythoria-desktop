@@ -110,12 +110,12 @@ export interface WorkspaceChangeFile {
   deletions: number;
 }
 
-/** The last successfully published agent change set for a conversation. */
+/** The last run change set captured directly in the project workspace. */
 export interface WorkspaceChangeSet {
   projectId: string;
   files: WorkspaceChangeFile[];
   appliedAt: Date;
-  /** Opaque native token for safely reversing this exact published patch. */
+  /** Opaque native token for safely reversing this exact patch. */
   undoToken?: string;
 }
 

@@ -1499,7 +1499,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return serializeProjectWorktreePublication(workspaceChanges.projectId, async () => {
       uiLoading("toolExecution", true);
       try {
-        await invoke("git_worktree_undo", {
+        await invoke("git_workspace_undo", {
           projectId: workspaceChanges.projectId,
           undoToken: workspaceChanges.undoToken,
         });
@@ -1511,10 +1511,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ),
         }));
         await get().persistConversations();
-        uiToast("Agent changes were undone.", "success");
+        uiToast("Captured workspace changes were undone.", "success");
         return true;
       } catch (err) {
-        logError("chat", "Failed to undo published workspace changes", { error: err });
+        logError("chat", "Failed to undo workspace changes", { error: err });
         uiToast("Could not undo changes: " + parseApiError(err).message, "error");
         return false;
       } finally {

@@ -25,7 +25,6 @@ export interface ConversationRunContext {
   readonly modelConfig: ModelConfig;
   readonly temperature: number;
   readonly project: Project | null;
-  readonly worktree: Readonly<{ path: string; branch: string }> | null;
   readonly searchConfig: SearchApiConfig | undefined;
   readonly searchApiKey: string;
   readonly mcpTools: McpTool[];
@@ -36,8 +35,6 @@ export interface ConversationRunContext {
     projectId: string | null;
     projectRoot: string | null;
     modelId: string;
-    worktreePath: string | null;
-    worktreeBranch: string | null;
   }>;
   readonly shouldUseTools: boolean;
 }
@@ -95,9 +92,6 @@ export function buildConversationRunContext(
   if (!selectedModel) return undefined;
 
   const modelConfig = Object.freeze({ ...selectedModel }) as ModelConfig;
-  const worktree = options.conversation.pendingWorktree
-    ? Object.freeze({ ...options.conversation.pendingWorktree })
-    : null;
   const searchConfig = options.searchConfig
     ? (Object.freeze({ ...options.searchConfig }) as SearchApiConfig)
     : undefined;
@@ -108,8 +102,6 @@ export function buildConversationRunContext(
     projectId: project?.id ?? null,
     projectRoot: project?.path ?? null,
     modelId: modelConfig.id,
-    worktreePath: worktree?.path ?? null,
-    worktreeBranch: worktree?.branch ?? null,
   });
 
   return Object.freeze({
@@ -117,7 +109,6 @@ export function buildConversationRunContext(
     modelConfig,
     temperature: options.temperature,
     project,
-    worktree,
     searchConfig,
     searchApiKey: options.searchApiKey,
     mcpTools,
@@ -141,17 +132,9 @@ export function withToolStepBudget(
 export function continueConversationRunContext(
   context: ConversationRunContext,
   conversationId: string,
-  worktree: Readonly<{ path: string; branch: string }> | null = context.worktree,
 ): ConversationRunContext {
-  const worktreeSnapshot = worktree ? Object.freeze({ ...worktree }) : null;
   return Object.freeze({
     ...context,
     conversationId,
-    worktree: worktreeSnapshot,
-    commitScope: Object.freeze({
-      ...context.commitScope,
-      worktreePath: worktreeSnapshot?.path ?? null,
-      worktreeBranch: worktreeSnapshot?.branch ?? null,
-    }),
   });
 }

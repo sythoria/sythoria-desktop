@@ -1495,7 +1495,7 @@ function openWorkspaceReview(conversationId: string) {
   ui.setAuxPanelOpen(true);
 }
 
-function PublishedWorkspaceChangeSummary({
+function WorkspaceChangeSummary({
   conversationId,
   changes,
 }: {
@@ -1554,7 +1554,7 @@ function PublishedWorkspaceChangeSummary({
               onClick={() => void handleUndo()}
               disabled={undoing}
               className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-              title="Undo this agent patch without touching unrelated workspace changes"
+              title="Undo this captured workspace patch if it still applies cleanly"
             >
               {undoing ? (
                 <Loader2 size={12} className="animate-spin" aria-hidden="true" />
@@ -1658,7 +1658,7 @@ const MessageBubble = memo(function MessageBubble({
     return !next || next.role === "user";
   });
 
-  const publishedWorkspaceChanges = useChatStore((state) => {
+  const workspaceChanges = useChatStore((state) => {
     if (message.role !== "assistant" || !conversationId) return undefined;
     const conversation = state.conversations.find((candidate) => candidate.id === conversationId);
     if (!conversation?.workspaceChanges?.files.length) return undefined;
@@ -1856,9 +1856,9 @@ const MessageBubble = memo(function MessageBubble({
           !isGenerating &&
           !isAnySubagentRunning &&
           isLastInSequence &&
-          publishedWorkspaceChanges &&
+          workspaceChanges &&
           conversationId && (
-            <PublishedWorkspaceChangeSummary conversationId={conversationId} changes={publishedWorkspaceChanges} />
+            <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />
           )}
         {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
