@@ -1459,14 +1459,14 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
     }
 
     let finalAssistantIndex = -1;
-    for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
-      const candidate = segment[index];
-      if (
-        candidate.role === "assistant" &&
-        !candidate.isSystem &&
-        (!isActiveSegment || candidate.isStreaming === true)
-      ) {
-        finalAssistantIndex = index;
+    // A streaming assistant placeholder is still provisional during an active
+    // tool run: only completion tells us whether it was narration or the final response.
+    if (!isActiveSegment) {
+      for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
+        const candidate = segment[index];
+        if (candidate.role === "assistant" && !candidate.isSystem) {
+          finalAssistantIndex = index;
+        }
       }
     }
 
@@ -1477,6 +1477,7 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
         (candidate) =>
           candidate.role !== "assistant" ||
           candidate.isSystem ||
+          candidate.isStreaming === true ||
           candidate.content.trim().length > 0 ||
           candidate.reasoningContent?.trim(),
       );
@@ -2071,7 +2072,7 @@ function ToolActivityDisclosure({
   const statusLabel = isActive
     ? `Working for ${formatWorkingDuration(displayedElapsed)}`
     : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
-  const collapsedPreviewMessage =
+  const latestActivityMessage =
     isActive && !activity.finalMessage
       ? [...activity.messages]
           .reverse()
@@ -2080,9 +2081,12 @@ function ToolActivityDisclosure({
               (message.role === "tool" && !!message.toolCall) ||
               (message.role === "assistant" &&
                 !message.isSystem &&
-                (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
+                (message.isStreaming === true ||
+                  message.content.trim().length > 0 ||
+                  !!message.reasoningContent?.trim())),
           )
       : undefined;
+  const collapsedPreviewMessage = latestActivityMessage?.role === "tool" ? latestActivityMessage : undefined;
 
   return (
     <motion.section

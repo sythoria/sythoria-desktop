@@ -449,7 +449,7 @@ describe("ChatArea", () => {
     expect(transcript).not.toHaveTextContent("Result");
   });
 
-  it("keeps tool activity expanded while working and collapses it after the final response", async () => {
+  it("keeps active assistant output inside working and promotes only the completed final response", async () => {
     const startedAt = Date.now() - 5_000;
     const userMessage = makeMessage({
       id: "working-user",
@@ -526,7 +526,8 @@ describe("ChatArea", () => {
     const answeringMessages = [userMessage, narrationMessage, toolMessage, answeringFinal];
     useChatStore.setState({ conversations: [{ ...conversation, messages: answeringMessages }] });
     rerender(<ChatArea messages={answeringMessages} {...defaultProps} conversationId={conversation.id} />);
-    expect(screen.getByText("The project uses")).toBeInTheDocument();
+    expect(screen.queryByText("The project uses")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("working-collapsed-preview")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Expand reasoning" })).not.toBeInTheDocument();
 
     const activeToolMessages = [userMessage, narrationMessage, toolMessage];
@@ -553,9 +554,8 @@ describe("ChatArea", () => {
       },
     });
     rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
-    await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toBeInTheDocument());
-    expect(screen.getByTestId("working-collapsed-preview")).not.toHaveClass("pl-5");
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent("I’m checking the component state now.");
+    await waitFor(() => expect(screen.queryByTestId("working-collapsed-preview")).not.toBeInTheDocument());
+    expect(screen.queryByText("I’m checking the component state now.")).not.toBeInTheDocument();
 
     const completedFinal = {
       ...streamingFinal,
