@@ -35,7 +35,12 @@ describe("ChatArea", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     useProjectStore.setState({ isProjectsEnabled: true });
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: null, activeAuxConversationId: null });
+    useUIStore.setState({
+      isAuxPanelOpen: false,
+      activeAuxTab: null,
+      activeAuxConversationId: null,
+      activeReviewFilePath: null,
+    });
   });
   it("shows empty state when no messages", () => {
     render(<ChatArea messages={[]} {...defaultProps} />);
@@ -124,9 +129,15 @@ describe("ChatArea", () => {
     expect(screen.getByText("src/four.ts")).toBeInTheDocument();
     expect(screen.getByText("src/five.ts")).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "Review workspace changes including src/four.ts" }));
+    expect(useUIStore.getState().activeReviewFilePath).toBe("src/four.ts");
+
+    useUIStore.getState().setAuxPanelOpen(false);
+
     await user.click(screen.getByRole("button", { name: "Review" }));
     expect(useUIStore.getState().activeAuxTab).toBe("review");
     expect(useUIStore.getState().activeAuxConversationId).toBe(conversation.id);
+    expect(useUIStore.getState().activeReviewFilePath).toBeNull();
     expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
   });
 

@@ -194,7 +194,8 @@ function ReviewPane({
 }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [files, setFiles] = useState<DiffFile[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const selectedPath = useUIStore((state) => state.activeReviewFilePath);
+  const setSelectedPath = useUIStore((state) => state.setActiveReviewFilePath);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<"publish" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -240,15 +241,18 @@ function ReviewPane({
       parsed.push(...statusOnlyFiles);
       setStatus(nextStatus);
       setFiles(parsed);
-      setSelectedPath((current) =>
-        current && parsed.some((file) => file.path === current) ? current : parsed[0]?.path || null,
+      const requestedPath = useUIStore.getState().activeReviewFilePath;
+      setSelectedPath(
+        requestedPath && parsed.some((file) => file.path === requestedPath)
+          ? requestedPath
+          : parsed[0]?.path || null,
       );
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
       setLoading(false);
     }
-  }, [projectId, worktreePath]);
+  }, [projectId, setSelectedPath, worktreePath]);
 
   useEffect(() => {
     queueMicrotask(() => void refresh());

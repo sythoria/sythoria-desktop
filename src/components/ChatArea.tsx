@@ -1607,9 +1607,10 @@ function SystemNotificationBubble({ message }: { message: Message }) {
   );
 }
 
-function openWorkspaceReview(conversationId: string) {
+function openWorkspaceReview(conversationId: string, filePath: string | null = null) {
   const ui = useUIStore.getState();
   ui.setActiveAuxConversationId(conversationId);
+  ui.setActiveReviewFilePath(filePath);
   ui.setActiveAuxTab("review");
   ui.setAuxPanelOpen(true);
 }
@@ -1694,7 +1695,7 @@ function WorkspaceChangeSummary({ conversationId, changes }: { conversationId: s
             <button
               key={file.path}
               type="button"
-              onClick={() => openWorkspaceReview(conversationId)}
+              onClick={() => openWorkspaceReview(conversationId, file.path)}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
               aria-label={`Review workspace changes including ${file.path}`}
             >

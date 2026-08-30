@@ -27,6 +27,7 @@ function mergeWorkspaceFiles(diff: string, statusPaths: string[]): WorkspaceChan
 function openWorkspaceReview(conversationId: string) {
   const ui = useUIStore.getState();
   ui.setActiveAuxConversationId(conversationId);
+  ui.setActiveReviewFilePath(null);
   ui.setActiveAuxTab("review");
   ui.setAuxPanelOpen(true);
 }

@@ -97,6 +97,7 @@ describe("workspace panel", () => {
       activeAuxTab: null,
       openAuxTabs: [],
       activeAuxConversationId: null,
+      activeReviewFilePath: null,
       sideChatConversationId: null,
       backgroundTasks: [
         {
@@ -209,6 +210,49 @@ diff --git a/src/older-change.ts b/src/older-change.ts
       files: null,
       runToken: null,
     });
+  });
+
+  it("opens Review with the file selected from the changed-files summary", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/App.tsx", "src/selected.ts"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1 +1 @@
+-first old
++first new
+diff --git a/src/selected.ts b/src/selected.ts
+--- a/src/selected.ts
++++ b/src/selected.ts
+@@ -1 +1 @@
+-selected old
++selected new` as never;
+      }
+      return [] as never;
+    });
+    useUIStore.setState({
+      activeAuxTab: "review",
+      openAuxTabs: ["review"],
+      activeAuxConversationId: "conversation-1",
+      activeReviewFilePath: "src/selected.ts",
+    });
+
+    render(<AuxiliaryPanel />);
+
+    expect(await screen.findByText("selected new")).toBeInTheDocument();
+    expect(screen.queryByText("first new")).not.toBeInTheDocument();
   });
 
   it("does not render an untracked directory marker as a diff file", async () => {

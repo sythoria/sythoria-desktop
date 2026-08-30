@@ -14,7 +14,12 @@ const invokeMock = vi.mocked(invoke);
 describe("WorkspaceChangeIndicator", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: null, activeAuxConversationId: null });
+    useUIStore.setState({
+      isAuxPanelOpen: false,
+      activeAuxTab: null,
+      activeAuxConversationId: null,
+      activeReviewFilePath: null,
+    });
     useProjectStore.setState({ isProjectsEnabled: true });
     useChatStore.setState({ conversations: [], generationByConversation: {} });
   });
