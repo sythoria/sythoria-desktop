@@ -1749,15 +1749,21 @@ const MessageBubble = memo(function MessageBubble({
   hideReasoningActivity?: boolean;
   animateEntrance?: boolean;
 }) {
-  const isAnySubagentRunning = useChatStore((s) =>
-    s.conversations.some(
-      (conversation) => conversation.parentId === conversationId && conversation.status === "running",
-    ),
-  );
-
-  const isGenerating = useChatStore((s) => {
+  const isMessageInActiveTurn = useChatStore((s) => {
     if (!conversationId) return false;
-    return isGenerationActive(s.generationByConversation[conversationId]?.state);
+    const isConversationWorking =
+      isGenerationActive(s.generationByConversation[conversationId]?.state) ||
+      s.conversations.some(
+        (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+      );
+    if (!isConversationWorking) return false;
+
+    const conversation = s.conversations.find((candidate) => candidate.id === conversationId);
+    if (!conversation) return true;
+    const messageIndex = conversation.messages.findIndex((candidate) => candidate.id === message.id);
+    if (messageIndex < 0) return true;
+
+    return !conversation.messages.slice(messageIndex + 1).some((candidate) => candidate.role === "user");
   });
 
   const isLastInSequence = useChatStore((s) => {
@@ -1876,7 +1882,7 @@ const MessageBubble = memo(function MessageBubble({
               <UserMessageContent content={message.content} />
             </div>
           )}
-          {!isGenerating && !isAnySubagentRunning && (
+          {!isMessageInActiveTurn && (
             <div className="flex justify-end">
               <MessageActions content={message.content} isUser />
             </div>
@@ -1967,12 +1973,11 @@ const MessageBubble = memo(function MessageBubble({
           );
         })()}
         {!isStreaming &&
-          !isGenerating &&
-          !isAnySubagentRunning &&
+          !isMessageInActiveTurn &&
           isLastInSequence &&
           workspaceChanges &&
           conversationId && <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />}
-        {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
+        {!isStreaming && !isMessageInActiveTurn && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
             sources={message.sources}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ChatArea from "./ChatArea";
@@ -258,6 +258,41 @@ describe("ChatArea", () => {
     render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
 
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
+  });
+
+  it("keeps completed turn actions available while a later turn is generating", () => {
+    const messages = [
+      makeMessage({ id: "previous-user", role: "user", content: "Earlier question" }),
+      makeMessage({ id: "previous-assistant", role: "assistant", content: "Earlier answer" }),
+      makeMessage({ id: "active-user", role: "user", content: "Current question" }),
+      makeMessage({ id: "active-assistant", role: "assistant", content: "", isStreaming: true }),
+    ];
+    const conversation: Conversation = {
+      id: "generating-chat",
+      title: "Generating chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: {
+        [conversation.id]: { state: "responding", label: "Responding" },
+      },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    const previousUser = screen.getByRole("article", { name: /User message: Earlier question/ });
+    const previousAssistant = screen.getByRole("article", { name: /Assistant message: Earlier answer/ });
+    const activeUser = screen.getByRole("article", { name: /User message: Current question/ });
+    const activeAssistant = screen.getByRole("article", { name: /Assistant message \(generating\)/ });
+
+    expect(within(previousUser).getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(within(previousAssistant).getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(within(previousAssistant).getByRole("button", { name: "Regenerate" })).toBeEnabled();
+    expect(within(activeUser).queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(within(activeAssistant).queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
   });
 
   it("renders MCP tool message and expandable arguments/result/images", async () => {
