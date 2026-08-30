@@ -712,6 +712,13 @@ describe("sendWithToolLoop", () => {
       undoToken: "undo-token",
       files: [{ path: "src/direct.ts", additions: 1, deletions: 0 }],
     });
+    expect(
+      [...state.conversations[0].messages].reverse().find((message) => message.role === "assistant")?.workspaceChanges,
+    ).toMatchObject({
+      projectId: project.id,
+      undoToken: "undo-token",
+      files: [{ path: "src/direct.ts", additions: 1, deletions: 0 }],
+    });
   });
 
   it("preserves an intended diff when an MCP file write returns an error", async () => {
@@ -807,9 +814,7 @@ describe("sendWithToolLoop", () => {
       vi.fn(),
     );
 
-    const failedWrite = state.conversations[0].messages.find(
-      (message) => message.toolCall?.id === "failed-mcp-write",
-    );
+    const failedWrite = state.conversations[0].messages.find((message) => message.toolCall?.id === "failed-mcp-write");
     expect(mcpCallTool).toHaveBeenCalledWith(
       "workspace",
       "write_file",

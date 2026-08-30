@@ -20,6 +20,7 @@ import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
 import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/lineDiff";
 import { parseGitDiff } from "../utils/gitDiff";
+import { attachWorkspaceChangesToLatestAssistant } from "../utils/workspaceChanges";
 import {
   continueConversationRunContext,
   createToolStepBudget,
@@ -1368,7 +1369,16 @@ async function runWithToolLoop(
         }
         set((state) => ({
           conversations: state.conversations.map((conversation) =>
-            conversation.id === convId ? { ...conversation, workspaceChanges: undefined } : conversation,
+            conversation.id === convId
+              ? {
+                  ...conversation,
+                  messages: attachWorkspaceChangesToLatestAssistant(
+                    conversation.messages,
+                    conversation.workspaceChanges,
+                  ),
+                  workspaceChanges: undefined,
+                }
+              : conversation,
           ),
         }));
       }
@@ -2723,7 +2733,13 @@ async function runWithToolLoop(
       };
       set((state) => ({
         conversations: state.conversations.map((conversation) =>
-          conversation.id === convId ? { ...conversation, workspaceChanges } : conversation,
+          conversation.id === convId
+            ? {
+                ...conversation,
+                messages: attachWorkspaceChangesToLatestAssistant(conversation.messages, workspaceChanges),
+                workspaceChanges,
+              }
+            : conversation,
         ),
       }));
       await get().persistConversations?.();

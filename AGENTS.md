@@ -180,7 +180,7 @@ Native and MCP file write/edit results capture bounded diff hunks for the inline
 1. `project_run_begin` binds the run capability to the registered project root; write/full projects no longer require a Git repository.
 2. For a Git project, `git_workspace_snapshot_create` records the current tracked, staged, unstaged, and non-ignored untracked file state through a temporary index without touching the user's branch or index.
 3. `project_write`, `project_edit`, `project_bash`, Git tools, subagents, Files, Review, and Terminal all operate on the actual project folder.
-4. When the run ends, `git_workspace_snapshot_finish` compares the live folder to the captured baseline and stores authoritative changed paths/counts plus an opaque undo token in `workspaceChanges`. Optional auto-commit then commits only those captured paths.
+4. When the run ends, `git_workspace_snapshot_finish` compares the live folder to the captured baseline and stores authoritative changed paths/counts plus an opaque undo token on the originating assistant message and in the conversation's latest `workspaceChanges`. Per-turn message copies keep each completed change bubble visible after later sends. Optional auto-commit then commits only those captured paths.
 5. Completed-edit **Undo** reverses the exact saved patch only after a native reverse dry-run succeeds. Later conflicting workspace edits are never overwritten; Git rejects the undo and leaves them intact.
 6. `pendingWorktree` and its **Publish changes** / **Discard** actions are retained strictly to recover isolated changes saved by older Sythoria versions; new runs never create one.
 
@@ -230,6 +230,7 @@ export interface Message {
   attachments?: Attachment[];
   mcpServerIds?: string[]; // Inline MCP references; content also preserves readable [MCP: name] labels
   workingDuration?: number; // Total seconds for a completed tool-assisted turn
+  workspaceChanges?: WorkspaceChangeSet; // Files changed by this specific assistant turn
 }
 
 export interface PendingWorktree {

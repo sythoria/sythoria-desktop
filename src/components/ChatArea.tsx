@@ -1629,7 +1629,7 @@ function WorkspaceChangeSummary({ conversationId, changes }: { conversationId: s
   const handleUndo = async () => {
     setUndoing(true);
     try {
-      await undoWorkspaceChanges(conversationId);
+      await undoWorkspaceChanges(conversationId, changes.undoToken);
     } finally {
       setUndoing(false);
     }
@@ -1781,6 +1781,9 @@ const MessageBubble = memo(function MessageBubble({
   const workspaceChanges = useChatStore((state) => {
     if (message.role !== "assistant" || !conversationId) return undefined;
     const conversation = state.conversations.find((candidate) => candidate.id === conversationId);
+    const storedMessage = conversation?.messages.find((candidate) => candidate.id === message.id);
+    if (storedMessage?.workspaceChanges?.files.length) return storedMessage.workspaceChanges;
+    if (!storedMessage && message.workspaceChanges?.files.length) return message.workspaceChanges;
     if (!conversation?.workspaceChanges?.files.length) return undefined;
     const latestAssistant = [...conversation.messages].reverse().find((candidate) => candidate.role === "assistant");
     return latestAssistant?.id === message.id ? conversation.workspaceChanges : undefined;
@@ -1972,11 +1975,9 @@ const MessageBubble = memo(function MessageBubble({
             </>
           );
         })()}
-        {!isStreaming &&
-          !isMessageInActiveTurn &&
-          isLastInSequence &&
-          workspaceChanges &&
-          conversationId && <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />}
+        {!isStreaming && !isMessageInActiveTurn && isLastInSequence && workspaceChanges && conversationId && (
+          <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />
+        )}
         {!isStreaming && !isMessageInActiveTurn && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}

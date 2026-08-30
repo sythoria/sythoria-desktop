@@ -96,6 +96,21 @@ const AttachmentSchema = z
   })
   .passthrough();
 
+const WorkspaceChangeSetSchema = z
+  .object({
+    projectId: z.string(),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+      }),
+    ),
+    appliedAt: z.coerce.date(),
+    undoToken: z.string().optional(),
+  })
+  .passthrough();
+
 const MessageSchema = z
   .object({
     id: z.string(),
@@ -122,6 +137,7 @@ const MessageSchema = z
     mcpServerIds: z.array(z.string()).optional(),
     thinkingDuration: z.number().nonnegative().optional(),
     workingDuration: z.number().nonnegative().optional(),
+    workspaceChanges: WorkspaceChangeSetSchema.optional(),
   })
   .passthrough();
 
@@ -154,21 +170,7 @@ export const ConversationSchema = z
       })
       .passthrough()
       .optional(),
-    workspaceChanges: z
-      .object({
-        projectId: z.string(),
-        files: z.array(
-          z.object({
-            path: z.string(),
-            additions: z.number().int().nonnegative(),
-            deletions: z.number().int().nonnegative(),
-          }),
-        ),
-        appliedAt: z.coerce.date(),
-        undoToken: z.string().optional(),
-      })
-      .passthrough()
-      .optional(),
+    workspaceChanges: WorkspaceChangeSetSchema.optional(),
   })
   .passthrough();
 

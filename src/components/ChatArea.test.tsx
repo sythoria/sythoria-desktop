@@ -141,10 +141,71 @@ describe("ChatArea", () => {
     expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
   });
 
+  it("keeps each completed file edit summary attached to its assistant turn", () => {
+    const firstChanges = {
+      projectId: "project-a",
+      appliedAt: new Date("2026-08-30T12:00:00Z"),
+      files: [{ path: "src/first-turn.ts", additions: 4, deletions: 1 }],
+    };
+    const secondChanges = {
+      projectId: "project-a",
+      appliedAt: new Date("2026-08-30T12:05:00Z"),
+      files: [{ path: "src/second-turn.ts", additions: 2, deletions: 0 }],
+    };
+    const messages = [
+      makeMessage({ id: "user-1", role: "user", content: "Make the first change" }),
+      makeMessage({
+        id: "assistant-1",
+        role: "assistant",
+        content: "Finished the first change.",
+        workspaceChanges: firstChanges,
+      }),
+      makeMessage({ id: "user-2", role: "user", content: "Now make another change" }),
+      makeMessage({
+        id: "assistant-2",
+        role: "assistant",
+        content: "Finished the second change.",
+        workspaceChanges: secondChanges,
+      }),
+    ];
+    const conversation: Conversation = {
+      id: "multi-turn-chat",
+      title: "Multi-turn changes",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+      workspaceChanges: secondChanges,
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    expect(screen.getAllByRole("region", { name: "Workspace change summary" })).toHaveLength(2);
+    expect(screen.getByText("src/first-turn.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/second-turn.ts")).toBeInTheDocument();
+  });
+
   it("safely undoes the published agent patch from the completed edit card", async () => {
     const user = userEvent.setup();
     invokeMock.mockResolvedValue(undefined as never);
-    const messages = [makeMessage({ id: "undo-answer", role: "assistant", content: "Finished." })];
+    const workspaceChanges = {
+      projectId: "project-a",
+      appliedAt: new Date(),
+      undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+      files: [{ path: "src/App.tsx", additions: 2, deletions: 1 }],
+    };
+    const messages = [
+      makeMessage({
+        id: "undo-answer",
+        role: "assistant",
+        content: "Finished.",
+        workspaceChanges,
+      }),
+    ];
     const conversation: Conversation = {
       id: "undo-chat",
       title: "Undo chat",
@@ -152,12 +213,6 @@ describe("ChatArea", () => {
       messages,
       model: "model-1",
       projectId: "project-a",
-      workspaceChanges: {
-        projectId: "project-a",
-        appliedAt: new Date(),
-        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
-        files: [{ path: "src/App.tsx", additions: 2, deletions: 1 }],
-      },
     };
     useChatStore.setState({
       conversations: [conversation],

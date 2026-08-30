@@ -54,6 +54,7 @@ import {
   verifyEncryptedPreferences,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
+import { attachWorkspaceChangesToLatestAssistant, removeWorkspaceChangesByUndoToken } from "../utils/workspaceChanges";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import {
   DEFAULT_AUX_PANEL_WIDTH,
@@ -341,7 +342,7 @@ interface ChatState {
   resumeConversation: (convId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
   clearAllChats: () => Promise<void>;
   publishPendingWorktree: (convId: string, options?: PublishWorktreeOptions) => Promise<boolean>;
-  undoWorkspaceChanges: (convId: string) => Promise<boolean>;
+  undoWorkspaceChanges: (convId: string, undoToken?: string) => Promise<boolean>;
   discardPendingWorktree: (convId: string) => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
@@ -966,6 +967,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         c.id === id
           ? {
               ...c,
+              messages:
+                c.projectId === projectId
+                  ? c.messages
+                  : attachWorkspaceChangesToLatestAssistant(c.messages, c.workspaceChanges),
               projectId,
               workspaceChanges: c.projectId === projectId ? c.workspaceChanges : undefined,
             }
@@ -1148,16 +1153,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const isTemporary = conversation?.isTemporary === true;
 
       set((state) => ({
-        conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
-          title:
-            isFirstForThis && !isTemporary
-              ? activeCompareIds.includes(cId)
-                ? fallbackTitle + " (Compare)"
-                : fallbackTitle
-              : undefined,
-          recursionDepth: 0,
-          workspaceChanges: undefined,
-        }),
+        conversations: updateConversationMessages(
+          state.conversations,
+          cId,
+          (msgs) => [...attachWorkspaceChangesToLatestAssistant(msgs, conversation?.workspaceChanges), userMsg],
+          {
+            title:
+              isFirstForThis && !isTemporary
+                ? activeCompareIds.includes(cId)
+                  ? fallbackTitle + " (Compare)"
+                  : fallbackTitle
+                : undefined,
+            recursionDepth: 0,
+            workspaceChanges: undefined,
+          },
+        ),
       }));
 
       if (isFirstForThis && !isTemporary && titleConfig.enabled) {
@@ -1448,7 +1458,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           conversations: state.conversations.map((candidate) =>
             candidate.pendingWorktree?.path === pendingWorktree.path &&
             candidate.pendingWorktree.branch === pendingWorktree.branch
-              ? { ...candidate, pendingWorktree: undefined, workspaceChanges }
+              ? {
+                  ...candidate,
+                  messages: attachWorkspaceChangesToLatestAssistant(candidate.messages, workspaceChanges),
+                  pendingWorktree: undefined,
+                  workspaceChanges,
+                }
               : candidate,
           ),
         }));
@@ -1489,12 +1504,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  undoWorkspaceChanges: async (convId) => {
-    const workspaceChanges = get().conversations.find((candidate) => candidate.id === convId)?.workspaceChanges;
+  undoWorkspaceChanges: async (convId, undoToken) => {
+    const conversation = get().conversations.find((candidate) => candidate.id === convId);
+    const workspaceChanges = undoToken
+      ? conversation?.workspaceChanges?.undoToken === undoToken
+        ? conversation.workspaceChanges
+        : [...(conversation?.messages ?? [])]
+            .reverse()
+            .find((message) => message.workspaceChanges?.undoToken === undoToken)?.workspaceChanges
+      : conversation?.workspaceChanges;
     if (!workspaceChanges?.undoToken) {
       uiToast("This change can no longer be undone automatically.", "info");
       return false;
     }
+    const workspaceUndoToken = workspaceChanges.undoToken;
 
     return serializeProjectWorktreePublication(workspaceChanges.projectId, async () => {
       uiLoading("toolExecution", true);
@@ -1505,8 +1528,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         set((state) => ({
           conversations: state.conversations.map((candidate) =>
-            candidate.workspaceChanges?.undoToken === workspaceChanges.undoToken
-              ? { ...candidate, workspaceChanges: undefined }
+            candidate.workspaceChanges?.undoToken === workspaceUndoToken ||
+            candidate.messages.some((message) => message.workspaceChanges?.undoToken === workspaceUndoToken)
+              ? {
+                  ...candidate,
+                  messages: removeWorkspaceChangesByUndoToken(candidate.messages, workspaceUndoToken),
+                  workspaceChanges:
+                    candidate.workspaceChanges?.undoToken === workspaceUndoToken ? undefined : candidate.workspaceChanges,
+                }
               : candidate,
           ),
         }));

@@ -92,6 +92,8 @@ export interface Message {
   thinkingDuration?: number;
   /** Total wall-clock time for a tool-assisted turn, stored on its final assistant message. */
   workingDuration?: number;
+  /** Workspace files changed by the agent turn that produced this assistant message. */
+  workspaceChanges?: WorkspaceChangeSet;
 }
 
 export interface PendingWorktree {
@@ -110,7 +112,7 @@ export interface WorkspaceChangeFile {
   deletions: number;
 }
 
-/** The last run change set captured directly in the project workspace. */
+/** A run change set captured directly in the project workspace. */
 export interface WorkspaceChangeSet {
   projectId: string;
   files: WorkspaceChangeFile[];
@@ -127,6 +129,7 @@ export interface Conversation {
   model: string;
   projectId?: string;
   pendingWorktree?: PendingWorktree;
+  /** Latest captured change set, retained for current Review/Undo compatibility. */
   workspaceChanges?: WorkspaceChangeSet;
   isPinned?: boolean;
   // Subagent fields
