@@ -746,9 +746,6 @@ export const en = {
   "projectForm.selectFolderError": "Failed to select folder",
   "projectForm.nameRequired": "Project name is required",
   "projectForm.pathRequired": "Folder path is required",
-  "projectForm.newFolderReadOnly":
-    "New folders start as read-only. Initialize Git externally, then enable write access.",
-  "projectForm.gitRequired": "Write and Full Shell access require Git. Run git init externally or choose Read Only.",
   "projectForm.added": 'Project "{name}" added successfully!',
   "projectForm.updated": 'Project "{name}" updated!',
   "projectForm.saveError": "Failed to save project directory",
@@ -781,7 +778,7 @@ export const en = {
   "projectForm.commitInstructions": "AI Commit Message System Instructions",
   "projectForm.commitInstructionsDesc": "Controls commit message style",
   "projectForm.gitHelp":
-    "The project folder must contain a Git repository. Run git init in your terminal first; Sythoria keeps non-Git folders read-only so every change has an isolated rollback path.",
+    "Git is optional. Auto-commit, Git change summaries, and Undo are available only when this folder is a Git repository.",
   "projectForm.cancel": "Cancel",
   "projectForm.saving": "Saving...",
   "projectForm.createProject": "Create Project",

@@ -761,10 +761,6 @@ export const es = {
   "projectForm.selectFolderError": "No se pudo seleccionar la carpeta",
   "projectForm.nameRequired": "El nombre del proyecto es obligatorio",
   "projectForm.pathRequired": "La ruta de la carpeta es obligatoria",
-  "projectForm.newFolderReadOnly":
-    "Las carpetas nuevas comienzan en modo de solo lectura. Inicializa Git externamente y luego activa la escritura.",
-  "projectForm.gitRequired":
-    "El acceso de escritura y Shell completa requiere Git. Ejecuta git init externamente o elige Solo lectura.",
   "projectForm.added": '¡Proyecto "{name}" añadido correctamente!',
   "projectForm.updated": '¡Proyecto "{name}" actualizado!',
   "projectForm.saveError": "No se pudo guardar el directorio del proyecto",
@@ -797,7 +793,7 @@ export const es = {
   "projectForm.commitInstructions": "Instrucciones del mensaje de commit de IA",
   "projectForm.commitInstructionsDesc": "Controla el estilo del mensaje de commit",
   "projectForm.gitHelp":
-    "La carpeta del proyecto debe contener un repositorio Git. Ejecuta git init en tu terminal; Sythoria mantiene las carpetas sin Git en solo lectura para conservar una ruta de reversión aislada.",
+    "Git es opcional. La confirmación automática, los resúmenes de cambios de Git y Deshacer solo están disponibles cuando esta carpeta es un repositorio Git.",
   "projectForm.cancel": "Cancelar",
   "projectForm.saving": "Guardando...",
   "projectForm.createProject": "Crear proyecto",

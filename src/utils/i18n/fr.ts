@@ -745,10 +745,6 @@ export const fr = {
   "projectForm.selectFolderError": "Impossible de sélectionner le dossier",
   "projectForm.nameRequired": "Le nom du projet est obligatoire",
   "projectForm.pathRequired": "Le chemin du dossier est obligatoire",
-  "projectForm.newFolderReadOnly":
-    "Les nouveaux dossiers commencent en lecture seule. Initialisez Git en externe, puis activez l’écriture.",
-  "projectForm.gitRequired":
-    "L’écriture et le terminal intégral nécessitent Git. Exécutez git init en externe ou choisissez Lecture seule.",
   "projectForm.added": "Projet « {name} » ajouté !",
   "projectForm.updated": "Projet « {name} » mis à jour !",
   "projectForm.saveError": "Impossible d’enregistrer le dossier du projet",
@@ -781,7 +777,7 @@ export const fr = {
   "projectForm.commitInstructions": "Instructions de message de commit IA",
   "projectForm.commitInstructionsDesc": "Contrôle le style du message de commit",
   "projectForm.gitHelp":
-    "Le dossier du projet doit contenir un dépôt Git. Exécutez git init dans votre terminal ; Sythoria garde les dossiers sans Git en lecture seule afin de préserver un retour arrière isolé.",
+    "Git est facultatif. La validation automatique, les résumés de modifications Git et Annuler ne sont disponibles que si ce dossier est un dépôt Git.",
   "projectForm.cancel": "Annuler",
   "projectForm.saving": "Enregistrement...",
   "projectForm.createProject": "Créer le projet",

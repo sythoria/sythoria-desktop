@@ -766,10 +766,6 @@ export const de = {
   "projectForm.selectFolderError": "Ordner konnte nicht ausgewählt werden",
   "projectForm.nameRequired": "Ein Projektname ist erforderlich",
   "projectForm.pathRequired": "Ein Ordnerpfad ist erforderlich",
-  "projectForm.newFolderReadOnly":
-    "Neue Ordner beginnen schreibgeschützt. Initialisieren Sie Git extern und aktivieren Sie danach Schreibzugriff.",
-  "projectForm.gitRequired":
-    "Schreibzugriff und vollständige Shell erfordern Git. Führen Sie extern git init aus oder wählen Sie Schreibgeschützt.",
   "projectForm.added": "Projekt „{name}“ wurde hinzugefügt!",
   "projectForm.updated": "Projekt „{name}“ wurde aktualisiert!",
   "projectForm.saveError": "Projektverzeichnis konnte nicht gespeichert werden",
@@ -802,7 +798,7 @@ export const de = {
   "projectForm.commitInstructions": "KI-Anweisungen für Commit-Nachrichten",
   "projectForm.commitInstructionsDesc": "Steuert den Stil der Commit-Nachricht",
   "projectForm.gitHelp":
-    "Der Projektordner muss ein Git-Repository enthalten. Führen Sie git init im Terminal aus; Sythoria hält Ordner ohne Git schreibgeschützt, damit Änderungen isoliert rückgängig gemacht werden können.",
+    "Git ist optional. Automatische Commits, Git-Änderungsübersichten und Rückgängig sind nur verfügbar, wenn dieser Ordner ein Git-Repository ist.",
   "projectForm.cancel": "Abbrechen",
   "projectForm.saving": "Speichern...",
   "projectForm.createProject": "Projekt erstellen",

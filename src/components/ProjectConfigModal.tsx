@@ -86,18 +86,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 
     setSaving(true);
     try {
-      if (permissions !== "read") {
-        if (creationMode === "documents" && mode === "create") {
-          addToast(t("projectForm.newFolderReadOnly"), "error");
-          return;
-        }
-        const gitRoot = await invoke<string | null>("git_detect_repo", { startPath: path });
-        if (!gitRoot) {
-          addToast(t("projectForm.gitRequired"), "error");
-          return;
-        }
-      }
-
       const parsedExcludes = excludePatterns
         .split(",")
         .map((p) => p.trim())

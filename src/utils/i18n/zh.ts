@@ -720,8 +720,6 @@ export const zh = {
   "projectForm.selectFolderError": "无法选择文件夹",
   "projectForm.nameRequired": "项目名称为必填项",
   "projectForm.pathRequired": "文件夹路径为必填项",
-  "projectForm.newFolderReadOnly": "新文件夹初始为只读。请在外部初始化 Git，然后启用写入权限。",
-  "projectForm.gitRequired": "写入和完整 Shell 权限需要 Git。请在外部运行 git init，或选择只读。",
   "projectForm.added": "项目“{name}”已成功添加！",
   "projectForm.updated": "项目“{name}”已更新！",
   "projectForm.saveError": "无法保存项目目录",
@@ -751,8 +749,7 @@ export const zh = {
   "projectForm.autoCommitDesc": "消息完成后自动暂存并提交已更改文件",
   "projectForm.commitInstructions": "AI 提交消息系统指令",
   "projectForm.commitInstructionsDesc": "控制提交消息的样式",
-  "projectForm.gitHelp":
-    "项目文件夹必须包含 Git 仓库。请先在终端运行 git init；Sythoria 会让非 Git 文件夹保持只读，以确保每次更改都有隔离的回滚路径。",
+  "projectForm.gitHelp": "Git 是可选的。仅当此文件夹是 Git 仓库时，自动提交、Git 更改摘要和撤销功能才可用。",
   "projectForm.cancel": "取消",
   "projectForm.saving": "正在保存...",
   "projectForm.createProject": "创建项目",

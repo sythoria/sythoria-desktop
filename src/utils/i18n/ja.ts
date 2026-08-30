@@ -749,10 +749,6 @@ export const ja = {
   "projectForm.selectFolderError": "フォルダーを選択できませんでした",
   "projectForm.nameRequired": "プロジェクト名は必須です",
   "projectForm.pathRequired": "フォルダーパスは必須です",
-  "projectForm.newFolderReadOnly":
-    "新しいフォルダーは読み取り専用で開始します。外部で Git を初期化してから書き込みを有効にしてください。",
-  "projectForm.gitRequired":
-    "書き込みと完全な Shell アクセスには Git が必要です。外部で git init を実行するか、読み取り専用を選択してください。",
   "projectForm.added": "プロジェクト「{name}」を追加しました！",
   "projectForm.updated": "プロジェクト「{name}」を更新しました！",
   "projectForm.saveError": "プロジェクトディレクトリを保存できませんでした",
@@ -785,7 +781,7 @@ export const ja = {
   "projectForm.commitInstructions": "AI コミットメッセージのシステム指示",
   "projectForm.commitInstructionsDesc": "コミットメッセージのスタイルを制御",
   "projectForm.gitHelp":
-    "プロジェクトフォルダーには Git リポジトリが必要です。先にターミナルで git init を実行してください。Sythoria は Git のないフォルダーを読み取り専用にし、変更ごとに隔離されたロールバック経路を確保します。",
+    "Git は任意です。自動コミット、Git 変更サマリー、元に戻す機能は、このフォルダーが Git リポジトリの場合にのみ利用できます。",
   "projectForm.cancel": "キャンセル",
   "projectForm.saving": "保存中...",
   "projectForm.createProject": "プロジェクトを作成",
