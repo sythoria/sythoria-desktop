@@ -86,8 +86,32 @@ function errorMessage(error: unknown): string {
 }
 
 const pendingSubagentMessages = new Map<string, Message[]>();
+const activeSubagentWaits = new Map<string, Map<string, number>>();
 const MAX_PROVIDER_CONTINUATION_TURNS = 8;
 const TOOL_LIMIT_FALLBACK_CHARS = 6_000;
+
+function registerSubagentWait(parentId: string, subagentIds: Iterable<string>): void {
+  const waits = activeSubagentWaits.get(parentId) ?? new Map<string, number>();
+  for (const subagentId of subagentIds) {
+    waits.set(subagentId, (waits.get(subagentId) ?? 0) + 1);
+  }
+  if (waits.size > 0) activeSubagentWaits.set(parentId, waits);
+}
+
+function unregisterSubagentWait(parentId: string, subagentIds: Iterable<string>): void {
+  const waits = activeSubagentWaits.get(parentId);
+  if (!waits) return;
+  for (const subagentId of subagentIds) {
+    const count = waits.get(subagentId) ?? 0;
+    if (count <= 1) waits.delete(subagentId);
+    else waits.set(subagentId, count - 1);
+  }
+  if (waits.size === 0) activeSubagentWaits.delete(parentId);
+}
+
+function isSubagentWaitActive(parentId: string, subagentId: string): boolean {
+  return (activeSubagentWaits.get(parentId)?.get(subagentId) ?? 0) > 0;
+}
 
 interface CompletedToolResult {
   name: string;
@@ -1133,11 +1157,17 @@ function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
 
 function triggerParentResume(
   parentId: string,
+  subagentId: string,
   parentMsg: Message,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   stepBudget?: ToolStepBudget,
 ) {
+  // wait_subagents returns this completion directly to the active parent run.
+  // Scheduling the same completion as a notification would make the parent
+  // generate a second time after it has already written its final response.
+  if (isSubagentWaitActive(parentId, subagentId)) return;
+
   const currentConvs = get().conversations;
   const parentConv = currentConvs.find((c) => c.id === parentId);
   const currentDepth = parentConv?.recursionDepth || 0;
@@ -1187,6 +1217,8 @@ const conversationGenerationEpochs = new Map<string, number>();
 export function cancelConversationGenerationQueue(conversationIds: Iterable<string>): void {
   for (const conversationId of conversationIds) {
     conversationGenerationEpochs.set(conversationId, (conversationGenerationEpochs.get(conversationId) ?? 0) + 1);
+    pendingSubagentMessages.delete(conversationId);
+    activeSubagentWaits.delete(conversationId);
   }
 }
 
@@ -1970,40 +2002,49 @@ async function runWithToolLoop(
               const targetIds = Array.isArray(fnArgs.conversationIds)
                 ? fnArgs.conversationIds.slice(0, MAX_ACTIVE_SUBAGENTS)
                 : [];
+              const ownedTargetIds = targetIds.filter((id) => {
+                const target = get().conversations.find((conversation) => conversation.id === id);
+                return target?.isSubagent && target.parentId === convId;
+              });
               const start = Date.now();
               const timeout = 600000; // 10 minutes max wait
 
-              while (Date.now() - start < timeout) {
-                if (!isConvStreaming(get, convId)) {
-                  break;
-                }
-                const convs = get().conversations;
-                let allDone = true;
-                const results: string[] = [];
-                for (const id of targetIds) {
-                  const targetConv = convs.find((c) => c.id === id);
-                  if (!targetConv) {
-                    results.push(`Subagent ${id} not found.`);
-                    continue;
+              registerSubagentWait(convId, ownedTargetIds);
+              try {
+                while (Date.now() - start < timeout) {
+                  if (!isConvStreaming(get, convId)) {
+                    break;
                   }
-                  if (!targetConv.isSubagent || targetConv.parentId !== convId) {
-                    results.push(`Subagent ${id} is outside this conversation's scope.`);
-                    continue;
+                  const convs = get().conversations;
+                  let allDone = true;
+                  const results: string[] = [];
+                  for (const id of targetIds) {
+                    const targetConv = convs.find((c) => c.id === id);
+                    if (!targetConv) {
+                      results.push(`Subagent ${id} not found.`);
+                      continue;
+                    }
+                    if (!targetConv.isSubagent || targetConv.parentId !== convId) {
+                      results.push(`Subagent ${id} is outside this conversation's scope.`);
+                      continue;
+                    }
+                    if (targetConv.status === "completed" || targetConv.status === "error") {
+                      const lastMsg = targetConv.messages[targetConv.messages.length - 1];
+                      results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
+                    } else {
+                      allDone = false;
+                    }
                   }
-                  if (targetConv.status === "completed" || targetConv.status === "error") {
-                    const lastMsg = targetConv.messages[targetConv.messages.length - 1];
-                    results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
-                  } else {
-                    allDone = false;
-                  }
-                }
 
-                if (allDone) {
-                  resultContent = results.join("\n\n---\n\n");
-                  break;
-                }
+                  if (allDone) {
+                    resultContent = results.join("\n\n---\n\n");
+                    break;
+                  }
 
-                await new Promise((r) => setTimeout(r, 1000));
+                  await new Promise((r) => setTimeout(r, 1000));
+                }
+              } finally {
+                unregisterSubagentWait(convId, ownedTargetIds);
               }
 
               if (!resultContent) {
@@ -2558,8 +2599,6 @@ async function runWithToolLoop(
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
 
-        await get().persistConversations?.();
-
         const updatedConv = get().conversations.find((c) => c.id === convId);
         if (updatedConv?.isSubagent && updatedConv.parentId) {
           const parentMsg: Message = {
@@ -2569,8 +2608,10 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-          triggerParentResume(updatedConv.parentId, parentMsg, set, get, budget);
+          triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, budget);
         }
+
+        await get().persistConversations?.();
 
         return;
       }
@@ -2625,7 +2666,6 @@ async function runWithToolLoop(
       logWarn("chat", "Tool-limit finalization failed; preserved a partial result", {
         details: errorMessage(err),
       });
-      await get().persistConversations?.();
 
       const updatedConv = get().conversations.find((conversation) => conversation.id === convId);
       if (updatedConv?.isSubagent && updatedConv.parentId) {
@@ -2636,8 +2676,9 @@ async function runWithToolLoop(
           timestamp: new Date(),
           isSystem: true,
         };
-        triggerParentResume(updatedConv.parentId, parentMsg, set, get, stepBudget);
+        triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget);
       }
+      await get().persistConversations?.();
       return;
     }
     const parsed = parseApiError(err);
@@ -2684,7 +2725,7 @@ async function runWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-      triggerParentResume(updatedConv.parentId, parentMsg, set, get, stepBudget);
+      triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget);
     }
   } finally {
     let workspaceSnapshot: WorkspaceSnapshotResult | null = null;

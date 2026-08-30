@@ -31,7 +31,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
-import { isGenerationActive, type Conversation } from "./types";
+import { isGenerationActive, type Attachment, type Conversation } from "./types";
 import InputBar from "./components/InputBar";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
@@ -773,30 +773,45 @@ function App() {
   const showScrollToBottom = !primaryIsAtBottom;
   const hasNewMessages = primaryTracking.hasNewMessages;
 
-  const handleScrollToBottom = useCallback(() => {
-    primaryScrollToBottom();
-    primaryTracking.setHasNewMessages(false);
+  const scrollChatsToBottom = useCallback(
+    (behavior: "auto" | "smooth" = "smooth") => {
+      primaryScrollToBottom(behavior);
 
-    if (isCompareMode) {
+      if (!isCompareMode) return;
+
+      const scrollOptions = {
+        index: Number.MAX_SAFE_INTEGER,
+        behavior,
+        align: "end" as const,
+      };
+      primaryComparisonRef.current?.scrollToIndex(scrollOptions);
       compareIds.forEach((id) => {
-        const compRef = compareRefsMap.current[id];
-        compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+        compareRefsMap.current[id]?.scrollToIndex(scrollOptions);
       });
-    }
-  }, [primaryScrollToBottom, primaryTracking, isCompareMode, compareIds]);
+    },
+    [primaryScrollToBottom, isCompareMode, compareIds],
+  );
+
+  const handleScrollToBottom = useCallback(() => {
+    scrollChatsToBottom();
+    primaryTracking.setHasNewMessages(false);
+  }, [scrollChatsToBottom, primaryTracking]);
+
+  const handleSendMessage = useCallback(
+    async (message: string, attachments?: Attachment[], mcpServerIds?: string[]) => {
+      const status = await sendMessage(message, attachments, undefined, mcpServerIds);
+      if (status === "accepted") {
+        requestAnimationFrame(() => scrollChatsToBottom());
+      }
+      return status;
+    },
+    [sendMessage, scrollChatsToBottom],
+  );
 
   // Scroll to bottom instantly when switching conversations or going to the chat view
   useEffect(() => {
     if (view === "chat" && activeId) {
-      const scroll = () => {
-        primaryScrollToBottom("auto");
-        if (isCompareMode) {
-          compareIds.forEach((id) => {
-            const compRef = compareRefsMap.current[id];
-            compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
-          });
-        }
-      };
+      const scroll = () => scrollChatsToBottom("auto");
 
       scroll();
 
@@ -813,7 +828,7 @@ function App() {
         clearTimeout(timer);
       };
     }
-  }, [activeId, view, isCompareMode, primaryScrollToBottom, compareIds]);
+  }, [activeId, view, scrollChatsToBottom]);
 
   useEffect(() => {
     performance.mark("sythoria:bootstrap-start");
@@ -1590,9 +1605,7 @@ function App() {
 
                     <InputBar
                       models={models}
-                      onSend={(message, attachments, mcpServerIds) =>
-                        sendMessage(message, attachments, undefined, mcpServerIds)
-                      }
+                      onSend={handleSendMessage}
                       selectedModel={activeConversation?.model || selectedModel}
                       onModelChange={handlePrimaryModelChange}
                       disabled={isInputDisabled}

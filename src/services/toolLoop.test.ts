@@ -1383,6 +1383,124 @@ describe("sendWithToolLoop", () => {
     expect(state.isStreaming).toBe(false);
   });
 
+  it("does not auto-resume a parent after wait_subagents already consumed the completion", async () => {
+    mockStreamContent = "";
+    mockResumeConversation.mockClear();
+    let parentModelCalls = 0;
+    let persistenceCalls = 0;
+
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command !== "chat_stream_tools") throw new Error(`Unexpected command: ${command}`);
+      const messages = (args as { messages?: unknown[] } | undefined)?.messages ?? [];
+      const isSubagentRequest = JSON.stringify(messages).includes("Investigate the race");
+
+      if (isSubagentRequest) {
+        return JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "The child found the cause." } }],
+        });
+      }
+
+      parentModelCalls += 1;
+      if (parentModelCalls === 1) {
+        return JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: "",
+                tool_calls: [
+                  {
+                    id: "wait-child",
+                    function: {
+                      name: "wait_subagents",
+                      arguments: JSON.stringify({ conversationIds: ["child-wait"] }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      }
+
+      return JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: "Parent finished once." } }],
+      });
+    });
+
+    mockConversations.push(
+      {
+        id: "parent-wait",
+        title: "Parent",
+        timestamp: new Date(),
+        model: "model-1",
+        messages: [{ id: "parent-user", role: "user", content: "Wait for the child", timestamp: new Date() }],
+      },
+      {
+        id: "child-wait",
+        title: "Subagent",
+        timestamp: new Date(),
+        model: "model-1",
+        parentId: "parent-wait",
+        role: "Investigator",
+        isSubagent: true,
+        status: "running",
+        messages: [
+          { id: "child-user", role: "user", content: "Investigate the race", timestamp: new Date() },
+        ],
+      },
+    );
+    let state: ToolLoopSlice = {
+      conversations: mockConversations,
+      isStreaming: false,
+      generationState: "idle",
+      generationLabel: "",
+      generationByConversation: {},
+      resumeConversation: mockResumeConversation,
+      persistConversations: async () => {
+        persistenceCalls += 1;
+        if (persistenceCalls === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1_200));
+        }
+      },
+    };
+    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+      const next = fn(state);
+      state = { ...state, ...next };
+      if (next.conversations) {
+        mockConversations.length = 0;
+        mockConversations.push(...next.conversations);
+        state.conversations = mockConversations;
+      }
+    };
+
+    const parentRun = sendWithToolLoop(
+      makeRunContext("parent-wait", { shouldUseTools: true }),
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const childRun = sendWithToolLoop(
+      makeRunContext("child-wait", { shouldUseTools: true }),
+      set,
+      () => state,
+      vi.fn(),
+      vi.fn(),
+    );
+
+    await Promise.all([parentRun, childRun]);
+
+    const parent = state.conversations.find((conversation) => conversation.id === "parent-wait");
+    const waitResult = parent?.messages.find((message) => message.toolCall?.name === "wait_subagents");
+    expect(waitResult?.toolResult?.content).toContain("The child found the cause.");
+    expect(parent?.messages.at(-1)?.content).toBe("Parent finished once.");
+    expect(parent?.messages.some((message) => message.content.includes("[System Notification]"))).toBe(false);
+    expect(mockResumeConversation).not.toHaveBeenCalled();
+    expect(parentModelCalls).toBe(2);
+  });
+
   it("stops execution if the conversation-specific stream is cancelled (cancellation isolation)", async () => {
     mockStreamContent = "";
     // Mock the invoke call to return immediately (simulating stream complete)
