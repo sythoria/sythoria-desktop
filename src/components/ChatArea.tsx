@@ -854,7 +854,7 @@ function SubagentToolCard({
   const numbered = subagentCount > 1 ? ` #${subagentIndex + 1}` : "";
 
   return (
-    <div className="flex flex-col max-w-full">
+    <div className="flex w-full max-w-full flex-col">
       <motion.button
         type="button"
         onClick={() => setExpanded((current) => !current)}
@@ -882,7 +882,7 @@ function SubagentToolCard({
             animate={{ height: "auto", opacity: 1, marginTop: 6 }}
             exit={{ height: 0, opacity: 0, marginTop: 0 }}
             transition={motionTransitions.content}
-            className="w-full overflow-hidden pl-5"
+            className="w-full overflow-hidden"
           >
             <SubagentEmbeddedChat conversationId={conversationId} />
           </motion.div>
@@ -912,7 +912,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
     isCompleted &&
     !!diffSummary?.hunks?.length &&
     (nativeInfo?.type === "edit" || (isMcp && !message.toolResult?.images?.length));
-  const [expanded, setExpanded] = useState(isFileEditDiff);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!isWaitSubagents || isCompleted) return;
@@ -925,15 +925,6 @@ function ToolCallDisplay({ message }: { message: Message }) {
     }, 500);
     return () => clearInterval(interval);
   }, [isWaitSubagents, isCompleted]);
-
-  // Reveal the diff as soon as a file edit completes instead of waiting for a manual expand.
-  const wasCompletedRef = useRef(isCompleted);
-  useEffect(() => {
-    if (!wasCompletedRef.current && isCompleted && isFileEditDiff) {
-      setExpanded(true);
-    }
-    wasCompletedRef.current = isCompleted;
-  }, [isCompleted, isFileEditDiff]);
 
   if (name === "invoke_subagent") {
     const args = message.toolCall?.arguments || {};
@@ -984,7 +975,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
     const displayName = formatToolName(name);
 
     return (
-      <div ref={cardRef} className="flex flex-col max-w-full">
+      <div ref={cardRef} className="flex w-full max-w-full flex-col">
         {/* The complete tool summary is the disclosure control, matching the thinking summary. */}
         <motion.button
           type="button"
@@ -1081,7 +1072,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
               animate={{ height: "auto", opacity: 1, marginTop: 6 }}
               exit={{ height: 0, opacity: 0, marginTop: 0 }}
               transition={motionTransitions.content}
-              className="w-full overflow-hidden pl-5"
+              className="w-full overflow-hidden"
             >
               {isWaitSubagents ? (
                 <SubagentEmbeddedChats message={message} />
@@ -1845,13 +1836,13 @@ const MessageBubble = memo(function MessageBubble({
   if (isTool) {
     return (
       <motion.div
-        className="flex justify-start group"
+        className="group flex w-full justify-start"
         variants={messageVariants}
         initial={animateEntrance ? "hidden" : false}
         animate="visible"
         transition={motionTransitions.content}
       >
-        <div className="min-w-0">
+        <div className="w-full min-w-0">
           <ToolCallBubble message={message} />
         </div>
       </motion.div>

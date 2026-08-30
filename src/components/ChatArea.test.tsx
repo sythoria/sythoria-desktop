@@ -285,6 +285,8 @@ describe("ChatArea", () => {
     await user.click(button);
 
     // Verify it renders the arguments, result, and images sections
+    expect(button.nextElementSibling).toHaveClass("w-full");
+    expect(button.nextElementSibling).not.toHaveClass("pl-5");
     expect(screen.getByText("Arguments")).toBeInTheDocument();
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByText("Images")).toBeInTheDocument();
@@ -362,7 +364,7 @@ describe("ChatArea", () => {
     expect(resources).toHaveTextContent("examples/forms.md");
   });
 
-  it("renders a failed MCP file write as its intended diff instead of generic tool details", async () => {
+  it("keeps a failed MCP file write collapsed until its full-width diff is expanded", async () => {
     const user = userEvent.setup();
     const messages = [
       makeMessage({
@@ -409,10 +411,20 @@ describe("ChatArea", () => {
 
     expect(screen.getByText("Create failed")).toBeInTheDocument();
     expect(screen.queryByText("Run: write_file")).not.toBeInTheDocument();
+    expect(screen.getAllByText("cap_bypass_poc.py")).toHaveLength(1);
+    expect(screen.queryByText("#!/usr/bin/env python3")).not.toBeInTheDocument();
+
+    const disclosure = screen.getByRole("button", { name: "Expand details" });
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await user.click(disclosure);
+
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByText("cap_bypass_poc.py")).toHaveLength(2);
     expect(screen.getByText("#!/usr/bin/env python3")).toBeInTheDocument();
     expect(screen.getByRole("log")).toHaveTextContent("print('proof')");
     expect(screen.getByText(/Failed to write file: No such file or directory/)).toBeInTheDocument();
+    expect(disclosure.nextElementSibling).toHaveClass("w-full");
+    expect(disclosure.nextElementSibling).not.toHaveClass("pl-5");
     expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
     expect(screen.queryByText("Result")).not.toBeInTheDocument();
   });
