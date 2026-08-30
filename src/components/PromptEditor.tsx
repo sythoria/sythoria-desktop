@@ -468,7 +468,7 @@ export const PromptEditor = memo(function PromptEditor({
         }}
         onKeyDown={handleKeyDown}
         style={{ maxHeight }}
-        className="chat-prompt-editor relative min-h-5 min-w-0 overflow-y-auto whitespace-pre-wrap break-words bg-transparent outline-none"
+        className="chat-prompt-editor relative min-h-5 min-w-0 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent outline-none"
       />
     </div>
   );

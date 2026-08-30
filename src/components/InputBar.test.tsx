@@ -645,6 +645,7 @@ describe("InputBar", () => {
     expect(textarea.textContent).toBe("Hello\nworld");
     expect(textarea.querySelector("div, p, br")).not.toBeInTheDocument();
     expect(textarea.parentElement).toHaveClass("chat-prompt-editor-shell");
+    expect(textarea).toHaveClass("overflow-x-hidden", "overflow-y-auto", "whitespace-pre-wrap", "break-words");
   });
 
   it("shows web search option in plus dropdown", () => {
