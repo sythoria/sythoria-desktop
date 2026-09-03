@@ -11,9 +11,6 @@ use std::sync::Arc;
 use tokio::process::Command;
 use zeroize::Zeroize;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
 struct SensitiveEnvironment(HashMap<String, String>);
 
 impl Drop for SensitiveEnvironment {
@@ -638,34 +635,63 @@ pub async fn connect_server(
                 }
             }
 
-            // Build the child process, translating NotFound/permission into a
-            // friendly, actionable error before it becomes an opaque OS message.
-            let transport = TokioChildProcess::new(cmd).map_err(|e| {
-                // TokioChildProcess wraps the underlying io::Error in its own Display.
-                // Pull the raw kind by attempting a downcast-style inspection via string.
-                let raw_err = std::io::Error::other(e.to_string());
-                let kind = io_error_kind_from_display(&e.to_string());
-                let synthetic = match kind {
-                    Some(k) => std::io::Error::new(k, e.to_string()),
-                    None => raw_err,
-                };
-                friendly_spawn_error(&program, &resolved_program, &synthetic)
-            })?;
-
-            let mut running = client
-                .serve_with_ct(transport, ct)
-                .await
+            let stderr_buffer = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+            let (transport, stderr_opt) = TokioChildProcess::builder(cmd)
+                .stderr(std::process::Stdio::piped())
+                .spawn()
                 .map_err(|e| {
+                    // TokioChildProcess wraps the underlying io::Error in its own Display.
+                    // Pull the raw kind by attempting a downcast-style inspection via string.
+                    let raw_err = std::io::Error::other(e.to_string());
+                    let kind = io_error_kind_from_display(&e.to_string());
+                    let synthetic = match kind {
+                        Some(k) => std::io::Error::new(k, e.to_string()),
+                        None => raw_err,
+                    };
+                    friendly_spawn_error(&program, &resolved_program, &synthetic)
+                })?;
+
+            if let Some(stderr) = stderr_opt {
+                let s_id = server_id.clone();
+                let buf_clone = stderr_buffer.clone();
+                tokio::spawn(async move {
+                    use tokio::io::AsyncBufReadExt;
+                    let mut reader = tokio::io::BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        log::info!("[MCP {} stderr] {}", s_id, line);
+                        let mut buf = buf_clone.lock().await;
+                        if buf.len() > 30 {
+                            buf.remove(0);
+                        }
+                        buf.push(line);
+                    }
+                });
+            }
+
+            let mut running = match client.serve_with_ct(transport, ct).await {
+                Ok(r) => r,
+                Err(e) => {
                     let err_str = e.to_string();
+                    let captured = {
+                        let buf = stderr_buffer.lock().await;
+                        buf.join(" | ")
+                    };
+                    if !captured.trim().is_empty() {
+                        return Err(format!(
+                            "MCP handshake failed for '{}': {}",
+                            resolved_program,
+                            captured.trim()
+                        ));
+                    }
                     if err_str.contains("connection closed") || err_str.contains("Connection closed") {
-                        format!(
+                        return Err(format!(
                             "MCP handshake failed for '{}': the process exited unexpectedly before completing initialization. Verify that required credentials, arguments, and runtime dependencies are correctly configured.",
                             resolved_program
-                        )
-                    } else {
-                        format!("MCP handshake failed for '{}': {}", resolved_program, err_str)
+                        ));
                     }
-                })?;
+                    return Err(format!("MCP handshake failed for '{}': {}", resolved_program, err_str));
+                }
+            };
 
             let tools_result = running
                 .peer()
@@ -1130,6 +1156,19 @@ mod tests {
     }
 
     #[test]
+    fn test_create_shell_command_npx_windows() {
+        if cfg!(windows) {
+            let cmd = create_shell_command("npx", &["-y".to_string(), "linear-mcp-server".to_string()]);
+            let prog = cmd.as_std().get_program().to_string_lossy().to_string();
+            assert!(
+                prog.ends_with("node.exe") || prog.ends_with("cmd.exe") || prog.ends_with("npx.cmd"),
+                "Expected node.exe or cmd.exe or npx.cmd on Windows, got: {}",
+                prog
+            );
+        }
+    }
+
+    #[test]
     fn explicit_server_environment_keys_are_portable_identifiers() {
         assert!(is_explicit_env_key_allowed("GITHUB_PERSONAL_ACCESS_TOKEN"));
         assert!(is_explicit_env_key_allowed("custom_value"));
@@ -1191,5 +1230,132 @@ mod tests {
 
         let fake = resolve_executable_via_shell("non_existent_command_12345").await;
         assert!(fake.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_stdio_node() {
+        let Some(node) = resolve_executable_via_shell("node").await else {
+            return;
+        };
+
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join(format!("mcp_test_{}.js", uuid::Uuid::new_v4()));
+        let script_content = r#"
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+
+console.error("Test server starting on stdio...");
+rl.on('line', (line) => {
+    try {
+        const req = JSON.parse(line);
+        if (req.method === 'initialize') {
+            const res = {
+                jsonrpc: "2.0",
+                id: req.id,
+                result: {
+                    protocolVersion: "2024-11-05",
+                    capabilities: { tools: {} },
+                    serverInfo: { name: "test-server", version: "1.0.0" }
+                }
+            };
+            process.stdout.write(JSON.stringify(res) + "\n");
+        } else if (req.method === 'notifications/initialized') {
+            // Handshake complete
+        } else if (req.method === 'tools/list') {
+            const res = {
+                jsonrpc: "2.0",
+                id: req.id,
+                result: {
+                    tools: [
+                        {
+                            name: "hello_tool",
+                            description: "Says hello",
+                            inputSchema: { type: "object" }
+                        }
+                    ]
+                }
+            };
+            process.stdout.write(JSON.stringify(res) + "\n");
+        }
+    } catch (e) {
+        console.error("Error processing line:", e);
+    }
+});
+"#;
+        std::fs::write(&script_path, script_content).unwrap();
+
+        let server_id = format!("test-srv-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "Test Node MCP".to_string(),
+            transport: "stdio".to_string(),
+            command: Some(node),
+            args: Some(vec![script_path.to_string_lossy().to_string()]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let result = connect_server(&config, HashMap::new()).await;
+        let _ = std::fs::remove_file(&script_path);
+
+        assert!(
+            result.is_ok(),
+            "Expected connect_server to succeed, got error: {:?}",
+            result.err()
+        );
+        let tools = result.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "hello_tool");
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_captures_stderr_on_exit() {
+        let Some(node) = resolve_executable_via_shell("node").await else {
+            return;
+        };
+
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join(format!("mcp_fail_test_{}.js", uuid::Uuid::new_v4()));
+        let script_content = r#"
+console.error("Fatal: API key invalid or missing!");
+process.exit(1);
+"#;
+        std::fs::write(&script_path, script_content).unwrap();
+
+        let server_id = format!("test-srv-fail-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "Failing MCP".to_string(),
+            transport: "stdio".to_string(),
+            command: Some(node),
+            args: Some(vec![script_path.to_string_lossy().to_string()]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let result = connect_server(&config, HashMap::new()).await;
+        let _ = std::fs::remove_file(&script_path);
+
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("Fatal: API key invalid or missing!"),
+            "Error should contain captured stderr, got: {}",
+            err
+        );
     }
 }
