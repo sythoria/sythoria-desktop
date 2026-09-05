@@ -1316,6 +1316,9 @@ async function runWithToolLoop(
     project,
   } = runContext;
   set((state) => ({
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === convId && conversation.isSubagent ? { ...conversation, status: "running" } : conversation,
+    ),
     isStreaming: true,
     generationState: "loading" as GenerationState,
     generationLabel: "Loading",
@@ -2092,7 +2095,8 @@ async function runWithToolLoop(
                       results.push(`Subagent ${id} is outside this conversation's scope.`);
                       continue;
                     }
-                    if (targetConv.status === "completed" || targetConv.status === "error") {
+                    const hasPendingRuns = (activeToolLoopRuns.get(id)?.size ?? 0) > 0;
+                    if (!hasPendingRuns && (targetConv.status === "completed" || targetConv.status === "error")) {
                       const lastMsg = targetConv.messages[targetConv.messages.length - 1];
                       results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
                     } else {
@@ -2856,6 +2860,13 @@ function enqueueToolLoopRun(
   beforeRun?: () => void,
 ): Promise<void> {
   const conversationId = initialRunContext.conversationId;
+  set((state) => ({
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === conversationId && conversation.isSubagent
+        ? { ...conversation, status: "running" }
+        : conversation,
+    ),
+  }));
   const run = enqueueConversationGeneration(conversationId, async () => {
     beforeRun?.();
     await runWithToolLoop(initialRunContext, set, get, performSearch, fetchUrlContent);

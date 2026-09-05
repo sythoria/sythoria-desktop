@@ -1660,3 +1660,50 @@ it("places all parallel tool results before image messages", () => {
     expect.arrayContaining([{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }]),
   );
 });
+
+it("marks completed subagents running when a follow-up is queued and executing", async () => {
+  let state: ToolLoopSlice = {
+    conversations: [
+      {
+        id: "followup-child",
+        title: "Child",
+        model: "model-1",
+        timestamp: new Date(),
+        messages: [],
+        isSubagent: true,
+        status: "completed",
+      },
+    ],
+    isStreaming: false,
+    generationState: "idle",
+    generationLabel: "",
+    generationByConversation: {},
+  };
+  let releasePrevious!: () => void;
+  const previous = enqueueConversationGeneration(
+    "followup-child",
+    () =>
+      new Promise<void>((resolve) => {
+        releasePrevious = resolve;
+      }),
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+  invokeMock.mockImplementation(async () => {
+    expect(state.conversations[0].status).toBe("running");
+    return JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "Updated result" } }] });
+  });
+  const followup = sendWithToolLoop(
+    makeRunContext("followup-child"),
+    (fn) => {
+      state = { ...state, ...fn(state) };
+    },
+    () => state,
+    vi.fn(),
+    vi.fn(),
+  );
+  expect(state.conversations[0].status).toBe("running");
+  releasePrevious();
+  await Promise.all([previous, followup]);
+  expect(state.conversations[0].status).toBe("completed");
+});
