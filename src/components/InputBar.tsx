@@ -818,7 +818,7 @@ export default memo(function InputBar({
     let cancelled = false;
     setEndpointTokenCount({ count: null, loading: true, error: null });
     const timeout = window.setTimeout(() => {
-      const messages = buildConversationContextMessages(conversation?.messages ?? []);
+      const messages = buildConversationContextMessages(conversation?.messages ?? [], currentModel);
       if (activeSystemPrompt.trim()) {
         messages.unshift({ role: "system", content: activeSystemPrompt });
       }

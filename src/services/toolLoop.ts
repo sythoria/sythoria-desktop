@@ -7,6 +7,7 @@ import type {
   UrlContent,
   GenerationState,
   McpTool,
+  ModelConfig,
   Project,
   McpImageContent,
   SkillInfo,
@@ -125,7 +126,25 @@ interface CompletedToolResult {
   isError: boolean;
 }
 
-export function buildConversationContextMessages(messages: Message[]): ApiContextMessage[] {
+type ReasoningReplayModel = Pick<ModelConfig, "apiBase" | "provider">;
+
+function reasoningContextFields(
+  reasoningContent: string | null | undefined,
+  model?: ReasoningReplayModel,
+): Pick<ApiContextMessage, "reasoning" | "reasoning_content"> {
+  if (!reasoningContent) return {};
+  const provider = model?.provider?.trim().toLowerCase() ?? "";
+  const apiBase = model?.apiBase.toLowerCase() ?? "";
+  if (provider.includes("ollama") || apiBase.includes("localhost:11434")) {
+    return { reasoning: reasoningContent };
+  }
+  return { reasoning_content: reasoningContent };
+}
+
+export function buildConversationContextMessages(
+  messages: Message[],
+  model?: ReasoningReplayModel,
+): ApiContextMessage[] {
   const contextMessages: ApiContextMessage[] = [];
 
   for (const message of messages) {
@@ -140,7 +159,11 @@ export function buildConversationContextMessages(messages: Message[]): ApiContex
     }
 
     if (message.role === "assistant") {
-      contextMessages.push({ role: "assistant", content: message.content });
+      contextMessages.push({
+        role: "assistant",
+        content: message.content,
+        ...reasoningContextFields(message.reasoningContent, model),
+      });
       continue;
     }
 
@@ -993,11 +1016,16 @@ interface ToolCallResponse {
     message: {
       content: string | null;
       reasoning?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: ToolCallData[];
       anthropic_content?: unknown[];
       reasoning_details?: unknown[];
     };
   }[];
+}
+
+function responseReasoning(message: NonNullable<ToolCallResponse["choices"]>[number]["message"]): string | undefined {
+  return message.reasoning_content || message.reasoning || undefined;
 }
 
 export function assertUsableFinishReason(finishReason: string | null | undefined, hasToolCalls: boolean) {
@@ -1473,7 +1501,7 @@ async function runWithToolLoop(
     }
     const projectRun = projectCapability;
     logInfo("chat", `sendWithToolLoop: direct project run ready for ${convId}`);
-    const baseMessages = buildConversationContextMessages(conv?.messages ?? []);
+    const baseMessages = buildConversationContextMessages(conv?.messages ?? [], modelConfig);
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
@@ -1679,6 +1707,7 @@ async function runWithToolLoop(
       }
 
       const msg = choice.message;
+      const reasoningContent = responseReasoning(msg);
       const hasToolCalls = Boolean(msg.tool_calls?.length);
       assertUsableFinishReason(choice.finish_reason, hasToolCalls);
 
@@ -1691,7 +1720,7 @@ async function runWithToolLoop(
           role: "assistant",
           content: msg.content,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
-          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+          ...reasoningContextFields(reasoningContent, modelConfig),
         });
         set((state) => ({
           conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
@@ -1702,7 +1731,7 @@ async function runWithToolLoop(
               updated[index] = {
                 ...updated[index],
                 content: updated[index].content || msg.content || "",
-                reasoningContent: updated[index].reasoningContent || msg.reasoning || undefined,
+                reasoningContent: updated[index].reasoningContent || reasoningContent,
                 isStreaming: false,
                 thinkingDuration: updated[index].thinkingDuration ?? stepDuration,
               };
@@ -1725,7 +1754,7 @@ async function runWithToolLoop(
             tool_calls: msg.tool_calls,
             ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
             ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
-            ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+            ...reasoningContextFields(reasoningContent, modelConfig),
           });
           for (const call of msg.tool_calls) {
             apiMessages.push({
@@ -1745,7 +1774,7 @@ async function runWithToolLoop(
           tool_calls: msg.tool_calls,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
           ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
-          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+          ...reasoningContextFields(reasoningContent, modelConfig),
         });
 
         const finalizedAssistantContent = typeof msg.content === "string" ? msg.content.trim() : "";
@@ -1763,7 +1792,7 @@ async function runWithToolLoop(
                 // fall back to the finalized response for providers that emitted no
                 // text chunks.
                 content: last.content.trim() ? last.content : finalizedAssistantContent,
-                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
+                reasoningContent: last.reasoningContent || reasoningContent,
                 isStreaming: false,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
               };
@@ -2608,7 +2637,7 @@ async function runWithToolLoop(
               updated[idx] = {
                 ...last,
                 content: last.content || assistantContent,
-                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
+                reasoningContent: last.reasoningContent || reasoningContent,
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,

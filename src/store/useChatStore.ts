@@ -2018,7 +2018,7 @@ async function runNormal(
     modelStore.setActiveStreamId(streamId, convId);
 
     const conv = get().conversations.find((c) => c.id === convId);
-    const apiMessages = buildConversationContextMessages(conv?.messages ?? []);
+    const apiMessages = buildConversationContextMessages(conv?.messages ?? [], modelConfig);
 
     const systemPrompt =
       modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()

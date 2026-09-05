@@ -216,6 +216,7 @@ describe("buildConversationContextMessages", () => {
         id: "assistant-1",
         role: "assistant",
         content: "I’ll inspect it.",
+        reasoningContent: "I should inspect the project before answering.",
         timestamp: new Date(),
       },
       {
@@ -240,7 +241,11 @@ describe("buildConversationContextMessages", () => {
 
     expect(buildConversationContextMessages(messages)).toEqual([
       { role: "user", content: "Inspect the README" },
-      { role: "assistant", content: "I’ll inspect it." },
+      {
+        role: "assistant",
+        content: "I’ll inspect it.",
+        reasoning_content: "I should inspect the project before answering.",
+      },
       {
         role: "assistant",
         content: null,
@@ -279,6 +284,25 @@ describe("buildConversationContextMessages", () => {
     ];
 
     expect(buildConversationContextMessages(messages)).toEqual([{ role: "user", content: "Continue" }]);
+  });
+
+  it("uses Ollama's reasoning field for preserved assistant thinking", () => {
+    const messages: Conversation["messages"] = [
+      {
+        id: "assistant-ollama",
+        role: "assistant",
+        content: "Answer",
+        reasoningContent: "Earlier reasoning",
+        timestamp: new Date(),
+      },
+    ];
+
+    expect(
+      buildConversationContextMessages(messages, {
+        apiBase: "http://localhost:11434/v1/chat/completions",
+        provider: "ollama",
+      }),
+    ).toEqual([{ role: "assistant", content: "Answer", reasoning: "Earlier reasoning" }]);
   });
 });
 
@@ -937,7 +961,15 @@ describe("sendWithToolLoop", () => {
     expect(mockAddTask).toHaveBeenCalledWith("call-1", "Tool: search_query", "conv-1");
     const modelCalls = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
     expect(modelCalls).toHaveLength(2);
-    expect(modelCalls[1][1]).toMatchObject({ tools: "[]" });
+    expect(modelCalls[1][1]).toMatchObject({
+      tools: "[]",
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          reasoning_content: "I should use the search tool.",
+        }),
+      ]),
+    });
   });
 
   it("keeps the agent running after a recoverable tool error and exposes structured Tauri details", async () => {

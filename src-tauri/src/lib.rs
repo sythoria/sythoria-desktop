@@ -150,6 +150,10 @@ struct ChatMessage {
     name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     anthropic_content: Option<Vec<serde_json::Value>>,
+    // OpenAI-compatible reasoning payload used by llama.cpp and other local
+    // servers to replay earlier assistant thinking through their chat template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_details: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1494,6 +1498,7 @@ async fn generate_title(
             tool_call_id: None,
             name: None,
             anthropic_content: None,
+            reasoning_content: None,
             reasoning_details: None,
             reasoning: None,
         },
@@ -1504,6 +1509,7 @@ async fn generate_title(
             tool_call_id: None,
             name: None,
             anthropic_content: None,
+            reasoning_content: None,
             reasoning_details: None,
             reasoning: None,
         },
@@ -2729,8 +2735,26 @@ mod tests {
     use super::{
         completion_token_params, gemini_token_count_endpoint_url, generic_tokenizer_endpoint_url,
         messages_token_count_endpoint_url, parse_token_count, tray_should_show, truncate_error,
-        ChatRequestTools, EphemeralFileCleanup, FileTokenRegistry, NetworkConfig,
+        ChatMessage, ChatRequestTools, EphemeralFileCleanup, FileTokenRegistry, NetworkConfig,
     };
+
+    #[test]
+    fn chat_message_serializes_preserved_reasoning_content() {
+        let message = ChatMessage {
+            role: "assistant".to_string(),
+            content: Some(serde_json::Value::String("Answer".to_string())),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            anthropic_content: None,
+            reasoning_content: Some("Earlier reasoning".to_string()),
+            reasoning_details: None,
+            reasoning: None,
+        };
+
+        let serialized = serde_json::to_value(message).unwrap();
+        assert_eq!(serialized["reasoning_content"], "Earlier reasoning");
+    }
 
     #[test]
     fn tool_request_omits_tools_and_choice_when_finalizing() {

@@ -35,6 +35,17 @@ describe("context budgets", () => {
 });
 
 describe("assembleContext", () => {
+  it("counts preserved assistant reasoning in the context budget", () => {
+    const withoutReasoning = estimateApiMessageTokens({ role: "assistant", content: "Answer" });
+    const withReasoning = estimateApiMessageTokens({
+      role: "assistant",
+      content: "Answer",
+      reasoning_content: "r".repeat(400),
+    });
+
+    expect(withReasoning - withoutReasoning).toBe(100);
+  });
+
   it("does not impose a provider output cap when max output is not configured", () => {
     const result = assembleContext({
       messages: [{ role: "user", content: "Write a long response." }],

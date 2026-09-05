@@ -8,6 +8,7 @@ export interface ApiContextMessage {
   tool_call_id?: string;
   name?: string;
   anthropic_content?: unknown[];
+  reasoning_content?: string;
   reasoning_details?: unknown[];
   reasoning?: string;
 }
@@ -89,6 +90,7 @@ export function estimateApiMessageTokens(message: ApiContextMessage): number {
     6 +
     estimateContentTokens(message.content) +
     (message.tool_calls ? Math.ceil(JSON.stringify(message.tool_calls).length / 4) : 0) +
+    (message.reasoning_content ? Math.ceil(message.reasoning_content.length / 4) : 0) +
     (message.reasoning_details ? Math.ceil(JSON.stringify(message.reasoning_details).length / 4) : 0) +
     (message.anthropic_content ? Math.ceil(JSON.stringify(message.anthropic_content).length / 4) : 0) +
     (message.reasoning ? Math.ceil(message.reasoning.length / 4) : 0)
