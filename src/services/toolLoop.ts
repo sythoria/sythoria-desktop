@@ -186,6 +186,36 @@ export function buildConversationContextMessages(messages: Message[]): ApiContex
   return contextMessages;
 }
 
+export function buildToolResultContextMessages(
+  results: {
+    toolCallId: string;
+    rawName: string;
+    resultContent: string;
+    images?: McpImageContent[];
+  }[],
+): ApiContextMessage[] {
+  const toolMessages: ApiContextMessage[] = results.map((result) => ({
+    role: "tool",
+    tool_call_id: result.toolCallId,
+    name: result.rawName,
+    content: result.resultContent || (result.images?.length ? "(tool returned images)" : ""),
+  }));
+  const imageMessages: ApiContextMessage[] = results
+    .filter((result) => result.images?.length)
+    .map((result) => ({
+      role: "user",
+      content: [
+        { type: "text", text: `[Images from MCP tool "${result.rawName}" — analyze these images:]` },
+        ...result.images!.map((image) => ({
+          type: "image_url",
+          image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+        })),
+      ],
+    }));
+  // All calls in the assistant batch must be answered before user/image content.
+  return [...toolMessages, ...imageMessages];
+}
+
 function buildToolLimitFallback(results: CompletedToolResult[], error: unknown): string {
   const lines = [
     "**Tool limit reached — partial result preserved.**",
@@ -2551,39 +2581,8 @@ async function runWithToolLoop(
             content: res.resultContent,
             isError: res.isError,
           });
-          if (res.images && res.images.length > 0) {
-            apiMessages.push({
-              role: "tool",
-              tool_call_id: res.toolCallId,
-              name: res.rawName,
-              content: res.resultContent || "(tool returned images)",
-            });
-
-            const imageContentParts: unknown[] = [
-              {
-                type: "text",
-                text: `[Images from MCP tool "${res.rawName}" — analyze these images:]`,
-              },
-            ];
-            for (const img of res.images) {
-              imageContentParts.push({
-                type: "image_url",
-                image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-              });
-            }
-            apiMessages.push({
-              role: "user",
-              content: imageContentParts,
-            });
-          } else {
-            apiMessages.push({
-              role: "tool",
-              tool_call_id: res.toolCallId,
-              name: res.rawName,
-              content: res.resultContent,
-            });
-          }
         }
+        apiMessages.push(...buildToolResultContextMessages(results));
         releaseToolRound(true);
         releaseToolRound = null;
       } else {

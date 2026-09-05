@@ -10,6 +10,7 @@ import {
   TOOL_DEFINITIONS,
   assertUsableFinishReason,
   buildConversationContextMessages,
+  buildToolResultContextMessages,
   buildProjectToolDefinitions,
   buildToolDefinitions,
   buildToolSystemPrompt,
@@ -1640,4 +1641,16 @@ it("does not dispatch an API request when stopped during listener setup", async 
   );
   expect(invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools")).toHaveLength(0);
   expect(state.conversations[0].messages).toHaveLength(0);
+});
+
+it("places all parallel tool results before image messages", () => {
+  const messages = buildToolResultContextMessages([
+    { toolCallId: "a", rawName: "image_tool", resultContent: "", images: [{ mimeType: "image/png", data: "abc" }] },
+    { toolCallId: "b", rawName: "text_tool", resultContent: "second result" },
+  ]);
+  expect(messages.map((message) => message.role)).toEqual(["tool", "tool", "user"]);
+  expect(messages.slice(0, 2).map((message) => message.tool_call_id)).toEqual(["a", "b"]);
+  expect(messages[2].content).toEqual(
+    expect.arrayContaining([{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }]),
+  );
 });
