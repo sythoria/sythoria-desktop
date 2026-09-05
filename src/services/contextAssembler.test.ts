@@ -71,3 +71,35 @@ describe("assembleContext", () => {
     ).toBeLessThanOrEqual(result.budget.inputTokens);
   });
 });
+
+it("reserves the full tool schema even when it exceeds a quarter of context", () => {
+  const tools = [{ description: "x".repeat(8_000) }];
+  const budget = resolveContextBudget(model({ contextSize: 4_096 }), tools);
+  expect(budget.reservedToolTokens).toBeGreaterThanOrEqual(Math.ceil(JSON.stringify(tools).length / 4));
+  expect(budget.inputTokens + budget.reservedToolTokens + budget.reservedOutputTokens).toBe(4_096);
+  expect(() => resolveContextBudget(model({ contextSize: 4_096 }), [{ description: "x".repeat(20_000) }])).toThrow(
+    "configured tools",
+  );
+});
+
+it.each([
+  { role: "assistant", content: null, tool_calls: [{ id: "write", function: { arguments: "x".repeat(20_000) } }] },
+  {
+    role: "assistant",
+    content: "short",
+    anthropic_content: [{ type: "thinking", thinking: "x".repeat(20_000), signature: "signed" }],
+  },
+  {
+    role: "user",
+    content: Array.from({ length: 8 }, () => ({ type: "image_url", image_url: { url: "data:image/png;base64,abc" } })),
+  },
+])("rejects oversized indivisible mandatory context without changing it", (message) => {
+  const original = JSON.stringify(message);
+  expect(() =>
+    assembleContext({
+      messages: [{ role: "user", content: "inspect" }, message],
+      model: model({ contextSize: 4_096 }),
+    }),
+  ).toThrow("input budget");
+  expect(JSON.stringify(message)).toBe(original);
+});

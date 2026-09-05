@@ -112,8 +112,16 @@ export function resolveContextBudget(model: ModelConfig, tools: unknown[] = []):
     tools.length > 0
       ? Math.max(2_048, Math.ceil(toolDefinitionTokens * 1.25), Math.floor(assemblyCeilingTokens * toolRatio))
       : 0;
-  const reservedToolTokens = Math.min(requestedToolReserve, Math.floor(assemblyCeilingTokens * 0.25));
-  const inputTokens = Math.max(256, assemblyCeilingTokens - reservedOutputTokens - reservedToolTokens);
+  const reservedToolTokens = Math.max(
+    toolDefinitionTokens,
+    Math.min(requestedToolReserve, Math.floor(assemblyCeilingTokens * 0.25)),
+  );
+  const inputTokens = assemblyCeilingTokens - reservedOutputTokens - reservedToolTokens;
+  if (inputTokens < 256) {
+    throw new Error(
+      "The model context is too small for the configured tools and output allowance. Reduce the tool selection or output limit, or select a model with a larger context.",
+    );
+  }
 
   return {
     provider,
@@ -323,6 +331,13 @@ export function assembleContext(options: {
   assembled.push(...selectedBody);
 
   const assembledTokens = assembled.reduce((total, message) => total + estimateApiMessageTokens(message), 0);
+  // Signed reasoning, tool arguments, and images are indivisible. Never silently
+  // corrupt them or send a request known to exceed even our local estimate.
+  if (assembledTokens > budget.inputTokens) {
+    throw new Error(
+      `Required conversation context (${assembledTokens} estimated tokens) exceeds this model's input budget (${budget.inputTokens}). Reduce attachments/tool output or select a model with a larger context.`,
+    );
+  }
   const omittedMessages = omittedSegments.flat().length;
   const disclosure =
     omittedMessages > 0 || condensedMessages > 0 || summarizedToolResults > 0
