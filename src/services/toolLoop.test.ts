@@ -37,6 +37,7 @@ let mockMaxToolSteps = 25;
 let mockUnlimitedToolSteps = false;
 let mockStreamContent = "Simulated content chunk";
 let mockStreamReasoning = "";
+let mockDuringListenerSetup: (() => void) | null = null;
 let mockStreamDone: (() => void) | null = null;
 
 vi.mock("../store/useUIStore", () => ({
@@ -58,6 +59,7 @@ vi.mock("../store/useModelStore", () => ({
       unlimitedToolSteps: mockUnlimitedToolSteps,
       ensureStreamListeners: vi.fn().mockImplementation((_streamId, _convId, onChunk, onDone) => {
         mockStreamDone = onDone;
+        mockDuringListenerSetup?.();
         // Trigger onChunk and onDone asynchronously to simulate completion
         setTimeout(() => {
           if (mockStreamContent) {
@@ -116,6 +118,7 @@ function makeRunContext(
 
 beforeEach(() => {
   invokeMock.mockReset();
+  mockDuringListenerSetup = null;
   mockMaxToolSteps = 25;
   mockUnlimitedToolSteps = false;
   mockStreamContent = "Simulated content chunk";
@@ -1445,9 +1448,7 @@ describe("sendWithToolLoop", () => {
         role: "Investigator",
         isSubagent: true,
         status: "running",
-        messages: [
-          { id: "child-user", role: "user", content: "Investigate the race", timestamp: new Date() },
-        ],
+        messages: [{ id: "child-user", role: "user", content: "Investigate the race", timestamp: new Date() }],
       },
     );
     let state: ToolLoopSlice = {
@@ -1611,4 +1612,32 @@ describe("sendWithToolLoop", () => {
     expect(mockAddToast).toHaveBeenCalled();
     expect(mockToasts[0].msg).toContain("safety limit reached");
   });
+});
+
+it("does not dispatch an API request when stopped during listener setup", async () => {
+  let state: ToolLoopSlice = {
+    conversations: [{ id: "setup-stop", title: "Stop", model: "model-1", timestamp: new Date(), messages: [] }],
+    isStreaming: true,
+    generationState: "loading",
+    generationLabel: "Loading",
+    generationByConversation: {},
+  };
+  mockDuringListenerSetup = () => {
+    state = {
+      ...state,
+      isStreaming: false,
+      generationByConversation: { "setup-stop": { state: "cancelled", label: "Cancelled" } },
+    };
+  };
+  await sendWithToolLoop(
+    makeRunContext("setup-stop"),
+    (fn) => {
+      state = { ...state, ...fn(state) };
+    },
+    () => state,
+    vi.fn(),
+    vi.fn(),
+  );
+  expect(invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools")).toHaveLength(0);
+  expect(state.conversations[0].messages).toHaveLength(0);
 });

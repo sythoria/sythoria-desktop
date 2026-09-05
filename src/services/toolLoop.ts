@@ -1582,6 +1582,11 @@ async function runWithToolLoop(
         handleStreamDone();
         resolveStreamDone();
       });
+      if (!get().conversations.some((conversation) => conversation.id === convId) || !isConvStreaming(get, convId)) {
+        cleanupStepStream();
+        wasAborted = true;
+        return;
+      }
       modelStore.setActiveStreamId(streamId, convId);
 
       set((state) => ({
