@@ -138,7 +138,7 @@ src-tauri/src/
 - **useAppshotStore**: `config` (auto-clean options, formats, quality), `recentAppshots`, `isCapturing`, `hasPermission`, `init()`, `triggerCapture()`, `captureAndAttachToChat()`, `loadRecentAppshots()`, `deleteAppshot()`, `clearAll()`.
 - **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded(scope)`. Automatic commits require an explicit captured project/model/path scope and are serialized per repository.
 - **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath` (managed basename, never an arbitrary renderer path), `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
-- **useSkillStore**: `skills`, lazy `skillContents`, `loadSkills(force)`, `readSkill()`, `createSkill()`, `updateSkill()`, and `deleteSkill()`. Startup loads the catalog, and send/retry/resume force-refresh it before an immutable skill snapshot is captured for the run.
+- **useSkillStore**: `skills`, lazy `skillContents`, `loadSkills(force)`, `readSkill()`, `createSkill()`, `updateSkill()`, and `deleteSkill()`. Startup loads the catalog, and send/retry/manual resume force-refresh it before an immutable skill snapshot is captured for the run. Automatic resumes retain the originating run snapshot, including MCP references and skills.
 
 ## Tool Loop (Skills + MCP + Search + Project Workspaces)
 

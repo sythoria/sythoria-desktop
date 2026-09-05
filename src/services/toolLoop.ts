@@ -55,7 +55,10 @@ export interface ToolLoopSlice {
   activeStreamThinkingEnd?: Record<string, number>;
   activeStreamStartTime?: Record<string, number>;
   persistConversations?: () => Promise<void>;
-  resumeConversation?: (conversationId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
+  resumeConversation?: (
+    conversationId: string,
+    options?: { stepBudget?: ToolStepBudget; runContext?: ConversationRunContext },
+  ) => Promise<void>;
   publishPendingWorktree?: (conversationId: string, options?: { automatic?: boolean }) => Promise<boolean>;
 }
 
@@ -1195,6 +1198,7 @@ function triggerParentResume(
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
   stepBudget?: ToolStepBudget,
+  runContext?: ConversationRunContext,
 ) {
   // wait_subagents returns this completion directly to the active parent run.
   // Scheduling the same completion as a notification would make the parent
@@ -1238,7 +1242,7 @@ function triggerParentResume(
       conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, parentMsg]),
     }));
     get()
-      .resumeConversation?.(parentId, { stepBudget })
+      .resumeConversation?.(parentId, { stepBudget, runContext })
       .catch((e) => console.error("Parent auto-resume loop error:", e));
   }
 }
@@ -2637,7 +2641,7 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-          triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, budget);
+          triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, budget, runContext);
         }
 
         await get().persistConversations?.();
@@ -2705,7 +2709,7 @@ async function runWithToolLoop(
           timestamp: new Date(),
           isSystem: true,
         };
-        triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget);
+        triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget, runContext);
       }
       await get().persistConversations?.();
       return;
@@ -2754,7 +2758,7 @@ async function runWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-      triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget);
+      triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget, runContext);
     }
   } finally {
     releaseToolRound?.(false);
@@ -2835,7 +2839,7 @@ async function runWithToolLoop(
           conversations: updateConversationMessages(s.conversations, convId, (msgs) => [...msgs, ...pending]),
         }));
         get()
-          .resumeConversation?.(convId, { stepBudget })
+          .resumeConversation?.(convId, { stepBudget, runContext })
           .catch((e) => console.error("Auto-resume loop error:", e));
       }
     }

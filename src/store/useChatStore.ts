@@ -73,6 +73,7 @@ import {
 } from "../services/toolLoop";
 import {
   buildConversationRunContext,
+  continueConversationRunContext,
   withToolStepBudget,
   type ConversationRunContext,
   type ToolStepBudget,
@@ -339,7 +340,10 @@ interface ChatState {
   exportChat: (id: string) => void | Promise<void>;
   importConversations: (imported: Conversation[]) => Promise<void>;
   persistConversations: () => Promise<void>;
-  resumeConversation: (convId: string, options?: { stepBudget?: ToolStepBudget }) => Promise<void>;
+  resumeConversation: (
+    convId: string,
+    options?: { stepBudget?: ToolStepBudget; runContext?: ConversationRunContext },
+  ) => Promise<void>;
   clearAllChats: () => Promise<void>;
   publishPendingWorktree: (convId: string, options?: PublishWorktreeOptions) => Promise<boolean>;
   undoWorkspaceChanges: (convId: string, undoToken?: string) => Promise<boolean>;
@@ -1400,7 +1404,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const publication = serializeProjectWorktreePublication(projectId, async () => {
       uiLoading("toolExecution", true);
       try {
-        let capturedFiles = new Map<string, { additions: number; deletions: number }>();
+        const capturedFiles = new Map<string, { additions: number; deletions: number }>();
         try {
           const [diff, status] = await Promise.all([
             invoke<string>("git_diff_changes", {
@@ -1534,7 +1538,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ...candidate,
                   messages: removeWorkspaceChangesByUndoToken(candidate.messages, workspaceUndoToken),
                   workspaceChanges:
-                    candidate.workspaceChanges?.undoToken === workspaceUndoToken ? undefined : candidate.workspaceChanges,
+                    candidate.workspaceChanges?.undoToken === workspaceUndoToken
+                      ? undefined
+                      : candidate.workspaceChanges,
                 }
               : candidate,
           ),
@@ -1666,9 +1672,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = conversations.find((c) => c.id === convId);
     if (!conv) return;
 
+    // Automatic continuations keep the exact capabilities accepted with the
+    // originating prompt, including MCP references and the installed skill snapshot.
+    if (options.runContext) {
+      const context = continueConversationRunContext(options.runContext, convId);
+      if (context.shouldUseTools) {
+        await sendWithToolLoop(
+          context,
+          (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+          get,
+          searchPerformSearch,
+          searchFetchUrlContent,
+        );
+      } else {
+        await sendNormal(convId, context.modelConfig, context.temperature, set, get);
+      }
+      return;
+    }
+
     const { selectedModel, models, temperature } = useModelStore.getState();
     const { isProjectsEnabled, projects } = useProjectStore.getState();
-    const lastUserMessage = [...conv.messages].reverse().find((message) => message.role === "user");
+    const lastUserMessage = [...conv.messages]
+      .reverse()
+      .find((message) => message.role === "user" && !message.isSystem);
     await useSkillStore.getState().loadSkills(true);
     const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
     let runContext = buildConversationRunContext({
