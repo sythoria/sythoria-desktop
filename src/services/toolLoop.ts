@@ -24,6 +24,9 @@ import { attachWorkspaceChangesToLatestAssistant } from "../utils/workspaceChang
 import {
   continueConversationRunContext,
   createToolStepBudget,
+  withToolStepBudget,
+  isToolBudgetExhausted,
+  reserveToolRound,
   type ConversationRunContext,
   type ToolStepBudget,
 } from "./conversationRunContext";
@@ -1255,7 +1258,19 @@ async function runWithToolLoop(
 ) {
   const workingStartedAt = Date.now();
   let hasUsedTools = false;
-  const runContext = continueConversationRunContext(initialRunContext, initialRunContext.conversationId);
+  const modelSettings = useModelStore.getState();
+  const runContext = withToolStepBudget(
+    initialRunContext,
+    initialRunContext.stepBudget ??
+      createToolStepBudget(
+        modelSettings.unlimitedToolSteps === true
+          ? null
+          : Math.min(
+              MAX_TOOL_STEPS_LIMIT,
+              Math.max(MIN_TOOL_STEPS, Math.round(modelSettings.maxToolSteps) || MIN_TOOL_STEPS),
+            ),
+      ),
+  );
   const {
     conversationId: convId,
     modelConfig,
@@ -1287,6 +1302,7 @@ async function runWithToolLoop(
   let isFinalizingAfterToolLimit = false;
   let stepBudget: ToolStepBudget | undefined;
   const completedToolResults: CompletedToolResult[] = [];
+  let releaseToolRound: ((completed: boolean) => void) | null = null;
 
   try {
     logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
@@ -1475,21 +1491,11 @@ async function runWithToolLoop(
     // One shared step budget spans the whole message chain: subagents,
     // follow-up messages, and notification-driven resumes all draw from the
     // same pool so the configured limit cannot be reset by an auto-resume.
-    const modelStoreState = useModelStore.getState();
-    const budget: ToolStepBudget = (stepBudget =
-      runContext.stepBudget ??
-      createToolStepBudget(
-        modelStoreState.unlimitedToolSteps === true
-          ? null
-          : Math.min(
-              MAX_TOOL_STEPS_LIMIT,
-              Math.max(MIN_TOOL_STEPS, Math.round(modelStoreState.maxToolSteps) || MIN_TOOL_STEPS),
-            ),
-      ));
+    const budget: ToolStepBudget = (stepBudget = runContext.stepBudget!);
     let providerContinuationTurns = 0;
 
     while (true) {
-      if (budget.limit !== null && budget.completedToolRounds >= budget.limit && !isFinalizingAfterToolLimit) {
+      if (isToolBudgetExhausted(budget) && !isFinalizingAfterToolLimit) {
         isFinalizingAfterToolLimit = true;
         apiMessages.push({
           role: "system",
@@ -1667,6 +1673,26 @@ async function runWithToolLoop(
       if (hasToolCalls && msg.tool_calls) {
         if (isFinalizingAfterToolLimit) {
           throw new Error("The model requested another tool after the tool execution budget was exhausted.");
+        }
+        releaseToolRound = reserveToolRound(budget);
+        if (!releaseToolRound) {
+          apiMessages.push({
+            role: "assistant",
+            content: msg.content,
+            tool_calls: msg.tool_calls,
+            ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+            ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
+            ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+          });
+          for (const call of msg.tool_calls) {
+            apiMessages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: "Tool execution skipped: the shared tool budget is exhausted.",
+            });
+          }
+          continue;
         }
         providerContinuationTurns = 0;
         hasUsedTools = true;
@@ -1878,9 +1904,7 @@ async function runWithToolLoop(
                   const intendedContent =
                     typeof fnArgs.content === "string"
                       ? fnArgs.content
-                      : !mcpIsNew &&
-                          typeof fnArgs.old_string === "string" &&
-                          typeof fnArgs.new_string === "string"
+                      : !mcpIsNew && typeof fnArgs.old_string === "string" && typeof fnArgs.new_string === "string"
                         ? simulateStringReplacement(
                             mcpOldContent,
                             fnArgs.old_string,
@@ -2555,7 +2579,8 @@ async function runWithToolLoop(
             });
           }
         }
-        budget.completedToolRounds += 1;
+        releaseToolRound(true);
+        releaseToolRound = null;
       } else {
         providerContinuationTurns = 0;
         const assistantContent = msg.content || "";
@@ -2728,6 +2753,7 @@ async function runWithToolLoop(
       triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget);
     }
   } finally {
+    releaseToolRound?.(false);
     let workspaceSnapshot: WorkspaceSnapshotResult | null = null;
     if (projectCapability && project && workspaceSnapshotActive) {
       try {

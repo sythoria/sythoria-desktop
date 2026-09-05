@@ -19,6 +19,25 @@ export function createToolStepBudget(limit: number | null): ToolStepBudget {
   return { limit, completedToolRounds: 0 };
 }
 
+const reservedToolRounds = new WeakMap<ToolStepBudget, number>();
+
+export function isToolBudgetExhausted(budget: ToolStepBudget): boolean {
+  return budget.limit !== null && budget.completedToolRounds + (reservedToolRounds.get(budget) ?? 0) >= budget.limit;
+}
+
+// Synchronous admission prevents parallel descendants from spending the same slot.
+export function reserveToolRound(budget: ToolStepBudget): ((completed: boolean) => void) | null {
+  if (isToolBudgetExhausted(budget)) return null;
+  reservedToolRounds.set(budget, (reservedToolRounds.get(budget) ?? 0) + 1);
+  let released = false;
+  return (completed) => {
+    if (released) return;
+    released = true;
+    reservedToolRounds.set(budget, (reservedToolRounds.get(budget) ?? 1) - 1);
+    if (completed) budget.completedToolRounds++;
+  };
+}
+
 export interface ConversationRunContext {
   readonly stepBudget?: ToolStepBudget;
   readonly conversationId: string;

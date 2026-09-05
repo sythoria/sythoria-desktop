@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Conversation, ModelConfig, Project } from "../types";
-import { buildConversationRunContext } from "./conversationRunContext";
+import {
+  createToolStepBudget,
+  reserveToolRound,
+  withToolStepBudget,
+  continueConversationRunContext,
+  buildConversationRunContext,
+} from "./conversationRunContext";
 
 const models: ModelConfig[] = [
   {
@@ -152,4 +158,20 @@ describe("buildConversationRunContext", () => {
     expect(Object.isFrozen(context?.skills)).toBe(true);
     expect(Object.isFrozen(context?.skills[0])).toBe(true);
   });
+});
+
+it("reserves a shared budget atomically across descendants and releases cancelled work", () => {
+  const budget = createToolStepBudget(1);
+  const context = withToolStepBudget({ conversationId: "parent" } as never, budget);
+  const child = continueConversationRunContext(context, "child");
+  const finish = reserveToolRound(context.stepBudget!);
+  expect(finish).not.toBeNull();
+  expect(reserveToolRound(child.stepBudget!)).toBeNull();
+  finish!(false);
+  const retry = reserveToolRound(child.stepBudget!);
+  expect(retry).not.toBeNull();
+  retry!(true);
+  retry!(true);
+  expect(budget.completedToolRounds).toBe(1);
+  expect(reserveToolRound(budget)).toBeNull();
 });
