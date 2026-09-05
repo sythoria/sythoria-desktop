@@ -2053,6 +2053,7 @@ async function runNormal(
 
     await invoke("chat_stream", {
       configId: modelConfig.id,
+      expectedModel: { apiBase: modelConfig.apiBase, modelId: modelConfig.modelId, provider: modelConfig.provider },
       messages: assembledContext.messages,
       temperature: requestTemp,
       maxTokens,

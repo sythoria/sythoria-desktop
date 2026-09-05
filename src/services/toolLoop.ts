@@ -1638,6 +1638,7 @@ async function runWithToolLoop(
 
       const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
+        expectedModel: { apiBase: modelConfig.apiBase, modelId: modelConfig.modelId, provider: modelConfig.provider },
         messages: assembledContext.messages,
         tools: JSON.stringify(requestTools),
         temperature: requestTemp,

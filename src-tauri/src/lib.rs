@@ -105,6 +105,35 @@ struct LaunchRuntimeState {
     frontend_ready: std::sync::atomic::AtomicBool,
 }
 
+// Non-secret identity captured by the renderer when the user accepts a run.
+// Credentials are still resolved exclusively in native storage.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelRequestIdentity {
+    api_base: String,
+    model_id: String,
+    provider: Option<String>,
+}
+
+impl ModelRequestIdentity {
+    fn ensure_matches(
+        &self,
+        api_url: &str,
+        model: &str,
+        provider: Option<&str>,
+    ) -> Result<(), AppError> {
+        if self.api_base != api_url
+            || self.model_id != model
+            || self.provider.as_deref() != provider
+        {
+            return Err(AppError::ConfigIo(
+                "Model endpoint or provider changed during this run. Send a new message to use the updated configuration.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChatMessage {
     role: String,
@@ -836,10 +865,14 @@ async fn chat_stream(
     stream_id: String,
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
+    expected_model: Option<ModelRequestIdentity>,
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    if let Some(expected) = expected_model {
+        expected.ensure_matches(&api_url, &model, provider.as_deref())?;
+    }
     let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
         !api_key.is_empty(),
@@ -960,10 +993,14 @@ async fn chat_stream_tools(
     stream_id: String,
     max_tokens: Option<u32>,
     thinking_level: Option<String>,
+    expected_model: Option<ModelRequestIdentity>,
 ) -> Result<String, AppError> {
     let _completion = StreamCompletionGuard::new(app.clone(), stream_id.clone());
     ensure_online()?;
     let (api_url, api_key, model, provider) = get_model_config_and_key(&app, &config_id).await?;
+    if let Some(expected) = expected_model {
+        expected.ensure_matches(&api_url, &model, provider.as_deref())?;
+    }
     let endpoint = endpoint_security::validate_streaming_http_endpoint(
         &api_url,
         !api_key.is_empty(),
@@ -2661,6 +2698,34 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_request_identity_rejects_mid_run_destination_changes() {
+        let expected = super::ModelRequestIdentity {
+            api_base: "https://original.example/v1/chat/completions".into(),
+            model_id: "original-model".into(),
+            provider: Some("openai".into()),
+        };
+        assert!(expected
+            .ensure_matches(&expected.api_base, &expected.model_id, Some("openai"))
+            .is_ok());
+        for (url, model, provider) in [
+            (
+                "https://changed.example/v1/chat/completions",
+                expected.model_id.as_str(),
+                Some("openai"),
+            ),
+            (expected.api_base.as_str(), "changed-model", Some("openai")),
+            (
+                expected.api_base.as_str(),
+                expected.model_id.as_str(),
+                Some("anthropic"),
+            ),
+            (expected.api_base.as_str(), expected.model_id.as_str(), None),
+        ] {
+            assert!(expected.ensure_matches(url, model, provider).is_err());
+        }
+    }
+
     use super::{
         completion_token_params, gemini_token_count_endpoint_url, generic_tokenizer_endpoint_url,
         messages_token_count_endpoint_url, parse_token_count, tray_should_show, truncate_error,

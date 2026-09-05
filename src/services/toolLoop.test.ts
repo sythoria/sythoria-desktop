@@ -1162,7 +1162,13 @@ describe("sendWithToolLoop", () => {
 
     const modelCalls = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
     expect(modelCalls).toHaveLength(1);
-    expect(modelCalls[0][1]).toMatchObject({ tools: "[]" });
+    expect(modelCalls[0][1]).toMatchObject({
+      tools: "[]",
+      expectedModel: {
+        apiBase: "https://example.com/v1/chat/completions",
+        modelId: "test-model",
+      },
+    });
     expect(state.conversations[0].messages.some((message) => message.toolCall?.id === "should-not-run")).toBe(false);
     expect(state.conversations[0].messages.at(-1)?.content).toContain("Tool limit reached");
   });
