@@ -1,6 +1,8 @@
 use crate::{search, AppError, NETWORK_CONFIG};
 use reqwest::redirect::Policy;
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 const METADATA_HOSTS: &[&str] = &[
@@ -49,6 +51,7 @@ pub struct ValidatedEndpoint {
     pub url: url::Url,
     pub addresses: Vec<SocketAddr>,
     pub has_exact_local_grant: bool,
+    policy_identity: String,
 }
 
 fn normalized_host(host: &str) -> String {
@@ -291,6 +294,8 @@ pub async fn validate_outbound_url(
         url: parsed,
         addresses,
         has_exact_local_grant: local_granted,
+        policy_identity: serde_json::to_string(&config)
+            .map_err(|error| AppError::ConfigIo(error.to_string()))?,
     })
 }
 
@@ -369,7 +374,7 @@ async fn parse_and_resolve(
     raw_url: &str,
     allowed_schemes: &[&str],
     has_secret: bool,
-) -> Result<(url::Url, String, Vec<SocketAddr>), AppError> {
+) -> Result<(url::Url, String, Vec<SocketAddr>, String), AppError> {
     let validated = validate_outbound_url(raw_url, allowed_schemes).await?;
     let host = validated
         .url
@@ -390,7 +395,12 @@ async fn parse_and_resolve(
         return Err(AppError::UrlValidationError(reason.to_string()));
     }
 
-    Ok((validated.url, host, validated.addresses))
+    Ok((
+        validated.url,
+        host,
+        validated.addresses,
+        validated.policy_identity,
+    ))
 }
 
 pub async fn validate_http_endpoint(
@@ -398,13 +408,9 @@ pub async fn validate_http_endpoint(
     has_secret: bool,
     timeout: Duration,
 ) -> Result<ValidatedHttpEndpoint, AppError> {
-    let (url, host, addresses) = parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
-    let client = crate::client_builder()
-        .redirect(Policy::none())
-        .resolve_to_addrs(&host, &addresses)
-        .timeout(timeout)
-        .build()
-        .map_err(AppError::from)?;
+    let (url, host, addresses, policy_identity) =
+        parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
+    let client = cached_http_client(&url, &host, &addresses, timeout, false, policy_identity)?;
     Ok(ValidatedHttpEndpoint { url, client })
 }
 
@@ -416,9 +422,99 @@ pub async fn validate_streaming_http_endpoint(
     has_secret: bool,
     inactivity_timeout: Duration,
 ) -> Result<ValidatedHttpEndpoint, AppError> {
-    let (url, host, addresses) = parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
-    let client = build_streaming_http_client(&host, &addresses, inactivity_timeout)?;
+    let (url, host, addresses, policy_identity) =
+        parse_and_resolve(raw_url, &["http", "https"], has_secret).await?;
+    let client = cached_http_client(
+        &url,
+        &host,
+        &addresses,
+        inactivity_timeout,
+        true,
+        policy_identity,
+    )?;
     Ok(ValidatedHttpEndpoint { url, client })
+}
+
+const MAX_CACHED_HTTP_CLIENTS: usize = 32;
+
+#[derive(Clone, PartialEq, Eq)]
+struct HttpClientKey {
+    origin: String,
+    addresses: Vec<SocketAddr>,
+    timeout: Duration,
+    streaming: bool,
+    policy_identity: String,
+}
+
+#[derive(Default)]
+struct HttpClientCache {
+    entries: VecDeque<(HttpClientKey, reqwest::Client)>,
+}
+
+impl HttpClientCache {
+    fn get_or_build(
+        &mut self,
+        key: HttpClientKey,
+        build: impl FnOnce() -> Result<reqwest::Client, AppError>,
+    ) -> Result<reqwest::Client, AppError> {
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == &key)
+        {
+            if let Some(entry) = self.entries.remove(index) {
+                let client = entry.1.clone();
+                self.entries.push_back(entry);
+                return Ok(client);
+            }
+        }
+        let client = build()?;
+        if self.entries.len() >= MAX_CACHED_HTTP_CLIENTS {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, client.clone()));
+        Ok(client)
+    }
+}
+
+static HTTP_CLIENT_CACHE: LazyLock<Mutex<HttpClientCache>> =
+    LazyLock::new(|| Mutex::new(HttpClientCache::default()));
+
+fn cached_http_client(
+    url: &url::Url,
+    host: &str,
+    addresses: &[SocketAddr],
+    timeout: Duration,
+    streaming: bool,
+    policy_identity: String,
+) -> Result<reqwest::Client, AppError> {
+    let mut sorted_addresses = addresses.to_vec();
+    sorted_addresses.sort_unstable();
+    sorted_addresses.dedup();
+    let key = HttpClientKey {
+        origin: url.origin().ascii_serialization(),
+        addresses: sorted_addresses,
+        timeout,
+        streaming,
+        policy_identity,
+    };
+    // Callers validate the current policy and all resolved addresses on every
+    // request. Pool reuse is possible only for that exact validated identity.
+    HTTP_CLIENT_CACHE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get_or_build(key, || {
+            if streaming {
+                build_streaming_http_client(host, addresses, timeout)
+            } else {
+                crate::client_builder()
+                    .redirect(Policy::none())
+                    .resolve_to_addrs(host, addresses)
+                    .timeout(timeout)
+                    .build()
+                    .map_err(AppError::from)
+            }
+        })
 }
 
 fn build_streaming_http_client(
@@ -439,7 +535,8 @@ pub async fn validate_websocket_endpoint(
     raw_url: &str,
     has_secret: bool,
 ) -> Result<ValidatedWebSocketEndpoint, AppError> {
-    let (url, _host, addresses) = parse_and_resolve(raw_url, &["ws", "wss"], has_secret).await?;
+    let (url, _host, addresses, _policy_identity) =
+        parse_and_resolve(raw_url, &["ws", "wss"], has_secret).await?;
     Ok(ValidatedWebSocketEndpoint {
         url,
         address: addresses[0],
@@ -450,6 +547,96 @@ pub async fn validate_websocket_endpoint(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn client_cache_separates_address_policy_and_timeout_changes_and_is_bounded() {
+        let mut cache = HttpClientCache::default();
+        let base = HttpClientKey {
+            origin: "https://example.test".into(),
+            addresses: vec!["203.0.113.1:443".parse().unwrap()],
+            timeout: Duration::from_secs(120),
+            streaming: true,
+            policy_identity: "policy-a".into(),
+        };
+        cache
+            .get_or_build(base.clone(), || Ok(reqwest::Client::new()))
+            .unwrap();
+        cache
+            .get_or_build(base.clone(), || panic!("matching clients should be reused"))
+            .unwrap();
+        let mut changed = base.clone();
+        changed.addresses = vec!["203.0.113.2:443".parse().unwrap()];
+        let mut policy = base.clone();
+        policy.policy_identity = "policy-b".into();
+        let mut timeout = base.clone();
+        timeout.timeout = Duration::from_secs(60);
+        let mut mode = base.clone();
+        mode.streaming = false;
+        let mut origin = base.clone();
+        origin.origin = "https://other.test".into();
+        for key in [changed, policy, timeout, mode, origin] {
+            let mut built = false;
+            cache
+                .get_or_build(key, || {
+                    built = true;
+                    Ok(reqwest::Client::new())
+                })
+                .unwrap();
+            assert!(built);
+        }
+        for index in 0..MAX_CACHED_HTTP_CLIENTS {
+            let mut key = base.clone();
+            key.origin = format!("https://host-{index}.test");
+            cache
+                .get_or_build(key, || Ok(reqwest::Client::new()))
+                .unwrap();
+        }
+        assert_eq!(cache.entries.len(), MAX_CACHED_HTTP_CLIENTS);
+        assert!(!cache.entries.iter().any(|(key, _)| key == &base));
+    }
+
+    #[tokio::test]
+    async fn cached_streaming_clients_reuse_a_connection_between_rounds() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            for _ in 0..2 {
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(socket.read_u8().await.unwrap());
+                }
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                    .await
+                    .unwrap();
+            }
+        });
+        let url = url::Url::parse(&format!("http://{address}/stream")).unwrap();
+        for _ in 0..2 {
+            let client = cached_http_client(
+                &url,
+                "127.0.0.1",
+                &[address],
+                Duration::from_secs(2),
+                true,
+                "connection-reuse-test".into(),
+            )
+            .unwrap();
+            assert_eq!(
+                client
+                    .get(url.clone())
+                    .send()
+                    .await
+                    .unwrap()
+                    .text()
+                    .await
+                    .unwrap(),
+                "ok"
+            );
+        }
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn streaming_timeout_resets_after_each_read() {
