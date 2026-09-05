@@ -2030,7 +2030,7 @@ async function runNormal(
 
     const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
     const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig });
-    const maxTokens = assembledContext.budget.reservedOutputTokens;
+    const maxTokens = assembledContext.requestMaxOutputTokens;
     if (assembledContext.disclosure) {
       const disclosure = assembledContext.disclosure;
       const disclosureMessage: Message = {

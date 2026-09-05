@@ -35,6 +35,49 @@ describe("context budgets", () => {
 });
 
 describe("assembleContext", () => {
+  it("does not impose a provider output cap when max output is not configured", () => {
+    const result = assembleContext({
+      messages: [{ role: "user", content: "Write a long response." }],
+      model: model({ contextSize: 128_000 }),
+    });
+
+    expect(result.budget.reservedOutputTokens).toBe(4_096);
+    expect(result.requestMaxOutputTokens).toBeUndefined();
+  });
+
+  it("lets an explicit output maximum use prompt space beyond the fixed reserve", () => {
+    const messages: ApiContextMessage[] = [{ role: "user", content: "Write a long response." }];
+    const result = assembleContext({
+      messages,
+      model: model({ contextSize: 128_000, maxOutputTokens: 128_000 }),
+    });
+    const assembledTokens = result.messages.reduce(
+      (total, message) => total + estimateApiMessageTokens(message),
+      0,
+    );
+
+    expect(result.budget.reservedOutputTokens).toBe(32_000);
+    expect(result.requestMaxOutputTokens).toBe(128_000 - assembledTokens);
+    expect(result.requestMaxOutputTokens).toBeGreaterThan(result.budget.reservedOutputTokens);
+  });
+
+  it("clamps an explicit output maximum to the estimated context remaining after tool schemas", () => {
+    const tools = [{ description: "x".repeat(4_000) }];
+    const result = assembleContext({
+      messages: [{ role: "user", content: "Use the tool and explain the result." }],
+      model: model({ contextSize: 16_000, maxOutputTokens: 16_000 }),
+      tools,
+    });
+    const assembledTokens = result.messages.reduce(
+      (total, message) => total + estimateApiMessageTokens(message),
+      0,
+    );
+
+    expect(result.requestMaxOutputTokens).toBe(
+      16_000 - assembledTokens - result.budget.reservedToolTokens,
+    );
+  });
+
   it("keeps the system prompt and latest user turn while sliding older history", () => {
     const messages: ApiContextMessage[] = [
       { role: "system", content: "system" },

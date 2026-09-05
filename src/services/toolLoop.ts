@@ -1582,7 +1582,7 @@ async function runWithToolLoop(
       const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
       const requestTools = isFinalizingAfterToolLimit ? [] : apiTools;
       const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig, tools: requestTools });
-      const maxTokens = assembledContext.budget.reservedOutputTokens;
+      const maxTokens = assembledContext.requestMaxOutputTokens;
       if (assembledContext.disclosure) {
         const disclosure = assembledContext.disclosure;
         contextDisclosureMessageId ??= generateId();

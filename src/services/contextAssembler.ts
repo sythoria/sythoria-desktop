@@ -25,6 +25,7 @@ export interface ContextBudget {
 export interface AssembledContext {
   messages: ApiContextMessage[];
   budget: ContextBudget;
+  requestMaxOutputTokens: number | undefined;
   disclosure: ContextDisclosure | null;
 }
 
@@ -350,7 +351,29 @@ export function assembleContext(options: {
         }
       : null;
 
-  return { messages: assembled, budget, disclosure };
+  // The prompt reserve is an assembly policy, not a provider generation cap.
+  // When no maximum is configured, omit max_tokens and let the provider use
+  // its native limit. For an explicit maximum, only clamp it to the estimated
+  // space that remains in a known context window. This lets short prompts use
+  // more than the fixed output reserve without overcommitting long prompts.
+  const configuredMaxOutputTokens =
+    typeof options.model.maxOutputTokens === "number" &&
+    Number.isFinite(options.model.maxOutputTokens) &&
+    options.model.maxOutputTokens > 0
+      ? Math.floor(options.model.maxOutputTokens)
+      : undefined;
+  const availableOutputTokens =
+    budget.status === "configured"
+      ? Math.max(1, budget.assemblyCeilingTokens - assembledTokens - budget.reservedToolTokens)
+      : undefined;
+  const requestMaxOutputTokens =
+    configuredMaxOutputTokens === undefined
+      ? undefined
+      : availableOutputTokens === undefined
+        ? configuredMaxOutputTokens
+        : Math.min(configuredMaxOutputTokens, availableOutputTokens);
+
+  return { messages: assembled, budget, requestMaxOutputTokens, disclosure };
 }
 
 export function formatContextDisclosure(disclosure: ContextDisclosure): string {
