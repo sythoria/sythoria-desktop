@@ -156,6 +156,11 @@ describe("workspace panel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Review/ }));
     expect(await screen.findByText("1 file changed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close Review" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Diff for src/App.tsx" })).toBeInTheDocument();
+    expect(screen.getByText("old", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("new", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText(/diff --git/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/@@ -1/)).not.toBeInTheDocument();
   });
 
   it("reviews every uncommitted file instead of filtering to the latest agent change set", async () => {
@@ -285,7 +290,7 @@ new file mode 100644
 
     expect(await screen.findByText("1 file changed")).toBeInTheDocument();
     expect(screen.getByText(".claude/settings.json")).toBeInTheDocument();
-    expect(screen.queryByText(".claude/", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ".claude/" })).not.toBeInTheDocument();
   });
 
   it("opens a temporary side chat and supports the launcher shortcuts", async () => {

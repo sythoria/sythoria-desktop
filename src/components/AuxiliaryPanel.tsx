@@ -51,6 +51,7 @@ import { useShallow } from "zustand/react/shallow";
 import { openExternalUrl } from "../utils/externalUrl";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
+import { ReviewDiffView } from "./ReviewDiffView";
 import { AuxiliaryKnowledgeTab } from "./AuxiliaryKnowledgeTab";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
@@ -58,13 +59,6 @@ interface FileTreeEntry {
   name: string;
   path: string;
   isDirectory: boolean;
-}
-
-interface NumberedDiffLine {
-  line: string;
-  oldLine: number | "";
-  newLine: number | "";
-  kind: "added" | "deleted" | "hunk" | "meta" | "context";
 }
 
 const panelLaunchItems: Array<{
@@ -114,71 +108,6 @@ function PanelSpinner({ label }: { label: string }) {
     <div className="m-auto flex items-center gap-2 text-xs text-text-muted">
       <Loader2 size={14} className="animate-spin text-accent" />
       {label}
-    </div>
-  );
-}
-
-function numberDiffLines(lines: string[]): NumberedDiffLine[] {
-  let oldLine = 0;
-  let newLine = 0;
-
-  return lines.map((line) => {
-    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      oldLine = Number(hunk[1]);
-      newLine = Number(hunk[2]);
-    }
-
-    const isMeta =
-      line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ");
-    const isAdded = line.startsWith("+") && !line.startsWith("+++");
-    const isDeleted = line.startsWith("-") && !line.startsWith("---");
-    const isHunk = line.startsWith("@@");
-    const numberedLine: NumberedDiffLine = {
-      line,
-      oldLine: isAdded || isMeta || isHunk ? "" : oldLine || "",
-      newLine: isDeleted || isMeta || isHunk ? "" : newLine || "",
-      kind: isAdded ? "added" : isDeleted ? "deleted" : isHunk ? "hunk" : isMeta ? "meta" : "context",
-    };
-
-    if (!isAdded && !isMeta && !isHunk) oldLine += 1;
-    if (!isDeleted && !isMeta && !isHunk) newLine += 1;
-    return numberedLine;
-  });
-}
-
-function DiffView({ file }: { file: DiffFile }) {
-  return (
-    <div className="min-w-max font-mono text-[11px] leading-[19px]">
-      {numberDiffLines(file.lines).map(({ line, oldLine, newLine, kind }, index) => {
-        const isAdded = kind === "added";
-        const isDeleted = kind === "deleted";
-        return (
-          <div
-            key={`${index}-${line}`}
-            className={`flex min-h-[19px] select-text ${
-              kind === "added"
-                ? "bg-emerald-500/10 text-emerald-300"
-                : kind === "deleted"
-                  ? "bg-red-500/10 text-red-300"
-                  : kind === "hunk"
-                    ? "bg-accent/10 text-accent"
-                    : kind === "meta"
-                      ? "text-text-muted"
-                      : "text-text-secondary"
-            }`}
-          >
-            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
-              {oldLine}
-            </span>
-            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
-              {newLine}
-            </span>
-            <span className="w-5 shrink-0 text-center text-text-muted/60">{isAdded ? "+" : isDeleted ? "-" : ""}</span>
-            <span className="whitespace-pre pr-5">{isAdded || isDeleted ? line.slice(1) : line}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -243,9 +172,7 @@ function ReviewPane({
       setFiles(parsed);
       const requestedPath = useUIStore.getState().activeReviewFilePath;
       setSelectedPath(
-        requestedPath && parsed.some((file) => file.path === requestedPath)
-          ? requestedPath
-          : parsed[0]?.path || null,
+        requestedPath && parsed.some((file) => file.path === requestedPath) ? requestedPath : parsed[0]?.path || null,
       );
     } catch (nextError) {
       setError(errorMessage(nextError));
@@ -353,8 +280,8 @@ function ReviewPane({
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <div className="min-h-0 flex-1 overflow-auto bg-chat/45">
-            {selectedFile && <DiffView file={selectedFile} />}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
+            {selectedFile && <ReviewDiffView key={selectedFile.path} file={selectedFile} />}
           </div>
           <div className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0">
             <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
@@ -364,6 +291,8 @@ function ReviewPane({
               <button
                 key={file.path}
                 onClick={() => setSelectedPath(file.path)}
+                aria-current={selectedFile?.path === file.path ? "true" : undefined}
+                title={file.path}
                 className={`flex w-full items-start gap-2 border-b border-border/25 px-3 py-2.5 text-left transition-colors ${selectedFile?.path === file.path ? "bg-accent/10" : "hover:bg-hover/60"}`}
               >
                 <FileCode2

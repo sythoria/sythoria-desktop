@@ -86,6 +86,7 @@ src/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
     ChatArea.tsx        # Messages, markdown, streaming, native skill/tool disclosures, completed edit summaries, comparison columns, and inline tool diffs
     FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
+    ReviewDiffView.tsx   # Graphical workspace review: file headers, syntax-highlighted numbered hunks, omitted-context separators, and progressive large-diff rendering
     InputBar.tsx        # Composer orchestration, live changed-files indicator, model selector, tools, attachments, send/stop
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
@@ -368,6 +369,7 @@ export interface ModelConfig {
 - **Tailwind v4**: `@theme` directive, `@import "tailwindcss"` — no `tailwind.config.js`.
 - **VS Code Themes**: Settings > Appearance houses customizable themes fetched from a marketplace, dynamically mapped to stylesheet CSS properties.
 - **Direct project filesystem**: Write actions execute in the registered folder so file tools, shell commands, panels, and the user all see the same state. Permission tiers, run capabilities, path validation, exclusions, and shell confirmation remain enforced natively.
+- **Graphical Review**: `gitDiff.ts` parses declared hunk bodies separately from Git metadata; Review renders code changes with old/new line numbers, syntax colors, and addition/deletion gutters. Raw patch headers and native staged/untracked section markers are never code rows. Binary, rename-only, empty-file, and permission-only changes have text summaries. Large diffs reveal 500 rows at a time.
 - **Project exclusions**: Project patterns use root-relative Git-ignore semantics, cannot use negation, and are enforced before and after canonicalization as well as during list/grep/glob traversal.
 - **Appshots Permission**: On macOS, screen capture requests the `System Settings` permission only after the user triggers a capture, avoiding startup notification spam.
 - **Stream listener Map**: Multiple active completion streams are supported in parallel (useful for Compare Mode layouts) using a thread-safe listener Map mapped by conversation IDs.
