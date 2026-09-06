@@ -467,9 +467,8 @@
   display: none;
 }
 
-/* Keep every editable line in one consistent inline formatting context. Native
-   contenteditable block children otherwise produce shifted lines and taller
-   carets in WebKit. */
+/* Native contenteditable may use block children for Enter. Keep those lines in
+   the editor's existing formatting context without synthesizing caret content. */
 .chat-prompt-editor-shell {
   line-height: 1.45;
 }
@@ -477,13 +476,6 @@
   margin: 0;
   padding: 0;
   line-height: inherit;
-}
-
-/* Give WebKit a real paint box after plain text so the caret does not overlap
-   the final glyph. The generated box stays out of the submitted message. */
-.chat-prompt-editor[data-editor-empty="false"][data-has-mcp-mentions="false"]::after {
-  content: "\200b";
-  display: inline;
 }
 
 .sidebar-resizing,

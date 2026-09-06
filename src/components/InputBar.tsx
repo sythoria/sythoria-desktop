@@ -171,10 +171,6 @@ export default memo(function InputBar({
     editorHandleRef.current?.saveSelection();
   }, []);
 
-  const insertEditorLineBreak = useCallback(() => {
-    editorHandleRef.current?.insertLineBreak();
-  }, []);
-
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
       if (disabled || isStreaming) return;
@@ -652,26 +648,14 @@ export default memo(function InputBar({
       }
 
       if (e.key === "Enter") {
-        if (sendMessageShortcut === "ctrl-enter") {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            void handleSubmit();
-          } else {
-            e.preventDefault();
-            insertEditorLineBreak();
-          }
-        } else {
-          if (!e.shiftKey) {
-            e.preventDefault();
-            void handleSubmit();
-          } else {
-            e.preventDefault();
-            insertEditorLineBreak();
-          }
-        }
+        const shouldSend = sendMessageShortcut === "ctrl-enter" ? e.ctrlKey || e.metaKey : !e.shiftKey;
+        if (!shouldSend) return;
+
+        e.preventDefault();
+        void handleSubmit();
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText, insertEditorLineBreak],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText],
   );
 
   const handleClipboardPaste = useCallback(
@@ -1226,7 +1210,6 @@ export default memo(function InputBar({
                     disabled={disabled}
                     invalid={isOverLimit}
                     isEmpty={value.length === 0 && mcpMentionServerIds.length === 0}
-                    hasMcpMentions={mcpMentionServerIds.length > 0}
                     maxHeight={MAX_TEXTAREA_HEIGHT}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}

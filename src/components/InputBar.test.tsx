@@ -98,7 +98,6 @@ describe("InputBar", () => {
     expect(placeholder).toHaveAttribute("aria-hidden", "true");
     expect(editor).not.toContainElement(placeholder);
     expect(editor).toHaveTextContent("");
-    expect(editor).toHaveAttribute("data-has-mcp-mentions", "false");
   });
 
   it("removes WebKit filler nodes when an empty editor regains focus", () => {
@@ -475,7 +474,6 @@ describe("InputBar", () => {
 
     const mentions = screen.getAllByRole("img", { name: "MCP tool: Documents" });
     expect(mentions).toHaveLength(2);
-    expect(editor).toHaveAttribute("data-has-mcp-mentions", "true");
     expect(mentions[0]).toHaveClass("text-[0.9em]", "align-[-0.08em]");
     expect(mentions[0]).toHaveClass("leading-none");
     expect(mentions[0]).not.toHaveClass("leading-[inherit]", "py-px");
@@ -620,7 +618,10 @@ describe("InputBar", () => {
     expect(editor).toHaveTextContent("Use the tool");
   });
 
-  it("inserts a plain newline without browser block markup on Shift+Enter", async () => {
+  it.each([
+    ["an empty editor", ""],
+    ["existing text", "Hello"],
+  ])("inserts exactly one line break after Shift+Enter with %s", async (_scenario, initialText) => {
     const onSend = vi.fn();
     render(
       <InputBar
@@ -635,17 +636,47 @@ describe("InputBar", () => {
       />,
     );
 
-    const textarea = screen.getByRole("textbox");
+    const editor = screen.getByRole("textbox");
     const user = userEvent.setup();
-    await user.type(textarea, "Hello");
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
-    await user.type(textarea, "world");
+    if (initialText) await user.type(editor, initialText);
+    else editor.focus();
 
+    const nativeInsertionWasPrevented = !fireEvent.keyDown(editor, { key: "Enter", shiftKey: true });
+    const lineBreak = editor.querySelector("br");
+    const caretAnchor = lineBreak?.nextSibling;
+
+    expect(nativeInsertionWasPrevented).toBe(true);
+    expect(editor.querySelectorAll("br")).toHaveLength(1);
+    expect(caretAnchor?.textContent).toBe("\u200b");
+    expect(editor).toHaveAttribute("data-editor-empty", "false");
+    expect(window.getSelection()?.anchorNode).toBe(editor);
+    expect(window.getSelection()?.anchorOffset).toBe(Array.from(editor.childNodes).indexOf(caretAnchor!));
     expect(onSend).not.toHaveBeenCalled();
-    expect(textarea.textContent).toBe("Hello\nworld");
-    expect(textarea.querySelector("div, p, br")).not.toBeInTheDocument();
-    expect(textarea.parentElement).toHaveClass("chat-prompt-editor-shell");
-    expect(textarea).toHaveClass("overflow-x-hidden", "overflow-y-auto", "whitespace-pre-wrap", "break-words");
+    expect(editor.parentElement).toHaveClass("chat-prompt-editor-shell");
+    expect(editor).toHaveClass("overflow-x-hidden", "overflow-y-auto", "whitespace-pre-wrap", "break-words");
+  });
+
+  it("reads native contenteditable line breaks as one logical newline", async () => {
+    const onSend = vi.fn().mockResolvedValue("accepted");
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={onSend}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        isSearchEnabled={false}
+        onToggleSearch={vi.fn()}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    editor.append("Hello", document.createElement("br"), "world");
+    fireEvent.input(editor);
+    await userEvent.setup().click(screen.getByLabelText("Send message"));
+
+    expect(onSend).toHaveBeenCalledWith("Hello\nworld", undefined, []);
   });
 
   it("shows web search option in plus dropdown", () => {

@@ -11,7 +11,6 @@ export interface PromptDraft {
 
 export interface PromptEditorHandle {
   focus: () => void;
-  insertLineBreak: () => void;
   insertMcpMention: (server: McpServerConfig) => boolean;
   readDraft: () => PromptDraft;
   replaceText: (text: string) => void;
@@ -29,7 +28,6 @@ interface PromptEditorProps {
   disabled?: boolean;
   invalid: boolean;
   isEmpty: boolean;
-  hasMcpMentions: boolean;
   maxHeight: number;
   className: string;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
@@ -147,7 +145,6 @@ export const PromptEditor = memo(function PromptEditor({
   disabled,
   invalid,
   isEmpty,
-  hasMcpMentions,
   maxHeight,
   className,
   onDraftChange,
@@ -182,7 +179,10 @@ export const PromptEditor = memo(function PromptEditor({
     };
 
     return {
-      text: readNode(editor).replaceAll(EDITOR_SPACER, "").replace(/\n$/, ""),
+      // A trailing native <br> is a browser caret filler, while our own caret
+      // anchor follows a real line break. Remove the filler before stripping
+      // editor-only anchors so the two cases stay distinguishable.
+      text: readNode(editor).replace(/\n$/, "").replaceAll(EDITOR_SPACER, ""),
       mcpServerIds,
     };
   }, []);
@@ -220,11 +220,12 @@ export const PromptEditor = memo(function PromptEditor({
     selectionRef.current = range.cloneRange();
   }, [readDraft]);
 
-  const placeCaretAfter = useCallback((node: Node) => {
+  const placeCaret = useCallback((node: Node, position: "before" | "after") => {
     const selection = window.getSelection();
     if (!selection) return;
     const range = document.createRange();
-    range.setStartAfter(node);
+    if (position === "before") range.setStartBefore(node);
+    else range.setStartAfter(node);
     range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
@@ -238,18 +239,24 @@ export const PromptEditor = memo(function PromptEditor({
 
     const selectedRange = selection.rangeCount ? selection.getRangeAt(0) : null;
     const hasEditorSelection = Boolean(selectedRange && editor.contains(selectedRange.commonAncestorContainer));
-    const range = hasEditorSelection ? selectedRange! : document.createRange();
+    const range = hasEditorSelection ? selectedRange!.cloneRange() : document.createRange();
     if (!hasEditorSelection) {
       range.selectNodeContents(editor);
       range.collapse(false);
     }
 
     range.deleteContents();
-    const lineBreak = document.createTextNode("\n");
-    range.insertNode(lineBreak);
-    placeCaretAfter(lineBreak);
+    const lineBreak = document.createElement("br");
+    const caretAnchor = document.createTextNode(EDITOR_SPACER);
+    const fragment = document.createDocumentFragment();
+    fragment.append(lineBreak, caretAnchor);
+    range.insertNode(fragment);
+
+    // The anchor gives the new empty line a paint box. Keeping the caret before
+    // it means Backspace removes the line break immediately, not the anchor.
+    placeCaret(caretAnchor, "before");
     syncDraft();
-  }, [placeCaretAfter, syncDraft]);
+  }, [placeCaret, syncDraft]);
 
   const removeMcpMention = useCallback(
     (mention: HTMLElement) => {
@@ -340,11 +347,11 @@ export const PromptEditor = memo(function PromptEditor({
       }
 
       editor.focus();
-      placeCaretAfter(spacer);
+      placeCaret(spacer, "after");
       syncDraft();
       return true;
     },
-    [disabled, placeCaretAfter, syncDraft],
+    [disabled, placeCaret, syncDraft],
   );
 
   const replaceText = useCallback(
@@ -362,13 +369,12 @@ export const PromptEditor = memo(function PromptEditor({
     editorHandleRef,
     () => ({
       focus: () => editorRef.current?.focus(),
-      insertLineBreak,
       insertMcpMention,
       readDraft,
       replaceText,
       saveSelection,
     }),
-    [insertLineBreak, insertMcpMention, readDraft, replaceText, saveSelection],
+    [insertMcpMention, readDraft, replaceText, saveSelection],
   );
 
   useEffect(
@@ -395,8 +401,13 @@ export const PromptEditor = memo(function PromptEditor({
       }
 
       onKeyDown(event);
+
+      if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.key === "Enter") {
+        event.preventDefault();
+        insertLineBreak();
+      }
     },
-    [deleteAdjacentMcpMention, onKeyDown],
+    [deleteAdjacentMcpMention, insertLineBreak, onKeyDown],
   );
 
   return (
@@ -421,7 +432,6 @@ export const PromptEditor = memo(function PromptEditor({
         aria-invalid={invalid}
         aria-disabled={disabled || undefined}
         data-editor-empty={isEmpty}
-        data-has-mcp-mentions={hasMcpMentions}
         onInput={() => syncDraft()}
         onBeforeInput={(event) => {
           const inputType = (event.nativeEvent as InputEvent).inputType;
@@ -463,7 +473,7 @@ export const PromptEditor = memo(function PromptEditor({
           range.deleteContents();
           const textNode = document.createTextNode(pastedText);
           range.insertNode(textNode);
-          placeCaretAfter(textNode);
+          placeCaret(textNode, "after");
           syncDraft();
         }}
         onKeyDown={handleKeyDown}
