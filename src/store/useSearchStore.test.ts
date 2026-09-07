@@ -64,4 +64,12 @@ describe("useSearchStore enabled config selection", () => {
     expect(useSearchStore.getState().activeSearchId).toBeNull();
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
+
+  it("finishes a captured search after the composer toggle is cleared", async () => {
+    useSearchStore.getState().toggleSearchEnabled(false);
+
+    await expect(useSearchStore.getState().performSearch("query", search, "key")).resolves.toEqual([]);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("web_search", expect.objectContaining({ configId: search.id }));
+  });
 });

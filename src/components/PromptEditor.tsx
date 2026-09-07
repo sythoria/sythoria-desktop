@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
 import type { McpServerConfig } from "../types";
+import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const EDITOR_SPACER = "\u200b";
@@ -7,11 +8,13 @@ const EDITOR_SPACER = "\u200b";
 export interface PromptDraft {
   text: string;
   mcpServerIds: string[];
+  webSearchEnabled: boolean;
 }
 
 export interface PromptEditorHandle {
   focus: () => void;
   insertMcpMention: (server: McpServerConfig) => boolean;
+  clearDraft: () => void;
   readDraft: () => PromptDraft;
   replaceText: (text: string) => void;
   saveSelection: () => void;
@@ -30,6 +33,9 @@ interface PromptEditorProps {
   isEmpty: boolean;
   maxHeight: number;
   className: string;
+  isWebSearchEnabled: boolean;
+  webSearchLabel: string;
+  onDisableWebSearch: () => void;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onPasteText?: (text: string) => boolean;
@@ -83,8 +89,30 @@ function createMcpIconElement(): SVGSVGElement {
   return svg;
 }
 
-function isMcpMention(node: Node | null): node is HTMLElement {
-  return node instanceof HTMLElement && Boolean(node.dataset.mcpServerId);
+function createSearchIconElement(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("lucide", "lucide-search", "size-[1em]", "shrink-0");
+
+  const circle = document.createElementNS(SVG_NAMESPACE, "circle");
+  circle.setAttribute("cx", "11");
+  circle.setAttribute("cy", "11");
+  circle.setAttribute("r", "8");
+
+  const path = document.createElementNS(SVG_NAMESPACE, "path");
+  path.setAttribute("d", "m21 21-4.3-4.3");
+  svg.append(circle, path);
+  return svg;
+}
+
+function isToolMention(node: Node | null): node is HTMLElement {
+  return node instanceof HTMLElement && (Boolean(node.dataset.mcpServerId) || node.dataset.webSearchMention === "true");
 }
 
 function isEmptyMcpSpacer(node: Node): boolean {
@@ -93,7 +121,7 @@ function isEmptyMcpSpacer(node: Node): boolean {
 
 function deepestNode(node: Node, direction: DeletionDirection): Node {
   let current = node;
-  while (!isMcpMention(current)) {
+  while (!isToolMention(current)) {
     const child = direction === "backward" ? current.lastChild : current.firstChild;
     if (!child) break;
     current = child;
@@ -111,8 +139,8 @@ function nextNodeOutside(node: Node, root: HTMLElement, direction: DeletionDirec
   return null;
 }
 
-/** Finds an MCP mention only when it is the next logical character at the caret. */
-function findAdjacentMcpMention(editor: HTMLElement, range: Range, direction: DeletionDirection): HTMLElement | null {
+/** Finds a tool mention only when it is the next logical character at the caret. */
+function findAdjacentToolMention(editor: HTMLElement, range: Range, direction: DeletionDirection): HTMLElement | null {
   const container = range.startContainer;
   const offset = range.startOffset;
   let candidate: Node | null = null;
@@ -129,7 +157,7 @@ function findAdjacentMcpMention(editor: HTMLElement, range: Range, direction: De
   }
 
   while (candidate) {
-    if (isMcpMention(candidate)) return candidate;
+    if (isToolMention(candidate)) return candidate;
     if (!isEmptyMcpSpacer(candidate)) return null;
     candidate = nextNodeOutside(candidate, editor, direction);
   }
@@ -147,6 +175,9 @@ export const PromptEditor = memo(function PromptEditor({
   isEmpty,
   maxHeight,
   className,
+  isWebSearchEnabled,
+  webSearchLabel,
+  onDisableWebSearch,
   onDraftChange,
   onKeyDown,
   onPasteText,
@@ -158,9 +189,10 @@ export const PromptEditor = memo(function PromptEditor({
 
   const readDraft = useCallback((): PromptDraft => {
     const editor = editorRef.current;
-    if (!editor) return { text: "", mcpServerIds: [] };
+    if (!editor) return { text: "", mcpServerIds: [], webSearchEnabled: false };
 
     const mcpServerIds: string[] = [];
+    let webSearchEnabled = false;
     const readNode = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
       if (!(node instanceof HTMLElement)) return "";
@@ -170,6 +202,10 @@ export const PromptEditor = memo(function PromptEditor({
         mcpServerIds.push(serverId);
         const serverName = node.dataset.mcpServerName || node.textContent?.trim() || serverId;
         return `[MCP: ${serverName}]`;
+      }
+      if (node.dataset.webSearchMention === "true") {
+        webSearchEnabled = true;
+        return WEB_SEARCH_MENTION;
       }
       if (node.tagName === "BR") return "\n";
 
@@ -184,6 +220,7 @@ export const PromptEditor = memo(function PromptEditor({
       // editor-only anchors so the two cases stay distinguishable.
       text: readNode(editor).replace(/\n$/, "").replaceAll(EDITOR_SPACER, ""),
       mcpServerIds,
+      webSearchEnabled,
     };
   }, []);
 
@@ -207,7 +244,7 @@ export const PromptEditor = memo(function PromptEditor({
     if (!editor?.hasChildNodes()) return;
 
     const draft = readDraft();
-    if (draft.text || draft.mcpServerIds.length > 0) return;
+    if (isWebSearchEnabled || draft.text || draft.mcpServerIds.length > 0) return;
 
     editor.replaceChildren();
     const selection = window.getSelection();
@@ -218,7 +255,7 @@ export const PromptEditor = memo(function PromptEditor({
     selection.removeAllRanges();
     selection.addRange(range);
     selectionRef.current = range.cloneRange();
-  }, [readDraft]);
+  }, [isWebSearchEnabled, readDraft]);
 
   const placeCaret = useCallback((node: Node, position: "before" | "after") => {
     const selection = window.getSelection();
@@ -258,8 +295,9 @@ export const PromptEditor = memo(function PromptEditor({
     syncDraft();
   }, [placeCaret, syncDraft]);
 
-  const removeMcpMention = useCallback(
-    (mention: HTMLElement) => {
+  const removeToolMention = useCallback(
+    (mention: HTMLElement, notify = true, restoreFocus = true) => {
+      const disablesWebSearch = mention.dataset.webSearchMention === "true";
       const parent = mention.parentNode;
       if (!parent) return;
       const mentionIndex = Array.from(parent.childNodes).indexOf(mention);
@@ -275,22 +313,27 @@ export const PromptEditor = memo(function PromptEditor({
         else nextSibling.remove();
       }
 
-      editorRef.current?.focus();
-      const range = document.createRange();
-      const nodeAtMentionPosition = parent.childNodes[mentionIndex];
-      if (nodeAtMentionPosition?.nodeType === Node.TEXT_NODE) range.setStart(nodeAtMentionPosition, 0);
-      else range.setStart(parent, Math.min(mentionIndex, parent.childNodes.length));
-      range.collapse(true);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      selectionRef.current = range.cloneRange();
-      syncDraft();
+      if (restoreFocus) {
+        editorRef.current?.focus();
+        const range = document.createRange();
+        const nodeAtMentionPosition = parent.childNodes[mentionIndex];
+        if (nodeAtMentionPosition?.nodeType === Node.TEXT_NODE) range.setStart(nodeAtMentionPosition, 0);
+        else range.setStart(parent, Math.min(mentionIndex, parent.childNodes.length));
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        selectionRef.current = range.cloneRange();
+      } else {
+        selectionRef.current = null;
+      }
+      if (disablesWebSearch && notify) onDisableWebSearch();
+      syncDraft(notify ? "user" : "programmatic");
     },
-    [syncDraft],
+    [onDisableWebSearch, syncDraft],
   );
 
-  const deleteAdjacentMcpMention = useCallback(
+  const deleteAdjacentToolMention = useCallback(
     (direction: DeletionDirection) => {
       const editor = editorRef.current;
       const selection = window.getSelection();
@@ -298,14 +341,53 @@ export const PromptEditor = memo(function PromptEditor({
 
       const range = selection.getRangeAt(0);
       if (!editor.contains(range.commonAncestorContainer)) return false;
-      const mention = findAdjacentMcpMention(editor, range, direction);
+      const mention = findAdjacentToolMention(editor, range, direction);
       if (!mention) return false;
 
-      removeMcpMention(mention);
+      removeToolMention(mention);
       return true;
     },
-    [removeMcpMention],
+    [removeToolMention],
   );
+
+  const createWebSearchMention = useCallback(() => {
+    const mention = document.createElement("span");
+    mention.dataset.webSearchMention = "true";
+    mention.contentEditable = "false";
+    mention.className =
+      "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
+    mention.setAttribute("role", "img");
+    mention.setAttribute("aria-label", `${webSearchLabel} enabled`);
+    mention.setAttribute("title", `${webSearchLabel} enabled`);
+
+    const label = document.createElement("span");
+    label.textContent = webSearchLabel;
+    label.className = "truncate";
+    mention.append(createSearchIconElement(), label);
+    return mention;
+  }, [webSearchLabel]);
+
+  const insertWebSearchMention = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.querySelector('[data-web-search-mention="true"]')) return;
+
+    const mention = createWebSearchMention();
+    const spacer = document.createTextNode(EDITOR_SPACER);
+    const savedRange = selectionRef.current;
+    const range = savedRange && editor.contains(savedRange.commonAncestorContainer) ? savedRange.cloneRange() : null;
+
+    if (range) {
+      range.deleteContents();
+      range.insertNode(spacer);
+      range.insertNode(mention);
+    } else {
+      editor.append(mention, spacer);
+    }
+
+    editor.focus();
+    placeCaret(spacer, "after");
+    syncDraft("programmatic");
+  }, [createWebSearchMention, placeCaret, syncDraft]);
 
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
@@ -358,23 +440,34 @@ export const PromptEditor = memo(function PromptEditor({
     (text: string) => {
       const editor = editorRef.current;
       if (!editor) return;
-      editor.textContent = text;
+      editor.replaceChildren();
+      if (text) editor.append(document.createTextNode(text));
+      if (isWebSearchEnabled) editor.append(createWebSearchMention(), document.createTextNode(EDITOR_SPACER));
       selectionRef.current = null;
       syncDraft("programmatic");
     },
-    [syncDraft],
+    [createWebSearchMention, isWebSearchEnabled, syncDraft],
   );
+
+  const clearDraft = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.replaceChildren();
+    selectionRef.current = null;
+    syncDraft("programmatic");
+  }, [syncDraft]);
 
   useImperativeHandle(
     editorHandleRef,
     () => ({
       focus: () => editorRef.current?.focus(),
       insertMcpMention,
+      clearDraft,
       readDraft,
       replaceText,
       saveSelection,
     }),
-    [insertMcpMention, readDraft, replaceText, saveSelection],
+    [clearDraft, insertMcpMention, readDraft, replaceText, saveSelection],
   );
 
   useEffect(
@@ -384,11 +477,24 @@ export const PromptEditor = memo(function PromptEditor({
     [],
   );
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const mention = editor.querySelector<HTMLElement>('[data-web-search-mention="true"]');
+
+    if (isWebSearchEnabled) {
+      if (!mention) insertWebSearchMention();
+      return;
+    }
+
+    if (mention) removeToolMention(mention, false, false);
+  }, [insertWebSearchMention, isWebSearchEnabled, removeToolMention]);
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (!event.nativeEvent.isComposing && (event.key === "Backspace" || event.key === "Delete")) {
         const direction = event.key === "Backspace" ? "backward" : "forward";
-        if (deleteAdjacentMcpMention(direction)) {
+        if (deleteAdjacentToolMention(direction)) {
           event.preventDefault();
           suppressNativeMentionDeletionRef.current = true;
           if (deletionSuppressionTimerRef.current) clearTimeout(deletionSuppressionTimerRef.current);
@@ -407,7 +513,7 @@ export const PromptEditor = memo(function PromptEditor({
         insertLineBreak();
       }
     },
-    [deleteAdjacentMcpMention, insertLineBreak, onKeyDown],
+    [deleteAdjacentToolMention, insertLineBreak, onKeyDown],
   );
 
   return (
@@ -446,7 +552,7 @@ export const PromptEditor = memo(function PromptEditor({
             : inputType.includes("Forward")
               ? "forward"
               : null;
-          if (direction && deleteAdjacentMcpMention(direction)) event.preventDefault();
+          if (direction && deleteAdjacentToolMention(direction)) event.preventDefault();
         }}
         onKeyUp={saveSelection}
         onMouseUp={saveSelection}

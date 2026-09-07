@@ -59,6 +59,7 @@ import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { FileEditDiffCard } from "./FileEditDiffCard";
+import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -274,26 +275,32 @@ function MessageContent({
   );
 }
 
-const MCP_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]/g;
+const TOOL_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]|\[Web Search\]/g;
 
 function UserMessageContent({ content }: { content: string }) {
+  const { t } = useTranslation();
   const parts: React.ReactNode[] = [];
   let cursor = 0;
 
-  for (const match of content.matchAll(MCP_LABEL_PATTERN)) {
+  for (const match of content.matchAll(TOOL_LABEL_PATTERN)) {
     const matchIndex = match.index;
     if (matchIndex > cursor) parts.push(content.slice(cursor, matchIndex));
 
-    const serverName = match[1].trim();
+    const isWebSearch = match[0] === WEB_SEARCH_MENTION;
+    const label = isWebSearch ? t("chat.webSearch") || "Web Search" : match[1].trim();
     parts.push(
       <span
-        key={`${matchIndex}-${serverName}`}
+        key={`${matchIndex}-${label}`}
         role="img"
-        aria-label={`MCP tool: ${serverName}`}
+        aria-label={isWebSearch ? `${label} tool` : `MCP tool: ${label}`}
         className="mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent"
       >
-        <Cpu size={13} className="shrink-0" aria-hidden="true" />
-        <span className="truncate">{serverName}</span>
+        {isWebSearch ? (
+          <Search size={13} className="shrink-0" aria-hidden="true" />
+        ) : (
+          <Cpu size={13} className="shrink-0" aria-hidden="true" />
+        )}
+        <span className="truncate">{label}</span>
       </span>,
     );
     cursor = matchIndex + match[0].length;

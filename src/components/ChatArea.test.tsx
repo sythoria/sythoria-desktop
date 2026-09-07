@@ -80,6 +80,23 @@ describe("ChatArea", () => {
     expect(messageArticle).not.toHaveTextContent("[MCP: Gmail]");
   });
 
+  it("renders the model-visible web search marker as a chip in user messages", () => {
+    const messages = [
+      makeMessage({
+        role: "user",
+        content: "Use [Web Search] for the latest release",
+        searchConfigId: "search-1",
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    const chip = screen.getByRole("img", { name: "Web Search tool" });
+    const messageArticle = screen.getByRole("article", { name: /User message/ });
+    expect(chip).toHaveTextContent("Web Search");
+    expect(messageArticle).toHaveTextContent("Use Web Search for the latest release");
+    expect(messageArticle).not.toHaveTextContent("[Web Search]");
+  });
+
   it("renders assistant messages with markdown", () => {
     const messages = [makeMessage({ role: "assistant", content: "Hi there **bold**" })];
     render(<ChatArea messages={messages} {...defaultProps} />);

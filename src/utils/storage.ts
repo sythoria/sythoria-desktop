@@ -136,6 +136,7 @@ const MessageSchema = z
     sources: z.array(SourceSchema).optional(),
     attachments: z.array(AttachmentSchema).optional(),
     mcpServerIds: z.array(z.string()).optional(),
+    searchConfigId: z.string().optional(),
     thinkingDuration: z.number().nonnegative().optional(),
     workingDuration: z.number().nonnegative().optional(),
     workspaceChanges: WorkspaceChangeSetSchema.optional(),

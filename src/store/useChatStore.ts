@@ -105,6 +105,7 @@ import {
 } from "./helpers";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
+import { hasWebSearchMention } from "../utils/toolMentions";
 import { useMcpStore } from "./useMcpStore";
 import { useUIStore } from "./useUIStore";
 import { useProjectStore } from "./useProjectStore";
@@ -247,12 +248,16 @@ interface EnabledToolLoopConfig {
   skills: ReturnType<typeof useSkillStore.getState>["skills"];
 }
 
-function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): EnabledToolLoopConfig {
+function getEnabledToolLoopConfig(
+  mcpServerIds: readonly string[] = [],
+  requestedSearchConfigId?: string | null,
+): EnabledToolLoopConfig {
   const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
-  const searchConfig =
-    isSearchEnabled && activeSearchId
-      ? searchConfigs.find((config) => config.id === activeSearchId && config.enabled)
-      : undefined;
+  const searchConfigId =
+    requestedSearchConfigId === undefined ? (isSearchEnabled ? activeSearchId : null) : requestedSearchConfigId;
+  const searchConfig = searchConfigId
+    ? searchConfigs.find((config) => config.id === searchConfigId && config.enabled)
+    : undefined;
   const searchApiKey = searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
   const mcpTools = useMcpStore.getState().getToolsForServers(mcpServerIds);
@@ -269,6 +274,12 @@ function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): Enabled
     mcpCallTool,
     skills: useSkillStore.getState().skills,
   };
+}
+
+function getMessageSearchConfigId(message: Message | undefined): string | null {
+  if (!message) return null;
+  if (message.searchConfigId) return message.searchConfigId;
+  return hasWebSearchMention(message.content) ? useSearchStore.getState().activeSearchId : null;
 }
 
 function showMissingModelConfig(message: string) {
@@ -1146,6 +1157,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date(),
       attachments,
       ...(uniqueMcpServerIds.length > 0 ? { mcpServerIds: uniqueMcpServerIds } : {}),
+      ...(toolLoop.searchConfig ? { searchConfigId: toolLoop.searchConfig.id } : {}),
     };
 
     const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
@@ -1342,7 +1354,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (lastUserIdx === -1) return;
 
     await useSkillStore.getState().loadSkills(true);
-    const toolLoop = getEnabledToolLoopConfig(conv.messages[lastUserIdx].mcpServerIds);
+    const lastUserMessage = conv.messages[lastUserIdx];
+    const toolLoop = getEnabledToolLoopConfig(lastUserMessage.mcpServerIds, getMessageSearchConfigId(lastUserMessage));
     const runContext = buildConversationRunContext({
       conversation: conv,
       models,
@@ -1697,7 +1710,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       .reverse()
       .find((message) => message.role === "user" && !message.isSystem);
     await useSkillStore.getState().loadSkills(true);
-    const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
+    const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds, getMessageSearchConfigId(lastUserMessage));
     let runContext = buildConversationRunContext({
       conversation: conv,
       models,

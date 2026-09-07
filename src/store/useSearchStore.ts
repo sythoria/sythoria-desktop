@@ -147,7 +147,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   performSearch: async (query, config, _apiKey) => {
     const currentConfig = get().searchConfigs.find((candidate) => candidate.id === config.id);
-    if (!currentConfig?.enabled || get().activeSearchId !== config.id || !get().isSearchEnabled) {
+    if (!currentConfig?.enabled) {
       logWarn("search", `Blocked search through disabled config: "${config.name}"`, {});
       return [];
     }

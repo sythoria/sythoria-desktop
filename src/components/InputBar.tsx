@@ -179,6 +179,8 @@ export default memo(function InputBar({
     [disabled, isStreaming],
   );
 
+  const disableWebSearch = useCallback(() => onToggleSearch(false), [onToggleSearch]);
+
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
   const baseTextSize = useUIStore((s) => s.baseTextSize);
@@ -602,15 +604,17 @@ export default memo(function InputBar({
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
     // The contenteditable DOM is the authoritative draft. Reading it here keeps
-    // a newly inserted MCP mention from being lost when send happens before the
+    // a newly inserted tool mention from being lost when send happens before the
     // corresponding React state update has rendered.
     const submittedDraft = editorHandleRef.current?.readDraft() ?? {
       text: value,
       mcpServerIds: mcpMentionServerIds,
+      webSearchEnabled: isSearchEnabled,
     };
     const submittedValue = submittedDraft.text;
     const submittedText = submittedValue.trim();
     const submittedMcpServerIds = [...submittedDraft.mcpServerIds];
+    const submittedWebSearchEnabled = submittedDraft.webSearchEnabled;
     const submittedAttachments = attachments;
     if ((submittedText.length === 0 && submittedAttachments.length === 0) || submittedValue.length > MAX_INPUT_LENGTH) {
       return;
@@ -623,13 +627,21 @@ export default memo(function InputBar({
     if (status !== "accepted") return;
 
     const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id));
-    const currentDraft = editorHandleRef.current?.readDraft() ?? { text: "", mcpServerIds: [] };
+    const currentDraft = editorHandleRef.current?.readDraft() ?? {
+      text: "",
+      mcpServerIds: [],
+      webSearchEnabled: false,
+    };
     const mentionsAreUnchanged =
       currentDraft.mcpServerIds.length === submittedMcpServerIds.length &&
-      currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]);
-    if (currentDraft.text === submittedValue && mentionsAreUnchanged) replaceEditorText("");
+      currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]) &&
+      currentDraft.webSearchEnabled === submittedWebSearchEnabled;
+    if (currentDraft.text === submittedValue && mentionsAreUnchanged) {
+      if (submittedWebSearchEnabled) onToggleSearch(false);
+      editorHandleRef.current?.clearDraft();
+    }
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [canSend, value, mcpMentionServerIds, attachments, onSend, replaceEditorText, setAttachments]);
+  }, [canSend, value, mcpMentionServerIds, isSearchEnabled, attachments, onSend, onToggleSearch, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -643,7 +655,8 @@ export default memo(function InputBar({
       }
 
       if (clearInputOnEscape && e.key === "Escape") {
-        replaceEditorText("");
+        if (editorHandleRef.current?.readDraft().webSearchEnabled) onToggleSearch(false);
+        editorHandleRef.current?.clearDraft();
         return;
       }
 
@@ -655,7 +668,7 @@ export default memo(function InputBar({
         void handleSubmit();
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, onToggleSearch],
   );
 
   const handleClipboardPaste = useCallback(
@@ -941,9 +954,7 @@ export default memo(function InputBar({
       {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
       <div
         className={`relative z-10 mx-auto w-full ${
-          centered
-            ? "max-w-4xl px-2 sm:px-6"
-            : "chat-column-content"
+          centered ? "max-w-4xl px-2 sm:px-6" : "chat-column-content"
         } ${centered ? "" : "pt-2"}`}
       >
         {!centered && !conversation?.isSubagent && (
@@ -1209,8 +1220,11 @@ export default memo(function InputBar({
                     }
                     disabled={disabled}
                     invalid={isOverLimit}
-                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0}
+                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0 && !isSearchEnabled}
                     maxHeight={MAX_TEXTAREA_HEIGHT}
+                    isWebSearchEnabled={isSearchEnabled}
+                    webSearchLabel={t("chat.webSearch") || "Web Search"}
+                    onDisableWebSearch={disableWebSearch}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
                     onPasteText={handlePastedText}
@@ -1435,7 +1449,7 @@ export default memo(function InputBar({
               </div>
 
               {/* Active Tools and Context Row */}
-              {(isProjectsEnabled || isSearchEnabled) && (
+              {isProjectsEnabled && (
                 <div
                   className={`relative z-0 flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
@@ -1643,27 +1657,6 @@ export default memo(function InputBar({
                         )}
                       </AnimatePresence>
                     </div>
-                  )}
-
-                  {/* Web Search Pill */}
-                  {isSearchEnabled && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      transition={motionTransitions.content}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
-                    >
-                      <Search size={12} className="shrink-0" />
-                      <span>Web Search</span>
-                      <button
-                        onClick={() => onToggleSearch(false)}
-                        className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
-                        title={t("chat.disableWebSearch") || "Disable Web Search"}
-                      >
-                        <X size={12} />
-                      </button>
-                    </motion.div>
                   )}
                 </div>
               )}

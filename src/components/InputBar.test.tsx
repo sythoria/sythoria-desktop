@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
@@ -721,6 +722,82 @@ describe("InputBar", () => {
 
     await user.click(searchOption);
     expect(onToggleSearch).toHaveBeenCalledWith(true);
+  });
+
+  it("moves enabled web search from the composer bubble into the submitted prompt", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue("accepted");
+    const onToggleSearch = vi.fn();
+    function SearchEnabledInputBar() {
+      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
+      return (
+        <InputBar
+          models={mockModels}
+          onSend={onSend}
+          selectedModel="model-1"
+          onModelChange={vi.fn()}
+          modelStatuses={mockStatuses}
+          isSearchEnabled={isSearchEnabled}
+          onToggleSearch={(enabled) => {
+            onToggleSearch(enabled);
+            setIsSearchEnabled(enabled);
+          }}
+          {...defaultMcpProps}
+        />
+      );
+    }
+    render(<SearchEnabledInputBar />);
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    expect(editor).toContainElement(searchBubble);
+    expect(searchBubble).toHaveClass("text-[0.9em]", "align-[-0.08em]", "leading-none");
+    expect(searchBubble.querySelector(".lucide-search")).toBeInTheDocument();
+
+    await user.type(editor, "Find the latest release{Enter}");
+    expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, []);
+    expect(onToggleSearch).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+    expect(editor).toHaveTextContent("");
+  });
+
+  it("disables web search when its composer bubble is removed with Backspace", async () => {
+    const onToggleSearch = vi.fn();
+    function SearchEnabledInputBar() {
+      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
+      return (
+        <InputBar
+          models={mockModels}
+          onSend={vi.fn()}
+          selectedModel="model-1"
+          onModelChange={vi.fn()}
+          modelStatuses={mockStatuses}
+          isSearchEnabled={isSearchEnabled}
+          onToggleSearch={(enabled) => {
+            onToggleSearch(enabled);
+            setIsSearchEnabled(enabled);
+          }}
+          {...defaultMcpProps}
+        />
+      );
+    }
+    render(<SearchEnabledInputBar />);
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    const spacer = searchBubble.nextSibling;
+    expect(spacer).not.toBeNull();
+    const range = document.createRange();
+    range.setStartAfter(spacer!);
+    range.collapse(true);
+    editor.focus();
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent.keyDown(editor, { key: "Backspace" });
+
+    expect(onToggleSearch).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
   });
 
   it("renders image attachment and allows opening preview modal", async () => {

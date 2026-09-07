@@ -50,6 +50,7 @@ describe("ConversationSchema", () => {
           responsesOutput: [{ type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" }],
           thinkingDuration: 4,
           workingDuration: 12,
+          searchConfigId: "search-1",
           workspaceChanges: {
             projectId: "project-a",
             appliedAt: "2026-07-27T12:00:02.000Z",
@@ -79,6 +80,7 @@ describe("ConversationSchema", () => {
     ]);
     expect(result.data.messages[0].thinkingDuration).toBe(4);
     expect(result.data.messages[0].workingDuration).toBe(12);
+    expect(result.data.messages[0].searchConfigId).toBe("search-1");
     expect(result.data.messages[0].workspaceChanges).toMatchObject({
       projectId: "project-a",
       undoToken: "undo-turn-1",

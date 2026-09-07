@@ -91,6 +91,8 @@ export interface Message {
   attachments?: Attachment[];
   /** MCP tool routing for this turn; content also preserves readable `[MCP: name]` labels. */
   mcpServerIds?: string[];
+  /** Web-search provider captured for this turn; content also preserves a readable `[Web Search]` label. */
+  searchConfigId?: string;
   thinkingDuration?: number;
   /** Total wall-clock time for a tool-assisted turn, stored on its final assistant message. */
   workingDuration?: number;
