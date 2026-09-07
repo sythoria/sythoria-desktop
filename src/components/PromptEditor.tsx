@@ -7,6 +7,7 @@ const EDITOR_SPACER = "\u200b";
 
 export interface PromptDraft {
   text: string;
+  plainText: string;
   mcpServerIds: string[];
   webSearchEnabled: boolean;
 }
@@ -111,7 +112,7 @@ function createSearchIconElement(): SVGSVGElement {
   return svg;
 }
 
-function isToolMention(node: Node | null): node is HTMLElement {
+function isToolMention(node: Node | null): boolean {
   return node instanceof HTMLElement && (Boolean(node.dataset.mcpServerId) || node.dataset.webSearchMention === "true");
 }
 
@@ -139,6 +140,46 @@ function nextNodeOutside(node: Node, root: HTMLElement, direction: DeletionDirec
   return null;
 }
 
+function readPlainText(node: Node, editor: HTMLElement): string {
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").replaceAll(EDITOR_SPACER, "");
+  if (!(node instanceof HTMLElement) || isToolMention(node)) return "";
+  if (node.tagName === "BR") return "\n";
+
+  const content = Array.from(node.childNodes, (child) => readPlainText(child, editor)).join("");
+  const isBlock = node !== editor && (node.tagName === "DIV" || node.tagName === "P");
+  return isBlock && !content.endsWith("\n") ? `${content}\n` : content;
+}
+
+function collectPreservedMentions(editor: HTMLElement): { offset: number; element: HTMLElement }[] {
+  const mentions: { offset: number; element: HTMLElement }[] = [];
+  let offset = 0;
+
+  const visit = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent ?? "").replaceAll(EDITOR_SPACER, "");
+      offset += text.length;
+      return text;
+    }
+    if (!(node instanceof HTMLElement)) return "";
+    if (isToolMention(node)) {
+      mentions.push({ offset, element: node.cloneNode(true) as HTMLElement });
+      return "";
+    }
+    if (node.tagName === "BR") {
+      offset += 1;
+      return "\n";
+    }
+
+    const content = Array.from(node.childNodes, visit).join("");
+    const isBlock = node !== editor && (node.tagName === "DIV" || node.tagName === "P");
+    if (isBlock && !content.endsWith("\n")) offset += 1;
+    return isBlock && !content.endsWith("\n") ? `${content}\n` : content;
+  };
+
+  visit(editor);
+  return mentions;
+}
+
 /** Finds a tool mention only when it is the next logical character at the caret. */
 function findAdjacentToolMention(editor: HTMLElement, range: Range, direction: DeletionDirection): HTMLElement | null {
   const container = range.startContainer;
@@ -157,7 +198,7 @@ function findAdjacentToolMention(editor: HTMLElement, range: Range, direction: D
   }
 
   while (candidate) {
-    if (isToolMention(candidate)) return candidate;
+    if (isToolMention(candidate)) return candidate as HTMLElement;
     if (!isEmptyMcpSpacer(candidate)) return null;
     candidate = nextNodeOutside(candidate, editor, direction);
   }
@@ -189,7 +230,7 @@ export const PromptEditor = memo(function PromptEditor({
 
   const readDraft = useCallback((): PromptDraft => {
     const editor = editorRef.current;
-    if (!editor) return { text: "", mcpServerIds: [], webSearchEnabled: false };
+    if (!editor) return { text: "", plainText: "", mcpServerIds: [], webSearchEnabled: false };
 
     const mcpServerIds: string[] = [];
     let webSearchEnabled = false;
@@ -219,6 +260,7 @@ export const PromptEditor = memo(function PromptEditor({
       // anchor follows a real line break. Remove the filler before stripping
       // editor-only anchors so the two cases stay distinguishable.
       text: readNode(editor).replace(/\n$/, "").replaceAll(EDITOR_SPACER, ""),
+      plainText: readPlainText(editor, editor).replace(/\n$/, ""),
       mcpServerIds,
       webSearchEnabled,
     };
@@ -440,9 +482,19 @@ export const PromptEditor = memo(function PromptEditor({
     (text: string) => {
       const editor = editorRef.current;
       if (!editor) return;
+      const preservedMentions = collectPreservedMentions(editor);
       editor.replaceChildren();
-      if (text) editor.append(document.createTextNode(text));
-      if (isWebSearchEnabled) editor.append(createWebSearchMention(), document.createTextNode(EDITOR_SPACER));
+      let cursor = 0;
+      for (const preserved of preservedMentions) {
+        const mentionOffset = Math.min(preserved.offset, text.length);
+        if (mentionOffset > cursor) editor.append(document.createTextNode(text.slice(cursor, mentionOffset)));
+        editor.append(preserved.element, document.createTextNode(EDITOR_SPACER));
+        cursor = mentionOffset;
+      }
+      if (cursor < text.length) editor.append(document.createTextNode(text.slice(cursor)));
+      if (isWebSearchEnabled && !preservedMentions.some(({ element }) => element.dataset.webSearchMention === "true")) {
+        editor.append(createWebSearchMention(), document.createTextNode(EDITOR_SPACER));
+      }
       selectionRef.current = null;
       syncDraft("programmatic");
     },

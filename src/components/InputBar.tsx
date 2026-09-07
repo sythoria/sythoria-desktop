@@ -470,7 +470,7 @@ export default memo(function InputBar({
       recordingAbortRef.current?.abort();
       recordingAbortRef.current = sessionAbort;
       try {
-        initialValueRef.current = value;
+        initialValueRef.current = editorHandleRef.current?.readDraft().plainText ?? value;
         await invoke("start_recording", { sessionId });
         if (sessionAbort.signal.aborted) {
           await invoke("stop_recording", { sessionId });
@@ -613,6 +613,7 @@ export default memo(function InputBar({
     // corresponding React state update has rendered.
     const submittedDraft = editorHandleRef.current?.readDraft() ?? {
       text: value,
+      plainText: value,
       mcpServerIds: mcpMentionServerIds,
       webSearchEnabled: isSearchEnabled,
     };
@@ -635,6 +636,7 @@ export default memo(function InputBar({
     const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id));
     const currentDraft = editorHandleRef.current?.readDraft() ?? {
       text: "",
+      plainText: "",
       mcpServerIds: [],
       webSearchEnabled: false,
     };
