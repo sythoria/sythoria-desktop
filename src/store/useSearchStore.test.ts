@@ -58,7 +58,9 @@ describe("useSearchStore enabled config selection", () => {
     useSearchStore.getState().updateSearchConfig(search.id, { enabled: false });
     useSearchStore.getState().setActiveSearchId(search.id);
 
-    await expect(useSearchStore.getState().performSearch("query", search, "key")).resolves.toEqual([]);
+    await expect(useSearchStore.getState().performSearch("query", search, "key")).rejects.toThrow(
+      "disabled or unavailable",
+    );
     expect(useSearchStore.getState().activeSearchId).toBeNull();
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
@@ -67,5 +69,11 @@ describe("useSearchStore enabled config selection", () => {
     await expect(useSearchStore.getState().performSearch("query", search, "key")).resolves.toEqual([]);
 
     expect(mocks.invoke).toHaveBeenCalledWith("web_search", expect.objectContaining({ configId: search.id }));
+  });
+
+  it("rejects provider failures so the tool loop can mark them as errors", async () => {
+    mocks.invoke.mockRejectedValueOnce(new Error("Search backend unavailable"));
+
+    await expect(useSearchStore.getState().performSearch("query", search, "key")).rejects.toThrow();
   });
 });

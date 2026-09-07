@@ -139,7 +139,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     const currentConfig = get().searchConfigs.find((candidate) => candidate.id === config.id);
     if (!currentConfig?.enabled) {
       logWarn("search", `Blocked search through disabled config: "${config.name}"`, {});
-      return [];
+      throw new Error(`Search provider "${config.name}" is disabled or unavailable`);
     }
     try {
       logInfo("search", `Searching: "${query}"`, {
@@ -165,7 +165,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         details: `Provider: ${config.provider}, Config: "${config.name}". ${parsed.message}`,
       });
       useUIStore.getState().addToast(parsed.message, "error");
-      return [];
+      throw new Error(parsed.message);
     }
   },
 
