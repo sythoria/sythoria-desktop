@@ -277,16 +277,25 @@ function MessageContent({
 
 const TOOL_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]|\[Web Search\]/g;
 
-function UserMessageContent({ content }: { content: string }) {
+function UserMessageContent({ message }: { message: Message }) {
   const { t } = useTranslation();
+  const { content } = message;
   const parts: React.ReactNode[] = [];
   let cursor = 0;
+  let remainingMcpMentions = message.mcpServerIds?.length ?? 0;
 
   for (const match of content.matchAll(TOOL_LABEL_PATTERN)) {
     const matchIndex = match.index;
     if (matchIndex > cursor) parts.push(content.slice(cursor, matchIndex));
 
     const isWebSearch = match[0] === WEB_SEARCH_MENTION;
+    const isAuthorizedMention = isWebSearch ? Boolean(message.searchConfigId) : remainingMcpMentions > 0;
+    if (!isAuthorizedMention) {
+      parts.push(match[0]);
+      cursor = matchIndex + match[0].length;
+      continue;
+    }
+    if (!isWebSearch) remainingMcpMentions -= 1;
     const label = isWebSearch ? t("chat.webSearch") || "Web Search" : match[1].trim();
     parts.push(
       <span
@@ -1889,7 +1898,7 @@ const MessageBubble = memo(function MessageBubble({
             <div
               className={`bg-input rounded-[28px] rounded-br-md px-5 py-3 ${textSizeClass} text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full`}
             >
-              <UserMessageContent content={message.content} />
+              <UserMessageContent message={message} />
             </div>
           )}
           {!isMessageInActiveTurn && (

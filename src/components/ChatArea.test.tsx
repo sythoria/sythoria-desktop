@@ -97,6 +97,20 @@ describe("ChatArea", () => {
     expect(messageArticle).not.toHaveTextContent("[Web Search]");
   });
 
+  it("keeps literal tool-marker text unchanged without capability metadata", () => {
+    const messages = [
+      makeMessage({
+        role: "user",
+        content: "Explain [Web Search] and [MCP: Gmail] markers",
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "MCP tool: Gmail" })).not.toBeInTheDocument();
+    expect(screen.getByText("Explain [Web Search] and [MCP: Gmail] markers")).toBeInTheDocument();
+  });
+
   it("renders assistant messages with markdown", () => {
     const messages = [makeMessage({ role: "assistant", content: "Hi there **bold**" })];
     render(<ChatArea messages={messages} {...defaultProps} />);

@@ -105,7 +105,6 @@ import {
 } from "./helpers";
 import { useModelStore } from "./useModelStore";
 import { useSearchStore } from "./useSearchStore";
-import { hasWebSearchMention } from "../utils/toolMentions";
 import { useMcpStore } from "./useMcpStore";
 import { useUIStore } from "./useUIStore";
 import { useProjectStore } from "./useProjectStore";
@@ -276,9 +275,7 @@ function getEnabledToolLoopConfig(
 }
 
 function getMessageSearchConfigId(message: Message | undefined): string | null {
-  if (!message) return null;
-  if (message.searchConfigId) return message.searchConfigId;
-  return hasWebSearchMention(message.content) ? useSearchStore.getState().activeSearchId : null;
+  return message?.searchConfigId ?? null;
 }
 
 async function prepareReferencedToolLoop(
