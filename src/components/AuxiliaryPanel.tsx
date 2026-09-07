@@ -1112,11 +1112,9 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       modelStatuses: state.modelStatuses,
     })),
   );
-  const { isSearchEnabled, activeSearchId, toggleSearchEnabled } = useSearchStore(
+  const { activeSearchId } = useSearchStore(
     useShallow((state) => ({
-      isSearchEnabled: state.isSearchEnabled,
       activeSearchId: state.activeSearchId,
-      toggleSearchEnabled: state.toggleSearchEnabled,
     })),
   );
   const { mcpConfigs, serverStatuses } = useMcpStore(
@@ -1173,9 +1171,7 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
         onModelChange={setConversationModel}
         disabled={models.length === 0}
         modelStatuses={modelStatuses}
-        isSearchEnabled={isSearchEnabled}
         searchConfigId={activeSearchId}
-        onToggleSearch={toggleSearchEnabled}
         mcpServers={mcpConfigs}
         mcpServerStatuses={serverStatuses}
         isStreaming={isStreaming}

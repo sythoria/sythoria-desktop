@@ -29,7 +29,6 @@ const debouncedLogSearchUpdate = debounce((name: string, fields: string[]) => {
 interface SearchState {
   searchConfigs: SearchApiConfig[];
   activeSearchId: string | null;
-  isSearchEnabled: boolean;
   searchApiKeys: Record<string, string>;
 
   fetchConfigs: FetchApiConfig[];
@@ -39,7 +38,6 @@ interface SearchState {
   updateSearchConfig: (id: string, updates: Partial<SearchApiConfig>) => void;
   deleteSearchConfig: (id: string) => void;
   setActiveSearchId: (id: string | null) => void;
-  toggleSearchEnabled: (enabled: boolean) => void;
 
   addFetchConfig: () => void;
   updateFetchConfig: (id: string, updates: Partial<FetchApiConfig>) => void;
@@ -53,7 +51,6 @@ interface SearchState {
 export const useSearchStore = create<SearchState>((set, get) => ({
   searchConfigs: [],
   activeSearchId: null,
-  isSearchEnabled: false,
   searchApiKeys: {},
   fetchConfigs: [],
   activeFetchId: null,
@@ -100,7 +97,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     set({
       searchConfigs: updatedConfigs,
       activeSearchId,
-      isSearchEnabled: enabledConfigs.length > 0 ? get().isSearchEnabled : false,
     });
 
     if (updates.apiKey !== undefined) {
@@ -128,7 +124,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       searchConfigs: updated,
       activeSearchId: activeSearchId === id ? (updated.find((config) => config.enabled)?.id ?? null) : activeSearchId,
       searchApiKeys: newKeys,
-      isSearchEnabled: updated.some((config) => config.enabled) ? get().isSearchEnabled : false,
     });
     debouncedSaveSearchConfigs.cancel();
     debouncedSaveSearchApiKeys.cancel();
@@ -140,11 +135,6 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   setActiveSearchId: (id) =>
     set({ activeSearchId: id && get().searchConfigs.some((config) => config.id === id && config.enabled) ? id : null }),
-  toggleSearchEnabled: (enabled) =>
-    set({
-      isSearchEnabled: enabled && get().activeSearchId !== null && get().searchConfigs.some((config) => config.enabled),
-    }),
-
   performSearch: async (query, config, _apiKey) => {
     const currentConfig = get().searchConfigs.find((candidate) => candidate.id === config.id);
     if (!currentConfig?.enabled) {

@@ -252,9 +252,8 @@ function getEnabledToolLoopConfig(
   mcpServerIds: readonly string[] = [],
   requestedSearchConfigId?: string | null,
 ): EnabledToolLoopConfig {
-  const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
-  const searchConfigId =
-    requestedSearchConfigId === undefined ? (isSearchEnabled ? activeSearchId : null) : requestedSearchConfigId;
+  const { searchConfigs, searchApiKeys } = useSearchStore.getState();
+  const searchConfigId = requestedSearchConfigId ?? null;
   const searchConfig = searchConfigId
     ? searchConfigs.find((config) => config.id === searchConfigId && config.enabled)
     : undefined;
@@ -1020,12 +1019,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projects: sendProjects,
     } = useProjectStore.getState();
     const uniqueMcpServerIds = [...new Set(requestedMcpServerIds)];
-    const submittedSearchConfigId =
-      requestedSearchConfigId === undefined
-        ? useSearchStore.getState().isSearchEnabled
-          ? useSearchStore.getState().activeSearchId
-          : null
-        : requestedSearchConfigId;
+    const submittedSearchConfigId = requestedSearchConfigId ?? null;
 
     await useSkillStore.getState().loadSkills(true);
 

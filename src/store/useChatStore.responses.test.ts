@@ -55,7 +55,6 @@ it("retains and replays native Responses items in a plain chat without enabling 
     }),
   });
   useProjectStore.setState({ isProjectsEnabled: false, projects: [] });
-  useSearchStore.setState({ isSearchEnabled: false });
   useSkillStore.setState({ skills: [], loadSkills: vi.fn().mockResolvedValue(undefined) });
   useChatStore.setState({
     conversations: [{ id: "plain", title: "Plain", model: "responses", messages: [], timestamp: new Date() }],

@@ -40,7 +40,6 @@ describe("useSearchStore enabled config selection", () => {
     useSearchStore.setState({
       searchConfigs: [search],
       activeSearchId: search.id,
-      isSearchEnabled: true,
       searchApiKeys: {},
       fetchConfigs: [fetchConfig],
       activeFetchId: fetchConfig.id,
@@ -52,7 +51,6 @@ describe("useSearchStore enabled config selection", () => {
     useSearchStore.getState().updateFetchConfig(fetchConfig.id, { enabled: false });
 
     expect(useSearchStore.getState().activeSearchId).toBeNull();
-    expect(useSearchStore.getState().isSearchEnabled).toBe(false);
     expect(useSearchStore.getState().activeFetchId).toBeNull();
   });
 
@@ -65,9 +63,7 @@ describe("useSearchStore enabled config selection", () => {
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 
-  it("finishes a captured search after the composer toggle is cleared", async () => {
-    useSearchStore.getState().toggleSearchEnabled(false);
-
+  it("finishes a captured search independently of composer state", async () => {
     await expect(useSearchStore.getState().performSearch("query", search, "key")).resolves.toEqual([]);
 
     expect(mocks.invoke).toHaveBeenCalledWith("web_search", expect.objectContaining({ configId: search.id }));

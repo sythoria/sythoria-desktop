@@ -245,15 +245,9 @@ function App() {
     })),
   );
 
-  const { isSearchEnabled, activeSearchId } = useSearchStore(
+  const { activeSearchId } = useSearchStore(
     useShallow((s) => ({
-      isSearchEnabled: s.isSearchEnabled,
       activeSearchId: s.activeSearchId,
-    })),
-  );
-  const { toggleSearchEnabled } = useSearchStore(
-    useShallow((s) => ({
-      toggleSearchEnabled: s.toggleSearchEnabled,
     })),
   );
 
@@ -1611,9 +1605,7 @@ function App() {
                       onModelChange={handlePrimaryModelChange}
                       disabled={isInputDisabled}
                       modelStatuses={modelStatuses}
-                      isSearchEnabled={isSearchEnabled}
                       searchConfigId={activeSearchId}
-                      onToggleSearch={toggleSearchEnabled}
                       mcpServers={mcpConfigs}
                       mcpServerStatuses={serverStatuses}
                       isStreaming={isPrimaryGenerating}

@@ -62,9 +62,7 @@ interface InputBarProps {
   onModelChange: (model: string) => void;
   disabled?: boolean;
   modelStatuses: ModelStatuses;
-  isSearchEnabled: boolean;
   searchConfigId?: string | null;
-  onToggleSearch: (enabled: boolean) => void;
   mcpServers: McpServerConfig[];
   mcpServerStatuses: Record<string, McpServerStatus>;
   isStreaming?: boolean;
@@ -83,9 +81,7 @@ export default memo(function InputBar({
   onModelChange,
   disabled,
   modelStatuses,
-  isSearchEnabled,
   searchConfigId,
-  onToggleSearch,
   mcpServers,
   mcpServerStatuses,
   isStreaming,
@@ -99,6 +95,7 @@ export default memo(function InputBar({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [mcpMentionServerIds, setMcpMentionServerIds] = useState<string[]>([]);
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
   const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
@@ -165,10 +162,10 @@ export default memo(function InputBar({
     (draft: PromptDraft, origin: PromptDraftChangeOrigin) => {
       setValue(draft.text);
       setMcpMentionServerIds(draft.mcpServerIds);
-      if (draft.webSearchEnabled !== isSearchEnabled) onToggleSearch(draft.webSearchEnabled);
+      setIsSearchEnabled(draft.webSearchEnabled);
       if (origin === "user" && voiceDraft && draft.text.trim() !== voiceDraft.trim()) setVoiceDraft("");
     },
-    [isSearchEnabled, onToggleSearch, voiceDraft],
+    [voiceDraft],
   );
 
   const replaceEditorText = useCallback((text: string) => {
@@ -187,7 +184,7 @@ export default memo(function InputBar({
     [disabled, isStreaming],
   );
 
-  const disableWebSearch = useCallback(() => onToggleSearch(false), [onToggleSearch]);
+  const disableWebSearch = useCallback(() => setIsSearchEnabled(false), []);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -646,21 +643,10 @@ export default memo(function InputBar({
       currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]) &&
       currentDraft.webSearchEnabled === submittedWebSearchEnabled;
     if (currentDraft.text === submittedValue && mentionsAreUnchanged) {
-      if (submittedWebSearchEnabled) onToggleSearch(false);
       editorHandleRef.current?.clearDraft();
     }
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [
-    canSend,
-    value,
-    mcpMentionServerIds,
-    isSearchEnabled,
-    attachments,
-    onSend,
-    onToggleSearch,
-    searchConfigId,
-    setAttachments,
-  ]);
+  }, [canSend, value, mcpMentionServerIds, isSearchEnabled, attachments, onSend, searchConfigId, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -674,7 +660,6 @@ export default memo(function InputBar({
       }
 
       if (clearInputOnEscape && e.key === "Escape") {
-        if (editorHandleRef.current?.readDraft().webSearchEnabled) onToggleSearch(false);
         editorHandleRef.current?.clearDraft();
         return;
       }
@@ -687,7 +672,7 @@ export default memo(function InputBar({
         void handleSubmit();
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, onToggleSearch],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape],
   );
 
   const handleClipboardPaste = useCallback(
@@ -970,6 +955,15 @@ export default memo(function InputBar({
           : "absolute inset-x-0 bottom-0 z-20 px-4 pt-2 md:px-0"
       }`}
     >
+      <button
+        type="button"
+        hidden
+        tabIndex={-1}
+        aria-hidden="true"
+        data-search-toggle
+        disabled={!searchConfigId}
+        onClick={() => setIsSearchEnabled((enabled) => !enabled)}
+      />
       {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
       <div
         className={`relative z-10 mx-auto w-full ${
@@ -1173,10 +1167,11 @@ export default memo(function InputBar({
                           </button>
                           <button
                             onClick={() => {
-                              onToggleSearch(!isSearchEnabled);
+                              setIsSearchEnabled((enabled) => !enabled);
                               setPlusOpen(false);
                             }}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                            disabled={!searchConfigId}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                               isSearchEnabled
                                 ? "text-text-primary bg-active"
                                 : "text-text-secondary hover:bg-hover hover:text-text-primary"

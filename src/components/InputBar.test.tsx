@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { useState } from "react";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
+import { executeCommand } from "../services/commandDispatcher";
 
 vi.mock("./WorkspaceChangeIndicator", () => ({
   WorkspaceChangeIndicator: () => <button aria-label="Live workspace changes">1 file changed</button>,
@@ -66,8 +66,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -87,8 +85,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -109,8 +105,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -135,8 +129,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -156,8 +148,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isStreaming
         onStop={onStop}
         {...defaultMcpProps}
@@ -186,8 +176,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isStreaming
         onStop={vi.fn()}
         {...defaultMcpProps}
@@ -206,8 +194,6 @@ describe("InputBar", () => {
         onModelChange={vi.fn()}
         disabled={true}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -225,8 +211,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -242,8 +226,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isCompareMode
         {...defaultMcpProps}
       />,
@@ -264,8 +246,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -295,8 +275,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -319,8 +297,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -340,8 +316,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -367,8 +341,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -391,8 +363,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -414,8 +384,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -458,8 +426,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[documentsServer]}
         mcpServerStatuses={{ documents: "connected" }}
       />,
@@ -509,8 +475,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[documentsServer]}
         mcpServerStatuses={{ documents: "connected" }}
       />,
@@ -540,8 +504,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[
           { id: "computer", name: "Computer Use", transport: "stdio", command: "computer-mcp", enabled: true },
         ]}
@@ -589,8 +551,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[
           { id: "computer", name: "Computer Use", transport: "stdio", command: "computer-mcp", enabled: true },
         ]}
@@ -633,8 +593,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -668,8 +626,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -690,8 +646,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -702,7 +656,6 @@ describe("InputBar", () => {
 
   it("toggles web search from plus dropdown", async () => {
     const user = userEvent.setup();
-    const onToggleSearch = vi.fn();
     render(
       <InputBar
         models={mockModels}
@@ -710,8 +663,7 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={onToggleSearch}
+        searchConfigId="search-1"
         {...defaultMcpProps}
       />,
     );
@@ -723,33 +675,44 @@ describe("InputBar", () => {
     expect(searchOption).toBeInTheDocument();
 
     await user.click(searchOption);
-    expect(onToggleSearch).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
+  });
+
+  it("toggles web search in the focused composer from the keyboard command", async () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    screen.getByRole("textbox", { name: "Message" }).focus();
+
+    expect(executeCommand("toggleSearch")).toBe(true);
+
+    expect(await screen.findByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
   });
 
   it("moves enabled web search from the composer bubble into the submitted prompt", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue("accepted");
-    const onToggleSearch = vi.fn();
-    function SearchEnabledInputBar() {
-      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
-      return (
-        <InputBar
-          models={mockModels}
-          onSend={onSend}
-          selectedModel="model-1"
-          onModelChange={vi.fn()}
-          modelStatuses={mockStatuses}
-          isSearchEnabled={isSearchEnabled}
-          searchConfigId="search-1"
-          onToggleSearch={(enabled) => {
-            onToggleSearch(enabled);
-            setIsSearchEnabled(enabled);
-          }}
-          {...defaultMcpProps}
-        />
-      );
-    }
-    render(<SearchEnabledInputBar />);
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={onSend}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
     const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
@@ -759,32 +722,25 @@ describe("InputBar", () => {
 
     await user.type(editor, "Find the latest release{Enter}");
     expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, [], "search-1");
-    expect(onToggleSearch).toHaveBeenCalledWith(false);
     expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
     expect(editor).toHaveTextContent("");
   });
 
   it("disables web search when its composer bubble is removed with Backspace", async () => {
-    const onToggleSearch = vi.fn();
-    function SearchEnabledInputBar() {
-      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
-      return (
-        <InputBar
-          models={mockModels}
-          onSend={vi.fn()}
-          selectedModel="model-1"
-          onModelChange={vi.fn()}
-          modelStatuses={mockStatuses}
-          isSearchEnabled={isSearchEnabled}
-          onToggleSearch={(enabled) => {
-            onToggleSearch(enabled);
-            setIsSearchEnabled(enabled);
-          }}
-          {...defaultMcpProps}
-        />
-      );
-    }
-    render(<SearchEnabledInputBar />);
+    const user = userEvent.setup();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
     const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
@@ -799,39 +755,71 @@ describe("InputBar", () => {
     selection?.addRange(range);
     fireEvent.keyDown(editor, { key: "Backspace" });
 
-    expect(onToggleSearch).toHaveBeenCalledWith(false);
     expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
   });
 
   it("disables web search when a native edit removes its composer bubble", async () => {
-    const onToggleSearch = vi.fn();
-    function SearchEnabledInputBar() {
-      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
-      return (
-        <InputBar
-          models={mockModels}
-          onSend={vi.fn()}
-          selectedModel="model-1"
-          onModelChange={vi.fn()}
-          modelStatuses={mockStatuses}
-          isSearchEnabled={isSearchEnabled}
-          onToggleSearch={(enabled) => {
-            onToggleSearch(enabled);
-            setIsSearchEnabled(enabled);
-          }}
-          {...defaultMcpProps}
-        />
-      );
-    }
-    render(<SearchEnabledInputBar />);
+    const user = userEvent.setup();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
     const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
     searchBubble.remove();
     fireEvent.input(editor);
 
-    expect(onToggleSearch).toHaveBeenCalledWith(false);
     expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+  });
+
+  it("keeps web search selection local to each composer", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <div aria-label="Main composer">
+          <InputBar
+            models={mockModels}
+            onSend={vi.fn()}
+            selectedModel="model-1"
+            onModelChange={vi.fn()}
+            modelStatuses={mockStatuses}
+            searchConfigId="search-1"
+            idPrefix="main"
+            {...defaultMcpProps}
+          />
+        </div>
+        <div aria-label="Side composer">
+          <InputBar
+            models={mockModels}
+            onSend={vi.fn()}
+            selectedModel="model-1"
+            onModelChange={vi.fn()}
+            modelStatuses={mockStatuses}
+            searchConfigId="search-1"
+            idPrefix="side"
+            {...defaultMcpProps}
+          />
+        </div>
+      </>,
+    );
+
+    const mainComposer = screen.getByLabelText("Main composer");
+    const sideComposer = screen.getByLabelText("Side composer");
+    await user.click(within(mainComposer).getByLabelText("Attach or search"));
+    await user.click(within(mainComposer).getByRole("menuitemcheckbox", { name: /web search/i }));
+
+    expect(within(mainComposer).getByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
+    expect(within(sideComposer).queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
   });
 
   it("renders image attachment and allows opening preview modal", async () => {
@@ -857,8 +845,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -918,8 +904,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
