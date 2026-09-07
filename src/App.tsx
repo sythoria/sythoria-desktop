@@ -245,9 +245,10 @@ function App() {
     })),
   );
 
-  const { isSearchEnabled } = useSearchStore(
+  const { isSearchEnabled, activeSearchId } = useSearchStore(
     useShallow((s) => ({
       isSearchEnabled: s.isSearchEnabled,
+      activeSearchId: s.activeSearchId,
     })),
   );
   const { toggleSearchEnabled } = useSearchStore(
@@ -798,8 +799,8 @@ function App() {
   }, [scrollChatsToBottom, primaryTracking]);
 
   const handleSendMessage = useCallback(
-    async (message: string, attachments?: Attachment[], mcpServerIds?: string[]) => {
-      const status = await sendMessage(message, attachments, undefined, mcpServerIds);
+    async (message: string, attachments?: Attachment[], mcpServerIds?: string[], searchConfigId?: string | null) => {
+      const status = await sendMessage(message, attachments, undefined, mcpServerIds, searchConfigId);
       if (status === "accepted") {
         requestAnimationFrame(() => scrollChatsToBottom());
       }
@@ -1611,6 +1612,7 @@ function App() {
                       disabled={isInputDisabled}
                       modelStatuses={modelStatuses}
                       isSearchEnabled={isSearchEnabled}
+                      searchConfigId={activeSearchId}
                       onToggleSearch={toggleSearchEnabled}
                       mcpServers={mcpConfigs}
                       mcpServerStatuses={serverStatuses}

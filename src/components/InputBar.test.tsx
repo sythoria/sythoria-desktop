@@ -328,7 +328,7 @@ describe("InputBar", () => {
     const textarea = screen.getByRole("textbox");
     await user.type(textarea, "Hello{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith("Hello", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("Hello", undefined, [], null);
   });
 
   it("tracks visual editor emptiness from the parsed draft", async () => {
@@ -483,10 +483,12 @@ describe("InputBar", () => {
 
     await user.click(screen.getByLabelText("Send message"));
 
-    expect(onSend).toHaveBeenCalledWith("Open this using [MCP: Documents][MCP: Documents] please", undefined, [
-      "documents",
-      "documents",
-    ]);
+    expect(onSend).toHaveBeenCalledWith(
+      "Open this using [MCP: Documents][MCP: Documents] please",
+      undefined,
+      ["documents", "documents"],
+      null,
+    );
     expect(editor).toHaveTextContent("");
   });
 
@@ -525,7 +527,7 @@ describe("InputBar", () => {
       sendButton.click();
     });
 
-    expect(onSend).toHaveBeenCalledWith("Check my unread email[MCP: Documents]", undefined, ["documents"]);
+    expect(onSend).toHaveBeenCalledWith("Check my unread email[MCP: Documents]", undefined, ["documents"], null);
   });
 
   it("removes an inline MCP label with one Backspace and preserves the caret position", async () => {
@@ -574,7 +576,7 @@ describe("InputBar", () => {
     await user.keyboard("the available tool");
     await user.keyboard("{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith("Open my browser using the available tool", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("Open my browser using the available tool", undefined, [], null);
     expect(screen.queryByRole("img", { name: "MCP tool: Computer Use" })).not.toBeInTheDocument();
   });
 
@@ -677,7 +679,7 @@ describe("InputBar", () => {
     fireEvent.input(editor);
     await userEvent.setup().click(screen.getByLabelText("Send message"));
 
-    expect(onSend).toHaveBeenCalledWith("Hello\nworld", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("Hello\nworld", undefined, [], null);
   });
 
   it("shows web search option in plus dropdown", () => {
@@ -738,6 +740,7 @@ describe("InputBar", () => {
           onModelChange={vi.fn()}
           modelStatuses={mockStatuses}
           isSearchEnabled={isSearchEnabled}
+          searchConfigId="search-1"
           onToggleSearch={(enabled) => {
             onToggleSearch(enabled);
             setIsSearchEnabled(enabled);
@@ -755,7 +758,7 @@ describe("InputBar", () => {
     expect(searchBubble.querySelector(".lucide-search")).toBeInTheDocument();
 
     await user.type(editor, "Find the latest release{Enter}");
-    expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, [], "search-1");
     expect(onToggleSearch).toHaveBeenCalledWith(false);
     expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
     expect(editor).toHaveTextContent("");

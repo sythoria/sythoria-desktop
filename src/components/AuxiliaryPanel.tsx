@@ -1112,9 +1112,10 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       modelStatuses: state.modelStatuses,
     })),
   );
-  const { isSearchEnabled, toggleSearchEnabled } = useSearchStore(
+  const { isSearchEnabled, activeSearchId, toggleSearchEnabled } = useSearchStore(
     useShallow((state) => ({
       isSearchEnabled: state.isSearchEnabled,
+      activeSearchId: state.activeSearchId,
       toggleSearchEnabled: state.toggleSearchEnabled,
     })),
   );
@@ -1165,12 +1166,15 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       </div>
       <InputBar
         models={models}
-        onSend={(message, attachments, mcpServerIds) => sendMessage(message, attachments, conversationId, mcpServerIds)}
+        onSend={(message, attachments, mcpServerIds, searchConfigId) =>
+          sendMessage(message, attachments, conversationId, mcpServerIds, searchConfigId)
+        }
         selectedModel={conversation.model || selectedModel}
         onModelChange={setConversationModel}
         disabled={models.length === 0}
         modelStatuses={modelStatuses}
         isSearchEnabled={isSearchEnabled}
+        searchConfigId={activeSearchId}
         onToggleSearch={toggleSearchEnabled}
         mcpServers={mcpConfigs}
         mcpServerStatuses={serverStatuses}

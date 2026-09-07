@@ -52,12 +52,18 @@ import { WorkspaceChangeIndicator } from "./WorkspaceChangeIndicator";
 
 interface InputBarProps {
   models: ModelConfig[];
-  onSend: (message: string, attachments?: Attachment[], mcpServerIds?: string[]) => Promise<SendMessageStatus>;
+  onSend: (
+    message: string,
+    attachments?: Attachment[],
+    mcpServerIds?: string[],
+    searchConfigId?: string | null,
+  ) => Promise<SendMessageStatus>;
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
   modelStatuses: ModelStatuses;
   isSearchEnabled: boolean;
+  searchConfigId?: string | null;
   onToggleSearch: (enabled: boolean) => void;
   mcpServers: McpServerConfig[];
   mcpServerStatuses: Record<string, McpServerStatus>;
@@ -78,6 +84,7 @@ export default memo(function InputBar({
   disabled,
   modelStatuses,
   isSearchEnabled,
+  searchConfigId,
   onToggleSearch,
   mcpServers,
   mcpServerStatuses,
@@ -624,6 +631,7 @@ export default memo(function InputBar({
       submittedText,
       submittedAttachments.length > 0 ? submittedAttachments : undefined,
       submittedMcpServerIds,
+      submittedWebSearchEnabled ? (searchConfigId ?? null) : null,
     );
     if (status !== "accepted") return;
 
@@ -642,7 +650,17 @@ export default memo(function InputBar({
       editorHandleRef.current?.clearDraft();
     }
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [canSend, value, mcpMentionServerIds, isSearchEnabled, attachments, onSend, onToggleSearch, setAttachments]);
+  }, [
+    canSend,
+    value,
+    mcpMentionServerIds,
+    isSearchEnabled,
+    attachments,
+    onSend,
+    onToggleSearch,
+    searchConfigId,
+    setAttachments,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

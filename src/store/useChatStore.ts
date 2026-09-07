@@ -346,6 +346,7 @@ interface ChatState {
     attachments?: Attachment[],
     conversationId?: string,
     mcpServerIds?: string[],
+    searchConfigId?: string | null,
   ) => Promise<SendMessageStatus>;
   retryLastMessage: (convId: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
@@ -1004,7 +1005,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiCloseRenameModal();
   },
 
-  sendMessage: async (text, attachments, requestedConversationId, requestedMcpServerIds = []) => {
+  sendMessage: async (
+    text,
+    attachments,
+    requestedConversationId,
+    requestedMcpServerIds = [],
+    requestedSearchConfigId,
+  ) => {
     const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
     const {
@@ -1013,6 +1020,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projects: sendProjects,
     } = useProjectStore.getState();
     const uniqueMcpServerIds = [...new Set(requestedMcpServerIds)];
+    const submittedSearchConfigId =
+      requestedSearchConfigId === undefined
+        ? useSearchStore.getState().isSearchEnabled
+          ? useSearchStore.getState().activeSearchId
+          : null
+        : requestedSearchConfigId;
 
     await useSkillStore.getState().loadSkills(true);
 
@@ -1035,7 +1048,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    const toolLoop = getEnabledToolLoopConfig(uniqueMcpServerIds);
+    const toolLoop = getEnabledToolLoopConfig(uniqueMcpServerIds, submittedSearchConfigId);
     const unresolvedMcpServerIds = uniqueMcpServerIds.filter(
       (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
     );
