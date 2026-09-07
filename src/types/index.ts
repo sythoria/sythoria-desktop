@@ -58,6 +58,8 @@ export interface Message {
   content: string;
   /** Provider-supplied reasoning, kept separate from user-visible assistant text. */
   reasoningContent?: string;
+  /** Complete Responses output items, including opaque reasoning, for stateless replay. */
+  responsesOutput?: Record<string, unknown>[];
   timestamp: Date;
   isStreaming?: boolean;
   isSystem?: boolean;

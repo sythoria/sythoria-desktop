@@ -1,6 +1,7 @@
 import React from "react";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { isResponsesEndpoint } from "../utils/responses";
 import type {
   Conversation,
   Message,
@@ -2051,7 +2052,9 @@ async function runNormal(
       }));
     }
 
-    await invoke("chat_stream", {
+    const useResponses = isResponsesEndpoint(modelConfig.apiBase);
+    const rawResponse = await invoke<string>(useResponses ? "chat_stream_tools" : "chat_stream", {
+      ...(useResponses ? { tools: "[]" } : {}),
       configId: modelConfig.id,
       expectedModel: { apiBase: modelConfig.apiBase, modelId: modelConfig.modelId, provider: modelConfig.provider },
       messages: assembledContext.messages,
@@ -2060,6 +2063,20 @@ async function runNormal(
       thinkingLevel: modelConfig.thinkingLevel ?? "auto",
       streamId,
     });
+
+    if (useResponses) {
+      const response = JSON.parse(rawResponse);
+      const output = response.choices?.[0]?.message?.responses_output as Message["responsesOutput"];
+      if (output) {
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (messages) =>
+            messages.map((message) =>
+              message.id === assistantMsg.id ? { ...message, responsesOutput: output } : message,
+            ),
+          ),
+        }));
+      }
+    }
 
     useModelStore.getState().removeActiveStreamId(streamId);
 

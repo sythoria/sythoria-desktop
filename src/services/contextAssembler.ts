@@ -8,6 +8,7 @@ export interface ApiContextMessage {
   tool_call_id?: string;
   name?: string;
   anthropic_content?: unknown[];
+  responses_output?: unknown[];
   reasoning_content?: string;
   reasoning_details?: unknown[];
   reasoning?: string;
@@ -86,6 +87,7 @@ function estimateContentTokens(content: ApiContextMessage["content"]): number {
 }
 
 export function estimateApiMessageTokens(message: ApiContextMessage): number {
+  if (message.responses_output) return 6 + Math.ceil(JSON.stringify(message.responses_output).length / 4);
   return (
     6 +
     estimateContentTokens(message.content) +
@@ -181,6 +183,7 @@ function compactMessage(
   message: ApiContextMessage,
   tokenLimit: number,
 ): { message: ApiContextMessage; compacted: boolean } {
+  if (message.responses_output) return { message, compacted: false };
   if (estimateApiMessageTokens(message) <= tokenLimit) return { message, compacted: false };
   const characterLimit = Math.max(1_000, tokenLimit * 4);
   if (typeof message.content === "string") {

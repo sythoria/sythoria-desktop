@@ -209,6 +209,54 @@ describe("TOOL_DEFINITIONS", () => {
 });
 
 describe("buildConversationContextMessages", () => {
+  it("replays Responses reasoning and parallel calls once, while retaining ordinary history for other providers", () => {
+    const output = [
+      { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" },
+      {
+        type: "message",
+        role: "assistant",
+        phase: "commentary",
+        content: [{ type: "output_text", text: "Inspecting." }],
+      },
+      ...["a", "b"].map((id) => ({
+        type: "function_call",
+        id: `fc_${id}`,
+        call_id: id,
+        name: "read",
+        arguments: "{}",
+      })),
+    ];
+    const messages: Conversation["messages"] = [
+      { id: "user", role: "user", content: "Inspect", timestamp: new Date() },
+      { id: "assistant", role: "assistant", content: "Inspecting.", responsesOutput: output, timestamp: new Date() },
+      ...["a", "b"].map((id) => ({
+        id,
+        role: "tool" as const,
+        content: "result",
+        timestamp: new Date(),
+        toolCall: { id, name: "read", arguments: {} },
+        toolResult: { id, name: "read", content: "result" },
+      })),
+      { id: "next", role: "user", content: "Continue", timestamp: new Date() },
+    ];
+    const context = buildConversationContextMessages(messages, {
+      apiBase: "https://example.com/proxy/responses/?version=1",
+    });
+    expect(context).toHaveLength(5);
+    expect(context[1].responses_output).toEqual(output);
+    expect(context[1].tool_calls).toHaveLength(2);
+    expect(context.slice(2, 4).map((message) => message.tool_call_id)).toEqual(["a", "b"]);
+    const other = buildConversationContextMessages(messages, { apiBase: "https://example.com/chat/completions" });
+    expect(other).toHaveLength(7);
+    expect(other.every((message) => !message.responses_output)).toBe(true);
+    const incomplete = buildConversationContextMessages(
+      messages.filter((message) => message.id !== "b"),
+      { apiBase: "https://example.com/responses" },
+    );
+    expect(incomplete[1].responses_output).toBeUndefined();
+    expect(incomplete[1].content).toBe("Inspecting.");
+  });
+
   it("includes the first turn's tool call and result in the second-message context", () => {
     const messages: Conversation["messages"] = [
       { id: "user-1", role: "user", content: "Inspect the README", timestamp: new Date() },
@@ -535,6 +583,16 @@ describe("sendWithToolLoop", () => {
       isProjectsEnabled: true,
     });
 
+    const responsesOutput = [
+      { type: "reasoning", id: "rs_read", summary: [], encrypted_content: "opaque-reasoning" },
+      {
+        type: "function_call",
+        id: "fc_read",
+        call_id: "read-call",
+        name: "project_read",
+        arguments: JSON.stringify({ file_path: "README.md" }),
+      },
+    ];
     let modelCall = 0;
     invokeMock.mockImplementation(async (command, args) => {
       const invokeArgs = args as Record<string, unknown> | undefined;
@@ -551,6 +609,7 @@ describe("sendWithToolLoop", () => {
                 finish_reason: "tool_calls",
                 message: {
                   content: "I’ll inspect the project.",
+                  responses_output: responsesOutput,
                   tool_calls: [
                     {
                       id: "read-call",
@@ -600,6 +659,17 @@ describe("sendWithToolLoop", () => {
     };
 
     await sendWithToolLoop(makeRunContext("conv-read", { project }), set, () => state, vi.fn(), vi.fn());
+
+    const modelRequests = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
+    const secondMessages = (modelRequests[1][1] as { messages: { responses_output?: unknown[] }[] }).messages;
+    expect(
+      secondMessages.some((message) => JSON.stringify(message.responses_output) === JSON.stringify(responsesOutput)),
+    ).toBe(true);
+    expect(
+      state.conversations[0].messages.some(
+        (message) => JSON.stringify(message.responsesOutput) === JSON.stringify(responsesOutput),
+      ),
+    ).toBe(true);
 
     expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
       projectId: project.id,

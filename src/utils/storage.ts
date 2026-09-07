@@ -117,6 +117,7 @@ const MessageSchema = z
     role: z.enum(["user", "assistant", "tool"]),
     content: z.string(),
     reasoningContent: z.string().optional(),
+    responsesOutput: z.array(z.record(z.string(), z.unknown())).optional(),
     timestamp: z.coerce.date(),
     isStreaming: z.boolean().optional(),
     isSystem: z.boolean().optional(),

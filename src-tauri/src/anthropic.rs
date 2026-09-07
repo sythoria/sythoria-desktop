@@ -718,6 +718,7 @@ mod tests {
             tool_calls: None,
             tool_call_id: None,
             name: None,
+            responses_output: None,
             anthropic_content: Some(native.clone()),
             reasoning_content: None,
             reasoning_details: None,

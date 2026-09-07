@@ -47,6 +47,7 @@ describe("ConversationSchema", () => {
           role: "assistant",
           content: "Done",
           reasoningContent: "Internal reasoning",
+          responsesOutput: [{ type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" }],
           thinkingDuration: 4,
           workingDuration: 12,
           workspaceChanges: {
@@ -73,6 +74,9 @@ describe("ConversationSchema", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data.messages[0].reasoningContent).toBe("Internal reasoning");
+    expect(result.data.messages[0].responsesOutput).toEqual([
+      { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" },
+    ]);
     expect(result.data.messages[0].thinkingDuration).toBe(4);
     expect(result.data.messages[0].workingDuration).toBe(12);
     expect(result.data.messages[0].workspaceChanges).toMatchObject({

@@ -9,6 +9,7 @@ mod mcp;
 pub mod project;
 mod project_tools;
 mod rag;
+mod responses;
 mod search;
 mod secret_storage;
 mod secure_storage;
@@ -158,6 +159,8 @@ struct ChatMessage {
     reasoning_details: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<serde_json::Value>,
+    #[serde(default, skip_serializing)]
+    responses_output: Option<Vec<serde_json::Value>>,
 }
 
 /// Serializes `None` as a missing field and otherwise emits the JSON value as-is.
@@ -443,6 +446,8 @@ fn generic_tokenizer_endpoint_url(api_url: &str) -> Result<url::Url, AppError> {
     let known_suffixes = [
         "/v1/chat/completions",
         "/chat/completions",
+        "/v1/responses",
+        "/responses",
         "/v1/completions",
         "/completions",
         "/v1/messages",
@@ -705,7 +710,10 @@ async fn count_model_tokens(
     let provider = provider.unwrap_or_default().to_ascii_lowercase();
     let is_gemini = host == "generativelanguage.googleapis.com";
     let is_anthropic = host == "api.anthropic.com" || provider == "anthropic";
-    let tokenizer_url = if is_gemini {
+    let is_responses = responses::is_responses_endpoint(&api_url);
+    let tokenizer_url = if is_responses {
+        responses::token_count_url(&api_url)?
+    } else if is_gemini {
         gemini_token_count_endpoint_url(&api_url, &model)?
     } else if is_anthropic {
         messages_token_count_endpoint_url(&api_url)?
@@ -718,7 +726,9 @@ async fn count_model_tokens(
         std::time::Duration::from_secs(20),
     )
     .await?;
-    let body = if is_gemini {
+    let body = if is_responses {
+        responses::token_count_body(&model, &messages)?
+    } else if is_gemini {
         gemini_token_count_body(&model, &messages)
     } else if is_anthropic {
         messages_token_count_body(&model, messages.clone())
@@ -733,7 +743,9 @@ async fn count_model_tokens(
         .header("Content-Type", "application/json")
         .json(&body);
     if !api_key.is_empty() {
-        request = if is_gemini {
+        request = if is_responses {
+            request.header("Authorization", format!("Bearer {}", api_key))
+        } else if is_gemini {
             request.header("x-goog-api-key", &api_key)
         } else if is_anthropic {
             request
@@ -794,6 +806,31 @@ async fn chat_completion(
     let api_url = endpoint.url.to_string();
     let client = endpoint.client;
 
+    if responses::is_responses_endpoint(&api_url) {
+        let response_messages = responses::chat_messages(&messages)?;
+        let response_tools = Vec::new();
+        let response = responses::send(
+            responses::ResponsesEndpoint {
+                api_url,
+                api_key,
+                client,
+            },
+            responses::ResponseOptions {
+                model: &model,
+                messages: &response_messages,
+                tools: &response_tools,
+                temperature,
+                max_tokens,
+                thinking_level: thinking_level.as_deref(),
+            },
+            None,
+        )
+        .await?;
+        return Ok(response["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string());
+    }
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_completion_anthropic(
@@ -886,6 +923,31 @@ async fn chat_stream(
     let api_url = endpoint.url.to_string();
     let client = endpoint.client;
 
+    if responses::is_responses_endpoint(&api_url) {
+        let response_messages = responses::chat_messages(&messages)?;
+        let response_tools = Vec::new();
+        let response = responses::send(
+            responses::ResponsesEndpoint {
+                api_url,
+                api_key,
+                client,
+            },
+            responses::ResponseOptions {
+                model: &model,
+                messages: &response_messages,
+                tools: &response_tools,
+                temperature,
+                max_tokens,
+                thinking_level: thinking_level.as_deref(),
+            },
+            Some((&app, &stream_id)),
+        )
+        .await?;
+        return Ok(response["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string());
+    }
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             return anthropic::chat_stream_anthropic(
@@ -1014,6 +1076,28 @@ async fn chat_stream_tools(
     let api_url = endpoint.url.to_string();
     let client = endpoint.client;
 
+    if responses::is_responses_endpoint(&api_url) {
+        let response_tools: Vec<serde_json::Value> = serde_json::from_str(&tools)
+            .map_err(|error| AppError::ParseError(format!("Invalid tools JSON: {error}")))?;
+        let response = responses::send(
+            responses::ResponsesEndpoint {
+                api_url,
+                api_key,
+                client,
+            },
+            responses::ResponseOptions {
+                model: &model,
+                messages: &messages,
+                tools: &response_tools,
+                temperature,
+                max_tokens,
+                thinking_level: thinking_level.as_deref(),
+            },
+            Some((&app, &stream_id)),
+        )
+        .await?;
+        return Ok(response.to_string());
+    }
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             let parsed_messages: Vec<ChatMessage> = messages
@@ -1146,6 +1230,28 @@ async fn chat_completion_tools(
     let api_url = endpoint.url.to_string();
     let client = endpoint.client;
 
+    if responses::is_responses_endpoint(&api_url) {
+        let response_tools: Vec<serde_json::Value> = serde_json::from_str(&tools)
+            .map_err(|error| AppError::ParseError(format!("Invalid tools JSON: {error}")))?;
+        let response = responses::send(
+            responses::ResponsesEndpoint {
+                api_url,
+                api_key,
+                client,
+            },
+            responses::ResponseOptions {
+                model: &model,
+                messages: &messages,
+                tools: &response_tools,
+                temperature,
+                max_tokens,
+                thinking_level: thinking_level.as_deref(),
+            },
+            None,
+        )
+        .await?;
+        return Ok(response.to_string());
+    }
     if let Some(p) = provider.as_deref() {
         if p.to_lowercase().contains("anthropic") {
             let parsed_messages: Vec<ChatMessage> = messages
@@ -1228,16 +1334,20 @@ async fn check_api(app: tauri::AppHandle, config_id: String) -> Result<bool, App
         }
     }
 
-    let base_url = api_url
+    let mut models_url = url::Url::parse(&api_url)
+        .map_err(|error| AppError::UrlValidationError(error.to_string()))?;
+    let base_path = models_url
+        .path()
         .trim_end_matches('/')
         .trim_end_matches("/chat/completions")
         .trim_end_matches("/completions")
-        .trim_end_matches("/messages");
-
-    let models_url = format!("{}/models", base_url);
+        .trim_end_matches("/messages")
+        .trim_end_matches("/responses");
+    models_url.set_path(&format!("{base_path}/models"));
+    models_url.set_fragment(None);
 
     let mut request = client
-        .get(&models_url)
+        .get(models_url)
         .timeout(std::time::Duration::from_secs(10));
     if !api_key.is_empty() {
         request = request.header("Authorization", format!("Bearer {}", api_key));
@@ -1497,6 +1607,7 @@ async fn generate_title(
             tool_calls: None,
             tool_call_id: None,
             name: None,
+            responses_output: None,
             anthropic_content: None,
             reasoning_content: None,
             reasoning_details: None,
@@ -1508,18 +1619,32 @@ async fn generate_title(
             tool_calls: None,
             tool_call_id: None,
             name: None,
+            responses_output: None,
             anthropic_content: None,
             reasoning_content: None,
             reasoning_details: None,
             reasoning: None,
         },
     ];
-    Ok(
-        chat_completion(app, config_id, messages, 0.3, Some(64), None)
-            .await?
-            .trim()
-            .to_string(),
+    let (api_url, _, _, _) = get_model_config_and_key(&app, &config_id).await?;
+    // Responses budgets include hidden reasoning; a 64-token total can be
+    // exhausted before even a short title reaches the visible output.
+    let (title_limit, title_thinking) = if responses::is_responses_endpoint(&api_url) {
+        (4096, Some("low".to_string()))
+    } else {
+        (64, None)
+    };
+    Ok(chat_completion(
+        app,
+        config_id,
+        messages,
+        0.3,
+        Some(title_limit),
+        title_thinking,
     )
+    .await?
+    .trim()
+    .to_string())
 }
 
 #[tauri::command]
@@ -2746,6 +2871,7 @@ mod tests {
             tool_calls: None,
             tool_call_id: None,
             name: None,
+            responses_output: None,
             anthropic_content: None,
             reasoning_content: Some("Earlier reasoning".to_string()),
             reasoning_details: None,

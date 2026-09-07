@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isResponsesEndpoint } from "../utils/responses";
 import type {
   Conversation,
   Message,
@@ -146,6 +147,15 @@ export function buildConversationContextMessages(
   model?: ReasoningReplayModel,
 ): ApiContextMessage[] {
   const contextMessages: ApiContextMessage[] = [];
+  const replayedCallIds = new Set<string>();
+  const useResponses = isResponsesEndpoint(model?.apiBase ?? "");
+  const completedCallIds = new Set(
+    messages.flatMap((message) =>
+      !message.isStreaming && !message.excludeFromModelContext && message.toolCall && message.toolResult
+        ? [message.toolCall.id]
+        : [],
+    ),
+  );
 
   for (const message of messages) {
     if (message.isStreaming || message.excludeFromModelContext) continue;
@@ -159,6 +169,23 @@ export function buildConversationContextMessages(
     }
 
     if (message.role === "assistant") {
+      const output = useResponses ? message.responsesOutput : undefined;
+      const calls = output?.filter((item) => item.type === "function_call") ?? [];
+      // Interrupted generations may have saved calls without results. Fall back
+      // to visible text rather than replaying an invalid native output group.
+      if (output && calls.every((call) => typeof call.call_id === "string" && completedCallIds.has(call.call_id))) {
+        const toolCalls = calls.map((call) => {
+          replayedCallIds.add(call.call_id as string);
+          return { id: call.call_id, type: "function", function: { name: call.name, arguments: call.arguments } };
+        });
+        contextMessages.push({
+          role: "assistant",
+          content: message.content,
+          responses_output: output,
+          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+        });
+        continue;
+      }
       contextMessages.push({
         role: "assistant",
         content: message.content,
@@ -174,20 +201,21 @@ export function buildConversationContextMessages(
     if (!message.toolCall || !message.toolResult) continue;
 
     const { toolCall, toolResult } = message;
-    contextMessages.push({
-      role: "assistant",
-      content: null,
-      tool_calls: [
-        {
-          id: toolCall.id,
-          type: "function",
-          function: {
-            name: toolCall.name,
-            arguments: JSON.stringify(toolCall.arguments),
+    if (!replayedCallIds.has(toolCall.id))
+      contextMessages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: toolCall.id,
+            type: "function",
+            function: {
+              name: toolCall.name,
+              arguments: JSON.stringify(toolCall.arguments),
+            },
           },
-        },
-      ],
-    });
+        ],
+      });
     contextMessages.push({
       role: "tool",
       tool_call_id: toolCall.id,
@@ -1020,6 +1048,7 @@ interface ToolCallResponse {
       tool_calls?: ToolCallData[];
       anthropic_content?: unknown[];
       reasoning_details?: unknown[];
+      responses_output?: Record<string, unknown>[];
     };
   }[];
 }
@@ -1720,6 +1749,7 @@ async function runWithToolLoop(
           role: "assistant",
           content: msg.content,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+          ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
           ...reasoningContextFields(reasoningContent, modelConfig),
         });
         set((state) => ({
@@ -1732,6 +1762,7 @@ async function runWithToolLoop(
                 ...updated[index],
                 content: updated[index].content || msg.content || "",
                 reasoningContent: updated[index].reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 thinkingDuration: updated[index].thinkingDuration ?? stepDuration,
               };
@@ -1753,6 +1784,7 @@ async function runWithToolLoop(
             content: msg.content,
             tool_calls: msg.tool_calls,
             ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+            ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
             ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
             ...reasoningContextFields(reasoningContent, modelConfig),
           });
@@ -1773,6 +1805,7 @@ async function runWithToolLoop(
           content: msg.content,
           tool_calls: msg.tool_calls,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+          ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
           ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
           ...reasoningContextFields(reasoningContent, modelConfig),
         });
@@ -1793,6 +1826,7 @@ async function runWithToolLoop(
                 // text chunks.
                 content: last.content.trim() ? last.content : finalizedAssistantContent,
                 reasoningContent: last.reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
               };
@@ -2638,6 +2672,7 @@ async function runWithToolLoop(
                 ...last,
                 content: last.content || assistantContent,
                 reasoningContent: last.reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,

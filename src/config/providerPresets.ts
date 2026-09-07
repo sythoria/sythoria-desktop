@@ -1,5 +1,11 @@
 export const PROVIDER_PRESETS = [
   {
+    providerId: "openai-responses",
+    label: "OpenAI (Responses)",
+    apiBase: "https://api.openai.com/v1/responses",
+    defaultModel: "gpt-5.6-sol",
+  },
+  {
     providerId: "openai",
     label: "OpenAI",
     apiBase: "https://api.openai.com/v1/chat/completions",

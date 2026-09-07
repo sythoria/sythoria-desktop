@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Sythoria — Desktop AI chat app. Tauri v2 (Rust) + React 19 (TypeScript). Connects to OpenAI-compatible APIs & Anthropic with SSE streaming, WebSocket, and agentic tool loop (web search + MCP + URL fetch + Project Workspaces).
+Sythoria — Desktop AI chat app. Tauri v2 (Rust) + React 19 (TypeScript). Connects to OpenAI-compatible Chat Completions and Responses APIs & Anthropic with SSE streaming, WebSocket, and agentic tool loop (web search + MCP + URL fetch + Project Workspaces).
 
 ## Commands
 
@@ -55,7 +55,7 @@ src/
     conversationRunContext.ts # Immutable per-run model, project, tool, attachment, and commit scope
   config/
     constants.ts        # MAX_INPUT_LENGTH, DEFAULT_TEMPERATURE, ID_LENGTH, etc.
-    providerPresets.ts  # OpenAI, Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
+    providerPresets.ts  # OpenAI (Chat Completions and Responses), Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
     searchPresets.ts    # Google, SearXNG, Firecrawl, Custom
     mcpPresets.ts       # MCP transport presets (stdio, sse, streamable-http)
     themePresets.ts     # UI theme settings and default styles
@@ -108,6 +108,7 @@ src-tauri/src/
   secret_storage.rs     # Rust-only encrypted credentials, masked views, and transactional keychain migration
   stream_parser.rs      # SSE parsing, reasoning normalization, stream events with streamId
   ws_handler.rs         # WebSocket: generation-scoped sessions, cancellation, reconnect backoff (1s–30s, max 5)
+  responses.rs          # Stateless Responses adapter, typed SSE events, image/function mapping, and native token counting
   anthropic.rs          # Anthropic Messages API client, stream event mapper, and system prompt formatting
   appshots.rs           # Screen capture, auto-cleanup, permissions check, custom path configuration
   git.rs                # Git status, commits, direct-workspace snapshots/undo, and legacy worktree recovery
@@ -140,6 +141,13 @@ src-tauri/src/
 - **useGitStore**: `config` (auto-commit, AI commit messages, pre-commits), `status` (isRepo, branch, dirty files, ahead/behind), `loading`, `init()`, `verifyPath()`, `commitChanges()`, `undoLastCommit()`, `checkoutBranch()`, `getDiff()`, `autoCommitIfNeeded(scope)`. Automatic commits require an explicit captured project/model/path scope and are serialized per repository.
 - **useWhisperStore**: `isVoiceEnabled`, `selectedModelId` (tiny.en, base.en, custom, etc.), `customModelPath` (managed basename, never an arbitrary renderer path), `language`, `downloadedFiles`, `isDownloading`, `downloadProgress`, `isRecording`, `isTranscribing`, `init()`, `toggleVoiceEnabled()`, `selectModel()`, `downloadModel()`, `cancelDownload()`, `deleteModel()`.
 - **useSkillStore**: `skills`, lazy `skillContents`, `loadSkills(force)`, `readSkill()`, `createSkill()`, `updateSkill()`, and `deleteSkill()`. Startup loads the catalog, and send/retry/manual resume force-refresh it before an immutable skill snapshot is captured for the run. Automatic resumes retain the originating run snapshot, including MCP references and skills.
+
+## OpenAI Responses
+
+- Select **OpenAI (Responses)** in the model provider presets, or use a custom endpoint whose URL path ends in `/responses` (optional trailing slash/query). Existing OpenAI Chat Completions configurations remain unchanged. Endpoint-path detection controls routing for all four native generation commands, title generation, and token counting.
+- `responses.rs` maps messages, image parts, function definitions, calls, and results to the Responses wire format. It uses `store: false`, requests encrypted reasoning for stateless replay, and maps the configured output limit to `max_output_tokens`. Reasoning models use nested `reasoning` controls and omit temperature.
+- Typed SSE text, refusal, and reasoning-summary deltas use the existing stream events. Tool calls are released only from a successful terminal response's complete output array; incomplete, failed, malformed, and prematurely ended streams fail without executing partial calls. Parsing is bounded and cancellation uses the existing native stream scope/completion guard.
+- Assistant `responsesOutput` metadata persists the complete native output items, including opaque reasoning, function IDs, and message phase. Both ordinary chats and tool-assisted runs retain it. Context replay includes native items exactly once and reconstructs paired results; other API protocols use the ordinary transcript. Context budgets count native items as indivisible payloads. Provider token counting uses `/responses/input_tokens`; connection checks use the sibling `/models` route.
 
 ## Tool Loop (Skills + MCP + Search + Project Workspaces)
 
@@ -209,6 +217,7 @@ export interface Message {
   role: "user" | "assistant" | "tool";
   content: string;
   reasoningContent?: string; // Provider reasoning, replayed as reasoning_content on later turns
+  responsesOutput?: Record<string, unknown>[]; // Complete native Responses items for stateless replay
   timestamp: Date;
   isStreaming?: boolean;
   toolCall?: { id: string; name: string; arguments: Record<string, string> };

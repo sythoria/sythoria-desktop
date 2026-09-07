@@ -137,6 +137,11 @@ it("reserves the full tool schema even when it exceeds a quarter of context", ()
 });
 
 it.each([
+  {
+    role: "assistant",
+    content: "short",
+    responses_output: [{ type: "reasoning", encrypted_content: "x".repeat(20_000), summary: [] }],
+  },
   { role: "assistant", content: null, tool_calls: [{ id: "write", function: { arguments: "x".repeat(20_000) } }] },
   {
     role: "assistant",
