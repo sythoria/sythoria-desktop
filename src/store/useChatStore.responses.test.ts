@@ -5,6 +5,7 @@ import { useModelStore } from "./useModelStore";
 import { useProjectStore } from "./useProjectStore";
 import { useSearchStore } from "./useSearchStore";
 import { useSkillStore } from "./useSkillStore";
+import { useMcpStore } from "./useMcpStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -13,12 +14,14 @@ const originalModel = useModelStore.getState();
 const originalProject = useProjectStore.getState();
 const originalSearch = useSearchStore.getState();
 const originalSkill = useSkillStore.getState();
+const originalMcp = useMcpStore.getState();
 afterEach(() => {
   useChatStore.setState(originalChat, true);
   useModelStore.setState(originalModel, true);
   useProjectStore.setState(originalProject, true);
   useSearchStore.setState(originalSearch, true);
   useSkillStore.setState(originalSkill, true);
+  useMcpStore.setState(originalMcp, true);
   vi.mocked(invoke).mockReset();
 });
 
@@ -87,4 +90,88 @@ it("retains and replays native Responses items in a plain chat without enabling 
   expect(request.messages.some((message) => JSON.stringify(message.responses_output) === JSON.stringify(output))).toBe(
     true,
   );
+});
+
+it("keeps the existing response when retry capabilities are unavailable", async () => {
+  const messages = [
+    {
+      id: "user",
+      role: "user" as const,
+      content: "Find current information",
+      timestamp: new Date(),
+      searchConfigId: "missing-search",
+    },
+    {
+      id: "assistant",
+      role: "assistant" as const,
+      content: "Existing response",
+      timestamp: new Date(),
+    },
+  ];
+  useSkillStore.setState({ skills: [], loadSkills: vi.fn().mockResolvedValue(undefined) });
+  useSearchStore.setState({ searchConfigs: [], activeSearchId: null });
+  useChatStore.setState({
+    conversations: [{ id: "retry", title: "Retry", model: "missing", messages, timestamp: new Date() }],
+    activeId: "retry",
+    isStreaming: false,
+  });
+
+  await useChatStore.getState().retryLastMessage("retry");
+
+  expect(useChatStore.getState().conversations[0].messages).toEqual(messages);
+});
+
+it("reconnects a referenced MCP server before retrying", async () => {
+  const reconnect = vi.fn(async () => {
+    useMcpStore.setState({
+      enabledServerIds: new Set(["server-1"]),
+      serverStatuses: { "server-1": "connected" },
+      availableTools: [
+        {
+          name: "read",
+          namespacedName: "mcp_7365727665722d31__read",
+          description: "Read",
+          inputSchema: {},
+          serverId: "server-1",
+          serverName: "Server",
+        },
+      ],
+    });
+  });
+  useMcpStore.setState({
+    mcpConfigs: [{ id: "server-1", name: "Server", transport: "stdio", command: "server", enabled: true }],
+    enabledServerIds: new Set(),
+    serverStatuses: { "server-1": "disconnected" },
+    availableTools: [],
+    toggleServerEnabled: reconnect,
+  });
+  useModelStore.setState({ models: [], selectedModel: "" });
+  useProjectStore.setState({ projects: [], isProjectsEnabled: false });
+  useSearchStore.setState({ searchConfigs: [], activeSearchId: null });
+  useSkillStore.setState({ skills: [], loadSkills: vi.fn().mockResolvedValue(undefined) });
+  useChatStore.setState({
+    conversations: [
+      {
+        id: "retry-mcp",
+        title: "Retry MCP",
+        model: "missing",
+        timestamp: new Date(),
+        messages: [
+          {
+            id: "user",
+            role: "user",
+            content: "Use the server",
+            timestamp: new Date(),
+            mcpServerIds: ["server-1"],
+          },
+        ],
+      },
+    ],
+    activeId: "retry-mcp",
+    isStreaming: false,
+  });
+
+  await useChatStore.getState().retryLastMessage("retry-mcp");
+
+  expect(reconnect).toHaveBeenCalledWith("server-1", true);
 });

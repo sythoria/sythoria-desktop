@@ -281,6 +281,58 @@ function getMessageSearchConfigId(message: Message | undefined): string | null {
   return hasWebSearchMention(message.content) ? useSearchStore.getState().activeSearchId : null;
 }
 
+async function prepareReferencedToolLoop(
+  mcpServerIds: readonly string[],
+  searchConfigId: string | null,
+  rejectedAction: string,
+): Promise<EnabledToolLoopConfig | null> {
+  for (const serverId of mcpServerIds) {
+    const mcpState = useMcpStore.getState();
+    const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
+    if (!config?.enabled) {
+      uiToast(`A referenced MCP server is unavailable. ${rejectedAction}`, "error");
+      return null;
+    }
+
+    if (!mcpState.enabledServerIds.has(serverId) || mcpState.serverStatuses[serverId] !== "connected") {
+      try {
+        await mcpState.toggleServerEnabled(serverId, true);
+      } catch (error) {
+        logError("mcp", `Could not prepare referenced MCP server: "${config.name}"`, { error });
+        uiToast(`Could not connect ${config.name}. ${rejectedAction}`, "error");
+        return null;
+      }
+    }
+  }
+
+  const toolLoop = getEnabledToolLoopConfig(mcpServerIds, searchConfigId);
+  if (searchConfigId && !toolLoop.searchConfig) {
+    logWarn("search", "Referenced search provider is unavailable", {
+      details: searchConfigId,
+      action: "Choose an enabled search provider before trying again.",
+    });
+    uiToast(`The referenced web-search provider is unavailable. ${rejectedAction}`, "error");
+    return null;
+  }
+
+  const unresolvedMcpServerIds = mcpServerIds.filter(
+    (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
+  );
+  if (unresolvedMcpServerIds.length > 0) {
+    const unresolvedNames = unresolvedMcpServerIds.map(
+      (serverId) => useMcpStore.getState().mcpConfigs.find((config) => config.id === serverId)?.name ?? serverId,
+    );
+    logWarn("mcp", "Referenced MCP servers did not expose any tools", {
+      details: unresolvedNames.join(", "),
+      action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
+    });
+    uiToast(`${unresolvedNames.join(", ")} did not provide any tools. ${rejectedAction}`, "error");
+    return null;
+  }
+
+  return toolLoop;
+}
+
 function showMissingModelConfig(message: string) {
   logError("model", message, {
     action: "Go to Settings > Model Providers and add at least one model configuration.",
@@ -1023,38 +1075,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     await useSkillStore.getState().loadSkills(true);
 
-    for (const serverId of uniqueMcpServerIds) {
-      const mcpState = useMcpStore.getState();
-      const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
-      if (!config?.enabled) {
-        uiToast("A referenced MCP server is unavailable. Re-enable it in Settings and try again.", "error");
-        return "rejected";
-      }
-
-      if (!mcpState.enabledServerIds.has(serverId) || mcpState.serverStatuses[serverId] !== "connected") {
-        try {
-          await mcpState.toggleServerEnabled(serverId, true);
-        } catch (error) {
-          logError("mcp", `Could not prepare referenced MCP server: "${config.name}"`, { error });
-          uiToast(`Could not connect ${config.name}. Your message was not sent.`, "error");
-          return "rejected";
-        }
-      }
-    }
-
-    const toolLoop = getEnabledToolLoopConfig(uniqueMcpServerIds, submittedSearchConfigId);
-    const unresolvedMcpServerIds = uniqueMcpServerIds.filter(
-      (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
+    const toolLoop = await prepareReferencedToolLoop(
+      uniqueMcpServerIds,
+      submittedSearchConfigId,
+      "Your message was not sent.",
     );
-    if (unresolvedMcpServerIds.length > 0) {
-      const unresolvedNames = unresolvedMcpServerIds.map(
-        (serverId) => useMcpStore.getState().mcpConfigs.find((config) => config.id === serverId)?.name ?? serverId,
-      );
-      logWarn("mcp", "Referenced MCP servers did not expose any tools", {
-        details: unresolvedNames.join(", "),
-        action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
-      });
-      uiToast(`${unresolvedNames.join(", ")} did not provide any tools. Your message was not sent.`, "error");
+    if (!toolLoop) {
       return "rejected";
     }
 
@@ -1362,7 +1388,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     await useSkillStore.getState().loadSkills(true);
     const lastUserMessage = conv.messages[lastUserIdx];
-    const toolLoop = getEnabledToolLoopConfig(lastUserMessage.mcpServerIds, getMessageSearchConfigId(lastUserMessage));
+    const toolLoop = await prepareReferencedToolLoop(
+      [...new Set(lastUserMessage.mcpServerIds ?? [])],
+      getMessageSearchConfigId(lastUserMessage),
+      "The retry was not started.",
+    );
+    if (!toolLoop) return;
     const runContext = buildConversationRunContext({
       conversation: conv,
       models,
@@ -1717,7 +1748,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       .reverse()
       .find((message) => message.role === "user" && !message.isSystem);
     await useSkillStore.getState().loadSkills(true);
-    const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds, getMessageSearchConfigId(lastUserMessage));
+    const toolLoop = await prepareReferencedToolLoop(
+      [...new Set(lastUserMessage?.mcpServerIds ?? [])],
+      getMessageSearchConfigId(lastUserMessage),
+      "The continuation was not started.",
+    );
+    if (!toolLoop) return;
     let runContext = buildConversationRunContext({
       conversation: conv,
       models,
