@@ -684,7 +684,7 @@ describe("InputBar", () => {
     expect(repeatedSearchOption).not.toHaveAttribute("aria-checked");
     expect(repeatedSearchOption).not.toHaveClass("bg-active");
     await user.click(repeatedSearchOption);
-    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(2);
   });
 
   it("adds web search to the focused composer from the keyboard command", async () => {
@@ -705,7 +705,7 @@ describe("InputBar", () => {
 
     expect(await screen.findByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
     expect(executeCommand("toggleSearch")).toBe(true);
-    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(2);
   });
 
   it("moves the web search chip into the submitted prompt", async () => {
@@ -737,7 +737,7 @@ describe("InputBar", () => {
     expect(editor).toHaveTextContent("");
   });
 
-  it("removes web search when its composer chip is deleted with Backspace", async () => {
+  it("removes only the adjacent web search chip with Backspace", async () => {
     const user = userEvent.setup();
     render(
       <InputBar
@@ -752,9 +752,13 @@ describe("InputBar", () => {
     );
     await user.click(screen.getByLabelText("Attach or search"));
     await user.click(screen.getByRole("menuitem", { name: /web search/i }));
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
-    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
+    const searchBubbles = screen.getAllByRole("img", { name: "Web Search tool" });
+    expect(searchBubbles).toHaveLength(2);
+    const searchBubble = searchBubbles[1];
     const spacer = searchBubble.nextSibling;
     expect(spacer).not.toBeNull();
     const range = document.createRange();
@@ -766,7 +770,7 @@ describe("InputBar", () => {
     selection?.addRange(range);
     fireEvent.keyDown(editor, { key: "Backspace" });
 
-    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
   });
 
   it("removes web search metadata when a native edit deletes its composer chip", async () => {

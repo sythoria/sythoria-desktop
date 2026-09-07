@@ -402,7 +402,7 @@ export const PromptEditor = memo(function PromptEditor({
 
   const insertWebSearchMention = useCallback((): boolean => {
     const editor = editorRef.current;
-    if (!editor || disabled || editor.querySelector('[data-web-search-mention="true"]')) return false;
+    if (!editor || disabled) return false;
 
     const mention = createWebSearchMention();
     const spacer = document.createTextNode(EDITOR_SPACER);
