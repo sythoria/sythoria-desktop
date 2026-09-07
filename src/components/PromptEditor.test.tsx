@@ -17,15 +17,14 @@ describe("PromptEditor structured replacements", () => {
         isEmpty={false}
         maxHeight={200}
         className=""
-        isWebSearchEnabled
         webSearchLabel="Web Search"
-        onDisableWebSearch={vi.fn()}
         onDraftChange={vi.fn()}
         onKeyDown={vi.fn()}
       />,
     );
 
     act(() => editorHandleRef.current?.replaceText("Plan"));
+    act(() => editorHandleRef.current?.insertWebSearchMention());
     act(() => {
       editorHandleRef.current?.insertMcpMention({
         id: "documents",
@@ -37,12 +36,12 @@ describe("PromptEditor structured replacements", () => {
     });
     act(() => editorHandleRef.current?.replaceText("Plan follow-up"));
 
-    expect(screen.getByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "MCP tool: Documents" })).toBeInTheDocument();
     const draft = editorHandleRef.current?.readDraft();
     expect(draft?.plainText).toBe("Plan follow-up");
     expect(draft?.mcpServerIds).toEqual(["documents"]);
-    expect(draft?.webSearchEnabled).toBe(true);
+    expect(draft?.hasWebSearchMention).toBe(true);
     expect(draft?.text.match(/\[MCP: Documents\]/g)).toHaveLength(1);
     expect(draft?.text.match(/\[Web Search\]/g)).toHaveLength(1);
   });

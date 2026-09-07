@@ -82,11 +82,11 @@ export function executeCommand(commandId: CommandId, context: CommandExecutionCo
       return true;
     case "toggleSearch": {
       const focusedComposer = document.activeElement?.closest(".chat-composer-dock");
-      const searchToggle =
-        focusedComposer?.querySelector<HTMLButtonElement>("[data-search-toggle]") ??
-        document.querySelector<HTMLButtonElement>(".chat-composer-dock [data-search-toggle]");
-      if (!searchToggle || searchToggle.disabled) return false;
-      searchToggle.click();
+      const searchInsert =
+        focusedComposer?.querySelector<HTMLButtonElement>("[data-search-insert]") ??
+        document.querySelector<HTMLButtonElement>(".chat-composer-dock [data-search-insert]");
+      if (!searchInsert || searchInsert.disabled) return false;
+      searchInsert.click();
       return true;
     }
     case "toggleCompareMode":

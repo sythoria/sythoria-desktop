@@ -9,12 +9,13 @@ export interface PromptDraft {
   text: string;
   plainText: string;
   mcpServerIds: string[];
-  webSearchEnabled: boolean;
+  hasWebSearchMention: boolean;
 }
 
 export interface PromptEditorHandle {
   focus: () => void;
   insertMcpMention: (server: McpServerConfig) => boolean;
+  insertWebSearchMention: () => boolean;
   clearDraft: () => void;
   readDraft: () => PromptDraft;
   replaceText: (text: string) => void;
@@ -34,9 +35,7 @@ interface PromptEditorProps {
   isEmpty: boolean;
   maxHeight: number;
   className: string;
-  isWebSearchEnabled: boolean;
   webSearchLabel: string;
-  onDisableWebSearch: () => void;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onPasteText?: (text: string) => boolean;
@@ -216,9 +215,7 @@ export const PromptEditor = memo(function PromptEditor({
   isEmpty,
   maxHeight,
   className,
-  isWebSearchEnabled,
   webSearchLabel,
-  onDisableWebSearch,
   onDraftChange,
   onKeyDown,
   onPasteText,
@@ -230,10 +227,10 @@ export const PromptEditor = memo(function PromptEditor({
 
   const readDraft = useCallback((): PromptDraft => {
     const editor = editorRef.current;
-    if (!editor) return { text: "", plainText: "", mcpServerIds: [], webSearchEnabled: false };
+    if (!editor) return { text: "", plainText: "", mcpServerIds: [], hasWebSearchMention: false };
 
     const mcpServerIds: string[] = [];
-    let webSearchEnabled = false;
+    let hasWebSearchMention = false;
     const readNode = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
       if (!(node instanceof HTMLElement)) return "";
@@ -245,7 +242,7 @@ export const PromptEditor = memo(function PromptEditor({
         return `[MCP: ${serverName}]`;
       }
       if (node.dataset.webSearchMention === "true") {
-        webSearchEnabled = true;
+        hasWebSearchMention = true;
         return WEB_SEARCH_MENTION;
       }
       if (node.tagName === "BR") return "\n";
@@ -262,7 +259,7 @@ export const PromptEditor = memo(function PromptEditor({
       text: readNode(editor).replace(/\n$/, "").replaceAll(EDITOR_SPACER, ""),
       plainText: readPlainText(editor, editor).replace(/\n$/, ""),
       mcpServerIds,
-      webSearchEnabled,
+      hasWebSearchMention,
     };
   }, []);
 
@@ -286,7 +283,7 @@ export const PromptEditor = memo(function PromptEditor({
     if (!editor?.hasChildNodes()) return;
 
     const draft = readDraft();
-    if (isWebSearchEnabled || draft.text || draft.mcpServerIds.length > 0) return;
+    if (draft.hasWebSearchMention || draft.text || draft.mcpServerIds.length > 0) return;
 
     editor.replaceChildren();
     const selection = window.getSelection();
@@ -297,7 +294,7 @@ export const PromptEditor = memo(function PromptEditor({
     selection.removeAllRanges();
     selection.addRange(range);
     selectionRef.current = range.cloneRange();
-  }, [isWebSearchEnabled, readDraft]);
+  }, [readDraft]);
 
   const placeCaret = useCallback((node: Node, position: "before" | "after") => {
     const selection = window.getSelection();
@@ -338,8 +335,7 @@ export const PromptEditor = memo(function PromptEditor({
   }, [placeCaret, syncDraft]);
 
   const removeToolMention = useCallback(
-    (mention: HTMLElement, notify = true, restoreFocus = true) => {
-      const disablesWebSearch = mention.dataset.webSearchMention === "true";
+    (mention: HTMLElement) => {
       const parent = mention.parentNode;
       if (!parent) return;
       const mentionIndex = Array.from(parent.childNodes).indexOf(mention);
@@ -355,24 +351,19 @@ export const PromptEditor = memo(function PromptEditor({
         else nextSibling.remove();
       }
 
-      if (restoreFocus) {
-        editorRef.current?.focus();
-        const range = document.createRange();
-        const nodeAtMentionPosition = parent.childNodes[mentionIndex];
-        if (nodeAtMentionPosition?.nodeType === Node.TEXT_NODE) range.setStart(nodeAtMentionPosition, 0);
-        else range.setStart(parent, Math.min(mentionIndex, parent.childNodes.length));
-        range.collapse(true);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        selectionRef.current = range.cloneRange();
-      } else {
-        selectionRef.current = null;
-      }
-      if (disablesWebSearch && notify) onDisableWebSearch();
-      syncDraft(notify ? "user" : "programmatic");
+      editorRef.current?.focus();
+      const range = document.createRange();
+      const nodeAtMentionPosition = parent.childNodes[mentionIndex];
+      if (nodeAtMentionPosition?.nodeType === Node.TEXT_NODE) range.setStart(nodeAtMentionPosition, 0);
+      else range.setStart(parent, Math.min(mentionIndex, parent.childNodes.length));
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      selectionRef.current = range.cloneRange();
+      syncDraft();
     },
-    [onDisableWebSearch, syncDraft],
+    [syncDraft],
   );
 
   const deleteAdjacentToolMention = useCallback(
@@ -399,8 +390,8 @@ export const PromptEditor = memo(function PromptEditor({
     mention.className =
       "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
     mention.setAttribute("role", "img");
-    mention.setAttribute("aria-label", `${webSearchLabel} enabled`);
-    mention.setAttribute("title", `${webSearchLabel} enabled`);
+    mention.setAttribute("aria-label", `${webSearchLabel} tool`);
+    mention.setAttribute("title", webSearchLabel);
 
     const label = document.createElement("span");
     label.textContent = webSearchLabel;
@@ -409,14 +400,21 @@ export const PromptEditor = memo(function PromptEditor({
     return mention;
   }, [webSearchLabel]);
 
-  const insertWebSearchMention = useCallback(() => {
+  const insertWebSearchMention = useCallback((): boolean => {
     const editor = editorRef.current;
-    if (!editor || editor.querySelector('[data-web-search-mention="true"]')) return;
+    if (!editor || disabled || editor.querySelector('[data-web-search-mention="true"]')) return false;
 
     const mention = createWebSearchMention();
     const spacer = document.createTextNode(EDITOR_SPACER);
+    const selection = window.getSelection();
+    const currentRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const savedRange = selectionRef.current;
-    const range = savedRange && editor.contains(savedRange.commonAncestorContainer) ? savedRange.cloneRange() : null;
+    const range =
+      currentRange && editor.contains(currentRange.commonAncestorContainer)
+        ? currentRange.cloneRange()
+        : savedRange && editor.contains(savedRange.commonAncestorContainer)
+          ? savedRange.cloneRange()
+          : null;
 
     if (range) {
       range.deleteContents();
@@ -428,8 +426,9 @@ export const PromptEditor = memo(function PromptEditor({
 
     editor.focus();
     placeCaret(spacer, "after");
-    syncDraft("programmatic");
-  }, [createWebSearchMention, placeCaret, syncDraft]);
+    syncDraft();
+    return true;
+  }, [createWebSearchMention, disabled, placeCaret, syncDraft]);
 
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
@@ -492,13 +491,10 @@ export const PromptEditor = memo(function PromptEditor({
         cursor = mentionOffset;
       }
       if (cursor < text.length) editor.append(document.createTextNode(text.slice(cursor)));
-      if (isWebSearchEnabled && !preservedMentions.some(({ element }) => element.dataset.webSearchMention === "true")) {
-        editor.append(createWebSearchMention(), document.createTextNode(EDITOR_SPACER));
-      }
       selectionRef.current = null;
       syncDraft("programmatic");
     },
-    [createWebSearchMention, isWebSearchEnabled, syncDraft],
+    [syncDraft],
   );
 
   const clearDraft = useCallback(() => {
@@ -514,12 +510,13 @@ export const PromptEditor = memo(function PromptEditor({
     () => ({
       focus: () => editorRef.current?.focus(),
       insertMcpMention,
+      insertWebSearchMention,
       clearDraft,
       readDraft,
       replaceText,
       saveSelection,
     }),
-    [clearDraft, insertMcpMention, readDraft, replaceText, saveSelection],
+    [clearDraft, insertMcpMention, insertWebSearchMention, readDraft, replaceText, saveSelection],
   );
 
   useEffect(
@@ -528,19 +525,6 @@ export const PromptEditor = memo(function PromptEditor({
     },
     [],
   );
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const mention = editor.querySelector<HTMLElement>('[data-web-search-mention="true"]');
-
-    if (isWebSearchEnabled) {
-      if (!mention) insertWebSearchMention();
-      return;
-    }
-
-    if (mention) removeToolMention(mention, false, false);
-  }, [insertWebSearchMention, isWebSearchEnabled, removeToolMention]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {

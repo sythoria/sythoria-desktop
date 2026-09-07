@@ -95,7 +95,7 @@ export default memo(function InputBar({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [mcpMentionServerIds, setMcpMentionServerIds] = useState<string[]>([]);
-  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+  const [hasWebSearchMention, setHasWebSearchMention] = useState(false);
   const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
@@ -162,7 +162,7 @@ export default memo(function InputBar({
     (draft: PromptDraft, origin: PromptDraftChangeOrigin) => {
       setValue(draft.text);
       setMcpMentionServerIds(draft.mcpServerIds);
-      setIsSearchEnabled(draft.webSearchEnabled);
+      setHasWebSearchMention(draft.hasWebSearchMention);
       if (origin === "user" && voiceDraft && draft.text.trim() !== voiceDraft.trim()) setVoiceDraft("");
     },
     [voiceDraft],
@@ -184,7 +184,11 @@ export default memo(function InputBar({
     [disabled, isStreaming],
   );
 
-  const disableWebSearch = useCallback(() => setIsSearchEnabled(false), []);
+  const insertWebSearchMention = useCallback(() => {
+    if (disabled || isStreaming || !searchConfigId) return;
+    editorHandleRef.current?.insertWebSearchMention();
+    setPlusOpen(false);
+  }, [disabled, isStreaming, searchConfigId]);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -561,7 +565,7 @@ export default memo(function InputBar({
       xlarge: "text-lg",
     }[baseTextSize] || "text-sm";
 
-  const anyToolActive = isSearchEnabled || mcpMentionServerIds.length > 0;
+  const anyToolActive = hasWebSearchMention || mcpMentionServerIds.length > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
@@ -615,12 +619,12 @@ export default memo(function InputBar({
       text: value,
       plainText: value,
       mcpServerIds: mcpMentionServerIds,
-      webSearchEnabled: isSearchEnabled,
+      hasWebSearchMention,
     };
     const submittedValue = submittedDraft.text;
     const submittedText = submittedValue.trim();
     const submittedMcpServerIds = [...submittedDraft.mcpServerIds];
-    const submittedWebSearchEnabled = submittedDraft.webSearchEnabled;
+    const submittedHasWebSearchMention = submittedDraft.hasWebSearchMention;
     const submittedAttachments = attachments;
     if ((submittedText.length === 0 && submittedAttachments.length === 0) || submittedValue.length > MAX_INPUT_LENGTH) {
       return;
@@ -629,7 +633,7 @@ export default memo(function InputBar({
       submittedText,
       submittedAttachments.length > 0 ? submittedAttachments : undefined,
       submittedMcpServerIds,
-      submittedWebSearchEnabled ? (searchConfigId ?? null) : null,
+      submittedHasWebSearchMention ? (searchConfigId ?? null) : null,
     );
     if (status !== "accepted") return;
 
@@ -638,17 +642,17 @@ export default memo(function InputBar({
       text: "",
       plainText: "",
       mcpServerIds: [],
-      webSearchEnabled: false,
+      hasWebSearchMention: false,
     };
     const mentionsAreUnchanged =
       currentDraft.mcpServerIds.length === submittedMcpServerIds.length &&
       currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]) &&
-      currentDraft.webSearchEnabled === submittedWebSearchEnabled;
+      currentDraft.hasWebSearchMention === submittedHasWebSearchMention;
     if (currentDraft.text === submittedValue && mentionsAreUnchanged) {
       editorHandleRef.current?.clearDraft();
     }
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [canSend, value, mcpMentionServerIds, isSearchEnabled, attachments, onSend, searchConfigId, setAttachments]);
+  }, [canSend, value, mcpMentionServerIds, hasWebSearchMention, attachments, onSend, searchConfigId, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -785,7 +789,7 @@ export default memo(function InputBar({
   const contextBudget = currentModel
     ? resolveContextBudget(
         currentModel,
-        isSearchEnabled || mcpMentionServerIds.length > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
+        hasWebSearchMention || mcpMentionServerIds.length > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
       )
     : null;
   const contextSize = contextBudget?.contextTokens;
@@ -962,9 +966,9 @@ export default memo(function InputBar({
         hidden
         tabIndex={-1}
         aria-hidden="true"
-        data-search-toggle
+        data-search-insert
         disabled={!searchConfigId}
-        onClick={() => setIsSearchEnabled((enabled) => !enabled)}
+        onClick={insertWebSearchMention}
       />
       {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
       <div
@@ -1168,21 +1172,15 @@ export default memo(function InputBar({
                             <span>{t("chat.addFile") || "Add File"}</span>
                           </button>
                           <button
-                            onClick={() => {
-                              setIsSearchEnabled((enabled) => !enabled);
-                              setPlusOpen(false);
-                            }}
+                            type="button"
+                            onClick={insertWebSearchMention}
                             disabled={!searchConfigId}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                              isSearchEnabled
-                                ? "text-text-primary bg-active"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                            role="menuitemcheckbox"
-                            aria-checked={isSearchEnabled}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            role="menuitem"
                           >
-                            <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
-                            <span>{t("chat.webSearch") || "Web Search"}</span>
+                            <Search size={15} className="text-text-muted" />
+                            <span className="flex-1 text-left">{t("chat.webSearch") || "Web Search"}</span>
+                            <Plus size={13} className="text-text-muted ml-1 shrink-0" aria-hidden="true" />
                           </button>
                           <button
                             onClick={() => {
@@ -1236,11 +1234,9 @@ export default memo(function InputBar({
                     }
                     disabled={disabled}
                     invalid={isOverLimit}
-                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0 && !isSearchEnabled}
+                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0 && !hasWebSearchMention}
                     maxHeight={MAX_TEXTAREA_HEIGHT}
-                    isWebSearchEnabled={isSearchEnabled}
                     webSearchLabel={t("chat.webSearch") || "Web Search"}
-                    onDisableWebSearch={disableWebSearch}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
                     onPasteText={handlePastedText}
@@ -1700,11 +1696,6 @@ export default memo(function InputBar({
                 <span />
                 <span />
               </span>
-            </span>
-          ) : isSearchEnabled ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <Search size={11} className="text-text-secondary" />
-              Web Search enabled
             </span>
           ) : (
             t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."

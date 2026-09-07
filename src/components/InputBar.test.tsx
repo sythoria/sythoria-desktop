@@ -654,7 +654,7 @@ describe("InputBar", () => {
     expect(plusButton).toBeInTheDocument();
   });
 
-  it("toggles web search from plus dropdown", async () => {
+  it("adds a web search chip from the plus dropdown", async () => {
     const user = userEvent.setup();
     render(
       <InputBar
@@ -671,14 +671,23 @@ describe("InputBar", () => {
     const plusButton = screen.getByLabelText("Attach or search");
     await user.click(plusButton);
 
-    const searchOption = screen.getByRole("menuitemcheckbox", { name: /web search/i });
+    const searchOption = screen.getByRole("menuitem", { name: /web search/i });
     expect(searchOption).toBeInTheDocument();
+    expect(searchOption).not.toHaveAttribute("aria-checked");
 
     await user.click(searchOption);
-    expect(await screen.findByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(screen.queryByText("Web Search enabled")).not.toBeInTheDocument();
+
+    await user.click(plusButton);
+    const repeatedSearchOption = screen.getByRole("menuitem", { name: /web search/i });
+    expect(repeatedSearchOption).not.toHaveAttribute("aria-checked");
+    expect(repeatedSearchOption).not.toHaveClass("bg-active");
+    await user.click(repeatedSearchOption);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
   });
 
-  it("toggles web search in the focused composer from the keyboard command", async () => {
+  it("adds web search to the focused composer from the keyboard command", async () => {
     render(
       <InputBar
         models={mockModels}
@@ -694,10 +703,12 @@ describe("InputBar", () => {
 
     expect(executeCommand("toggleSearch")).toBe(true);
 
-    expect(await screen.findByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(executeCommand("toggleSearch")).toBe(true);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
   });
 
-  it("moves enabled web search from the composer bubble into the submitted prompt", async () => {
+  it("moves the web search chip into the submitted prompt", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue("accepted");
     render(
@@ -712,21 +723,21 @@ describe("InputBar", () => {
       />,
     );
     await user.click(screen.getByLabelText("Attach or search"));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
-    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
     expect(editor).toContainElement(searchBubble);
     expect(searchBubble).toHaveClass("text-[0.9em]", "align-[-0.08em]", "leading-none");
     expect(searchBubble.querySelector(".lucide-search")).toBeInTheDocument();
 
     await user.type(editor, "Find the latest release{Enter}");
     expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, [], "search-1");
-    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
     expect(editor).toHaveTextContent("");
   });
 
-  it("disables web search when its composer bubble is removed with Backspace", async () => {
+  it("removes web search when its composer chip is deleted with Backspace", async () => {
     const user = userEvent.setup();
     render(
       <InputBar
@@ -740,10 +751,10 @@ describe("InputBar", () => {
       />,
     );
     await user.click(screen.getByLabelText("Attach or search"));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
-    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
     const spacer = searchBubble.nextSibling;
     expect(spacer).not.toBeNull();
     const range = document.createRange();
@@ -755,10 +766,10 @@ describe("InputBar", () => {
     selection?.addRange(range);
     fireEvent.keyDown(editor, { key: "Backspace" });
 
-    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
   });
 
-  it("disables web search when a native edit removes its composer bubble", async () => {
+  it("removes web search metadata when a native edit deletes its composer chip", async () => {
     const user = userEvent.setup();
     render(
       <InputBar
@@ -772,14 +783,14 @@ describe("InputBar", () => {
       />,
     );
     await user.click(screen.getByLabelText("Attach or search"));
-    await user.click(screen.getByRole("menuitemcheckbox", { name: /web search/i }));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
 
     const editor = screen.getByRole("textbox", { name: "Message" });
-    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
     searchBubble.remove();
     fireEvent.input(editor);
 
-    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
   });
 
   it("keeps web search selection local to each composer", async () => {
@@ -816,10 +827,10 @@ describe("InputBar", () => {
     const mainComposer = screen.getByLabelText("Main composer");
     const sideComposer = screen.getByLabelText("Side composer");
     await user.click(within(mainComposer).getByLabelText("Attach or search"));
-    await user.click(within(mainComposer).getByRole("menuitemcheckbox", { name: /web search/i }));
+    await user.click(within(mainComposer).getByRole("menuitem", { name: /web search/i }));
 
-    expect(within(mainComposer).getByRole("img", { name: "Web Search enabled" })).toBeInTheDocument();
-    expect(within(sideComposer).queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+    expect(within(mainComposer).getByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(within(sideComposer).queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
   });
 
   it("renders image attachment and allows opening preview modal", async () => {

@@ -161,9 +161,9 @@ export const COMMAND_REGISTRY = {
   },
   toggleSearch: {
     id: "toggleSearch",
-    label: "Toggle Web Search",
+    label: "Add Web Search",
     category: "Conversation",
-    description: "Enable or disable web search for the next message",
+    description: "Insert a Web Search chip into the next message",
     defaultCombo: "Ctrl+Shift+S",
     currentCombo: "Ctrl+Shift+S",
   },
