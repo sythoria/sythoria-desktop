@@ -62,12 +62,8 @@ function releaseToolCall(conversationId: string, requestId: string): void {
   }
 }
 
-function sanitizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
+function encodeNamespacePart(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 interface McpState {
@@ -334,10 +330,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
         readOnlyHint?: boolean;
       }[] = JSON.parse(raw);
 
-      const sanitizedName = sanitizeName(config.name);
+      const serverNamespace = `mcp_${encodeNamespacePart(config.id)}`;
       const mcpTools: McpTool[] = tools.map((t) => ({
         name: t.name,
-        namespacedName: `${sanitizedName}__${t.name}`,
+        namespacedName: `${serverNamespace}__${t.name}`,
         description: t.description,
         inputSchema: t.inputSchema,
         readOnlyHint: t.readOnlyHint,
@@ -409,11 +405,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   callTool: async (serverId, toolName, args, conversationId) => {
     const { mcpConfigs, enabledServerIds, serverStatuses } = get();
     const config = mcpConfigs.find((c) => c.id === serverId);
-    if (
-      !config?.enabled ||
-      !enabledServerIds.has(serverId) ||
-      serverStatuses[serverId] !== "connected"
-    ) {
+    if (!config?.enabled || !enabledServerIds.has(serverId) || serverStatuses[serverId] !== "connected") {
       return { content: "Error: MCP server is disabled or disconnected", isError: true };
     }
     const requestId = conversationId ? `mcp-${generateId()}-${Date.now()}` : undefined;

@@ -1930,10 +1930,11 @@ async function runWithToolLoop(
           const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
 
           const uiStore = useUIStore.getState();
-          const taskLabel =
+          const taskMcpTool =
             fnName === "unknown" && rawName.includes("__")
-              ? `MCP: ${rawName.split("__")[1]} (${rawName.split("__")[0]})`
-              : `Tool: ${fnName}`;
+              ? mcpTools.find((tool) => tool.namespacedName === rawName)
+              : undefined;
+          const taskLabel = taskMcpTool ? `MCP: ${taskMcpTool.name} (${taskMcpTool.serverName})` : `Tool: ${fnName}`;
           uiStore.addTask(toolCall.id, taskLabel, convId);
 
           let resultContent = "";
