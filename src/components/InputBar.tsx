@@ -158,9 +158,10 @@ export default memo(function InputBar({
     (draft: PromptDraft, origin: PromptDraftChangeOrigin) => {
       setValue(draft.text);
       setMcpMentionServerIds(draft.mcpServerIds);
+      if (draft.webSearchEnabled !== isSearchEnabled) onToggleSearch(draft.webSearchEnabled);
       if (origin === "user" && voiceDraft && draft.text.trim() !== voiceDraft.trim()) setVoiceDraft("");
     },
-    [voiceDraft],
+    [isSearchEnabled, onToggleSearch, voiceDraft],
   );
 
   const replaceEditorText = useCallback((text: string) => {

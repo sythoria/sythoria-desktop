@@ -800,6 +800,37 @@ describe("InputBar", () => {
     expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
   });
 
+  it("disables web search when a native edit removes its composer bubble", async () => {
+    const onToggleSearch = vi.fn();
+    function SearchEnabledInputBar() {
+      const [isSearchEnabled, setIsSearchEnabled] = useState(true);
+      return (
+        <InputBar
+          models={mockModels}
+          onSend={vi.fn()}
+          selectedModel="model-1"
+          onModelChange={vi.fn()}
+          modelStatuses={mockStatuses}
+          isSearchEnabled={isSearchEnabled}
+          onToggleSearch={(enabled) => {
+            onToggleSearch(enabled);
+            setIsSearchEnabled(enabled);
+          }}
+          {...defaultMcpProps}
+        />
+      );
+    }
+    render(<SearchEnabledInputBar />);
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search enabled" });
+    searchBubble.remove();
+    fireEvent.input(editor);
+
+    expect(onToggleSearch).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole("img", { name: "Web Search enabled" })).not.toBeInTheDocument();
+  });
+
   it("renders image attachment and allows opening preview modal", async () => {
     const user = userEvent.setup();
     act(() => {
