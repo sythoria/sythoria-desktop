@@ -1,3 +1,4 @@
+import { friendlyEndpointError } from "../utils/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../types";
@@ -70,6 +71,7 @@ interface McpState {
   mcpConfigs: McpServerConfig[];
   envSecrets: Record<string, Record<string, string>>;
   mcpApiKeys: Record<string, string>;
+  serverErrors: Record<string, string | undefined>;
   serverStatuses: Record<string, McpServerStatus>;
   availableTools: McpTool[];
   /** @deprecated Composer drafts now carry inline MCP references. */
@@ -104,6 +106,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   mcpConfigs: [],
   envSecrets: {},
   mcpApiKeys: {},
+  serverErrors: {},
   serverStatuses: {},
   availableTools: [],
   selectedServerIds: new Set(),
@@ -197,6 +200,12 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
   updateMcpConfig: async (id, updates) => {
     const { mcpConfigs, mcpApiKeys } = get();
+    set({
+      serverErrors: { ...get().serverErrors, [id]: undefined },
+      ...(get().serverStatuses[id] === "error"
+        ? { serverStatuses: { ...get().serverStatuses, [id]: "disconnected" as const } }
+        : {}),
+    });
     const previousConfig = mcpConfigs.find((config) => config.id === id);
     const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     const isBeingDisabled = updates.enabled === false;
@@ -362,7 +371,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
         action: `Check the server command/path and environment variables for "${config.name}" in Settings > MCP Servers. ${parsed.action}`,
         details: `Transport: ${config.transport}, Command: ${config.command || config.baseUrl || "(none)"}. ${parsed.message}${parsed.rawDetail ? `\nRaw: ${parsed.rawDetail}` : ""}`,
       });
-      set({ serverStatuses: { ...get().serverStatuses, [id]: "error" } });
+      set({
+        serverStatuses: { ...get().serverStatuses, [id]: "error" },
+        serverErrors: { ...get().serverErrors, [id]: friendlyEndpointError(err, config.transport === "stdio") },
+      });
       useUIStore.getState().addToast(parsed.message, "error");
     }
   },

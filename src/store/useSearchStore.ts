@@ -1,3 +1,4 @@
+import { friendlyEndpointError } from "../utils/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { ConnectionStatus, SearchApiConfig, FetchApiConfig, SearchResult, UrlContent } from "../types";
@@ -34,10 +35,12 @@ interface SearchState {
   searchConfigs: SearchApiConfig[];
   activeSearchId: string | null;
   searchApiKeys: Record<string, string>;
+  searchErrors: Record<string, string | undefined>;
   searchStatuses: Record<string, ConnectionStatus>;
 
   fetchConfigs: FetchApiConfig[];
   activeFetchId: string | null;
+  fetchErrors: Record<string, string | undefined>;
   fetchStatuses: Record<string, ConnectionStatus>;
 
   addSearchConfig: () => void;
@@ -62,9 +65,11 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   searchConfigs: [],
   activeSearchId: null,
   searchApiKeys: {},
+  searchErrors: {},
   searchStatuses: {},
   fetchConfigs: [],
   activeFetchId: null,
+  fetchErrors: {},
   fetchStatuses: {},
 
   addSearchConfig: () => {
@@ -183,13 +188,22 @@ export const useSearchStore = create<SearchState>((set, get) => ({
             details: `Provider: ${config.provider}. ${parsed.message}`,
             action: "Check the provider URL and network access.",
           });
-          return { id: config.id, baseUrl: config.baseUrl, status: "error" as const };
+          return {
+            id: config.id,
+            baseUrl: config.baseUrl,
+            status: "error" as const,
+            error: friendlyEndpointError(error),
+          };
         }
       }),
     );
 
     const currentConfigs = get().searchConfigs;
     set((state) => ({
+      searchErrors: {
+        ...state.searchErrors,
+        ...Object.fromEntries(results.map((result) => [result.id, result.error])),
+      },
       searchStatuses: {
         ...state.searchStatuses,
         ...Object.fromEntries(
@@ -346,13 +360,19 @@ export const useSearchStore = create<SearchState>((set, get) => ({
             details: `Provider: ${config.provider}. ${parsed.message}`,
             action: "Check the provider URL and network access.",
           });
-          return { id: config.id, baseUrl: config.baseUrl, status: "error" as const };
+          return {
+            id: config.id,
+            baseUrl: config.baseUrl,
+            status: "error" as const,
+            error: friendlyEndpointError(error),
+          };
         }
       }),
     );
 
     const currentConfigs = get().fetchConfigs;
     set((state) => ({
+      fetchErrors: { ...state.fetchErrors, ...Object.fromEntries(results.map((result) => [result.id, result.error])) },
       fetchStatuses: {
         ...state.fetchStatuses,
         ...Object.fromEntries(

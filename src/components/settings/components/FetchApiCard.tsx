@@ -1,3 +1,6 @@
+import { useSearchStore } from "../../../store/useSearchStore";
+import { endpointFieldError } from "../../../utils/endpointError";
+import { EndpointError } from "./EndpointError";
 import { memo, useState } from "react";
 import { motion } from "motion/react";
 import { Trash2, AlertCircle } from "lucide-react";
@@ -28,6 +31,8 @@ export const FetchApiCard = memo(function FetchApiCard({
   connectionStatus,
 }: FetchApiCardProps) {
   const { t } = useTranslation();
+  const connectionError = useSearchStore((s) => s.fetchErrors[config.id]);
+  const endpointError = endpointFieldError(config.baseUrl || "", connectionStatus, connectionError);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const keyValidation = validateFetchApiKey(
     apiKeyDraft || (hasStoredApiKey ? "stored-credential" : undefined),
@@ -126,6 +131,8 @@ export const FetchApiCard = memo(function FetchApiCard({
           <input
             id={`fetch-base-${config.id}`}
             type="url"
+            aria-invalid={!!endpointError}
+            aria-describedby={endpointError ? `endpoint-error-${config.id}` : undefined}
             value={config.baseUrl || ""}
             onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
             placeholder={
@@ -140,6 +147,7 @@ export const FetchApiCard = memo(function FetchApiCard({
             spellCheck="false"
             className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
           />
+          <EndpointError id={`endpoint-error-${config.id}`} message={endpointError} />
         </div>
 
         <div className="space-y-1">

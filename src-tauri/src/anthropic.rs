@@ -683,7 +683,13 @@ pub async fn check_api_anthropic(
         .header("x-api-key", api_key);
 
     let resp = request.send().await?;
-    Ok(resp.status().is_success())
+    if !resp.status().is_success() {
+        return Err(AppError::ApiError {
+            status: resp.status().as_u16(),
+            message: "Connection check was rejected by the provider".to_string(),
+        });
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

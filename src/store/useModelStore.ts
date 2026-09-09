@@ -1,3 +1,4 @@
+import { friendlyEndpointError } from "../utils/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -189,6 +190,7 @@ interface ModelState {
   selectedModel: string;
   temperature: number;
   apiKeys: Record<string, string>;
+  modelErrors: Record<string, string | undefined>;
   modelStatuses: ModelStatuses;
   titleConfig: TitleGenerationConfig;
   systemPrompt: string;
@@ -231,6 +233,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
   selectedModel: "",
   temperature: DEFAULT_TEMPERATURE,
   apiKeys: {},
+  modelErrors: {},
   modelStatuses: {},
   titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
   systemPrompt: "",
@@ -426,10 +429,16 @@ export const useModelStore = create<ModelState>((set, get) => ({
       }),
     );
 
+    const errors = { ...get().modelErrors };
     const newStatuses: ModelStatuses = { ...get().modelStatuses };
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       const model = toCheck[i];
+      if (get().models.find((current) => current.id === model.id) !== model) continue;
+      errors[model.id] =
+        result.status === "fulfilled" && result.value.status === "connected"
+          ? undefined
+          : friendlyEndpointError(result.status === "fulfilled" ? result.value.errorDetail : result.reason);
       if (result.status === "fulfilled") {
         newStatuses[model.id] = result.value.status;
         if (result.value.status === "connected") {
@@ -453,7 +462,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       }
     }
 
-    set({ modelStatuses: newStatuses });
+    set({ modelStatuses: newStatuses, modelErrors: errors });
     useUIStore.getState().setLoading("checkConnection", false);
   },
 
