@@ -19,6 +19,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { useTranslation } from "../utils/i18n";
 import remarkGfm from "remark-gfm";
+import { remarkCitations } from "../utils/remarkCitations";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
@@ -246,9 +247,11 @@ function extractText(children: React.ReactNode): string {
 const StreamingMarkdown = memo(function StreamingMarkdown({
   content,
   conversationId,
+  sources,
 }: {
   content: string;
   conversationId?: string;
+  sources?: Message["sources"];
 }) {
   const projectId = useChatStore(
     (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
@@ -271,12 +274,24 @@ const StreamingMarkdown = memo(function StreamingMarkdown({
           </button>
         );
       }
+      if (props.className === "citation-tag") {
+        return markdownComponents.a({
+          ...props,
+          href,
+          children: (
+            <>
+              <Globe size={13} aria-hidden="true" />
+              <span>{children}</span>
+            </>
+          ),
+        });
+      }
       return markdownComponents.a({ href, children, ...props });
     },
   };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={[remarkGfm, remarkMath, [remarkCitations, sources]]}
       rehypePlugins={[rehypeKatex]}
       components={components}
       skipHtml
@@ -291,18 +306,24 @@ function MessageContent({
   isStreaming,
   conversationId,
   role,
+  sources,
 }: {
   content: string;
   isStreaming: boolean;
   conversationId?: string;
   role?: string;
+  sources?: Message["sources"];
 }) {
   const deferredContent = useDeferredValue(content);
   const renderContent = isStreaming ? deferredContent : content;
 
   return (
     <>
-      <StreamingMarkdown content={renderContent} conversationId={role === "assistant" ? conversationId : undefined} />
+      <StreamingMarkdown
+        content={renderContent}
+        conversationId={role === "assistant" ? conversationId : undefined}
+        sources={role === "assistant" ? sources : undefined}
+      />
       {isStreaming && <span className="cursor-blink" aria-label="Generating response" />}
     </>
   );
@@ -2006,6 +2027,7 @@ const MessageBubble = memo(function MessageBubble({
                       isStreaming={isStreaming}
                       conversationId={conversationId}
                       role={message.role}
+                      sources={message.sources}
                     />
                   )
                 ) : null}

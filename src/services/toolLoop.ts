@@ -939,7 +939,7 @@ export function buildToolSystemPrompt(
 
   if (toolNames.has("search_query")) {
     prompt +=
-      "\n\nWhen you need current information, facts, or recent events, use search_query first. Use fetch_url when a result needs closer inspection. Synthesize the evidence and cite the sources you used.";
+      "\n\nWhen you need current information, facts, or recent events, use search_query first. Use fetch_url when a result needs closer inspection. Synthesize the evidence and cite the sources you used. Place a custom citation marker immediately after each supported claim using the citationId returned by search_query or a successful fetch_url, for example: The API supports streaming. [[cite:1]] Ordinary Markdown links remain ordinary links; use [[cite:N]] specifically for source tags. Cite only results that support the claim; never invent citation IDs or cite a failed fetch. Use separate markers when multiple sources support a claim. The app displays the source title and opens its URL.";
   }
 
   if (toolNames.has("invoke_subagent")) {
@@ -1393,6 +1393,15 @@ async function runWithToolLoop(
   let projectCapability: ProjectRunContext | null = null;
   let workspaceSnapshotActive = false;
   const collectedSources: { title: string; url: string }[] = [];
+  const citationIdsByUrl = new Map<string, number>();
+  const registerSource = (source: { title: string; url: string }): number => {
+    const existingId = citationIdsByUrl.get(source.url);
+    if (existingId !== undefined) return existingId;
+    collectedSources.push(source);
+    const citationId = collectedSources.length;
+    citationIdsByUrl.set(source.url, citationId);
+    return citationId;
+  };
   let contextDisclosureMessageId: string | null = null;
   let isFinalizingAfterToolLimit = false;
   let stepBudget: ToolStepBudget | undefined;
@@ -1693,6 +1702,7 @@ async function runWithToolLoop(
             content: "",
             timestamp: new Date(),
             isStreaming: true,
+            sources: collectedSources.length > 0 ? [...collectedSources] : undefined,
           },
         ]),
       }));
@@ -2429,8 +2439,9 @@ async function runWithToolLoop(
                 details: `Provider: ${searchConfig.provider}, Step ${budget.completedToolRounds + 1}`,
               });
               const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
-              resultContent = JSON.stringify(results);
-              results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
+              resultContent = JSON.stringify(
+                results.map((r) => ({ ...r, citationId: registerSource({ title: r.title, url: r.url }) })),
+              );
             } else if (fnName === "read_skill") {
               const skillId = fnArgs.id;
               logInfo("chat", `Tool loop read skill: ${skillId}`);
@@ -2533,7 +2544,8 @@ async function runWithToolLoop(
               const urlContent = await fetchUrlContent(fnArgs.url!, fnArgs.format);
               resultContent = JSON.stringify(urlContent);
               if (urlContent.status === "ok") {
-                collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
+                const citationId = registerSource({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
+                resultContent = JSON.stringify({ ...urlContent, citationId });
               } else {
                 isError = true;
               }
