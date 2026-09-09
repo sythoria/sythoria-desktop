@@ -413,3 +413,5 @@ export interface ModelConfig {
   interaction-time translucency suspension workaround.
 - **Internationalization (i18n)**: Implements dynamic locale switching for BCP 47 language keys (`en`, `es`, `fr`, `de`, `zh`, `ja`) with an automatic English fallback. State is saved persistently and updates `document.documentElement.lang`. Dictionaries are structured as modular files under `src/utils/i18n/` to keep code footprint minimal and simplify adding new locales.
 - **Licensing**: Sythoria is MIT-licensed. Contributions are accepted under the same terms, and third-party license information is summarized in `THIRD_PARTY_NOTICES.md`.
+
+- **Project file mentions**: Assistant Markdown links to project-relative files (for example `[App.tsx](src/App.tsx)`) open the originating conversation’s Review tab. Absolute links inside its registered project are also supported; external links retain the existing warning flow. Review shows the current diff when available, otherwise a bounded native file preview, including for non-Git projects. The project tool prompt teaches models this link format.

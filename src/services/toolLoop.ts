@@ -962,6 +962,7 @@ export function buildToolSystemPrompt(
 
   if (project) {
     prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
+    prompt += `\nWhen mentioning project files in conversation, use clickable Markdown links with project-relative paths, for example: I updated [App.tsx](src/App.tsx). These links open the file in the Review tab. Use the exact known file path, encode spaces as %20, and do not invent file references.`;
     prompt += `\nAll project file tools and project_bash operate directly in this exact project folder. Files written by one tool are immediately visible to every other tool and to the user. Use paths relative to the project path; do not assume an isolated worktree or a separate shell directory. Preserve pre-existing user changes and inspect the current file or Git diff before overwriting anything.`;
   }
   return prompt;

@@ -12,6 +12,7 @@ import {
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
+import { resolveProjectFileLink } from "../utils/projectFileLinks";
 import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
@@ -242,12 +243,42 @@ function extractText(children: React.ReactNode): string {
   return "";
 }
 
-const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content: string }) {
+const StreamingMarkdown = memo(function StreamingMarkdown({
+  content,
+  conversationId,
+}: {
+  content: string;
+  conversationId?: string;
+}) {
+  const projectId = useChatStore(
+    (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
+  );
+  const projectRoot = useProjectStore((state) => state.projects.find((project) => project.id === projectId)?.path);
+  const components = {
+    ...markdownComponents,
+    a({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+      const path = projectRoot && href ? resolveProjectFileLink(href, projectRoot) : null;
+      if (path && conversationId) {
+        return (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 text-accent underline decoration-accent/40 underline-offset-2 hover:bg-accent/20 focus-visible:outline focus-visible:outline-2"
+            title={`Open ${path} in review`}
+            onClick={() => openWorkspaceReview(conversationId, path)}
+          >
+            <FileCode size={13} aria-hidden="true" />
+            {children}
+          </button>
+        );
+      }
+      return markdownComponents.a({ href, children, ...props });
+    },
+  };
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeKatex]}
-      components={markdownComponents}
+      components={components}
       skipHtml
     >
       {content}
@@ -258,6 +289,8 @@ const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content
 function MessageContent({
   content,
   isStreaming,
+  conversationId,
+  role,
 }: {
   content: string;
   isStreaming: boolean;
@@ -269,7 +302,7 @@ function MessageContent({
 
   return (
     <>
-      <StreamingMarkdown content={renderContent} />
+      <StreamingMarkdown content={renderContent} conversationId={role === "assistant" ? conversationId : undefined} />
       {isStreaming && <span className="cursor-blink" aria-label="Generating response" />}
     </>
   );

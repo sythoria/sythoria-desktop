@@ -112,6 +112,72 @@ function PanelSpinner({ label }: { label: string }) {
   );
 }
 
+function ReviewFilePreview({
+  projectId,
+  conversationId,
+  path,
+  worktreePath,
+}: {
+  projectId: string;
+  conversationId: string | null;
+  path: string;
+  worktreePath?: string;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const scope = conversationId || `review:${projectId}`;
+    const branch = useChatStore.getState().conversations.find((conversation) => conversation.id === conversationId)
+      ?.pendingWorktree?.branch;
+    void (async () => {
+      let token: string | undefined;
+      try {
+        token = await invoke<string>("project_browse_begin", {
+          projectId,
+          conversationId: scope,
+          worktreePath: worktreePath || null,
+          branch: worktreePath ? branch || null : null,
+        });
+        if (cancelled) return;
+        const text = await invoke<string>("project_read", {
+          projectId,
+          runToken: token,
+          path,
+          offset: 1,
+          limit: 2000,
+          worktreePath: worktreePath || null,
+        });
+        if (!cancelled) setContent(text);
+      } catch (nextError) {
+        if (!cancelled) setError(errorMessage(nextError));
+      } finally {
+        if (token) await invoke("project_run_end", { runToken: token, conversationId: scope }).catch(() => {});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, conversationId, path, worktreePath]);
+  return (
+    <section className="min-h-0 flex-1 overflow-auto p-4" aria-label={`Review ${path}`}>
+      <h3 className="mb-3 break-all font-mono text-xs">{path}</h3>
+      {error ? (
+        <p role="alert" className="text-sm text-text-muted">
+          Unable to open this file: {error}
+        </p>
+      ) : content === null ? (
+        <PanelSpinner label="Loading file…" />
+      ) : (
+        <>
+          <p className="mb-3 text-xs text-text-muted">File preview · first 2,000 lines</p>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{content}</pre>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ReviewPane({
   projectId,
   worktreePath,
@@ -171,9 +237,7 @@ function ReviewPane({
       setStatus(nextStatus);
       setFiles(parsed);
       const requestedPath = useUIStore.getState().activeReviewFilePath;
-      setSelectedPath(
-        requestedPath && parsed.some((file) => file.path === requestedPath) ? requestedPath : parsed[0]?.path || null,
-      );
+      setSelectedPath(requestedPath || parsed[0]?.path || null);
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
@@ -185,7 +249,7 @@ function ReviewPane({
     queueMicrotask(() => void refresh());
   }, [refresh]);
 
-  const selectedFile = files.find((file) => file.path === selectedPath) || files[0];
+  const selectedFile = selectedPath ? files.find((file) => file.path === selectedPath) : files[0];
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
 
@@ -270,7 +334,15 @@ function ReviewPane({
           ))}
       </div>
 
-      {error ? (
+      {selectedPath && !selectedFile ? (
+        <ReviewFilePreview
+          key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
+          projectId={projectId}
+          conversationId={conversationId}
+          path={selectedPath}
+          worktreePath={worktreePath}
+        />
+      ) : error ? (
         <EmptyState icon={AlertCircle} title="Couldn’t load changes" detail={error} />
       ) : files.length === 0 ? (
         <EmptyState
