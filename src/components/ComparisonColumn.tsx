@@ -16,7 +16,7 @@ interface ComparisonColumnProps {
   models: ModelConfig[];
   onModelChange: (modelId: string) => void;
   onClose?: () => void;
-  onRetry: () => void;
+  onRetry: (messageId: string) => void;
   isStreaming: boolean;
   onScroll?: (scrollTop: number, ratio: number) => void;
 }

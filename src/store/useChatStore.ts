@@ -399,7 +399,7 @@ interface ChatState {
     mcpServerIds?: string[],
     searchConfigId?: string | null,
   ) => Promise<SendMessageStatus>;
-  retryLastMessage: (convId: string) => Promise<void>;
+  retryLastMessage: (convId: string, messageId?: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
   importConversations: (imported: Conversation[]) => Promise<void>;
@@ -1373,7 +1373,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return stopped;
   },
 
-  retryLastMessage: async (convId) => {
+  retryLastMessage: async (convId, messageId) => {
     const { isStreaming, conversations } = get();
     const { selectedModel, models, temperature } = useModelStore.getState();
 
@@ -1383,8 +1383,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conv || conv.messages.length === 0) return;
 
     const { isProjectsEnabled, projects } = useProjectStore.getState();
+    const targetIdx =
+      messageId === undefined
+        ? conv.messages.length - 1
+        : conv.messages.findIndex((message) => message.id === messageId);
+    if (targetIdx < 0) return;
+
     let lastUserIdx = -1;
-    for (let i = conv.messages.length - 1; i >= 0; i--) {
+    for (let i = targetIdx; i >= 0; i--) {
       if (conv.messages[i].role === "user") {
         lastUserIdx = i;
         break;
@@ -1423,6 +1429,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uiToast(`${runContext.modelConfig.name} does not support image attachments.`, "error");
       return;
     }
+
+    // Preparation can reconnect tools asynchronously; never overwrite a newer conversation.
+    const currentConversation = get().conversations.find((c) => c.id === convId);
+    if (get().isStreaming || currentConversation?.messages !== conv.messages) return;
 
     const trimmed = conv.messages.slice(0, lastUserIdx + 1);
 

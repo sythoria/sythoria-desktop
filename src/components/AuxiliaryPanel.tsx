@@ -1230,7 +1230,7 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
           <ChatArea
             messages={messages}
             conversationId={conversationId}
-            onRetry={() => void retryLastMessage(conversationId)}
+            onRetry={(messageId) => void retryLastMessage(conversationId, messageId)}
           />
         )}
       </div>

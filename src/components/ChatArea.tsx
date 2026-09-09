@@ -72,7 +72,7 @@ interface ChatAreaProps {
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
   virtuosoRef?: React.RefObject<VirtuosoHandle | null>;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
@@ -864,7 +864,11 @@ function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
         )}
       </div>
       <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
-        <ChatAreaBase messages={conv.messages || []} onRetry={() => {}} conversationId={conv.id} />
+        <ChatAreaBase
+          messages={conv.messages || []}
+          onRetry={(messageId) => void useChatStore.getState().retryLastMessage(conv.id, messageId)}
+          conversationId={conv.id}
+        />
       </div>
     </div>
   );
@@ -1813,7 +1817,7 @@ const MessageBubble = memo(function MessageBubble({
   animateEntrance = false,
 }: {
   message: Message;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
   autoExpandReasoning?: boolean;
   hideReasoningActivity?: boolean;
@@ -2057,7 +2061,7 @@ const MessageBubble = memo(function MessageBubble({
             onSourceClick={
               message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
             }
-            onRetry={onRetry}
+            onRetry={() => onRetry?.(message.id)}
           />
         )}
         <AnimatePresence>
@@ -2080,7 +2084,7 @@ function ToolActivityDisclosure({
 }: {
   activity: ToolActivityGroup;
   isActive: boolean;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
@@ -2250,7 +2254,7 @@ function ChatRenderItemView({
 }: {
   item: ChatRenderItem;
   activeToolActivityId?: string;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
@@ -2520,7 +2524,7 @@ function NonVirtualizedChatArea({
 }: {
   renderItems: ChatRenderItem[];
   setIsAtBottom?: (v: boolean) => void;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;

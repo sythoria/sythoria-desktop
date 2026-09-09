@@ -186,6 +186,8 @@ Model, web search, URL fetch, and MCP cards show accessible inline URL validatio
 
 Native and MCP file write/edit results capture bounded diff hunks for the inline diff card. When a write fails, the stored diff describes the intended change and carries the error separately instead of falling back to the generic arguments/result view. Failed writes to previously absent paths are classified as `Create failed`; failures against existing files are classified as `Edit failed`.
 
+**Message retry**: Message-level Regenerate actions pass the selected message ID to `retryLastMessage(convId, messageId)`. Retry retains history through that turn’s user prompt and removes its old response, tool activity, and all later messages before regenerating. Omitting the ID keeps the keyboard shortcut’s latest-prompt behavior. Capability validation completes before history is trimmed.
+
 **Chat deletion**: Discover the selected conversation and all descendant subagents → reject their pending tool confirmations → mark their runs stopped → await bounded stream and conversation-scoped MCP cancellation → discard any unique legacy recovery worktree → atomically remove conversation/history/compare records → persist. Legacy discard is idempotent for an already-missing worktree only after its Sythoria path/branch identity is validated. Non-empty temporary chats use this same full-deletion path when the user switches away.
 
 **Direct Workspace Change Flow**: If writing to a project:

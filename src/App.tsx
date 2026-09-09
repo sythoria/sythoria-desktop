@@ -1083,9 +1083,12 @@ function App() {
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
 
-  const handleRetry = useCallback(() => {
-    if (activeId) retryLastMessage(activeId);
-  }, [activeId, retryLastMessage]);
+  const handleRetry = useCallback(
+    (messageId: string) => {
+      if (activeId) retryLastMessage(activeId, messageId);
+    },
+    [activeId, retryLastMessage],
+  );
 
   const renderArtifactContent = () => {
     if (!activeArtifact) return null;
@@ -1177,8 +1180,8 @@ function App() {
   );
 
   const handleCompareRetry = useCallback(
-    (cId: string) => {
-      retryLastMessage(cId);
+    (cId: string, messageId: string) => {
+      retryLastMessage(cId, messageId);
     },
     [retryLastMessage],
   );
@@ -1559,7 +1562,7 @@ function App() {
                                   models={models}
                                   onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
                                   onClose={() => handleCompareClose(c.id)}
-                                  onRetry={() => handleCompareRetry(c.id)}
+                                  onRetry={(messageId) => handleCompareRetry(c.id, messageId)}
                                   isStreaming={isStreaming}
                                   onScroll={
                                     syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined

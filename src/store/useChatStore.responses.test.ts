@@ -90,6 +90,23 @@ it("retains and replays native Responses items in a plain chat without enabling 
   expect(request.messages.some((message) => JSON.stringify(message.responses_output) === JSON.stringify(output))).toBe(
     true,
   );
+
+  // Retrying the earlier response must discard the later user turn and its response.
+  await useChatStore.getState().retryLastMessage("plain", assistant!.id);
+  await vi.waitFor(() => expect(useChatStore.getState().isStreaming).toBe(false));
+  const retriedMessages = useChatStore.getState().conversations[0].messages;
+  expect(retriedMessages.map((message) => [message.role, message.content])).toEqual([
+    ["user", "Hi"],
+    ["assistant", "Hello"],
+  ]);
+  expect(retriedMessages[1].id).not.toBe(assistant!.id);
+  const retryRequest = vi.mocked(invoke).mock.calls[2][1] as { messages: { content: string }[] };
+  expect(retryRequest.messages.some((message) => message.content === "Continue")).toBe(false);
+
+  const callsBeforeInvalidRetry = vi.mocked(invoke).mock.calls.length;
+  await useChatStore.getState().retryLastMessage("plain", "deleted-message");
+  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(callsBeforeInvalidRetry);
+  expect(useChatStore.getState().conversations[0].messages).toEqual(retriedMessages);
 });
 
 it("keeps the existing response when retry capabilities are unavailable", async () => {
