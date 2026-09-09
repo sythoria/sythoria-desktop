@@ -580,6 +580,11 @@ export const fr = {
   "settings.search.addBtn": "Ajouter un moteur de recherche",
   "settings.search.enabled": "Actif",
   "settings.search.enabledDesc": "Afficher dans le sélecteur de recherche",
+  "settings.search.testRequestNotice":
+    "Les vérifications confirment uniquement que le serveur est accessible. Aucun jeton API n’est envoyé.",
+  "settings.search.testConnections": "Tester",
+  "settings.search.refreshConnections": "Tester les connexions de recherche",
+  "settings.search.refreshFetchConnections": "Tester les connexions de récupération",
   "settings.search.deleteConfirm": "Supprimer ce service de recherche ?",
   "settings.search.deleteTitle": "Supprimer la recherche",
   "settings.search.name": "Nom",

@@ -1393,6 +1393,22 @@ async fn check_ollama() -> Result<Vec<String>, AppError> {
 }
 
 #[tauri::command]
+async fn check_web_endpoint(endpoint_url: String) -> Result<bool, AppError> {
+    ensure_online()?;
+    let endpoint = endpoint_security::validate_http_endpoint(
+        &endpoint_url,
+        false,
+        std::time::Duration::from_secs(10),
+    )
+    .await?;
+
+    // Reachability only: do not attach credentials and accept any HTTP status.
+    // A 4xx/5xx response still proves that the configured server answered.
+    endpoint.client.head(endpoint.url).send().await?;
+    Ok(true)
+}
+
+#[tauri::command]
 async fn web_search(
     provider: String,
     query: String,
@@ -2704,6 +2720,7 @@ pub fn run() {
             generate_title,
             check_api,
             check_ollama,
+            check_web_endpoint,
             web_search,
             fetch_url_content,
             ws_authenticate,

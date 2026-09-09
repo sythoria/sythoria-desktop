@@ -591,6 +591,11 @@ export const es = {
   "settings.search.addBtn": "Agregar API de Búsqueda",
   "settings.search.enabled": "Activo",
   "settings.search.enabledDesc": "Mostrar en la selección de API de búsqueda",
+  "settings.search.testRequestNotice":
+    "Las comprobaciones solo verifican que el servidor sea accesible. No se envían tokens de API.",
+  "settings.search.testConnections": "Probar",
+  "settings.search.refreshConnections": "Probar conexiones de búsqueda",
+  "settings.search.refreshFetchConnections": "Probar conexiones de obtención",
   "settings.search.deleteConfirm": "¿Estás seguro de que deseas eliminar esta API de búsqueda?",
   "settings.search.deleteTitle": "Eliminar API de Búsqueda",
   "settings.search.name": "Nombre",

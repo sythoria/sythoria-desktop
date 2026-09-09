@@ -93,6 +93,19 @@ export function searchFetchUrlContent(...args: Parameters<SearchState["fetchUrlC
   return useSearchStore.getState().fetchUrlContent(...args);
 }
 
+export function searchCheckConnections() {
+  const state = useSearchStore.getState();
+  return Promise.all([state.checkSearchConnections(), state.checkFetchConnections()]);
+}
+
+export function searchStartConnectionChecks() {
+  useSearchStore.getState().startConnectionChecks();
+}
+
+export function searchStopConnectionChecks() {
+  useSearchStore.getState().stopConnectionChecks();
+}
+
 export function mcpSetState(partial: Partial<McpState>) {
   useMcpStore.setState(partial);
 }

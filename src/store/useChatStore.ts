@@ -101,6 +101,9 @@ import {
   searchSetState,
   searchPerformSearch,
   searchFetchUrlContent,
+  searchCheckConnections,
+  searchStartConnectionChecks,
+  searchStopConnectionChecks,
   mcpSetState,
 } from "./helpers";
 import { useModelStore } from "./useModelStore";
@@ -619,8 +622,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       searchSetState({
         searchConfigs,
         activeSearchId: searchConfigs.find((c) => c.enabled)?.id ?? null,
+        searchStatuses: Object.fromEntries(searchConfigs.map((config) => [config.id, "disconnected" as const])),
         fetchConfigs,
         activeFetchId: fetchConfigs.find((c) => c.enabled)?.id ?? null,
+        fetchStatuses: Object.fromEntries(fetchConfigs.map((config) => [config.id, "disconnected" as const])),
         searchApiKeys: loadedSearchKeys,
       });
 
@@ -710,6 +715,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!loadedDisableBgActivity) {
           modelCheckConnections();
           modelStartHealthCheck();
+          if (!loadedNetworkSettings.offlineMode) {
+            void searchCheckConnections();
+            searchStartConnectionChecks();
+          }
         }
         useMcpStore.getState().connectAllEnabled();
       }, 500);
@@ -1813,6 +1822,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   cleanup: () => {
     modelStopHealthCheck();
+    searchStopConnectionChecks();
     void get().stopStreaming();
     modelReleaseListeners();
   },

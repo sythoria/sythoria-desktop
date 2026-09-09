@@ -53,6 +53,9 @@ export default function Settings() {
   const updateSearchConfig = useSearchStore((s) => s.updateSearchConfig);
   const deleteSearchConfig = useSearchStore((s) => s.deleteSearchConfig);
   const addSearchConfig = useSearchStore((s) => s.addSearchConfig);
+  const searchApiKeys = useSearchStore((s) => s.searchApiKeys);
+  const searchStatuses = useSearchStore((s) => s.searchStatuses);
+  const checkSearchConnections = useSearchStore((s) => s.checkSearchConnections);
 
   const fetchConfigs = useSearchStore((s) => s.fetchConfigs);
   const activeFetchId = useSearchStore((s) => s.activeFetchId);
@@ -60,6 +63,8 @@ export default function Settings() {
   const updateFetchConfig = useSearchStore((s) => s.updateFetchConfig);
   const deleteFetchConfig = useSearchStore((s) => s.deleteFetchConfig);
   const addFetchConfig = useSearchStore((s) => s.addFetchConfig);
+  const fetchStatuses = useSearchStore((s) => s.fetchStatuses);
+  const checkFetchConnections = useSearchStore((s) => s.checkFetchConnections);
 
   const mcpConfigs = useMcpStore((s) => s.mcpConfigs);
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
@@ -90,18 +95,8 @@ export default function Settings() {
 
   const newChat = useChatStore((s) => s.newChat);
 
-  const [showSearchKeys, setShowSearchKeys] = useState<Record<string, boolean>>({});
-  const [showFetchKeys, setShowFetchKeys] = useState<Record<string, boolean>>({});
   const [showMcpKeys, setShowMcpKeys] = useState<Record<string, boolean>>({});
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
-
-  const toggleSearchKeyVisibility = (id: string) => {
-    setShowSearchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const toggleFetchKeyVisibility = (id: string) => {
-    setShowFetchKeys((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
 
   const toggleMcpKeyVisibility = (id: string) => {
     setShowMcpKeys((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -241,14 +236,15 @@ export default function Settings() {
                 updateSearchConfig={updateSearchConfig}
                 deleteSearchConfig={deleteSearchConfig}
                 addSearchConfig={addSearchConfig}
-                showSearchKeys={showSearchKeys}
-                toggleSearchKeyVisibility={toggleSearchKeyVisibility}
+                searchApiKeys={searchApiKeys}
+                searchStatuses={searchStatuses}
+                checkSearchConnections={checkSearchConnections}
                 fetchConfigs={fetchConfigs}
                 updateFetchConfig={updateFetchConfig}
                 deleteFetchConfig={deleteFetchConfig}
                 addFetchConfig={addFetchConfig}
-                showFetchKeys={showFetchKeys}
-                toggleFetchKeyVisibility={toggleFetchKeyVisibility}
+                fetchStatuses={fetchStatuses}
+                checkFetchConnections={checkFetchConnections}
               />
             )}
 

@@ -564,9 +564,23 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        useSearchStore.getState().stopConnectionChecks();
+        useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
+      });
     } else {
       useModelStore.getState().startHealthCheck();
       useModelStore.getState().checkModelConnections();
+      if (!get().offlineMode) {
+        void import("./useSearchStore").then(({ useSearchStore }) => {
+          if (get().disableBgActivity || get().offlineMode) return;
+          useSearchStore.getState().startConnectionChecks();
+          void Promise.all([
+            useSearchStore.getState().checkSearchConnections(),
+            useSearchStore.getState().checkFetchConnections(),
+          ]);
+        });
+      }
     }
   },
   setBlockedHosts: (value) => {
@@ -596,6 +610,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        useSearchStore.getState().stopConnectionChecks();
+        useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
+      });
       import("./useMcpStore")
         .then(async ({ useMcpStore }) => {
           const mcpState = useMcpStore.getState();
@@ -608,6 +626,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     } else if (!useUIStore.getState().disableBgActivity) {
       useModelStore.getState().startHealthCheck();
       void useModelStore.getState().checkModelConnections();
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        if (get().disableBgActivity || get().offlineMode) return;
+        useSearchStore.getState().startConnectionChecks();
+        void Promise.all([
+          useSearchStore.getState().checkSearchConnections(),
+          useSearchStore.getState().checkFetchConnections(),
+        ]);
+      });
     }
     void saveNetworkSettings({ blockedHosts, allowedLocalEndpoints, offlineMode: value }).catch((error) => {
       if (get().offlineMode === value) set({ offlineMode: previous });
@@ -616,6 +642,14 @@ export const useUIStore = create<UIState>((set, get) => ({
       if (!previous && !get().disableBgActivity) {
         useModelStore.getState().startHealthCheck();
         void useModelStore.getState().checkModelConnections();
+        void import("./useSearchStore").then(({ useSearchStore }) => {
+          if (get().disableBgActivity || get().offlineMode) return;
+          useSearchStore.getState().startConnectionChecks();
+          void Promise.all([
+            useSearchStore.getState().checkSearchConnections(),
+            useSearchStore.getState().checkFetchConnections(),
+          ]);
+        });
       }
     });
   },

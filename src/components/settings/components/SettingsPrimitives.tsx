@@ -53,7 +53,7 @@ export function SettingsHeaderButton({ children, onClick, ariaLabel, disabled = 
       whileHover={{ scale: motionTokens.scale.pop }}
       whileTap={{ scale: motionTokens.scale.press }}
       transition={springs.snappy}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
+      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded-lg bg-input text-text-primary hover:bg-hover border border-border text-sm font-medium transition-colors shadow-sm min-h-[44px]"
       aria-label={ariaLabel}
     >
       {children}

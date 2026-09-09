@@ -575,6 +575,11 @@ export const en = {
   "settings.search.addBtn": "Add Search API",
   "settings.search.enabled": "Enabled",
   "settings.search.enabledDesc": "Show in search API selector",
+  "settings.search.testRequestNotice":
+    "Connection checks only verify that the server is reachable. API tokens are not sent.",
+  "settings.search.testConnections": "Test",
+  "settings.search.refreshConnections": "Test search connections",
+  "settings.search.refreshFetchConnections": "Test fetch connections",
   "settings.search.deleteConfirm": "Are you sure you want to delete this search API?",
   "settings.search.deleteTitle": "Delete Search API",
   "settings.search.name": "Name",
