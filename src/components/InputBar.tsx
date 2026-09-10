@@ -48,16 +48,21 @@ import { useTranslation } from "../utils/i18n";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
 import { useShallow } from "zustand/react/shallow";
 import { PromptEditor, type PromptDraft, type PromptDraftChangeOrigin, type PromptEditorHandle } from "./PromptEditor";
+import { WorkspaceChangeIndicator } from "./WorkspaceChangeIndicator";
 
 interface InputBarProps {
   models: ModelConfig[];
-  onSend: (message: string, attachments?: Attachment[], mcpServerIds?: string[]) => Promise<SendMessageStatus>;
+  onSend: (
+    message: string,
+    attachments?: Attachment[],
+    mcpServerIds?: string[],
+    searchConfigId?: string | null,
+  ) => Promise<SendMessageStatus>;
   selectedModel: string;
   onModelChange: (model: string) => void;
   disabled?: boolean;
   modelStatuses: ModelStatuses;
-  isSearchEnabled: boolean;
-  onToggleSearch: (enabled: boolean) => void;
+  searchConfigId?: string | null;
   mcpServers: McpServerConfig[];
   mcpServerStatuses: Record<string, McpServerStatus>;
   isStreaming?: boolean;
@@ -76,8 +81,7 @@ export default memo(function InputBar({
   onModelChange,
   disabled,
   modelStatuses,
-  isSearchEnabled,
-  onToggleSearch,
+  searchConfigId,
   mcpServers,
   mcpServerStatuses,
   isStreaming,
@@ -91,6 +95,7 @@ export default memo(function InputBar({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [mcpMentionServerIds, setMcpMentionServerIds] = useState<string[]>([]);
+  const [hasWebSearchMention, setHasWebSearchMention] = useState(false);
   const elementId = (id: string) => (idPrefix ? `${idPrefix}-${id}` : id);
   const [plusOpen, setPlusOpen] = useState(false);
   const [contextDetailsShiftX, setContextDetailsShiftX] = useState(0);
@@ -157,6 +162,7 @@ export default memo(function InputBar({
     (draft: PromptDraft, origin: PromptDraftChangeOrigin) => {
       setValue(draft.text);
       setMcpMentionServerIds(draft.mcpServerIds);
+      setHasWebSearchMention(draft.hasWebSearchMention);
       if (origin === "user" && voiceDraft && draft.text.trim() !== voiceDraft.trim()) setVoiceDraft("");
     },
     [voiceDraft],
@@ -170,10 +176,6 @@ export default memo(function InputBar({
     editorHandleRef.current?.saveSelection();
   }, []);
 
-  const insertEditorLineBreak = useCallback(() => {
-    editorHandleRef.current?.insertLineBreak();
-  }, []);
-
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
       if (disabled || isStreaming) return;
@@ -181,6 +183,12 @@ export default memo(function InputBar({
     },
     [disabled, isStreaming],
   );
+
+  const insertWebSearchMention = useCallback(() => {
+    if (disabled || isStreaming || !searchConfigId) return;
+    editorHandleRef.current?.insertWebSearchMention();
+    setPlusOpen(false);
+  }, [disabled, isStreaming, searchConfigId]);
 
   const sendMessageShortcut = useUIStore((s) => s.sendMessageShortcut);
   const clearInputOnEscape = useUIStore((s) => s.clearInputOnEscape);
@@ -191,7 +199,6 @@ export default memo(function InputBar({
   const storeActiveConversationId = useChatStore((s) => s.activeId);
   const activeConversationId = conversationId || storeActiveConversationId;
   const conversation = useChatStore((s) => s.conversations.find((c) => c.id === activeConversationId));
-  const hasPendingWorktree = Boolean(conversation?.pendingWorktree);
   const setConversationProject = useChatStore((s) => s.setConversationProject);
   const systemPrompt = useModelStore((s) => s.systemPrompt);
 
@@ -467,7 +474,7 @@ export default memo(function InputBar({
       recordingAbortRef.current?.abort();
       recordingAbortRef.current = sessionAbort;
       try {
-        initialValueRef.current = value;
+        initialValueRef.current = editorHandleRef.current?.readDraft().plainText ?? value;
         await invoke("start_recording", { sessionId });
         if (sessionAbort.signal.aborted) {
           await invoke("stop_recording", { sessionId });
@@ -558,7 +565,7 @@ export default memo(function InputBar({
       xlarge: "text-lg",
     }[baseTextSize] || "text-sm";
 
-  const anyToolActive = isSearchEnabled || mcpMentionServerIds.length > 0;
+  const anyToolActive = hasWebSearchMention || mcpMentionServerIds.length > 0;
   const connectedMcpServers = mcpServers.filter((s) => (mcpServerStatuses[s.id] ?? "disconnected") === "connected");
 
   const isOverLimit = value.length > MAX_INPUT_LENGTH;
@@ -584,7 +591,7 @@ export default memo(function InputBar({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const handleToggleProjectPermission = (perm: ProjectPermission) => {
+  const handleToggleProjectPermission = async (perm: ProjectPermission) => {
     if (!activeProject) return;
     if (perm === "full" && activeProject.permissions !== "full") {
       const confirmed = window.confirm(
@@ -592,22 +599,32 @@ export default memo(function InputBar({
       );
       if (!confirmed) return;
     }
-    updateProject(activeProject.id, { permissions: perm });
-    setProjectDropdownOpen(false);
+    try {
+      await updateProject(activeProject.id, { permissions: perm });
+      setProjectDropdownOpen(false);
+    } catch (error) {
+      addToast(
+        `Could not save project permissions: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
+      );
+    }
   };
 
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
     // The contenteditable DOM is the authoritative draft. Reading it here keeps
-    // a newly inserted MCP mention from being lost when send happens before the
+    // a newly inserted tool mention from being lost when send happens before the
     // corresponding React state update has rendered.
     const submittedDraft = editorHandleRef.current?.readDraft() ?? {
       text: value,
+      plainText: value,
       mcpServerIds: mcpMentionServerIds,
+      hasWebSearchMention,
     };
     const submittedValue = submittedDraft.text;
     const submittedText = submittedValue.trim();
     const submittedMcpServerIds = [...submittedDraft.mcpServerIds];
+    const submittedHasWebSearchMention = submittedDraft.hasWebSearchMention;
     const submittedAttachments = attachments;
     if ((submittedText.length === 0 && submittedAttachments.length === 0) || submittedValue.length > MAX_INPUT_LENGTH) {
       return;
@@ -616,17 +633,26 @@ export default memo(function InputBar({
       submittedText,
       submittedAttachments.length > 0 ? submittedAttachments : undefined,
       submittedMcpServerIds,
+      submittedHasWebSearchMention ? (searchConfigId ?? null) : null,
     );
     if (status !== "accepted") return;
 
     const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id));
-    const currentDraft = editorHandleRef.current?.readDraft() ?? { text: "", mcpServerIds: [] };
+    const currentDraft = editorHandleRef.current?.readDraft() ?? {
+      text: "",
+      plainText: "",
+      mcpServerIds: [],
+      hasWebSearchMention: false,
+    };
     const mentionsAreUnchanged =
       currentDraft.mcpServerIds.length === submittedMcpServerIds.length &&
-      currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]);
-    if (currentDraft.text === submittedValue && mentionsAreUnchanged) replaceEditorText("");
+      currentDraft.mcpServerIds.every((serverId, index) => serverId === submittedMcpServerIds[index]) &&
+      currentDraft.hasWebSearchMention === submittedHasWebSearchMention;
+    if (currentDraft.text === submittedValue && mentionsAreUnchanged) {
+      editorHandleRef.current?.clearDraft();
+    }
     setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)));
-  }, [canSend, value, mcpMentionServerIds, attachments, onSend, replaceEditorText, setAttachments]);
+  }, [canSend, value, mcpMentionServerIds, hasWebSearchMention, attachments, onSend, searchConfigId, setAttachments]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -640,31 +666,19 @@ export default memo(function InputBar({
       }
 
       if (clearInputOnEscape && e.key === "Escape") {
-        replaceEditorText("");
+        editorHandleRef.current?.clearDraft();
         return;
       }
 
       if (e.key === "Enter") {
-        if (sendMessageShortcut === "ctrl-enter") {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            void handleSubmit();
-          } else {
-            e.preventDefault();
-            insertEditorLineBreak();
-          }
-        } else {
-          if (!e.shiftKey) {
-            e.preventDefault();
-            void handleSubmit();
-          } else {
-            e.preventDefault();
-            insertEditorLineBreak();
-          }
-        }
+        const shouldSend = sendMessageShortcut === "ctrl-enter" ? e.ctrlKey || e.metaKey : !e.shiftKey;
+        if (!shouldSend) return;
+
+        e.preventDefault();
+        void handleSubmit();
       }
     },
-    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape, replaceEditorText, insertEditorLineBreak],
+    [plusOpen, handleSubmit, sendMessageShortcut, clearInputOnEscape],
   );
 
   const handleClipboardPaste = useCallback(
@@ -775,7 +789,7 @@ export default memo(function InputBar({
   const contextBudget = currentModel
     ? resolveContextBudget(
         currentModel,
-        isSearchEnabled || mcpMentionServerIds.length > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
+        hasWebSearchMention || mcpMentionServerIds.length > 0 || (isProjectsEnabled && effectiveProject) ? [{}] : [],
       )
     : null;
   const contextSize = contextBudget?.contextTokens;
@@ -811,7 +825,7 @@ export default memo(function InputBar({
     let cancelled = false;
     setEndpointTokenCount({ count: null, loading: true, error: null });
     const timeout = window.setTimeout(() => {
-      const messages = buildConversationContextMessages(conversation?.messages ?? []);
+      const messages = buildConversationContextMessages(conversation?.messages ?? [], currentModel);
       if (activeSystemPrompt.trim()) {
         messages.unshift({ role: "system", content: activeSystemPrompt });
       }
@@ -890,6 +904,45 @@ export default memo(function InputBar({
     };
   }, [centered]);
 
+  useEffect(() => {
+    const dock = composerDockRef.current;
+    const container = dock?.parentElement;
+    if (centered || !dock || !container) return;
+
+    // The message column is centered inside the scroll viewport, whose usable
+    // width can exclude a classic scrollbar. Match that viewport so the fixed
+    // composer does not shift sideways when scrolling starts or virtualization changes.
+    let scroller: HTMLElement | null = null;
+    let scrollerObserver: ResizeObserver | null = null;
+
+    const alignToScrollViewport = () => {
+      const nextScroller = container.querySelector<HTMLElement>("[data-chat-scroll]");
+      if (nextScroller !== scroller) {
+        scrollerObserver?.disconnect();
+        scroller = nextScroller;
+        if (scroller && typeof ResizeObserver !== "undefined") {
+          scrollerObserver = new ResizeObserver(alignToScrollViewport);
+          scrollerObserver.observe(scroller);
+        }
+      }
+
+      const scrollbarWidth = scroller ? Math.max(0, scroller.offsetWidth - scroller.clientWidth) : 0;
+      dock.style.right = `${scrollbarWidth}px`;
+    };
+
+    alignToScrollViewport();
+    const mutationObserver = new MutationObserver(alignToScrollViewport);
+    mutationObserver.observe(container, { childList: true, subtree: true });
+    window.addEventListener("resize", alignToScrollViewport);
+
+    return () => {
+      scrollerObserver?.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", alignToScrollViewport);
+      dock.style.removeProperty("right");
+    };
+  }, [centered]);
+
   const composerVisualStateClasses = `${
     conversation?.isTemporary
       ? "border-dashed !border-text-secondary/45 bg-accent/[0.03] focus-within:!border-accent/60"
@@ -908,8 +961,24 @@ export default memo(function InputBar({
           : "absolute inset-x-0 bottom-0 z-20 px-4 pt-2 md:px-0"
       }`}
     >
+      <button
+        type="button"
+        hidden
+        tabIndex={-1}
+        aria-hidden="true"
+        data-search-insert
+        disabled={!searchConfigId}
+        onClick={insertWebSearchMention}
+      />
       {!centered && <div className="chat-composer-backdrop" aria-hidden="true" />}
-      <div className={`relative z-10 w-full max-w-4xl mx-auto px-2 sm:px-6 ${centered ? "" : "pt-2"}`}>
+      <div
+        className={`relative z-10 mx-auto w-full ${
+          centered ? "max-w-4xl px-2 sm:px-6" : "chat-column-content"
+        } ${centered ? "" : "pt-2"}`}
+      >
+        {!centered && !conversation?.isSubagent && (
+          <WorkspaceChangeIndicator conversationId={activeConversationId ?? undefined} />
+        )}
         {conversation?.isSubagent ? (
           <div className="flex flex-col items-center justify-center p-4 bg-surface/50 border border-border rounded-xl text-text-muted text-sm select-none">
             <Bot size={24} className="mb-2 text-text-muted/70" />
@@ -1103,20 +1172,15 @@ export default memo(function InputBar({
                             <span>{t("chat.addFile") || "Add File"}</span>
                           </button>
                           <button
-                            onClick={() => {
-                              onToggleSearch(!isSearchEnabled);
-                              setPlusOpen(false);
-                            }}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                              isSearchEnabled
-                                ? "text-text-primary bg-active"
-                                : "text-text-secondary hover:bg-hover hover:text-text-primary"
-                            }`}
-                            role="menuitemcheckbox"
-                            aria-checked={isSearchEnabled}
+                            type="button"
+                            onClick={insertWebSearchMention}
+                            disabled={!searchConfigId}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            role="menuitem"
                           >
-                            <Search size={15} className={isSearchEnabled ? "text-text-primary" : "text-text-muted"} />
-                            <span>{t("chat.webSearch") || "Web Search"}</span>
+                            <Search size={15} className="text-text-muted" />
+                            <span className="flex-1 text-left">{t("chat.webSearch") || "Web Search"}</span>
+                            <Plus size={13} className="text-text-muted ml-1 shrink-0" aria-hidden="true" />
                           </button>
                           <button
                             onClick={() => {
@@ -1170,9 +1234,9 @@ export default memo(function InputBar({
                     }
                     disabled={disabled}
                     invalid={isOverLimit}
-                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0}
-                    hasMcpMentions={mcpMentionServerIds.length > 0}
+                    isEmpty={value.length === 0 && mcpMentionServerIds.length === 0 && !hasWebSearchMention}
                     maxHeight={MAX_TEXTAREA_HEIGHT}
+                    webSearchLabel={t("chat.webSearch") || "Web Search"}
                     onDraftChange={handleEditorDraftChange}
                     onKeyDown={handleKeyDown}
                     onPasteText={handlePastedText}
@@ -1397,9 +1461,9 @@ export default memo(function InputBar({
               </div>
 
               {/* Active Tools and Context Row */}
-              {(isProjectsEnabled || isSearchEnabled) && (
+              {isProjectsEnabled && (
                 <div
-                  className={`relative flex flex-wrap items-center gap-2 ${projectDropdownOpen ? "z-30" : "z-0"} ${
+                  className={`relative z-0 flex flex-wrap items-center gap-2 ${
                     isProjectsEnabled
                       ? `chat-composer-surface chat-composer-project-row -mt-px mx-4 min-h-10 w-[calc(100%-2rem)] rounded-b-2xl border-x border-b border-input-border px-3 py-2 transition-colors group-focus-within/input-bar:border-accent/60 ${projectRowGenerationClass} ${
                           conversation?.isTemporary
@@ -1489,14 +1553,6 @@ export default memo(function InputBar({
                                   <FolderPlus size={15} className="text-accent" />
                                   <span>Add Project Workspace...</span>
                                 </button>
-                                {hasPendingWorktree && (
-                                  <div
-                                    className="mx-1 my-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-400"
-                                    role="status"
-                                  >
-                                    Resolve pending workspace changes before selecting another project.
-                                  </div>
-                                )}
                                 {projects.length > 0 && (
                                   <>
                                     <div className="border-t border-border/50 my-1 mx-1" />
@@ -1508,26 +1564,13 @@ export default memo(function InputBar({
                                         <button
                                           key={p.id}
                                           onClick={() => {
-                                            if (hasPendingWorktree) {
-                                              addToast(
-                                                "Apply or discard pending workspace changes before switching projects.",
-                                                "error",
-                                              );
-                                              return;
-                                            }
                                             setActiveProject(p.id);
                                             if (activeConversationId) {
                                               setConversationProject(activeConversationId, p.id);
                                             }
                                             setProjectDropdownOpen(false);
                                           }}
-                                          disabled={hasPendingWorktree}
-                                          title={
-                                            hasPendingWorktree
-                                              ? "Resolve pending workspace changes before switching projects"
-                                              : undefined
-                                          }
-                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
                                         >
                                           <Folder size={13} className="text-text-muted shrink-0" />
                                           <span className="truncate">{p.name}</span>
@@ -1606,36 +1649,15 @@ export default memo(function InputBar({
                                   <Settings size={13} className="text-text-muted" />
                                   <span>Workspace Settings...</span>
                                 </button>
-                                {hasPendingWorktree && (
-                                  <div
-                                    className="mx-1 mb-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-400"
-                                    role="status"
-                                  >
-                                    Apply or discard the pending workspace changes before detaching this project.
-                                  </div>
-                                )}
                                 <button
                                   onClick={() => {
-                                    if (hasPendingWorktree) {
-                                      addToast(
-                                        "Apply or discard pending workspace changes before detaching the project.",
-                                        "error",
-                                      );
-                                      return;
-                                    }
                                     setActiveProject(null);
                                     if (activeConversationId) {
                                       setConversationProject(activeConversationId, undefined);
                                     }
                                     setProjectDropdownOpen(false);
                                   }}
-                                  disabled={hasPendingWorktree}
-                                  title={
-                                    hasPendingWorktree
-                                      ? "Resolve pending workspace changes before detaching the project"
-                                      : undefined
-                                  }
-                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs text-text-secondary hover:bg-hover hover:text-text-primary transition-colors text-left"
                                   role="menuitem"
                                 >
                                   <X size={13} className="text-text-muted" />
@@ -1648,27 +1670,6 @@ export default memo(function InputBar({
                       </AnimatePresence>
                     </div>
                   )}
-
-                  {/* Web Search Pill */}
-                  {isSearchEnabled && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                      transition={motionTransitions.content}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-accent/20 bg-accent-soft/30 text-xs text-accent font-medium select-none"
-                    >
-                      <Search size={12} className="shrink-0" />
-                      <span>Web Search</span>
-                      <button
-                        onClick={() => onToggleSearch(false)}
-                        className="p-0.5 rounded hover:bg-accent-soft/60 text-accent transition-colors"
-                        title={t("chat.disableWebSearch") || "Disable Web Search"}
-                      >
-                        <X size={12} />
-                      </button>
-                    </motion.div>
-                  )}
                 </div>
               )}
             </div>
@@ -1679,7 +1680,7 @@ export default memo(function InputBar({
       {!conversation?.isSubagent && (
         <p
           id={elementId(isOverLimit ? "input-limit-error" : "input-hint")}
-          className={`relative z-10 mt-2 bg-chat px-4 py-2 text-center text-[11px] text-text-secondary/80 ${
+          className={`relative z-0 mt-2 bg-chat px-4 py-2 text-center text-[11px] text-text-secondary/80 ${
             centered ? "w-full" : "-mx-4 w-[calc(100%+2rem)] md:mx-0 md:w-full"
           }`}
         >
@@ -1695,11 +1696,6 @@ export default memo(function InputBar({
                 <span />
                 <span />
               </span>
-            </span>
-          ) : isSearchEnabled ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <Search size={11} className="text-text-secondary" />
-              Web Search enabled
             </span>
           ) : (
             t("chat.disclaimer") || "Sythoria can make mistakes. Consider checking important information."

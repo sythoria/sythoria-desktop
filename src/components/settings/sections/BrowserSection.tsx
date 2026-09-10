@@ -1,9 +1,9 @@
 import { useRef, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { SearchApiCard } from "../components/SearchApiCard";
 import { FetchApiCard } from "../components/FetchApiCard";
 import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
-import { SearchApiConfig, FetchApiConfig } from "../../../types";
+import { ConnectionStatus, SearchApiConfig, FetchApiConfig } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
 
 interface BrowserSectionProps {
@@ -11,15 +11,16 @@ interface BrowserSectionProps {
   updateSearchConfig: (id: string, updates: Partial<SearchApiConfig>) => void;
   deleteSearchConfig: (id: string) => void;
   addSearchConfig: () => void;
-  showSearchKeys: Record<string, boolean>;
-  toggleSearchKeyVisibility: (id: string) => void;
+  searchApiKeys: Record<string, string>;
+  searchStatuses: Record<string, ConnectionStatus>;
+  checkSearchConnections: () => Promise<void>;
 
   fetchConfigs: FetchApiConfig[];
   updateFetchConfig: (id: string, updates: Partial<FetchApiConfig>) => void;
   deleteFetchConfig: (id: string) => void;
   addFetchConfig: () => void;
-  showFetchKeys: Record<string, boolean>;
-  toggleFetchKeyVisibility: (id: string) => void;
+  fetchStatuses: Record<string, ConnectionStatus>;
+  checkFetchConnections: () => Promise<void>;
 }
 
 export const BrowserSection = ({
@@ -27,18 +28,21 @@ export const BrowserSection = ({
   updateSearchConfig,
   deleteSearchConfig,
   addSearchConfig,
-  showSearchKeys,
-  toggleSearchKeyVisibility,
+  searchApiKeys,
+  searchStatuses,
+  checkSearchConnections,
   fetchConfigs,
   updateFetchConfig,
   deleteFetchConfig,
   addFetchConfig,
-  showFetchKeys,
-  toggleFetchKeyVisibility,
+  fetchStatuses,
+  checkFetchConnections,
 }: BrowserSectionProps) => {
   const { t } = useTranslation();
   const prevSearchIdsRef = useRef<string[]>(searchConfigs.map((c) => c.id));
   const prevFetchIdsRef = useRef<string[]>(fetchConfigs.map((c) => c.id));
+  const checkingSearchConnections = Object.values(searchStatuses).some((status) => status === "connecting");
+  const checkingFetchConnections = Object.values(fetchStatuses).some((status) => status === "connecting");
 
   useEffect(() => {
     const currentIds = searchConfigs.map((c) => c.id);
@@ -76,12 +80,22 @@ export const BrowserSection = ({
       <div className="space-y-4">
         <SettingsSectionHeader
           title={t("settings.search.title")}
-          description={t("settings.search.subtitle")}
+          description={`${t("settings.search.subtitle")} ${t("settings.search.testRequestNotice")}`}
           actions={
-            <SettingsHeaderButton onClick={addSearchConfig} ariaLabel={t("settings.search.addBtn")}>
-              <Plus size={14} />
-              <span>{t("settings.search.addBtn")}</span>
-            </SettingsHeaderButton>
+            <div className="flex shrink-0 items-center gap-2">
+              <SettingsHeaderButton
+                onClick={() => void checkSearchConnections()}
+                ariaLabel={t("settings.search.refreshConnections")}
+                disabled={checkingSearchConnections || !searchConfigs.some((config) => config.enabled)}
+              >
+                {checkingSearchConnections && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                <span>{t("settings.search.testConnections")}</span>
+              </SettingsHeaderButton>
+              <SettingsHeaderButton onClick={addSearchConfig} ariaLabel={t("settings.search.addBtn")}>
+                <Plus size={14} />
+                <span>{t("settings.search.addBtn")}</span>
+              </SettingsHeaderButton>
+            </div>
           }
         />
 
@@ -93,8 +107,8 @@ export const BrowserSection = ({
               config={config}
               onUpdate={updateSearchConfig}
               onDelete={deleteSearchConfig}
-              showKey={!!showSearchKeys[config.id]}
-              onToggleKey={toggleSearchKeyVisibility}
+              hasStoredApiKey={Boolean(searchApiKeys[config.id])}
+              connectionStatus={searchStatuses[config.id] ?? "disconnected"}
             />
           ))}
           {searchConfigs.length === 0 && (
@@ -112,12 +126,22 @@ export const BrowserSection = ({
       <div className="space-y-4 pt-6 border-t border-border/50">
         <SettingsSectionHeader
           title="Web Fetching APIs"
-          description="Configure APIs for fetching page contents directly."
+          description={`Configure APIs for fetching page contents directly. ${t("settings.search.testRequestNotice")}`}
           actions={
-            <SettingsHeaderButton onClick={addFetchConfig} ariaLabel="Add Fetch API">
-              <Plus size={14} />
-              <span>Add Fetch API</span>
-            </SettingsHeaderButton>
+            <div className="flex shrink-0 items-center gap-2">
+              <SettingsHeaderButton
+                onClick={() => void checkFetchConnections()}
+                ariaLabel={t("settings.search.refreshFetchConnections")}
+                disabled={checkingFetchConnections || !fetchConfigs.some((config) => config.enabled)}
+              >
+                {checkingFetchConnections && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                <span>{t("settings.search.testConnections")}</span>
+              </SettingsHeaderButton>
+              <SettingsHeaderButton onClick={addFetchConfig} ariaLabel="Add Fetch API">
+                <Plus size={14} />
+                <span>Add Fetch API</span>
+              </SettingsHeaderButton>
+            </div>
           }
         />
 
@@ -129,8 +153,8 @@ export const BrowserSection = ({
               config={config}
               onUpdate={updateFetchConfig}
               onDelete={deleteFetchConfig}
-              showKey={!!showFetchKeys[config.id]}
-              onToggleKey={toggleFetchKeyVisibility}
+              hasStoredApiKey={Boolean(searchApiKeys[config.id])}
+              connectionStatus={fetchStatuses[config.id] ?? "disconnected"}
             />
           ))}
           {fetchConfigs.length === 0 && (

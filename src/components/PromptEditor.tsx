@@ -1,18 +1,22 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
 import type { McpServerConfig } from "../types";
+import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const EDITOR_SPACER = "\u200b";
 
 export interface PromptDraft {
   text: string;
+  plainText: string;
   mcpServerIds: string[];
+  hasWebSearchMention: boolean;
 }
 
 export interface PromptEditorHandle {
   focus: () => void;
-  insertLineBreak: () => void;
   insertMcpMention: (server: McpServerConfig) => boolean;
+  insertWebSearchMention: () => boolean;
+  clearDraft: () => void;
   readDraft: () => PromptDraft;
   replaceText: (text: string) => void;
   saveSelection: () => void;
@@ -29,9 +33,9 @@ interface PromptEditorProps {
   disabled?: boolean;
   invalid: boolean;
   isEmpty: boolean;
-  hasMcpMentions: boolean;
   maxHeight: number;
   className: string;
+  webSearchLabel: string;
   onDraftChange: (draft: PromptDraft, origin: PromptDraftChangeOrigin) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   onPasteText?: (text: string) => boolean;
@@ -85,8 +89,30 @@ function createMcpIconElement(): SVGSVGElement {
   return svg;
 }
 
-function isMcpMention(node: Node | null): node is HTMLElement {
-  return node instanceof HTMLElement && Boolean(node.dataset.mcpServerId);
+function createSearchIconElement(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("lucide", "lucide-search", "size-[1em]", "shrink-0");
+
+  const circle = document.createElementNS(SVG_NAMESPACE, "circle");
+  circle.setAttribute("cx", "11");
+  circle.setAttribute("cy", "11");
+  circle.setAttribute("r", "8");
+
+  const path = document.createElementNS(SVG_NAMESPACE, "path");
+  path.setAttribute("d", "m21 21-4.3-4.3");
+  svg.append(circle, path);
+  return svg;
+}
+
+function isToolMention(node: Node | null): boolean {
+  return node instanceof HTMLElement && (Boolean(node.dataset.mcpServerId) || node.dataset.webSearchMention === "true");
 }
 
 function isEmptyMcpSpacer(node: Node): boolean {
@@ -95,7 +121,7 @@ function isEmptyMcpSpacer(node: Node): boolean {
 
 function deepestNode(node: Node, direction: DeletionDirection): Node {
   let current = node;
-  while (!isMcpMention(current)) {
+  while (!isToolMention(current)) {
     const child = direction === "backward" ? current.lastChild : current.firstChild;
     if (!child) break;
     current = child;
@@ -113,8 +139,48 @@ function nextNodeOutside(node: Node, root: HTMLElement, direction: DeletionDirec
   return null;
 }
 
-/** Finds an MCP mention only when it is the next logical character at the caret. */
-function findAdjacentMcpMention(editor: HTMLElement, range: Range, direction: DeletionDirection): HTMLElement | null {
+function readPlainText(node: Node, editor: HTMLElement): string {
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").replaceAll(EDITOR_SPACER, "");
+  if (!(node instanceof HTMLElement) || isToolMention(node)) return "";
+  if (node.tagName === "BR") return "\n";
+
+  const content = Array.from(node.childNodes, (child) => readPlainText(child, editor)).join("");
+  const isBlock = node !== editor && (node.tagName === "DIV" || node.tagName === "P");
+  return isBlock && !content.endsWith("\n") ? `${content}\n` : content;
+}
+
+function collectPreservedMentions(editor: HTMLElement): { offset: number; element: HTMLElement }[] {
+  const mentions: { offset: number; element: HTMLElement }[] = [];
+  let offset = 0;
+
+  const visit = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node.textContent ?? "").replaceAll(EDITOR_SPACER, "");
+      offset += text.length;
+      return text;
+    }
+    if (!(node instanceof HTMLElement)) return "";
+    if (isToolMention(node)) {
+      mentions.push({ offset, element: node.cloneNode(true) as HTMLElement });
+      return "";
+    }
+    if (node.tagName === "BR") {
+      offset += 1;
+      return "\n";
+    }
+
+    const content = Array.from(node.childNodes, visit).join("");
+    const isBlock = node !== editor && (node.tagName === "DIV" || node.tagName === "P");
+    if (isBlock && !content.endsWith("\n")) offset += 1;
+    return isBlock && !content.endsWith("\n") ? `${content}\n` : content;
+  };
+
+  visit(editor);
+  return mentions;
+}
+
+/** Finds a tool mention only when it is the next logical character at the caret. */
+function findAdjacentToolMention(editor: HTMLElement, range: Range, direction: DeletionDirection): HTMLElement | null {
   const container = range.startContainer;
   const offset = range.startOffset;
   let candidate: Node | null = null;
@@ -131,7 +197,7 @@ function findAdjacentMcpMention(editor: HTMLElement, range: Range, direction: De
   }
 
   while (candidate) {
-    if (isMcpMention(candidate)) return candidate;
+    if (isToolMention(candidate)) return candidate as HTMLElement;
     if (!isEmptyMcpSpacer(candidate)) return null;
     candidate = nextNodeOutside(candidate, editor, direction);
   }
@@ -147,9 +213,9 @@ export const PromptEditor = memo(function PromptEditor({
   disabled,
   invalid,
   isEmpty,
-  hasMcpMentions,
   maxHeight,
   className,
+  webSearchLabel,
   onDraftChange,
   onKeyDown,
   onPasteText,
@@ -161,9 +227,10 @@ export const PromptEditor = memo(function PromptEditor({
 
   const readDraft = useCallback((): PromptDraft => {
     const editor = editorRef.current;
-    if (!editor) return { text: "", mcpServerIds: [] };
+    if (!editor) return { text: "", plainText: "", mcpServerIds: [], hasWebSearchMention: false };
 
     const mcpServerIds: string[] = [];
+    let hasWebSearchMention = false;
     const readNode = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
       if (!(node instanceof HTMLElement)) return "";
@@ -174,6 +241,10 @@ export const PromptEditor = memo(function PromptEditor({
         const serverName = node.dataset.mcpServerName || node.textContent?.trim() || serverId;
         return `[MCP: ${serverName}]`;
       }
+      if (node.dataset.webSearchMention === "true") {
+        hasWebSearchMention = true;
+        return WEB_SEARCH_MENTION;
+      }
       if (node.tagName === "BR") return "\n";
 
       const content = Array.from(node.childNodes, readNode).join("");
@@ -182,8 +253,13 @@ export const PromptEditor = memo(function PromptEditor({
     };
 
     return {
-      text: readNode(editor).replaceAll(EDITOR_SPACER, "").replace(/\n$/, ""),
+      // A trailing native <br> is a browser caret filler, while our own caret
+      // anchor follows a real line break. Remove the filler before stripping
+      // editor-only anchors so the two cases stay distinguishable.
+      text: readNode(editor).replace(/\n$/, "").replaceAll(EDITOR_SPACER, ""),
+      plainText: readPlainText(editor, editor).replace(/\n$/, ""),
       mcpServerIds,
+      hasWebSearchMention,
     };
   }, []);
 
@@ -207,7 +283,7 @@ export const PromptEditor = memo(function PromptEditor({
     if (!editor?.hasChildNodes()) return;
 
     const draft = readDraft();
-    if (draft.text || draft.mcpServerIds.length > 0) return;
+    if (draft.hasWebSearchMention || draft.text || draft.mcpServerIds.length > 0) return;
 
     editor.replaceChildren();
     const selection = window.getSelection();
@@ -220,11 +296,12 @@ export const PromptEditor = memo(function PromptEditor({
     selectionRef.current = range.cloneRange();
   }, [readDraft]);
 
-  const placeCaretAfter = useCallback((node: Node) => {
+  const placeCaret = useCallback((node: Node, position: "before" | "after") => {
     const selection = window.getSelection();
     if (!selection) return;
     const range = document.createRange();
-    range.setStartAfter(node);
+    if (position === "before") range.setStartBefore(node);
+    else range.setStartAfter(node);
     range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
@@ -238,20 +315,26 @@ export const PromptEditor = memo(function PromptEditor({
 
     const selectedRange = selection.rangeCount ? selection.getRangeAt(0) : null;
     const hasEditorSelection = Boolean(selectedRange && editor.contains(selectedRange.commonAncestorContainer));
-    const range = hasEditorSelection ? selectedRange! : document.createRange();
+    const range = hasEditorSelection ? selectedRange!.cloneRange() : document.createRange();
     if (!hasEditorSelection) {
       range.selectNodeContents(editor);
       range.collapse(false);
     }
 
     range.deleteContents();
-    const lineBreak = document.createTextNode("\n");
-    range.insertNode(lineBreak);
-    placeCaretAfter(lineBreak);
-    syncDraft();
-  }, [placeCaretAfter, syncDraft]);
+    const lineBreak = document.createElement("br");
+    const caretAnchor = document.createTextNode(EDITOR_SPACER);
+    const fragment = document.createDocumentFragment();
+    fragment.append(lineBreak, caretAnchor);
+    range.insertNode(fragment);
 
-  const removeMcpMention = useCallback(
+    // The anchor gives the new empty line a paint box. Keeping the caret before
+    // it means Backspace removes the line break immediately, not the anchor.
+    placeCaret(caretAnchor, "before");
+    syncDraft();
+  }, [placeCaret, syncDraft]);
+
+  const removeToolMention = useCallback(
     (mention: HTMLElement) => {
       const parent = mention.parentNode;
       if (!parent) return;
@@ -283,7 +366,7 @@ export const PromptEditor = memo(function PromptEditor({
     [syncDraft],
   );
 
-  const deleteAdjacentMcpMention = useCallback(
+  const deleteAdjacentToolMention = useCallback(
     (direction: DeletionDirection) => {
       const editor = editorRef.current;
       const selection = window.getSelection();
@@ -291,14 +374,61 @@ export const PromptEditor = memo(function PromptEditor({
 
       const range = selection.getRangeAt(0);
       if (!editor.contains(range.commonAncestorContainer)) return false;
-      const mention = findAdjacentMcpMention(editor, range, direction);
+      const mention = findAdjacentToolMention(editor, range, direction);
       if (!mention) return false;
 
-      removeMcpMention(mention);
+      removeToolMention(mention);
       return true;
     },
-    [removeMcpMention],
+    [removeToolMention],
   );
+
+  const createWebSearchMention = useCallback(() => {
+    const mention = document.createElement("span");
+    mention.dataset.webSearchMention = "true";
+    mention.contentEditable = "false";
+    mention.className =
+      "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
+    mention.setAttribute("role", "img");
+    mention.setAttribute("aria-label", `${webSearchLabel} tool`);
+    mention.setAttribute("title", webSearchLabel);
+
+    const label = document.createElement("span");
+    label.textContent = webSearchLabel;
+    label.className = "truncate";
+    mention.append(createSearchIconElement(), label);
+    return mention;
+  }, [webSearchLabel]);
+
+  const insertWebSearchMention = useCallback((): boolean => {
+    const editor = editorRef.current;
+    if (!editor || disabled) return false;
+
+    const mention = createWebSearchMention();
+    const spacer = document.createTextNode(EDITOR_SPACER);
+    const selection = window.getSelection();
+    const currentRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const savedRange = selectionRef.current;
+    const range =
+      currentRange && editor.contains(currentRange.commonAncestorContainer)
+        ? currentRange.cloneRange()
+        : savedRange && editor.contains(savedRange.commonAncestorContainer)
+          ? savedRange.cloneRange()
+          : null;
+
+    if (range) {
+      range.deleteContents();
+      range.insertNode(spacer);
+      range.insertNode(mention);
+    } else {
+      editor.append(mention, spacer);
+    }
+
+    editor.focus();
+    placeCaret(spacer, "after");
+    syncDraft();
+    return true;
+  }, [createWebSearchMention, disabled, placeCaret, syncDraft]);
 
   const insertMcpMention = useCallback(
     (server: McpServerConfig) => {
@@ -340,35 +470,53 @@ export const PromptEditor = memo(function PromptEditor({
       }
 
       editor.focus();
-      placeCaretAfter(spacer);
+      placeCaret(spacer, "after");
       syncDraft();
       return true;
     },
-    [disabled, placeCaretAfter, syncDraft],
+    [disabled, placeCaret, syncDraft],
   );
 
   const replaceText = useCallback(
     (text: string) => {
       const editor = editorRef.current;
       if (!editor) return;
-      editor.textContent = text;
+      const preservedMentions = collectPreservedMentions(editor);
+      editor.replaceChildren();
+      let cursor = 0;
+      for (const preserved of preservedMentions) {
+        const mentionOffset = Math.min(preserved.offset, text.length);
+        if (mentionOffset > cursor) editor.append(document.createTextNode(text.slice(cursor, mentionOffset)));
+        editor.append(preserved.element, document.createTextNode(EDITOR_SPACER));
+        cursor = mentionOffset;
+      }
+      if (cursor < text.length) editor.append(document.createTextNode(text.slice(cursor)));
       selectionRef.current = null;
       syncDraft("programmatic");
     },
     [syncDraft],
   );
 
+  const clearDraft = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.replaceChildren();
+    selectionRef.current = null;
+    syncDraft("programmatic");
+  }, [syncDraft]);
+
   useImperativeHandle(
     editorHandleRef,
     () => ({
       focus: () => editorRef.current?.focus(),
-      insertLineBreak,
       insertMcpMention,
+      insertWebSearchMention,
+      clearDraft,
       readDraft,
       replaceText,
       saveSelection,
     }),
-    [insertLineBreak, insertMcpMention, readDraft, replaceText, saveSelection],
+    [clearDraft, insertMcpMention, insertWebSearchMention, readDraft, replaceText, saveSelection],
   );
 
   useEffect(
@@ -382,7 +530,7 @@ export const PromptEditor = memo(function PromptEditor({
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (!event.nativeEvent.isComposing && (event.key === "Backspace" || event.key === "Delete")) {
         const direction = event.key === "Backspace" ? "backward" : "forward";
-        if (deleteAdjacentMcpMention(direction)) {
+        if (deleteAdjacentToolMention(direction)) {
           event.preventDefault();
           suppressNativeMentionDeletionRef.current = true;
           if (deletionSuppressionTimerRef.current) clearTimeout(deletionSuppressionTimerRef.current);
@@ -395,8 +543,13 @@ export const PromptEditor = memo(function PromptEditor({
       }
 
       onKeyDown(event);
+
+      if (!event.defaultPrevented && !event.nativeEvent.isComposing && event.key === "Enter") {
+        event.preventDefault();
+        insertLineBreak();
+      }
     },
-    [deleteAdjacentMcpMention, onKeyDown],
+    [deleteAdjacentToolMention, insertLineBreak, onKeyDown],
   );
 
   return (
@@ -421,7 +574,6 @@ export const PromptEditor = memo(function PromptEditor({
         aria-invalid={invalid}
         aria-disabled={disabled || undefined}
         data-editor-empty={isEmpty}
-        data-has-mcp-mentions={hasMcpMentions}
         onInput={() => syncDraft()}
         onBeforeInput={(event) => {
           const inputType = (event.nativeEvent as InputEvent).inputType;
@@ -436,7 +588,7 @@ export const PromptEditor = memo(function PromptEditor({
             : inputType.includes("Forward")
               ? "forward"
               : null;
-          if (direction && deleteAdjacentMcpMention(direction)) event.preventDefault();
+          if (direction && deleteAdjacentToolMention(direction)) event.preventDefault();
         }}
         onKeyUp={saveSelection}
         onMouseUp={saveSelection}
@@ -463,12 +615,12 @@ export const PromptEditor = memo(function PromptEditor({
           range.deleteContents();
           const textNode = document.createTextNode(pastedText);
           range.insertNode(textNode);
-          placeCaretAfter(textNode);
+          placeCaret(textNode, "after");
           syncDraft();
         }}
         onKeyDown={handleKeyDown}
         style={{ maxHeight }}
-        className="chat-prompt-editor relative min-h-5 min-w-0 overflow-y-auto whitespace-pre-wrap break-words bg-transparent outline-none"
+        className="chat-prompt-editor relative min-h-5 min-w-0 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words bg-transparent outline-none"
       />
     </div>
   );

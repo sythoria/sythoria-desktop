@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ChatArea from "./ChatArea";
@@ -34,6 +34,13 @@ const defaultProps = {
 describe("ChatArea", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    useProjectStore.setState({ isProjectsEnabled: true });
+    useUIStore.setState({
+      isAuxPanelOpen: false,
+      activeAuxTab: null,
+      activeAuxConversationId: null,
+      activeReviewFilePath: null,
+    });
   });
   it("shows empty state when no messages", () => {
     render(<ChatArea messages={[]} {...defaultProps} />);
@@ -73,12 +80,188 @@ describe("ChatArea", () => {
     expect(messageArticle).not.toHaveTextContent("[MCP: Gmail]");
   });
 
+  it("renders the model-visible web search marker as a chip in user messages", () => {
+    const messages = [
+      makeMessage({
+        role: "user",
+        content: "Use [Web Search] for the latest release",
+        searchConfigId: "search-1",
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    const chip = screen.getByRole("img", { name: "Web Search tool" });
+    const messageArticle = screen.getByRole("article", { name: /User message/ });
+    expect(chip).toHaveTextContent("Web Search");
+    expect(messageArticle).toHaveTextContent("Use Web Search for the latest release");
+    expect(messageArticle).not.toHaveTextContent("[Web Search]");
+  });
+
+  it("keeps literal tool-marker text unchanged without capability metadata", () => {
+    const messages = [
+      makeMessage({
+        role: "user",
+        content: "Explain [Web Search] and [MCP: Gmail] markers",
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "MCP tool: Gmail" })).not.toBeInTheDocument();
+    expect(screen.getByText("Explain [Web Search] and [MCP: Gmail] markers")).toBeInTheDocument();
+  });
+
   it("renders assistant messages with markdown", () => {
     const messages = [makeMessage({ role: "assistant", content: "Hi there **bold**" })];
     render(<ChatArea messages={messages} {...defaultProps} />);
 
     expect(screen.getByRole("log")).toBeInTheDocument();
     expect(screen.getByText("bold")).toBeInTheDocument();
+  });
+
+  it("shows completed file edits with an expandable list and opens the full Review", async () => {
+    const user = userEvent.setup();
+    const messages = [makeMessage({ id: "published-answer", role: "assistant", content: "Finished the changes." })];
+    const conversation: Conversation = {
+      id: "published-chat",
+      title: "Published chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+      workspaceChanges: {
+        projectId: "project-a",
+        appliedAt: new Date(),
+        undoToken: "undo-token",
+        files: [
+          { path: "src/one.ts", additions: 4, deletions: 1 },
+          { path: "src/two.ts", additions: 3, deletions: 2 },
+          { path: "src/three.ts", additions: 2, deletions: 0 },
+          { path: "src/four.ts", additions: 1, deletions: 1 },
+          { path: "src/five.ts", additions: 5, deletions: 0 },
+        ],
+      },
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    const summary = screen.getByRole("region", { name: "Workspace change summary" });
+    expect(summary).toHaveTextContent("Edited 5 files");
+    expect(summary).toHaveTextContent("+15");
+    expect(summary).toHaveTextContent("−4");
+    expect(screen.getByText("src/three.ts")).toBeInTheDocument();
+    expect(screen.queryByText("src/four.ts")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show 2 more files" }));
+    expect(screen.getByText("src/four.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/five.ts")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Review workspace changes including src/four.ts" }));
+    expect(useUIStore.getState().activeReviewFilePath).toBe("src/four.ts");
+
+    useUIStore.getState().setAuxPanelOpen(false);
+
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(useUIStore.getState().activeAuxTab).toBe("review");
+    expect(useUIStore.getState().activeAuxConversationId).toBe(conversation.id);
+    expect(useUIStore.getState().activeReviewFilePath).toBeNull();
+    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
+  });
+
+  it("keeps each completed file edit summary attached to its assistant turn", () => {
+    const firstChanges = {
+      projectId: "project-a",
+      appliedAt: new Date("2026-08-30T12:00:00Z"),
+      files: [{ path: "src/first-turn.ts", additions: 4, deletions: 1 }],
+    };
+    const secondChanges = {
+      projectId: "project-a",
+      appliedAt: new Date("2026-08-30T12:05:00Z"),
+      files: [{ path: "src/second-turn.ts", additions: 2, deletions: 0 }],
+    };
+    const messages = [
+      makeMessage({ id: "user-1", role: "user", content: "Make the first change" }),
+      makeMessage({
+        id: "assistant-1",
+        role: "assistant",
+        content: "Finished the first change.",
+        workspaceChanges: firstChanges,
+      }),
+      makeMessage({ id: "user-2", role: "user", content: "Now make another change" }),
+      makeMessage({
+        id: "assistant-2",
+        role: "assistant",
+        content: "Finished the second change.",
+        workspaceChanges: secondChanges,
+      }),
+    ];
+    const conversation: Conversation = {
+      id: "multi-turn-chat",
+      title: "Multi-turn changes",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+      workspaceChanges: secondChanges,
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    expect(screen.getAllByRole("region", { name: "Workspace change summary" })).toHaveLength(2);
+    expect(screen.getByText("src/first-turn.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/second-turn.ts")).toBeInTheDocument();
+  });
+
+  it("safely undoes the published agent patch from the completed edit card", async () => {
+    const user = userEvent.setup();
+    invokeMock.mockResolvedValue(undefined as never);
+    const workspaceChanges = {
+      projectId: "project-a",
+      appliedAt: new Date(),
+      undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+      files: [{ path: "src/App.tsx", additions: 2, deletions: 1 }],
+    };
+    const messages = [
+      makeMessage({
+        id: "undo-answer",
+        role: "assistant",
+        content: "Finished.",
+        workspaceChanges,
+      }),
+    ];
+    const conversation: Conversation = {
+      id: "undo-chat",
+      title: "Undo chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+      projectId: "project-a",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: { [conversation.id]: { state: "idle", label: "" } },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("git_workspace_undo", {
+        projectId: "project-a",
+        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Workspace change summary" })).not.toBeInTheDocument(),
+    );
   });
 
   it("shows loading text when assistant is streaming with empty content", () => {
@@ -163,6 +346,41 @@ describe("ChatArea", () => {
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeEnabled();
   });
 
+  it("keeps completed turn actions available while a later turn is generating", () => {
+    const messages = [
+      makeMessage({ id: "previous-user", role: "user", content: "Earlier question" }),
+      makeMessage({ id: "previous-assistant", role: "assistant", content: "Earlier answer" }),
+      makeMessage({ id: "active-user", role: "user", content: "Current question" }),
+      makeMessage({ id: "active-assistant", role: "assistant", content: "", isStreaming: true }),
+    ];
+    const conversation: Conversation = {
+      id: "generating-chat",
+      title: "Generating chat",
+      timestamp: new Date(),
+      messages,
+      model: "model-1",
+    };
+    useChatStore.setState({
+      conversations: [conversation],
+      generationByConversation: {
+        [conversation.id]: { state: "responding", label: "Responding" },
+      },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
+
+    const previousUser = screen.getByRole("article", { name: /User message: Earlier question/ });
+    const previousAssistant = screen.getByRole("article", { name: /Assistant message: Earlier answer/ });
+    const activeUser = screen.getByRole("article", { name: /User message: Current question/ });
+    const activeAssistant = screen.getByRole("article", { name: /Assistant message \(generating\)/ });
+
+    expect(within(previousUser).getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(within(previousAssistant).getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(within(previousAssistant).getByRole("button", { name: "Regenerate" })).toBeEnabled();
+    expect(within(activeUser).queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(within(activeAssistant).queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+  });
+
   it("renders MCP tool message and expandable arguments/result/images", async () => {
     const user = userEvent.setup();
     const messages = [
@@ -199,12 +417,183 @@ describe("ChatArea", () => {
     await user.click(button);
 
     // Verify it renders the arguments, result, and images sections
+    expect(button.nextElementSibling).toHaveClass("w-full");
+    expect(button.nextElementSibling).not.toHaveClass("pl-5");
     expect(screen.getByText("Arguments")).toBeInTheDocument();
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByText("Images")).toBeInTheDocument();
   });
 
-  it("keeps tool activity expanded while working and collapses it after the final response", async () => {
+  it("renders native skill reads as a skill disclosure instead of a generic tool result", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Reading Skill: react-patterns",
+        toolCall: {
+          id: "skill-call",
+          name: "read_skill",
+          arguments: { id: "react-patterns", offset: "0" },
+        },
+        toolResult: {
+          id: "skill-call",
+          name: "read_skill",
+          content: JSON.stringify({
+            path: "SKILL.md",
+            content: "# React Patterns\n\nUse semantic components.",
+            offset: 0,
+            nextOffset: null,
+            totalCharacters: 43,
+          }),
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+
+    expect(screen.getByText("Read skill")).toBeInTheDocument();
+    expect(screen.getByText("react-patterns").parentElement).toHaveClass("text-red-600");
+    expect(screen.queryByText("Tool result")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+    expect(screen.getByRole("region", { name: "Skill content" })).toHaveTextContent("SKILL.md");
+    expect(screen.getByText("# React Patterns")).toBeInTheDocument();
+    expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
+  it("renders packaged skill resources as a native resource list", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Listing Skill Resources: react-patterns",
+        toolCall: {
+          id: "skill-resource-call",
+          name: "list_skill_resources",
+          arguments: { id: "react-patterns" },
+        },
+        toolResult: {
+          id: "skill-resource-call",
+          name: "list_skill_resources",
+          content: JSON.stringify([
+            { path: "rules/hooks.md", size: 2048 },
+            { path: "examples/forms.md", size: 512 },
+          ]),
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    expect(screen.getByText("Listed skill resources")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+    const resources = screen.getByRole("list", { name: "Skill resources" });
+    expect(resources).toHaveTextContent("rules/hooks.md");
+    expect(resources).toHaveTextContent("2.0 KB");
+    expect(resources).toHaveTextContent("examples/forms.md");
+  });
+
+  it("keeps a failed MCP file write collapsed until its full-width diff is expanded", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Error: Failed to write file: No such file or directory (os error 2)",
+        toolCall: {
+          id: "failed-write",
+          name: "workspace__write_file",
+          arguments: {
+            file_path: "cap_bypass_poc.py",
+            content: "#!/usr/bin/env python3\nprint('proof')",
+          },
+        },
+        toolResult: {
+          id: "failed-write",
+          name: "workspace__write_file",
+          content: "Failed to write file: No such file or directory (os error 2)",
+          diffSummary: {
+            added: 2,
+            deleted: 0,
+            isNew: true,
+            filename: "cap_bypass_poc.py",
+            language: "python",
+            error: true,
+            hunks: [
+              {
+                oldStart: 0,
+                oldLines: 0,
+                newStart: 1,
+                newLines: 2,
+                lines: [
+                  { type: "add", newNumber: 1, content: "#!/usr/bin/env python3" },
+                  { type: "add", newNumber: 2, content: "print('proof')" },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+
+    expect(screen.getByText("Create failed")).toBeInTheDocument();
+    expect(screen.queryByText("Run: write_file")).not.toBeInTheDocument();
+    expect(screen.getAllByText("cap_bypass_poc.py")).toHaveLength(1);
+    expect(screen.queryByText("#!/usr/bin/env python3")).not.toBeInTheDocument();
+
+    const disclosure = screen.getByRole("button", { name: "Expand details" });
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await user.click(disclosure);
+
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByText("cap_bypass_poc.py")).toHaveLength(2);
+    expect(screen.getByText("#!/usr/bin/env python3")).toBeInTheDocument();
+    expect(screen.getByRole("log")).toHaveTextContent("print('proof')");
+    expect(screen.getByText(/Failed to write file: No such file or directory/)).toBeInTheDocument();
+    expect(disclosure.nextElementSibling).toHaveClass("w-full");
+    expect(disclosure.nextElementSibling).not.toHaveClass("pl-5");
+    expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
+  it("renders project shell commands as a terminal transcript", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Command completed",
+        toolCall: {
+          id: "shell-call",
+          name: "project_bash",
+          arguments: { command: "printf 'hello\\n' && pwd" },
+        },
+        toolResult: {
+          id: "shell-call",
+          name: "project_bash",
+          content: "hello\n/tmp/project",
+        },
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    const commandLabel = screen.getByText("Ran printf 'hello\\n' && pwd");
+    expect(commandLabel.parentElement).toHaveClass("text-sm");
+    expect(commandLabel).not.toHaveClass("font-mono", "text-xs", "text-text-primary");
+    await user.click(screen.getByRole("button", { name: "Expand details" }));
+
+    const transcript = screen.getByRole("region", { name: "Shell command output" });
+    expect(transcript).toHaveTextContent("$ printf 'hello\\n' && pwd hello /tmp/project");
+    expect(transcript).not.toHaveTextContent("Arguments");
+    expect(transcript).not.toHaveTextContent("Result");
+  });
+
+  it("keeps active assistant output inside working and promotes only the completed final response", async () => {
     const startedAt = Date.now() - 5_000;
     const userMessage = makeMessage({
       id: "working-user",
@@ -281,7 +670,8 @@ describe("ChatArea", () => {
     const answeringMessages = [userMessage, narrationMessage, toolMessage, answeringFinal];
     useChatStore.setState({ conversations: [{ ...conversation, messages: answeringMessages }] });
     rerender(<ChatArea messages={answeringMessages} {...defaultProps} conversationId={conversation.id} />);
-    expect(screen.getByText("The project uses")).toBeInTheDocument();
+    expect(screen.queryByText("The project uses")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("working-collapsed-preview")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Expand reasoning" })).not.toBeInTheDocument();
 
     const activeToolMessages = [userMessage, narrationMessage, toolMessage];
@@ -308,11 +698,8 @@ describe("ChatArea", () => {
       },
     });
     rerender(<ChatArea messages={activeThoughtMessages} {...defaultProps} conversationId={conversation.id} />);
-    await waitFor(() => expect(screen.getByTestId("working-collapsed-preview")).toBeInTheDocument());
-    expect(screen.getByTestId("working-collapsed-preview")).not.toHaveClass("pl-5");
-    expect(screen.getByTestId("working-collapsed-preview")).toHaveTextContent(
-      "I’m checking the component state now.",
-    );
+    await waitFor(() => expect(screen.queryByTestId("working-collapsed-preview")).not.toBeInTheDocument());
+    expect(screen.queryByText("I’m checking the component state now.")).not.toBeInTheDocument();
 
     const completedFinal = {
       ...streamingFinal,
@@ -334,6 +721,43 @@ describe("ChatArea", () => {
     await waitFor(() => expect(completedDisclosure).toHaveAttribute("aria-expanded", "false"));
     await waitFor(() => expect(screen.queryByText("I’ll inspect the relevant files.")).not.toBeInTheDocument());
     expect(screen.getByText("The project uses React.")).toBeInTheDocument();
+  });
+
+  it("uses the full run start for the live working duration", async () => {
+    const runStartedAt = Date.now() - 10_000;
+    const latestThinkingStartedAt = Date.now() - 2_000;
+    const conversationId = "full-working-duration";
+    const messages = [
+      makeMessage({
+        id: "full-working-user",
+        role: "user",
+        content: "Inspect the project",
+        timestamp: new Date(runStartedAt),
+      }),
+      makeMessage({
+        id: "latest-thinking",
+        role: "assistant",
+        content: "I’m checking the latest result.",
+        timestamp: new Date(latestThinkingStartedAt),
+      }),
+      makeMessage({
+        id: "full-working-tool",
+        role: "tool",
+        content: "Project: read",
+        timestamp: new Date(latestThinkingStartedAt + 100),
+        toolCall: { id: "full-working-call", name: "project_read", arguments: { file_path: "src/App.tsx" } },
+        toolResult: { id: "full-working-call", name: "project_read", content: "export default function App() {}" },
+      }),
+    ];
+
+    useChatStore.setState({
+      generationByConversation: { [conversationId]: { state: "loading", label: "Loading" } },
+      activeStreamStartTime: { [conversationId]: runStartedAt },
+    });
+
+    render(<ChatArea messages={messages} {...defaultProps} conversationId={conversationId} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Working for 10s" })).toBeInTheDocument());
   });
 
   it("keeps the working disclosure mounted when another tool is called", () => {
@@ -522,288 +946,5 @@ describe("ChatArea", () => {
     await user.click(workDisclosure);
     expect(screen.getByText("Thought for 6s")).toBeInTheDocument();
     expect(document.querySelector('[aria-label="Assistant message: "]')).not.toBeInTheDocument();
-  });
-
-  it("keeps recovery actions visible when the worktree status is empty", async () => {
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") return { unstagedFiles: [], stagedFiles: [] } as never;
-      if (command === "git_diff_changes") return "" as never;
-      return undefined as never;
-    });
-    const pendingWorktree = {
-      path: "/worktrees/run-a",
-      branch: "sythoria-agent-a",
-      commitScope: {
-        projectId: "project-a",
-        projectRoot: "/projects/a",
-        modelId: "model-a",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "pending-chat",
-          title: "Pending chat",
-          timestamp: new Date(),
-          messages: [makeMessage()],
-          model: "model-a",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage()]}
-        {...defaultProps}
-        conversationId="pending-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    expect(await screen.findByText(/Committed or binary-only changes/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
-    expect(invokeMock).toHaveBeenCalledWith("git_get_status", {
-      projectId: "project-a",
-      worktreePath: "/worktrees/run-a",
-    });
-  });
-
-  it("keeps recovery actions and retry visible when status loading fails", async () => {
-    invokeMock.mockRejectedValue(new Error("status unavailable"));
-    const pendingWorktree = {
-      path: "/worktrees/run-b",
-      branch: "sythoria-agent-b",
-      commitScope: {
-        projectId: "project-b",
-        projectRoot: "/projects/b",
-        modelId: "model-b",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "errored-pending-chat",
-          title: "Errored pending chat",
-          timestamp: new Date(),
-          messages: [makeMessage()],
-          model: "model-b",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage()]}
-        {...defaultProps}
-        conversationId="errored-pending-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/file list could not be loaded/i);
-    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
-  });
-
-  it("renders a Codex-style inline change summary and opens review", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") {
-        return { unstagedFiles: ["src/App.tsx"], stagedFiles: [] } as never;
-      }
-      if (command === "git_diff_changes") {
-        return `diff --git a/src/App.tsx b/src/App.tsx
---- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -1 +1 @@
--old
-+new` as never;
-      }
-      return undefined as never;
-    });
-    const pendingWorktree = {
-      path: "/worktrees/run-c",
-      branch: "sythoria-agent-c",
-      commitScope: {
-        projectId: "project-c",
-        projectRoot: "/projects/c",
-        modelId: "model-c",
-      },
-    };
-    useProjectStore.setState({ isProjectsEnabled: true });
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: "files", activeAuxConversationId: null });
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "changed-chat",
-          title: "Changed chat",
-          timestamp: new Date(),
-          messages: [makeMessage({ role: "assistant", content: "Implemented the change." })],
-          model: "model-c",
-          pendingWorktree,
-        },
-      ],
-    });
-
-    render(
-      <ChatArea
-        messages={[makeMessage({ role: "assistant", content: "Implemented the change." })]}
-        {...defaultProps}
-        conversationId="changed-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const summary = await screen.findByRole("region", { name: "Workspace change summary" });
-    expect(summary).toHaveTextContent("Edited 1 file");
-    expect(summary).toHaveTextContent("src/App.tsx");
-    expect(summary).toHaveTextContent("+1");
-    expect(summary).toHaveTextContent("−1");
-
-    await user.click(screen.getByRole("button", { name: "Review" }));
-    expect(useUIStore.getState().activeAuxTab).toBe("review");
-    expect(useUIStore.getState().isAuxPanelOpen).toBe(true);
-    expect(useUIStore.getState().activeAuxConversationId).toBe("changed-chat");
-  });
-
-  it("shows a live changed-file pill while generation is active", async () => {
-    const user = userEvent.setup();
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") {
-        return { unstagedFiles: ["src/App.tsx", "src/Sidebar.tsx"], stagedFiles: [] } as never;
-      }
-      if (command === "git_diff_changes") {
-        return `diff --git a/src/App.tsx b/src/App.tsx
---- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -1 +1 @@
--old
-+new
-diff --git a/src/Sidebar.tsx b/src/Sidebar.tsx
---- a/src/Sidebar.tsx
-+++ b/src/Sidebar.tsx
-@@ -1 +1 @@
--old
-+new` as never;
-      }
-      return undefined as never;
-    });
-    const assistantMessage = makeMessage({ role: "assistant", content: "Still working...", isStreaming: true });
-    const pendingWorktree = {
-      path: "/worktrees/run-live",
-      branch: "sythoria-agent-live",
-      commitScope: {
-        projectId: "project-live",
-        projectRoot: "/projects/live",
-        modelId: "model-live",
-      },
-    };
-    useProjectStore.setState({ isProjectsEnabled: true });
-    useUIStore.setState({ isAuxPanelOpen: false, activeAuxTab: "files", activeAuxConversationId: null });
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "live-chat",
-          title: "Live chat",
-          timestamp: new Date(),
-          messages: [assistantMessage],
-          model: "model-live",
-          pendingWorktree,
-        },
-      ],
-      generationByConversation: {
-        "live-chat": { state: "responding", label: "Responding" },
-      },
-    });
-
-    render(
-      <ChatArea
-        messages={[assistantMessage]}
-        {...defaultProps}
-        conversationId="live-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const liveSummary = await screen.findByRole("button", { name: /2 files changed/i });
-    expect(liveSummary).toHaveTextContent("+2");
-    expect(liveSummary).toHaveTextContent("−2");
-    expect(screen.queryByRole("region", { name: "Workspace change summary" })).not.toBeInTheDocument();
-
-    await user.click(liveSummary);
-    expect(useUIStore.getState().activeAuxTab).toBe("review");
-    expect(useUIStore.getState().activeAuxConversationId).toBe("live-chat");
-  });
-
-  it("shows three edited files initially and expands the remaining files in place", async () => {
-    const user = userEvent.setup();
-    const paths = ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"];
-    invokeMock.mockImplementation(async (command) => {
-      if (command === "git_get_status") return { unstagedFiles: paths, stagedFiles: [] } as never;
-      if (command === "git_diff_changes") {
-        return paths
-          .map(
-            (path) => `diff --git a/${path} b/${path}
---- a/${path}
-+++ b/${path}
-@@ -1 +1 @@
--old
-+new`,
-          )
-          .join("\n");
-      }
-      return undefined as never;
-    });
-    const assistantMessage = makeMessage({ role: "assistant", content: "Implemented all requested changes." });
-    const pendingWorktree = {
-      path: "/worktrees/run-expanded",
-      branch: "sythoria-agent-expanded",
-      commitScope: {
-        projectId: "project-expanded",
-        projectRoot: "/projects/expanded",
-        modelId: "model-expanded",
-      },
-    };
-    useChatStore.setState({
-      conversations: [
-        {
-          id: "expanded-chat",
-          title: "Expanded chat",
-          timestamp: new Date(),
-          messages: [assistantMessage],
-          model: "model-expanded",
-          pendingWorktree,
-        },
-      ],
-      generationByConversation: {
-        "expanded-chat": { state: "idle", label: "" },
-      },
-    });
-
-    render(
-      <ChatArea
-        messages={[assistantMessage]}
-        {...defaultProps}
-        conversationId="expanded-chat"
-        pendingWorktree={pendingWorktree}
-      />,
-    );
-
-    const summary = await screen.findByRole("region", { name: "Workspace change summary" });
-    expect(summary).toHaveTextContent("Edited 4 files");
-    expect(screen.getByText("src/a.ts")).toBeInTheDocument();
-    expect(screen.getByText("src/c.ts")).toBeInTheDocument();
-    expect(screen.queryByText("src/d.ts")).not.toBeInTheDocument();
-
-    const expandButton = screen.getByRole("button", { name: "Show 1 more file" });
-    expect(expandButton).toHaveAttribute("aria-expanded", "false");
-    await user.click(expandButton);
-    expect(screen.getByText("src/d.ts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show fewer files" })).toHaveAttribute("aria-expanded", "true");
   });
 });

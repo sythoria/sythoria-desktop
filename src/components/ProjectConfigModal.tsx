@@ -5,7 +5,6 @@ import { Folder, FolderPlus, ShieldAlert, Info, Sliders, Terminal, GitBranch } f
 import { useProjectStore } from "../store/useProjectStore";
 import { useUIStore } from "../store/useUIStore";
 import { useGitStore } from "../store/useGitStore";
-import { useChatStore } from "../store/useChatStore";
 import { Modal } from "./ui/Modal";
 import { Switch } from "./ui/Switch";
 import type { ProjectPermission } from "../types";
@@ -31,11 +30,6 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
     })),
   );
   const gitConfig = useGitStore((s) => s.config);
-  const activeConversationHasPendingWorktree = useChatStore((state) => {
-    const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeId);
-    return Boolean(activeConversation?.pendingWorktree);
-  });
-
   const projectToEdit = id ? projects.find((p) => p.id === id) : null;
 
   // Initialize form state directly on mount
@@ -49,6 +43,9 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
     projectToEdit?.excludePatterns?.join(", ") ?? "node_modules, .git, dist, build, target",
   );
   const [systemPromptOverride, setSystemPromptOverride] = useState(projectToEdit?.systemPromptOverride ?? "");
+  const [skipCommandConfirmations, setSkipCommandConfirmations] = useState(
+    projectToEdit?.skipCommandConfirmations ?? false,
+  );
   const [isAutoCommitEnabled, setIsAutoCommitEnabled] = useState(
     projectToEdit ? (projectToEdit.isAutoCommitEnabled ?? false) : gitConfig.isAutoCommitEnabled,
   );
@@ -89,24 +86,13 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
 
     setSaving(true);
     try {
-      if (permissions !== "read") {
-        if (creationMode === "documents" && mode === "create") {
-          addToast(t("projectForm.newFolderReadOnly"), "error");
-          return;
-        }
-        const gitRoot = await invoke<string | null>("git_detect_repo", { startPath: path });
-        if (!gitRoot) {
-          addToast(t("projectForm.gitRequired"), "error");
-          return;
-        }
-      }
-
       const parsedExcludes = excludePatterns
         .split(",")
         .map((p) => p.trim())
         .filter((p) => p.length > 0);
 
       const configData = {
+        skipCommandConfirmations,
         excludePatterns: parsedExcludes,
         systemPromptOverride: systemPromptOverride.trim() || undefined,
         isAutoCommitEnabled,
@@ -119,18 +105,11 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
           finalPath = await invoke<string>("create_project_dir", { name: name.trim() });
         }
 
-        const newId = addProject(name.trim(), finalPath, permissions, configData);
-        if (activeConversationHasPendingWorktree) {
-          addToast(
-            `${t("projectForm.added", { name })} Resolve pending workspace changes before switching to it.`,
-            "success",
-          );
-        } else {
-          setActiveProject(newId);
-          addToast(t("projectForm.added", { name }), "success");
-        }
+        const newId = await addProject(name.trim(), finalPath, permissions, configData);
+        setActiveProject(newId);
+        addToast(t("projectForm.added", { name }), "success");
       } else if (mode === "edit" && id) {
-        updateProject(id, {
+        await updateProject(id, {
           name: name.trim(),
           path,
           permissions,
@@ -338,11 +317,21 @@ function ProjectForm({ id, mode, onClose }: FormProps) {
             </div>
 
             {permissions === "full" && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
-                <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" />
-                <div>
-                  <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
-                  {t("settings.projects.warningDesc")}
+              <div className="space-y-2.5">
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2.5 text-xs text-red-600 dark:text-red-400">
+                  <ShieldAlert size={16} className="shrink-0 mt-0.5 text-red-500" aria-hidden="true" />
+                  <div>
+                    <span className="font-semibold block mb-0.5">{t("settings.projects.warningTitle")}</span>
+                    {t("settings.projects.warningDesc")}
+                  </div>
+                </div>
+                <div className="p-3 bg-active/20 rounded-xl border border-border/40">
+                  <Switch
+                    checked={skipCommandConfirmations}
+                    onChange={setSkipCommandConfirmations}
+                    label={t("projectForm.skipCommandConfirmations")}
+                    description={t("projectForm.skipCommandConfirmationsDesc")}
+                  />
                 </div>
               </div>
             )}

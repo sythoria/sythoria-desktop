@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildConversationRunContext, createToolStepBudget } from "../services/conversationRunContext";
 import type { Conversation, Project } from "../types";
 
 const mocks = vi.hoisted(() => ({
@@ -53,5 +54,49 @@ describe("conversation project isolation", () => {
 
     expect(mocks.sendWithToolLoop).toHaveBeenCalledOnce();
     expect(mocks.sendWithToolLoop.mock.calls[0][0].project).toEqual(projects[0]);
+  });
+  it("keeps original MCP capabilities on notification-driven resumes despite settings changes", async () => {
+    const context = buildConversationRunContext({
+      conversation,
+      models: useModelStore.getState().models,
+      selectedModel: "model-a",
+      temperature: 0.7,
+      projects,
+      projectsEnabled: true,
+      searchConfig: undefined,
+      searchApiKey: "",
+      mcpTools: [
+        {
+          serverId: "mcp-a",
+          serverName: "Original",
+          name: "read",
+          namespacedName: "Original__read",
+          description: "Read",
+          inputSchema: { type: "object" },
+        },
+      ],
+      mcpCallTool: vi.fn(),
+      skills: [],
+      stepBudget: createToolStepBudget(3),
+    })!;
+    useChatStore.setState({
+      conversations: [
+        {
+          ...conversation,
+          messages: [
+            ...conversation.messages,
+            { id: "notification", role: "user", content: "Child finished", isSystem: true, timestamp: new Date() },
+          ],
+        },
+      ],
+    });
+    useProjectStore.setState({ isProjectsEnabled: false });
+    useModelStore.setState({ models: [] });
+    await useChatStore.getState().resumeConversation(conversation.id, { runContext: context });
+    const resumed = mocks.sendWithToolLoop.mock.calls[0][0];
+    expect(resumed.mcpTools).toEqual(context.mcpTools);
+    expect(resumed.project).toEqual(projects[0]);
+    expect(resumed.modelConfig).toEqual(context.modelConfig);
+    expect(resumed.stepBudget).toBe(context.stepBudget);
   });
 });

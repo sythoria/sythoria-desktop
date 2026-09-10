@@ -12,12 +12,14 @@ import {
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
+import { resolveProjectFileLink } from "../utils/projectFileLinks";
 import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
 import { useUIStore } from "../store/useUIStore";
 import { useChatStore } from "../store/useChatStore";
 import { useProjectStore } from "../store/useProjectStore";
 import { useTranslation } from "../utils/i18n";
 import remarkGfm from "remark-gfm";
+import { remarkCitations } from "../utils/remarkCitations";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
@@ -47,16 +49,19 @@ import {
   Undo2,
   Users,
   Cpu,
+  BookOpen,
+  PackageOpen,
 } from "lucide-react";
 import { QuestionCard } from "./ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { isGenerationActive, type Message, type Attachment, type PendingWorktree } from "../types";
+import { isGenerationActive, type Message, type Attachment, type WorkspaceChangeSet } from "../types";
 import { highlightCode } from "../utils/highlighter";
 import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
 import { formatFileSize } from "../utils/attachments";
 import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
-import { parseGitDiff, type DiffFile } from "./auxiliaryPanelUtils";
+import { FileEditDiffCard } from "./FileEditDiffCard";
+import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -67,10 +72,9 @@ interface ChatAreaProps {
   messages: Message[];
   setIsAtBottom?: (v: boolean) => void;
   virtuosoRef?: React.RefObject<VirtuosoHandle | null>;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   onScroll?: (scrollTop: number, ratio: number) => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   autoExpandReasoning?: boolean;
   showEmptyState?: boolean;
@@ -166,6 +170,26 @@ function SyntaxCodeBlock({ code, language, maxHeight }: { code: string; language
   );
 }
 
+function ShellTranscript({ command, output }: { command: string; output?: string }) {
+  return (
+    <section
+      className="overflow-hidden rounded-xl border border-border/60 bg-surface/80 shadow-sm"
+      aria-label="Shell command output"
+    >
+      <div className="border-b border-border/40 px-4 py-2 text-sm font-medium text-text-secondary">Shell</div>
+      <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-sm leading-relaxed text-text-secondary">
+        <code>
+          <span className="select-none text-text-muted" aria-hidden="true">
+            ${" "}
+          </span>
+          <span>{command}</span>
+          {output ? <>{`\n${output}`}</> : null}
+        </code>
+      </pre>
+    </section>
+  );
+}
+
 async function openSafeUrl(href: string): Promise<void> {
   await openExternalUrl(href, { confirmInsecure: true });
 }
@@ -220,12 +244,56 @@ function extractText(children: React.ReactNode): string {
   return "";
 }
 
-const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content: string }) {
+const StreamingMarkdown = memo(function StreamingMarkdown({
+  content,
+  conversationId,
+  sources,
+}: {
+  content: string;
+  conversationId?: string;
+  sources?: Message["sources"];
+}) {
+  const projectId = useChatStore(
+    (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
+  );
+  const projectRoot = useProjectStore((state) => state.projects.find((project) => project.id === projectId)?.path);
+  const components = {
+    ...markdownComponents,
+    a({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+      const path = projectRoot && href ? resolveProjectFileLink(href, projectRoot) : null;
+      if (path && conversationId) {
+        return (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 text-accent underline decoration-accent/40 underline-offset-2 hover:bg-accent/20 focus-visible:outline focus-visible:outline-2"
+            title={`Open ${path} in review`}
+            onClick={() => openWorkspaceReview(conversationId, path)}
+          >
+            <FileCode size={13} aria-hidden="true" />
+            {children}
+          </button>
+        );
+      }
+      if (props.className === "citation-tag") {
+        return markdownComponents.a({
+          ...props,
+          href,
+          children: (
+            <>
+              <Globe size={13} aria-hidden="true" />
+              <span>{children}</span>
+            </>
+          ),
+        });
+      }
+      return markdownComponents.a({ href, children, ...props });
+    },
+  };
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={[remarkGfm, remarkMath, [remarkCitations, sources]]}
       rehypePlugins={[rehypeKatex]}
-      components={markdownComponents}
+      components={components}
       skipHtml
     >
       {content}
@@ -236,43 +304,66 @@ const StreamingMarkdown = memo(function StreamingMarkdown({ content }: { content
 function MessageContent({
   content,
   isStreaming,
+  conversationId,
+  role,
+  sources,
 }: {
   content: string;
   isStreaming: boolean;
   conversationId?: string;
   role?: string;
+  sources?: Message["sources"];
 }) {
   const deferredContent = useDeferredValue(content);
   const renderContent = isStreaming ? deferredContent : content;
 
   return (
     <>
-      <StreamingMarkdown content={renderContent} />
+      <StreamingMarkdown
+        content={renderContent}
+        conversationId={role === "assistant" ? conversationId : undefined}
+        sources={role === "assistant" ? sources : undefined}
+      />
       {isStreaming && <span className="cursor-blink" aria-label="Generating response" />}
     </>
   );
 }
 
-const MCP_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]/g;
+const TOOL_LABEL_PATTERN = /\[MCP:\s*([^\]\r\n]+?)\]|\[Web Search\]/g;
 
-function UserMessageContent({ content }: { content: string }) {
+function UserMessageContent({ message }: { message: Message }) {
+  const { t } = useTranslation();
+  const { content } = message;
   const parts: React.ReactNode[] = [];
   let cursor = 0;
+  let remainingMcpMentions = message.mcpServerIds?.length ?? 0;
 
-  for (const match of content.matchAll(MCP_LABEL_PATTERN)) {
+  for (const match of content.matchAll(TOOL_LABEL_PATTERN)) {
     const matchIndex = match.index;
     if (matchIndex > cursor) parts.push(content.slice(cursor, matchIndex));
 
-    const serverName = match[1].trim();
+    const isWebSearch = match[0] === WEB_SEARCH_MENTION;
+    const isAuthorizedMention = isWebSearch ? Boolean(message.searchConfigId) : remainingMcpMentions > 0;
+    if (!isAuthorizedMention) {
+      parts.push(match[0]);
+      cursor = matchIndex + match[0].length;
+      continue;
+    }
+    if (!isWebSearch) remainingMcpMentions -= 1;
+    const label = isWebSearch ? t("chat.webSearch") || "Web Search" : match[1].trim();
     parts.push(
       <span
-        key={`${matchIndex}-${serverName}`}
+        key={`${matchIndex}-${label}`}
         role="img"
-        aria-label={`MCP tool: ${serverName}`}
+        aria-label={isWebSearch ? `${label} tool` : `MCP tool: ${label}`}
         className="mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent"
       >
-        <Cpu size={13} className="shrink-0" aria-hidden="true" />
-        <span className="truncate">{serverName}</span>
+        {isWebSearch ? (
+          <Search size={13} className="shrink-0" aria-hidden="true" />
+        ) : (
+          <Cpu size={13} className="shrink-0" aria-hidden="true" />
+        )}
+        <span className="truncate">{label}</span>
       </span>,
     );
     cursor = matchIndex + match[0].length;
@@ -418,6 +509,13 @@ function formatToolName(name: string): string {
   return name;
 }
 
+function getShellCommand(name: string, args: Record<string, string> | undefined): string {
+  if (name === "project_git_status") return "git status";
+  if (name === "project_git_diff") return "git diff";
+  if (name === "project_git_commit") return "git commit";
+  return args?.command || formatToolName(name);
+}
+
 function getNativeToolDisplayInfo(
   name: string,
   args: Record<string, string> | undefined,
@@ -440,10 +538,35 @@ function getNativeToolDisplayInfo(
     return null;
   }
 
-  // Strictly only target native project tools (start with project_ and must not be MCP tools containing __)
-  if (!name.startsWith("project_") || name.includes("__")) return null;
+  if (name === "read_skill" || name === "list_skill_resources" || name === "read_skill_resource") {
+    const skillId = args.id || "skill";
+    const isResource = name === "read_skill_resource";
+    const isResourceList = name === "list_skill_resources";
+    return {
+      type: "skill",
+      skillId,
+      resourcePath: isResource ? args.path : undefined,
+      IconComponent: isResourceList ? PackageOpen : BookOpen,
+      colorClass: "text-red-600 dark:text-red-400",
+      label: isResourceList
+        ? isCompleted
+          ? t("chat.tools.listedSkillResources")
+          : t("chat.tools.listingSkillResources")
+        : isResource
+          ? isCompleted
+            ? t("chat.tools.readSkillResource")
+            : t("chat.tools.readingSkillResource")
+          : isCompleted
+            ? t("chat.tools.readSkill")
+            : t("chat.tools.readingSkill"),
+    };
+  }
 
-  const cleanName = name.replace("project_", "");
+  const isNativeProjectTool = name.startsWith("project_") && !name.includes("__");
+  const isMcpFileChange = name.includes("__") && !!result?.diffSummary?.filename && !!result.diffSummary.hunks?.length;
+  if (!isNativeProjectTool && !isMcpFileChange) return null;
+
+  const cleanName = isNativeProjectTool ? name.replace("project_", "") : name.split("__").at(-1) || name;
   const lowerName = cleanName.toLowerCase();
 
   // Helper to determine icon & color
@@ -484,14 +607,7 @@ function getNativeToolDisplayInfo(
 
   // 1. Bash / Commands
   if (lowerName === "bash" || lowerName === "git_status" || lowerName === "git_diff" || lowerName === "git_commit") {
-    let commandStr =
-      lowerName === "git_status"
-        ? "git status"
-        : lowerName === "git_diff"
-          ? "git diff"
-          : lowerName === "git_commit"
-            ? "git commit"
-            : args.command;
+    let commandStr = getShellCommand(name, args);
     if (commandStr && commandStr.length > 40) commandStr = commandStr.substring(0, 40) + "...";
     return {
       type: "bash",
@@ -557,17 +673,19 @@ function getNativeToolDisplayInfo(
   }
 
   // 3. Write / Edit
-  const isWriteName = lowerName === "write" || lowerName === "edit";
+  const isWriteName = lowerName === "write" || lowerName === "edit" || isMcpFileChange;
 
   if (isWriteName) {
-    const pathKeys = ["file_path"];
+    const pathKeys = ["file_path", "path", "filepath", "filePath", "relative_path", "filename", "file"];
     for (const key of pathKeys) {
       if (typeof args[key] === "string") {
         const fullPath = args[key];
-        const filename = fullPath.split(/[/\\]/).pop() || fullPath;
+        const filename = result?.diffSummary?.filename || fullPath.split(/[/\\]/).pop() || fullPath;
         const { IconComponent, colorClass } = getFileIcon(filename);
 
         const isTodo = filename.toLowerCase().includes("todo");
+        const isNew = result?.diffSummary?.isNew === true;
+        const failed = result?.diffSummary?.error === true;
 
         return {
           type: isTodo ? "todo" : "edit",
@@ -575,9 +693,13 @@ function getNativeToolDisplayInfo(
           IconComponent,
           colorClass,
           label: isCompleted
-            ? result?.diffSummary?.isNew
-              ? t("chat.tools.created")
-              : t("chat.tools.edited")
+            ? failed
+              ? isNew
+                ? t("chat.tools.createFailed")
+                : t("chat.tools.editFailed")
+              : isNew
+                ? t("chat.tools.created")
+                : t("chat.tools.edited")
             : t("chat.tools.editing"),
           isTodo,
         };
@@ -586,6 +708,82 @@ function getNativeToolDisplayInfo(
   }
 
   return null;
+}
+
+interface SkillResourceContent {
+  path: string;
+  content: string;
+  offset: number;
+  nextOffset?: number | null;
+  totalCharacters: number;
+}
+
+interface SkillResourceInfo {
+  path: string;
+  size: number;
+}
+
+function parseSkillResult<T>(content: string): T | null {
+  try {
+    return JSON.parse(content) as T;
+  } catch {
+    return null;
+  }
+}
+
+function SkillToolDetails({ message }: { message: Message }) {
+  const { t } = useTranslation();
+  const name = message.toolCall?.name;
+  const rawResult = message.toolResult?.content || "";
+
+  if (name === "list_skill_resources") {
+    const resources = parseSkillResult<SkillResourceInfo[]>(rawResult);
+    if (!Array.isArray(resources)) {
+      return <SyntaxCodeBlock code={rawResult} language="plaintext" maxHeight="400px" />;
+    }
+    if (resources.length === 0) {
+      return <p className="text-sm text-text-muted">{t("chat.tools.noSkillResources")}</p>;
+    }
+    return (
+      <ul className="flex flex-col gap-1.5" aria-label={t("chat.tools.skillResources")}>
+        {resources.map((resource) => (
+          <li
+            key={resource.path}
+            className="flex min-w-0 items-center gap-2 rounded-lg border border-border/40 bg-input/20 px-2.5 py-2"
+          >
+            <FileTextIcon size={14} className="shrink-0 text-red-500" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{resource.path}</span>
+            <span className="shrink-0 text-xs text-text-muted">{formatFileSize(resource.size)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  const resource = parseSkillResult<SkillResourceContent>(rawResult);
+  if (!resource || typeof resource.content !== "string") {
+    return <SyntaxCodeBlock code={rawResult} language="plaintext" maxHeight="400px" />;
+  }
+
+  const extension = resource.path.split(".").pop()?.toLowerCase();
+  const language = extension === "md" ? "markdown" : extension === "json" ? "json" : "plaintext";
+  const chunkEnd = Math.min(resource.offset + Array.from(resource.content).length, resource.totalCharacters);
+
+  return (
+    <section className="min-w-0" aria-label={t("chat.tools.skillContent")}>
+      <div className="mb-1.5 flex items-center justify-between gap-3 px-1 text-[11px] text-text-muted">
+        <span className="truncate font-medium text-text-secondary">{resource.path}</span>
+        <span className="shrink-0 font-mono">
+          {t("chat.tools.skillCharacterRange", {
+            start: String(resource.offset + 1),
+            end: String(chunkEnd),
+            total: String(resource.totalCharacters),
+          })}
+        </span>
+      </div>
+      <SyntaxCodeBlock code={resource.content} language={language} maxHeight="400px" />
+    </section>
+  );
 }
 
 function useSubagentConversationIds(message: Message): string[] {
@@ -666,7 +864,11 @@ function SubagentEmbeddedChat({ conversationId }: { conversationId: string }) {
         )}
       </div>
       <div className="h-[400px] flex flex-col relative w-full overflow-hidden">
-        <ChatAreaBase messages={conv.messages || []} onRetry={() => {}} conversationId={conv.id} />
+        <ChatAreaBase
+          messages={conv.messages || []}
+          onRetry={(messageId) => void useChatStore.getState().retryLastMessage(conv.id, messageId)}
+          conversationId={conv.id}
+        />
       </div>
     </div>
   );
@@ -726,7 +928,7 @@ function SubagentToolCard({
   const numbered = subagentCount > 1 ? ` #${subagentIndex + 1}` : "";
 
   return (
-    <div className="flex flex-col max-w-full">
+    <div className="flex w-full max-w-full flex-col">
       <motion.button
         type="button"
         onClick={() => setExpanded((current) => !current)}
@@ -754,7 +956,7 @@ function SubagentToolCard({
             animate={{ height: "auto", opacity: 1, marginTop: 6 }}
             exit={{ height: 0, opacity: 0, marginTop: 0 }}
             transition={motionTransitions.content}
-            className="w-full overflow-hidden pl-5"
+            className="w-full overflow-hidden"
           >
             <SubagentEmbeddedChat conversationId={conversationId} />
           </motion.div>
@@ -766,7 +968,6 @@ function SubagentToolCard({
 
 function ToolCallDisplay({ message }: { message: Message }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
   const [dots, setDots] = useState(".");
   const [previewImageIndex, setPreviewImageIndex] = useState<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -775,9 +976,17 @@ function ToolCallDisplay({ message }: { message: Message }) {
   const isFetch = name === "fetch_url";
   const isProject = name.startsWith("project_");
   const isMcp = name.includes("__");
+  const isSkill = name === "read_skill" || name === "list_skill_resources" || name === "read_skill_resource";
   const isWaitSubagents = name === "wait_subagents";
   const isCompleted = !!message.toolResult;
-  const isCollapsible = isMcp || isProject || isWaitSubagents;
+  const isCollapsible = isMcp || isProject || isSkill || isWaitSubagents;
+  const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
+  const diffSummary = message.toolResult?.diffSummary;
+  const isFileEditDiff =
+    isCompleted &&
+    !!diffSummary?.hunks?.length &&
+    (nativeInfo?.type === "edit" || (isMcp && !message.toolResult?.images?.length));
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!isWaitSubagents || isCompleted) return;
@@ -815,7 +1024,8 @@ function ToolCallDisplay({ message }: { message: Message }) {
   if (isCollapsible) {
     const formattedArgs = JSON.stringify(message.toolCall?.arguments || {}, null, 2);
 
-    let formattedResult = message.toolResult?.content || "";
+    const rawResult = message.toolResult?.content || "";
+    let formattedResult = rawResult;
     let resultLanguage = "plaintext";
     if (formattedResult) {
       try {
@@ -837,10 +1047,9 @@ function ToolCallDisplay({ message }: { message: Message }) {
     });
 
     const displayName = formatToolName(name);
-    const nativeInfo = getNativeToolDisplayInfo(name, message.toolCall?.arguments, message.toolResult, isCompleted, t);
 
     return (
-      <div ref={cardRef} className="flex flex-col max-w-full">
+      <div ref={cardRef} className="flex w-full max-w-full flex-col">
         {/* The complete tool summary is the disclosure control, matching the thinking summary. */}
         <motion.button
           type="button"
@@ -864,7 +1073,20 @@ function ToolCallDisplay({ message }: { message: Message }) {
                     className={`${nativeInfo.colorClass} shrink-0`}
                     aria-hidden="true"
                   />
-                  <span className="font-mono text-xs text-text-primary">{nativeInfo.label}</span>
+                  <span>{nativeInfo.label}</span>
+                </>
+              ) : nativeInfo.type === "skill" ? (
+                <>
+                  <span>{nativeInfo.label}</span>
+                  <span className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 text-[0.9em] font-medium leading-none text-red-600 dark:text-red-400">
+                    <nativeInfo.IconComponent size={13} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{nativeInfo.skillId}</span>
+                  </span>
+                  {nativeInfo.resourcePath && (
+                    <span className="max-w-[16rem] truncate font-medium text-text-primary">
+                      {nativeInfo.resourcePath}
+                    </span>
+                  )}
                 </>
               ) : (
                 <>
@@ -887,12 +1109,18 @@ function ToolCallDisplay({ message }: { message: Message }) {
               {!isWaitSubagents && !isCompleted && <span>...</span>}
               {isCompleted && message.toolResult?.diffSummary && nativeInfo.type === "edit" && (
                 <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
-                  <span className="text-emerald-600 dark:text-emerald-500 font-medium">
-                    +{message.toolResult.diffSummary.added}
-                  </span>
-                  <span className="text-rose-500 dark:text-rose-400 font-medium">
-                    -{message.toolResult.diffSummary.deleted}
-                  </span>
+                  {message.toolResult.diffSummary.error ? (
+                    <AlertTriangle size={13} className="text-amber-500" aria-label="Write failed" />
+                  ) : (
+                    <>
+                      <span className="text-emerald-600 dark:text-emerald-500 font-medium">
+                        +{message.toolResult.diffSummary.added}
+                      </span>
+                      <span className="text-rose-500 dark:text-rose-400 font-medium">
+                        -{message.toolResult.diffSummary.deleted}
+                      </span>
+                    </>
+                  )}
                 </span>
               )}
             </span>
@@ -918,10 +1146,44 @@ function ToolCallDisplay({ message }: { message: Message }) {
               animate={{ height: "auto", opacity: 1, marginTop: 6 }}
               exit={{ height: 0, opacity: 0, marginTop: 0 }}
               transition={motionTransitions.content}
-              className="w-full overflow-hidden pl-5"
+              className="w-full overflow-hidden"
             >
               {isWaitSubagents ? (
                 <SubagentEmbeddedChats message={message} />
+              ) : isFileEditDiff && diffSummary?.hunks ? (
+                <div className="flex flex-col gap-2 min-w-0">
+                  <FileEditDiffCard
+                    filename={diffSummary.filename || nativeInfo?.filename || name}
+                    added={diffSummary.added}
+                    deleted={diffSummary.deleted}
+                    hunks={diffSummary.hunks}
+                    language={diffSummary.language || "plaintext"}
+                    truncated={diffSummary.truncated}
+                    failed={diffSummary.error}
+                  />
+                  {diffSummary.error && (
+                    <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertTriangle size={13} className="shrink-0 mt-0.5" aria-hidden="true" />
+                      <span className="font-mono break-words min-w-0">{rawResult}</span>
+                    </div>
+                  )}
+                </div>
+              ) : nativeInfo?.type === "bash" ? (
+                <ShellTranscript
+                  command={getShellCommand(name, message.toolCall?.arguments)}
+                  output={isCompleted ? rawResult : undefined}
+                />
+              ) : nativeInfo?.type === "skill" ? (
+                <div className="rounded-xl border border-red-500/15 bg-red-500/[0.035] p-3">
+                  {isCompleted ? (
+                    <SkillToolDetails message={message} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm text-text-muted" role="status">
+                      <Loader2 size={14} className="shrink-0 animate-spin text-red-500" aria-hidden="true" />
+                      <span>{nativeInfo.label}...</span>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                   {/* Arguments */}
@@ -1262,14 +1524,14 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
     }
 
     let finalAssistantIndex = -1;
-    for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
-      const candidate = segment[index];
-      if (
-        candidate.role === "assistant" &&
-        !candidate.isSystem &&
-        (!isActiveSegment || candidate.isStreaming === true)
-      ) {
-        finalAssistantIndex = index;
+    // A streaming assistant placeholder is still provisional during an active
+    // tool run: only completion tells us whether it was narration or the final response.
+    if (!isActiveSegment) {
+      for (let index = lastToolIndex + 1; index < segment.length; index += 1) {
+        const candidate = segment[index];
+        if (candidate.role === "assistant" && !candidate.isSystem) {
+          finalAssistantIndex = index;
+        }
       }
     }
 
@@ -1280,6 +1542,7 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
         (candidate) =>
           candidate.role !== "assistant" ||
           candidate.isSystem ||
+          candidate.isStreaming === true ||
           candidate.content.trim().length > 0 ||
           candidate.reasoningContent?.trim(),
       );
@@ -1418,36 +1681,163 @@ function SystemNotificationBubble({ message }: { message: Message }) {
   );
 }
 
+function openWorkspaceReview(conversationId: string, filePath: string | null = null) {
+  const ui = useUIStore.getState();
+  ui.setActiveAuxConversationId(conversationId);
+  ui.setActiveReviewFilePath(filePath);
+  ui.setActiveAuxTab("review");
+  ui.setAuxPanelOpen(true);
+}
+
+function WorkspaceChangeSummary({ conversationId, changes }: { conversationId: string; changes: WorkspaceChangeSet }) {
+  const [expanded, setExpanded] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const fileListId = useId();
+  const undoWorkspaceChanges = useChatStore((state) => state.undoWorkspaceChanges);
+  const visibleFiles = expanded ? changes.files : changes.files.slice(0, 3);
+  const hiddenFileCount = Math.max(changes.files.length - 3, 0);
+  const additions = changes.files.reduce((total, file) => total + file.additions, 0);
+  const deletions = changes.files.reduce((total, file) => total + file.deletions, 0);
+  const summaryTitle = `Edited ${changes.files.length} ${changes.files.length === 1 ? "file" : "files"}`;
+
+  const handleUndo = async () => {
+    setUndoing(true);
+    try {
+      await undoWorkspaceChanges(conversationId, changes.undoToken);
+    } finally {
+      setUndoing(false);
+    }
+  };
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={motionTransitions.content}
+      className="my-4 w-full overflow-hidden rounded-xl border border-border/60 bg-surface/65 shadow-sm"
+      aria-label="Workspace change summary"
+    >
+      <div className="flex flex-wrap items-center gap-3 px-3 py-3">
+        <button
+          type="button"
+          onClick={() => openWorkspaceReview(conversationId)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          aria-label={`Open ${summaryTitle.toLowerCase()} in review`}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-chat/65 text-text-muted">
+            <FileTextIcon size={16} aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-text-primary">{summaryTitle}</span>
+            <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
+              <span className="text-emerald-500">+{additions}</span>
+              <span className="text-red-400">−{deletions}</span>
+            </span>
+          </span>
+        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {changes.undoToken && (
+            <button
+              type="button"
+              onClick={() => void handleUndo()}
+              disabled={undoing}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+              title="Undo this captured workspace patch if it still applies cleanly"
+            >
+              {undoing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Undo2 size={12} aria-hidden="true" />
+              )}
+              <span>{undoing ? "Undoing" : "Undo"}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => openWorkspaceReview(conversationId)}
+            disabled={undoing}
+            className="inline-flex items-center rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
+          >
+            Review
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-border/50">
+        <div id={fileListId}>
+          {visibleFiles.map((file) => (
+            <button
+              key={file.path}
+              type="button"
+              onClick={() => openWorkspaceReview(conversationId, file.path)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+              aria-label={`Review workspace changes including ${file.path}`}
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
+                {file.path}
+              </span>
+              <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+                <span className="text-emerald-500">+{file.additions}</span>
+                <span className="text-red-400">−{file.deletions}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {hiddenFileCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-expanded={expanded}
+            aria-controls={fileListId}
+            className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-hover/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+          >
+            <span>
+              {expanded
+                ? "Show fewer files"
+                : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
+            </span>
+            <ChevronRight
+              size={13}
+              className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+        )}
+      </div>
+    </motion.section>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   hideReasoningActivity = false,
   animateEntrance = false,
 }: {
   message: Message;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   hideReasoningActivity?: boolean;
   animateEntrance?: boolean;
 }) {
-  const isAnySubagentRunning = useChatStore((s) =>
-    s.conversations.some(
-      (conversation) => conversation.parentId === conversationId && conversation.status === "running",
-    ),
-  );
-
-  const isGenerating = useChatStore((s) => {
+  const isMessageInActiveTurn = useChatStore((s) => {
     if (!conversationId) return false;
-    return isGenerationActive(s.generationByConversation[conversationId]?.state);
+    const isConversationWorking =
+      isGenerationActive(s.generationByConversation[conversationId]?.state) ||
+      s.conversations.some(
+        (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+      );
+    if (!isConversationWorking) return false;
+
+    const conversation = s.conversations.find((candidate) => candidate.id === conversationId);
+    if (!conversation) return true;
+    const messageIndex = conversation.messages.findIndex((candidate) => candidate.id === message.id);
+    if (messageIndex < 0) return true;
+
+    return !conversation.messages.slice(messageIndex + 1).some((candidate) => candidate.role === "user");
   });
 
   const isLastInSequence = useChatStore((s) => {
@@ -1462,14 +1852,15 @@ const MessageBubble = memo(function MessageBubble({
     return !next || next.role === "user";
   });
 
-  const isLatestAssistantMessage = useChatStore((s) => {
-    if (message.role !== "assistant" || !conversationId) return false;
-    const messages = s.conversations.find((conversation) => conversation.id === conversationId)?.messages;
-    if (!messages) return false;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index].role === "assistant") return messages[index].id === message.id;
-    }
-    return false;
+  const workspaceChanges = useChatStore((state) => {
+    if (message.role !== "assistant" || !conversationId) return undefined;
+    const conversation = state.conversations.find((candidate) => candidate.id === conversationId);
+    const storedMessage = conversation?.messages.find((candidate) => candidate.id === message.id);
+    if (storedMessage?.workspaceChanges?.files.length) return storedMessage.workspaceChanges;
+    if (!storedMessage && message.workspaceChanges?.files.length) return message.workspaceChanges;
+    if (!conversation?.workspaceChanges?.files.length) return undefined;
+    const latestAssistant = [...conversation.messages].reverse().find((candidate) => candidate.role === "assistant");
+    return latestAssistant?.id === message.id ? conversation.workspaceChanges : undefined;
   });
 
   const isSystem = message.isSystem;
@@ -1529,13 +1920,13 @@ const MessageBubble = memo(function MessageBubble({
   if (isTool) {
     return (
       <motion.div
-        className="flex justify-start group"
+        className="group flex w-full justify-start"
         variants={messageVariants}
         initial={animateEntrance ? "hidden" : false}
         animate="visible"
         transition={motionTransitions.content}
       >
-        <div className="min-w-0">
+        <div className="w-full min-w-0">
           <ToolCallBubble message={message} />
         </div>
       </motion.div>
@@ -1565,10 +1956,10 @@ const MessageBubble = memo(function MessageBubble({
             <div
               className={`bg-input rounded-[28px] rounded-br-md px-5 py-3 ${textSizeClass} text-text-primary leading-relaxed whitespace-pre-wrap break-words w-full`}
             >
-              <UserMessageContent content={message.content} />
+              <UserMessageContent message={message} />
             </div>
           )}
-          {!isGenerating && !isAnySubagentRunning && (
+          {!isMessageInActiveTurn && (
             <div className="flex justify-end">
               <MessageActions content={message.content} isUser />
             </div>
@@ -1640,6 +2031,7 @@ const MessageBubble = memo(function MessageBubble({
                       isStreaming={isStreaming}
                       conversationId={conversationId}
                       role={message.role}
+                      sources={message.sources}
                     />
                   )
                 ) : null}
@@ -1658,23 +2050,10 @@ const MessageBubble = memo(function MessageBubble({
             </>
           );
         })()}
-        {!isStreaming &&
-          !isGenerating &&
-          !isAnySubagentRunning &&
-          isLastInSequence &&
-          isLatestAssistantMessage &&
-          pendingWorktree &&
-          conversationId &&
-          onApplyWorktree &&
-          onDiscardWorktree && (
-            <WorkspaceChangeSummary
-              conversationId={conversationId}
-              pendingWorktree={pendingWorktree}
-              onApply={onApplyWorktree}
-              onDiscard={onDiscardWorktree}
-            />
-          )}
-        {!isStreaming && !isGenerating && !isAnySubagentRunning && isLastInSequence && displayContent.length > 0 && (
+        {!isStreaming && !isMessageInActiveTurn && isLastInSequence && workspaceChanges && conversationId && (
+          <WorkspaceChangeSummary conversationId={conversationId} changes={workspaceChanges} />
+        )}
+        {!isStreaming && !isMessageInActiveTurn && isLastInSequence && displayContent.length > 0 && (
           <MessageActions
             content={displayContent}
             sources={message.sources}
@@ -1682,7 +2061,7 @@ const MessageBubble = memo(function MessageBubble({
             onSourceClick={
               message.sources && message.sources.length > 0 ? () => setSourcesExpanded(!sourcesExpanded) : undefined
             }
-            onRetry={onRetry}
+            onRetry={() => onRetry?.(message.id)}
           />
         )}
         <AnimatePresence>
@@ -1700,19 +2079,13 @@ function ToolActivityDisclosure({
   isActive,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   animateMessageIds,
 }: {
   activity: ToolActivityGroup;
   isActive: boolean;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
@@ -1728,22 +2101,27 @@ function ToolActivityDisclosure({
   }, [isActive]);
 
   const startedAt = new Date(activity.messages[0].timestamp).getTime();
+  const activeRunStartedAt = useChatStore((state) =>
+    isActive && conversationId ? state.activeStreamStartTime[conversationId] : undefined,
+  );
+  const elapsedStartedAt = activeRunStartedAt ?? startedAt;
   const completedDuration = activity.finalMessage?.workingDuration;
   const [elapsed, setElapsed] = useState(() => {
     if (completedDuration !== undefined) return completedDuration;
     const endedAt = isActive
       ? Date.now()
       : (activity.finalMessage?.timestamp ?? activity.messages[activity.messages.length - 1].timestamp);
-    return Math.max(0, Math.round((new Date(endedAt).getTime() - startedAt) / 1000));
+    return Math.max(0, Math.round((new Date(endedAt).getTime() - elapsedStartedAt) / 1000));
   });
 
   useEffect(() => {
     if (!isActive) return;
 
-    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - startedAt) / 1000)));
+    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - elapsedStartedAt) / 1000)));
+    updateElapsed();
     const timer = window.setInterval(updateElapsed, 1000);
     return () => window.clearInterval(timer);
-  }, [isActive, startedAt]);
+  }, [elapsedStartedAt, isActive]);
 
   const displayedElapsed = !isActive && completedDuration !== undefined ? completedDuration : elapsed;
   const streamedFinalContent = useChatStore((state) =>
@@ -1767,7 +2145,7 @@ function ToolActivityDisclosure({
   const statusLabel = isActive
     ? `Working for ${formatWorkingDuration(displayedElapsed)}`
     : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
-  const collapsedPreviewMessage =
+  const latestActivityMessage =
     isActive && !activity.finalMessage
       ? [...activity.messages]
           .reverse()
@@ -1776,9 +2154,12 @@ function ToolActivityDisclosure({
               (message.role === "tool" && !!message.toolCall) ||
               (message.role === "assistant" &&
                 !message.isSystem &&
-                (message.content.trim().length > 0 || !!message.reasoningContent?.trim())),
+                (message.isStreaming === true ||
+                  message.content.trim().length > 0 ||
+                  !!message.reasoningContent?.trim())),
           )
       : undefined;
+  const collapsedPreviewMessage = latestActivityMessage?.role === "tool" ? latestActivityMessage : undefined;
 
   return (
     <motion.section
@@ -1821,9 +2202,6 @@ function ToolActivityDisclosure({
               message={collapsedPreviewMessage}
               onRetry={onRetry}
               conversationId={conversationId}
-              pendingWorktree={pendingWorktree}
-              onApplyWorktree={onApplyWorktree}
-              onDiscardWorktree={onDiscardWorktree}
               autoExpandReasoning={autoExpandReasoning}
               animateEntrance={false}
             />
@@ -1845,9 +2223,6 @@ function ToolActivityDisclosure({
                 message={message}
                 onRetry={onRetry}
                 conversationId={conversationId}
-                pendingWorktree={pendingWorktree}
-                onApplyWorktree={onApplyWorktree}
-                onDiscardWorktree={onDiscardWorktree}
                 autoExpandReasoning={autoExpandReasoning}
                 animateEntrance={animateMessageIds.has(message.id)}
               />
@@ -1874,19 +2249,13 @@ function ChatRenderItemView({
   activeToolActivityId,
   onRetry,
   conversationId,
-  pendingWorktree,
-  onApplyWorktree,
-  onDiscardWorktree,
   autoExpandReasoning,
   animateMessageIds,
 }: {
   item: ChatRenderItem;
   activeToolActivityId?: string;
-  onRetry?: () => void;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
-  pendingWorktree?: PendingWorktree;
-  onApplyWorktree?: (id: string) => void | Promise<void>;
-  onDiscardWorktree?: (id: string) => void | Promise<void>;
   autoExpandReasoning?: boolean;
   animateMessageIds: ReadonlySet<string>;
 }) {
@@ -1898,9 +2267,6 @@ function ChatRenderItemView({
         isActive={item.id === activeToolActivityId}
         onRetry={onRetry}
         conversationId={conversationId}
-        pendingWorktree={pendingWorktree}
-        onApplyWorktree={onApplyWorktree}
-        onDiscardWorktree={onDiscardWorktree}
         autoExpandReasoning={autoExpandReasoning}
         animateMessageIds={animateMessageIds}
       />
@@ -1913,9 +2279,6 @@ function ChatRenderItemView({
         message={item.message}
         onRetry={onRetry}
         conversationId={conversationId}
-        pendingWorktree={pendingWorktree}
-        onApplyWorktree={onApplyWorktree}
-        onDiscardWorktree={onDiscardWorktree}
         autoExpandReasoning={autoExpandReasoning}
         hideReasoningActivity
         animateEntrance={animateMessageIds.has(item.id)}
@@ -1928,9 +2291,6 @@ function ChatRenderItemView({
       message={item}
       onRetry={onRetry}
       conversationId={conversationId}
-      pendingWorktree={pendingWorktree}
-      onApplyWorktree={onApplyWorktree}
-      onDiscardWorktree={onDiscardWorktree}
       autoExpandReasoning={autoExpandReasoning}
       animateEntrance={animateMessageIds.has(item.id)}
     />
@@ -1946,13 +2306,10 @@ function ChatAreaBase({
   onRetry,
   onScroll,
   conversationId,
-  pendingWorktree,
   scrollContainerRef,
   autoExpandReasoning,
   showEmptyState = true,
 }: ChatAreaProps) {
-  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
-  const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const isConversationWorking = useChatStore((s) => {
     if (!conversationId) return false;
     return (
@@ -1965,7 +2322,6 @@ function ChatAreaBase({
   const isTemporary = useChatStore(
     (s) => s.conversations.find((conversation) => conversation.id === conversationId)?.isTemporary === true,
   );
-  const hasAssistantMessage = messages.some((message) => message.role === "assistant");
   const renderItems = useMemo(
     () => buildChatRenderItems(messages, isConversationWorking),
     [isConversationWorking, messages],
@@ -1973,10 +2329,7 @@ function ChatAreaBase({
   const activeToolActivityId = isConversationWorking
     ? [...renderItems]
         .reverse()
-        .find(
-          (item): item is ToolActivityGroup =>
-            "kind" in item && item.kind === "tool-activity" && item.isActive,
-        )?.id
+        .find((item): item is ToolActivityGroup => "kind" in item && item.kind === "tool-activity" && item.isActive)?.id
     : undefined;
   const virtualScrollerRef = useRef<HTMLDivElement | null>(null);
   const handleVirtualScroll = useCallback(() => {
@@ -1987,10 +2340,14 @@ function ChatAreaBase({
   }, [onScroll]);
   const setVirtualScroller = useCallback(
     (element: HTMLElement | Window | null) => {
-      virtualScrollerRef.current?.removeEventListener("scroll", handleVirtualScroll);
+      if (virtualScrollerRef.current) {
+        virtualScrollerRef.current.removeEventListener("scroll", handleVirtualScroll);
+        delete virtualScrollerRef.current.dataset.chatScroll;
+      }
       const div = element instanceof HTMLDivElement ? element : null;
       virtualScrollerRef.current = div;
       if (scrollContainerRef) scrollContainerRef.current = div;
+      if (div) div.dataset.chatScroll = "";
       div?.addEventListener("scroll", handleVirtualScroll, { passive: true });
     },
     [handleVirtualScroll, scrollContainerRef],
@@ -2099,15 +2456,12 @@ function ChatAreaBase({
           atBottomThreshold={100}
           scrollerRef={setVirtualScroller}
           itemContent={(index, item) => (
-            <div className={`px-8 sm:px-12 lg:px-16 ${index > 0 ? "mt-0.5" : ""}`}>
+            <div className={`chat-column-content ${index > 0 ? "mt-0.5" : ""}`}>
               <ChatRenderItemView
                 item={item}
                 activeToolActivityId={activeToolActivityId}
                 onRetry={onRetry}
                 conversationId={conversationId}
-                pendingWorktree={pendingWorktree}
-                onApplyWorktree={applyPendingWorktree}
-                onDiscardWorktree={discardPendingWorktree}
                 autoExpandReasoning={autoExpandReasoning}
                 animateMessageIds={currentAnimationState.entering}
               />
@@ -2130,28 +2484,10 @@ function ChatAreaBase({
                 <div className="h-4" />
               ),
             Footer: () => (
-              <>
-                {pendingWorktree && conversationId && isConversationWorking && (
-                  <div className="py-6">
-                    <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
-                  </div>
-                )}
-                {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
-                  <div className="py-6">
-                    <WorkspaceChangeSummary
-                      conversationId={conversationId}
-                      pendingWorktree={pendingWorktree}
-                      onApply={applyPendingWorktree}
-                      onDiscard={discardPendingWorktree}
-                    />
-                  </div>
-                )}
+              <div className="chat-column-content">
                 {/* Keep the final message scrollable above the floating composer. */}
-                <div
-                  aria-hidden="true"
-                  style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
-                />
-              </>
+                <div aria-hidden="true" style={{ height: "calc(var(--chat-composer-height, 14rem) + 2rem)" }} />
+              </div>
             ),
           }}
           followOutput="smooth"
@@ -2165,12 +2501,7 @@ function ChatAreaBase({
       renderItems={renderItems}
       setIsAtBottom={setIsAtBottom}
       onRetry={onRetry}
-      pendingWorktree={pendingWorktree}
       conversationId={conversationId}
-      onApply={applyPendingWorktree}
-      onDiscard={discardPendingWorktree}
-      isConversationWorking={isConversationWorking}
-      hasAssistantMessage={hasAssistantMessage}
       scrollContainerRef={scrollContainerRef}
       onScroll={onScroll}
       autoExpandReasoning={autoExpandReasoning}
@@ -2184,12 +2515,7 @@ function NonVirtualizedChatArea({
   renderItems,
   setIsAtBottom,
   onRetry,
-  pendingWorktree,
   conversationId,
-  onApply,
-  onDiscard,
-  isConversationWorking,
-  hasAssistantMessage,
   scrollContainerRef,
   onScroll,
   autoExpandReasoning,
@@ -2198,13 +2524,8 @@ function NonVirtualizedChatArea({
 }: {
   renderItems: ChatRenderItem[];
   setIsAtBottom?: (v: boolean) => void;
-  onRetry?: () => void;
-  pendingWorktree?: PendingWorktree;
+  onRetry?: (messageId: string) => void;
   conversationId?: string;
-  onApply: (id: string) => Promise<void>;
-  onDiscard: (id: string) => Promise<void>;
-  isConversationWorking: boolean;
-  hasAssistantMessage: boolean;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: (scrollTop: number, ratio: number) => void;
   autoExpandReasoning?: boolean;
@@ -2280,7 +2601,7 @@ function NonVirtualizedChatArea({
     >
       <div
         ref={contentRef}
-        className="w-full space-y-0.5 px-8 pt-8 sm:px-12 lg:px-16"
+        className="chat-column-content space-y-0.5 pt-8"
         style={{ paddingBottom: "calc(var(--chat-composer-height, 14rem) + 2rem)" }}
       >
         {isTemporary && (
@@ -2300,354 +2621,13 @@ function NonVirtualizedChatArea({
             activeToolActivityId={activeToolActivityId}
             onRetry={onRetry}
             conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApplyWorktree={onApply}
-            onDiscardWorktree={onDiscard}
             autoExpandReasoning={autoExpandReasoning}
             animateMessageIds={animateMessageIds}
           />
         ))}
-        {pendingWorktree && conversationId && isConversationWorking && (
-          <WorkingChangeSummary conversationId={conversationId} pendingWorktree={pendingWorktree} />
-        )}
-        {pendingWorktree && conversationId && !isConversationWorking && !hasAssistantMessage && (
-          <WorkspaceChangeSummary
-            conversationId={conversationId}
-            pendingWorktree={pendingWorktree}
-            onApply={onApply}
-            onDiscard={onDiscard}
-          />
-        )}
         <div aria-hidden="true" className="h-1" />
       </div>
     </div>
-  );
-}
-
-type WorkspaceChangeStatus = "loading" | "ready" | "empty" | "error";
-
-function openWorkspaceReview(conversationId: string) {
-  const ui = useUIStore.getState();
-  ui.setActiveAuxConversationId(conversationId);
-  ui.setActiveAuxTab("review");
-  ui.setAuxPanelOpen(true);
-}
-
-function useWorkspaceChanges({
-  conversationId,
-  pendingWorktree,
-  refreshKey = 0,
-  poll = false,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-  refreshKey?: number;
-  poll?: boolean;
-}) {
-  const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
-  const [statusState, setStatusState] = useState<WorkspaceChangeStatus>("loading");
-  const [statusError, setStatusError] = useState("");
-  const conversationProjectId = useChatStore(
-    (state) => state.conversations.find((conversation) => conversation.id === conversationId)?.projectId,
-  );
-  const recoveryProjectId = pendingWorktree.commitScope?.projectId ?? conversationProjectId;
-
-  useEffect(() => {
-    let active = true;
-    let pollTimer: number | undefined;
-
-    const loadStatus = async (showLoading: boolean) => {
-      if (showLoading) {
-        setStatusState("loading");
-        setStatusError("");
-      }
-      if (!recoveryProjectId) {
-        setStatusState("error");
-        setStatusError(
-          "The original project could not be identified. The worktree remains intact; restore its project assignment before applying or discarding it.",
-        );
-        return;
-      }
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const [status, diff] = await Promise.all([
-          invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
-            projectId: recoveryProjectId,
-            worktreePath: pendingWorktree.path,
-          }),
-          invoke<string>("git_diff_changes", {
-            projectId: recoveryProjectId,
-            worktreePath: pendingWorktree.path,
-          }),
-        ]);
-        if (!active) return;
-        const filesByPath = new Map<string, DiffFile>();
-        for (const file of parseGitDiff(diff)) {
-          const previous = filesByPath.get(file.path);
-          filesByPath.set(
-            file.path,
-            previous
-              ? {
-                  ...file,
-                  additions: previous.additions + file.additions,
-                  deletions: previous.deletions + file.deletions,
-                  lines: [...previous.lines, ...file.lines],
-                }
-              : file,
-          );
-        }
-        for (const path of [...new Set([...(status.unstagedFiles || []), ...(status.stagedFiles || [])])]) {
-          if (!filesByPath.has(path)) {
-            filesByPath.set(path, {
-              path,
-              oldPath: path,
-              status: "modified",
-              additions: 0,
-              deletions: 0,
-              lines: [],
-            });
-          }
-        }
-        const files = [...filesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
-        setDiffFiles(files);
-        setStatusState(files.length === 0 ? "empty" : "ready");
-        setStatusError("");
-      } catch (error) {
-        if (!active) return;
-        console.error("Failed to load worktree git status:", error);
-        setStatusState("error");
-        setStatusError("The file list could not be loaded. You can retry, apply, or discard this worktree.");
-      } finally {
-        if (active && poll) {
-          pollTimer = window.setTimeout(() => void loadStatus(false), 1000);
-        }
-      }
-    };
-
-    void loadStatus(true);
-    return () => {
-      active = false;
-      if (pollTimer !== undefined) window.clearTimeout(pollTimer);
-    };
-  }, [pendingWorktree.path, pendingWorktree.branch, poll, recoveryProjectId, refreshKey]);
-
-  return {
-    diffFiles,
-    statusState,
-    statusError,
-    additions: diffFiles.reduce((total, file) => total + file.additions, 0),
-    deletions: diffFiles.reduce((total, file) => total + file.deletions, 0),
-  };
-}
-
-function WorkingChangeSummary({
-  conversationId,
-  pendingWorktree,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-}) {
-  const { diffFiles, statusState, additions, deletions } = useWorkspaceChanges({
-    conversationId,
-    pendingWorktree,
-    poll: true,
-  });
-
-  if (statusState !== "ready" || diffFiles.length === 0) return null;
-
-  const fileLabel = `${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"} changed`;
-
-  return (
-    <motion.button
-      type="button"
-      initial={{ opacity: 0, y: 6, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 6, scale: 0.98 }}
-      transition={motionTransitions.content}
-      onClick={() => openWorkspaceReview(conversationId)}
-      className="mx-auto mt-5 flex items-center gap-2 rounded-full border border-border/70 bg-surface/85 px-4 py-2 text-xs font-medium text-text-secondary shadow-sm transition-colors hover:border-text-muted hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-      aria-label={`${fileLabel}, ${additions} additions and ${deletions} deletions. Open review.`}
-    >
-      <span aria-live="polite">{fileLabel}</span>
-      <span className="font-mono text-emerald-500">+{additions}</span>
-      <span className="font-mono text-red-400">−{deletions}</span>
-    </motion.button>
-  );
-}
-
-function WorkspaceChangeSummary({
-  conversationId,
-  pendingWorktree,
-  onApply,
-  onDiscard,
-}: {
-  conversationId: string;
-  pendingWorktree: PendingWorktree;
-  onApply: (id: string) => void | Promise<void>;
-  onDiscard: (id: string) => void | Promise<void>;
-}) {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const fileListId = useId();
-  const { diffFiles, statusState, statusError, additions, deletions } = useWorkspaceChanges({
-    conversationId,
-    pendingWorktree,
-    refreshKey,
-  });
-
-  const runAction = async (kind: "apply" | "discard", action: (id: string) => void | Promise<void>) => {
-    setActionLoading(kind);
-    try {
-      await action(conversationId);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const visibleFiles = expanded ? diffFiles : diffFiles.slice(0, 3);
-  const hiddenFileCount = Math.max(diffFiles.length - 3, 0);
-  const summaryTitle =
-    diffFiles.length > 0
-      ? `Edited ${diffFiles.length} ${diffFiles.length === 1 ? "file" : "files"}`
-      : "Workspace changes ready";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={motionTransitions.content}
-      className="my-4 w-full overflow-hidden rounded-xl border border-border/60 bg-surface/65 shadow-sm"
-      role="region"
-      aria-label="Workspace change summary"
-    >
-      <div className="flex flex-wrap items-center gap-3 px-3 py-3">
-        <button
-          type="button"
-          onClick={() => openWorkspaceReview(conversationId)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-          aria-label={`Open ${summaryTitle.toLowerCase()} in review`}
-        >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-chat/65 text-text-muted">
-            {statusState === "loading" ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <FileTextIcon size={16} aria-hidden="true" />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-text-primary">
-              {statusState === "loading" ? "Loading workspace changes..." : summaryTitle}
-            </span>
-            {statusState === "ready" && (
-              <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px]">
-                <span className="text-emerald-500">+{additions}</span>
-                <span className="text-red-400">−{deletions}</span>
-              </span>
-            )}
-            {statusState === "empty" && (
-              <span className="mt-0.5 block truncate text-[11px] text-text-muted">
-                Committed or binary-only changes
-              </span>
-            )}
-          </span>
-        </button>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {statusState === "error" && (
-            <button
-              type="button"
-              onClick={() => setRefreshKey((key) => key + 1)}
-              className="rounded-md px-2 py-1.5 text-[11px] text-red-400 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
-            >
-              Retry
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void runAction("discard", onDiscard)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-            title="Discard the isolated workspace changes"
-          >
-            {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
-            <span>Undo</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => openWorkspaceReview(conversationId)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center rounded-lg border border-border bg-hover/40 px-2.5 py-1.5 text-xs font-medium text-text-primary transition-colors hover:border-text-muted hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-          >
-            Review
-          </button>
-          <button
-            type="button"
-            onClick={() => void runAction("apply", onApply)}
-            disabled={actionLoading !== null}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-50"
-            title="Apply the isolated changes to the project"
-          >
-            {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-            <span>Apply</span>
-          </button>
-        </div>
-      </div>
-
-      {statusState === "error" && (
-        <div
-          className="flex items-center gap-1.5 border-t border-border/50 px-4 py-3 text-[11px] text-red-400"
-          role="alert"
-        >
-          <AlertTriangle size={12} className="shrink-0" aria-hidden="true" />
-          <span>{statusError}</span>
-        </div>
-      )}
-
-      {statusState === "ready" && (
-        <div className="border-t border-border/50">
-          <div id={fileListId}>
-            {visibleFiles.map((file) => (
-              <button
-                key={file.path}
-                type="button"
-                onClick={() => openWorkspaceReview(conversationId)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
-                aria-label={`Review changes for ${file.path}`}
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary" title={file.path}>
-                  {file.path}
-                </span>
-                <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
-                  <span className="text-emerald-500">+{file.additions}</span>
-                  <span className="text-red-400">−{file.deletions}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-          {hiddenFileCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setExpanded((current) => !current)}
-              aria-expanded={expanded}
-              aria-controls={fileListId}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-border/40 px-4 py-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-hover/60 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
-            >
-              <span>
-                {expanded
-                  ? "Show fewer files"
-                  : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
-              </span>
-              <ChevronRight
-                size={13}
-                className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-          )}
-        </div>
-      )}
-    </motion.div>
   );
 }
 

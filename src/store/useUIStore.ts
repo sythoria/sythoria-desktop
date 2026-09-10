@@ -180,6 +180,7 @@ interface UIState {
   activeAuxTab: AuxiliaryTab | null;
   openAuxTabs: AuxiliaryTab[];
   activeAuxConversationId: string | null;
+  activeReviewFilePath: string | null;
   sideChatConversationId: string | null;
   backgroundTasks: Array<{
     id: string;
@@ -193,6 +194,7 @@ interface UIState {
   setActiveAuxTab: (tab: AuxiliaryTab | null) => void;
   closeAuxTab: (tab: AuxiliaryTab) => void;
   setActiveAuxConversationId: (conversationId: string | null) => void;
+  setActiveReviewFilePath: (path: string | null) => void;
   setSideChatConversationId: (conversationId: string | null) => void;
   addTask: (id: string, title: string, convId: string) => void;
   completeTask: (id: string, status?: "completed" | "error") => void;
@@ -280,6 +282,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeAuxTab: null,
   openAuxTabs: [],
   activeAuxConversationId: null,
+  activeReviewFilePath: null,
   sideChatConversationId: null,
   backgroundTasks: [],
 
@@ -312,12 +315,18 @@ export const useUIStore = create<UIState>((set, get) => ({
   setAuxPanelOpen: (isAuxPanelOpen) =>
     set((state) => {
       if (isAuxPanelOpen && !useProjectStore.getState().isProjectsEnabled) {
-        return { isAuxPanelOpen: false, isAuxPanelExpanded: false, activeAuxConversationId: null };
+        return {
+          isAuxPanelOpen: false,
+          isAuxPanelExpanded: false,
+          activeAuxConversationId: null,
+          activeReviewFilePath: null,
+        };
       }
       return {
         isAuxPanelOpen,
         isAuxPanelExpanded: isAuxPanelOpen ? state.isAuxPanelExpanded : false,
         activeAuxConversationId: isAuxPanelOpen ? state.activeAuxConversationId : null,
+        activeReviewFilePath: isAuxPanelOpen ? state.activeReviewFilePath : null,
       };
     }),
   setAuxPanelExpanded: (isAuxPanelExpanded) => set({ isAuxPanelExpanded }),
@@ -334,14 +343,23 @@ export const useUIStore = create<UIState>((set, get) => ({
       const tabIndex = state.openAuxTabs.indexOf(tab);
       const openAuxTabs = state.openAuxTabs.filter((openTab) => openTab !== tab);
 
-      if (state.activeAuxTab !== tab) return { openAuxTabs };
+      if (state.activeAuxTab !== tab) {
+        return { openAuxTabs, ...(tab === "review" ? { activeReviewFilePath: null } : {}) };
+      }
 
       return {
         openAuxTabs,
         activeAuxTab: openAuxTabs[Math.min(Math.max(tabIndex, 0), openAuxTabs.length - 1)] ?? null,
+        ...(tab === "review" ? { activeReviewFilePath: null } : {}),
       };
     }),
-  setActiveAuxConversationId: (activeAuxConversationId) => set({ activeAuxConversationId }),
+  setActiveAuxConversationId: (activeAuxConversationId) =>
+    set((state) => ({
+      activeAuxConversationId,
+      activeReviewFilePath:
+        state.activeAuxConversationId === activeAuxConversationId ? state.activeReviewFilePath : null,
+    })),
+  setActiveReviewFilePath: (activeReviewFilePath) => set({ activeReviewFilePath }),
   setSideChatConversationId: (sideChatConversationId) => set({ sideChatConversationId }),
   addTask: (id, title, convId) =>
     set((s) => ({
@@ -546,9 +564,23 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        useSearchStore.getState().stopConnectionChecks();
+        useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
+      });
     } else {
       useModelStore.getState().startHealthCheck();
       useModelStore.getState().checkModelConnections();
+      if (!get().offlineMode) {
+        void import("./useSearchStore").then(({ useSearchStore }) => {
+          if (get().disableBgActivity || get().offlineMode) return;
+          useSearchStore.getState().startConnectionChecks();
+          void Promise.all([
+            useSearchStore.getState().checkSearchConnections(),
+            useSearchStore.getState().checkFetchConnections(),
+          ]);
+        });
+      }
     }
   },
   setBlockedHosts: (value) => {
@@ -578,6 +610,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        useSearchStore.getState().stopConnectionChecks();
+        useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
+      });
       import("./useMcpStore")
         .then(async ({ useMcpStore }) => {
           const mcpState = useMcpStore.getState();
@@ -590,6 +626,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     } else if (!useUIStore.getState().disableBgActivity) {
       useModelStore.getState().startHealthCheck();
       void useModelStore.getState().checkModelConnections();
+      void import("./useSearchStore").then(({ useSearchStore }) => {
+        if (get().disableBgActivity || get().offlineMode) return;
+        useSearchStore.getState().startConnectionChecks();
+        void Promise.all([
+          useSearchStore.getState().checkSearchConnections(),
+          useSearchStore.getState().checkFetchConnections(),
+        ]);
+      });
     }
     void saveNetworkSettings({ blockedHosts, allowedLocalEndpoints, offlineMode: value }).catch((error) => {
       if (get().offlineMode === value) set({ offlineMode: previous });
@@ -598,6 +642,14 @@ export const useUIStore = create<UIState>((set, get) => ({
       if (!previous && !get().disableBgActivity) {
         useModelStore.getState().startHealthCheck();
         void useModelStore.getState().checkModelConnections();
+        void import("./useSearchStore").then(({ useSearchStore }) => {
+          if (get().disableBgActivity || get().offlineMode) return;
+          useSearchStore.getState().startConnectionChecks();
+          void Promise.all([
+            useSearchStore.getState().checkSearchConnections(),
+            useSearchStore.getState().checkFetchConnections(),
+          ]);
+        });
       }
     });
   },

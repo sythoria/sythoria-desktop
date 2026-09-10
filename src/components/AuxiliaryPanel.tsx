@@ -51,6 +51,7 @@ import { useShallow } from "zustand/react/shallow";
 import { openExternalUrl } from "../utils/externalUrl";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
+import { ReviewDiffView } from "./ReviewDiffView";
 import { AuxiliaryKnowledgeTab } from "./AuxiliaryKnowledgeTab";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
@@ -58,13 +59,6 @@ interface FileTreeEntry {
   name: string;
   path: string;
   isDirectory: boolean;
-}
-
-interface NumberedDiffLine {
-  line: string;
-  oldLine: number | "";
-  newLine: number | "";
-  kind: "added" | "deleted" | "hunk" | "meta" | "context";
 }
 
 const panelLaunchItems: Array<{
@@ -118,68 +112,69 @@ function PanelSpinner({ label }: { label: string }) {
   );
 }
 
-function numberDiffLines(lines: string[]): NumberedDiffLine[] {
-  let oldLine = 0;
-  let newLine = 0;
-
-  return lines.map((line) => {
-    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      oldLine = Number(hunk[1]);
-      newLine = Number(hunk[2]);
-    }
-
-    const isMeta =
-      line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ");
-    const isAdded = line.startsWith("+") && !line.startsWith("+++");
-    const isDeleted = line.startsWith("-") && !line.startsWith("---");
-    const isHunk = line.startsWith("@@");
-    const numberedLine: NumberedDiffLine = {
-      line,
-      oldLine: isAdded || isMeta || isHunk ? "" : oldLine || "",
-      newLine: isDeleted || isMeta || isHunk ? "" : newLine || "",
-      kind: isAdded ? "added" : isDeleted ? "deleted" : isHunk ? "hunk" : isMeta ? "meta" : "context",
+function ReviewFilePreview({
+  projectId,
+  conversationId,
+  path,
+  worktreePath,
+}: {
+  projectId: string;
+  conversationId: string | null;
+  path: string;
+  worktreePath?: string;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const scope = conversationId || `review:${projectId}`;
+    const branch = useChatStore.getState().conversations.find((conversation) => conversation.id === conversationId)
+      ?.pendingWorktree?.branch;
+    void (async () => {
+      let token: string | undefined;
+      try {
+        token = await invoke<string>("project_browse_begin", {
+          projectId,
+          conversationId: scope,
+          worktreePath: worktreePath || null,
+          branch: worktreePath ? branch || null : null,
+        });
+        if (cancelled) return;
+        const text = await invoke<string>("project_read", {
+          projectId,
+          runToken: token,
+          path,
+          offset: 1,
+          limit: 2000,
+          worktreePath: worktreePath || null,
+        });
+        if (!cancelled) setContent(text);
+      } catch (nextError) {
+        if (!cancelled) setError(errorMessage(nextError));
+      } finally {
+        if (token) await invoke("project_run_end", { runToken: token, conversationId: scope }).catch(() => {});
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-
-    if (!isAdded && !isMeta && !isHunk) oldLine += 1;
-    if (!isDeleted && !isMeta && !isHunk) newLine += 1;
-    return numberedLine;
-  });
-}
-
-function DiffView({ file }: { file: DiffFile }) {
+  }, [projectId, conversationId, path, worktreePath]);
   return (
-    <div className="min-w-max font-mono text-[11px] leading-[19px]">
-      {numberDiffLines(file.lines).map(({ line, oldLine, newLine, kind }, index) => {
-        const isAdded = kind === "added";
-        const isDeleted = kind === "deleted";
-        return (
-          <div
-            key={`${index}-${line}`}
-            className={`flex min-h-[19px] select-text ${
-              kind === "added"
-                ? "bg-emerald-500/10 text-emerald-300"
-                : kind === "deleted"
-                  ? "bg-red-500/10 text-red-300"
-                  : kind === "hunk"
-                    ? "bg-accent/10 text-accent"
-                    : kind === "meta"
-                      ? "text-text-muted"
-                      : "text-text-secondary"
-            }`}
-          >
-            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
-              {oldLine}
-            </span>
-            <span className="w-10 shrink-0 border-r border-border/20 pr-2 text-right text-text-muted/45">
-              {newLine}
-            </span>
-            <span className="w-5 shrink-0 text-center text-text-muted/60">{isAdded ? "+" : isDeleted ? "-" : ""}</span>
-            <span className="whitespace-pre pr-5">{isAdded || isDeleted ? line.slice(1) : line}</span>
-          </div>
-        );
-      })}
-    </div>
+    <section className="min-h-0 flex-1 overflow-auto p-4" aria-label={`Review ${path}`}>
+      <h3 className="mb-3 break-all font-mono text-xs">{path}</h3>
+      {error ? (
+        <p role="alert" className="text-sm text-text-muted">
+          Unable to open this file: {error}
+        </p>
+      ) : content === null ? (
+        <PanelSpinner label="Loading file…" />
+      ) : (
+        <>
+          <p className="mb-3 text-xs text-text-muted">File preview · first 2,000 lines</p>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{content}</pre>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -194,12 +189,22 @@ function ReviewPane({
 }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [files, setFiles] = useState<DiffFile[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const selectedPath = useUIStore((state) => state.activeReviewFilePath);
+  const setSelectedPath = useUIStore((state) => state.setActiveReviewFilePath);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<"apply" | "discard" | null>(null);
+  const [actionLoading, setActionLoading] = useState<"publish" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const applyPendingWorktree = useChatStore((s) => s.applyPendingWorktree);
+  const publishPendingWorktree = useChatStore((s) => s.publishPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
+  const isConversationWorking = useChatStore((state) => {
+    if (!conversationId) return false;
+    return (
+      isGenerationActive(state.generationByConversation[conversationId]?.state) ||
+      state.conversations.some(
+        (conversation) => conversation.parentId === conversationId && conversation.status === "running",
+      )
+    );
+  });
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -208,11 +213,17 @@ function ReviewPane({
     try {
       const [nextStatus, diff] = await Promise.all([
         invoke<GitStatus>("git_get_status", { projectId, worktreePath: worktreePath || null }),
-        invoke<string>("git_diff_changes", { projectId, worktreePath: worktreePath || null }),
+        invoke<string>("git_diff_changes", {
+          projectId,
+          worktreePath: worktreePath || null,
+          files: null,
+          runToken: null,
+        }),
       ]);
       const parsed = parseGitDiff(diff);
       const parsedPaths = new Set(parsed.flatMap((file) => [file.path, file.oldPath]));
       const statusOnlyFiles = [...new Set([...nextStatus.stagedFiles, ...nextStatus.unstagedFiles])]
+        .filter((path) => !path.endsWith("/"))
         .filter((path) => !parsedPaths.has(path))
         .map<DiffFile>((path) => ({
           path,
@@ -225,29 +236,28 @@ function ReviewPane({
       parsed.push(...statusOnlyFiles);
       setStatus(nextStatus);
       setFiles(parsed);
-      setSelectedPath((current) =>
-        current && parsed.some((file) => file.path === current) ? current : parsed[0]?.path || null,
-      );
+      const requestedPath = useUIStore.getState().activeReviewFilePath;
+      setSelectedPath(requestedPath || parsed[0]?.path || null);
     } catch (nextError) {
       setError(errorMessage(nextError));
     } finally {
       setLoading(false);
     }
-  }, [projectId, worktreePath]);
+  }, [projectId, setSelectedPath, worktreePath]);
 
   useEffect(() => {
     queueMicrotask(() => void refresh());
   }, [refresh]);
 
-  const selectedFile = files.find((file) => file.path === selectedPath) || files[0];
+  const selectedFile = selectedPath ? files.find((file) => file.path === selectedPath) : files[0];
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
 
-  const resolveWorktree = async (action: "apply" | "discard") => {
+  const resolveWorktree = async (action: "publish" | "discard") => {
     if (!conversationId) return;
     setActionLoading(action);
     try {
-      if (action === "apply") await applyPendingWorktree(conversationId);
+      if (action === "publish") await publishPendingWorktree(conversationId);
       else await discardPendingWorktree(conversationId);
       setFiles([]);
       setStatus(null);
@@ -296,29 +306,43 @@ function ReviewPane({
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
         </div>
-        {worktreePath && conversationId && (
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={() => void resolveWorktree("discard")}
-              disabled={!!actionLoading}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-            >
-              {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-              Discard
-            </button>
-            <button
-              onClick={() => void resolveWorktree("apply")}
-              disabled={!!actionLoading}
-              className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
-            >
-              {actionLoading === "apply" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-              Apply changes
-            </button>
-          </div>
-        )}
+        {worktreePath &&
+          conversationId &&
+          (isConversationWorking ? (
+            <p className="mt-3 text-[11px] text-text-muted" role="status">
+              Live agent changes are isolated until the run finishes.
+            </p>
+          ) : (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => void resolveWorktree("discard")}
+                disabled={!!actionLoading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+              >
+                {actionLoading === "discard" ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Discard
+              </button>
+              <button
+                onClick={() => void resolveWorktree("publish")}
+                disabled={!!actionLoading}
+                className="flex flex-[1.4] items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:bg-accent-active disabled:opacity-50"
+              >
+                {actionLoading === "publish" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Publish changes
+              </button>
+            </div>
+          ))}
       </div>
 
-      {error ? (
+      {selectedPath && !selectedFile ? (
+        <ReviewFilePreview
+          key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
+          projectId={projectId}
+          conversationId={conversationId}
+          path={selectedPath}
+          worktreePath={worktreePath}
+        />
+      ) : error ? (
         <EmptyState icon={AlertCircle} title="Couldn’t load changes" detail={error} />
       ) : files.length === 0 ? (
         <EmptyState
@@ -328,8 +352,8 @@ function ReviewPane({
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <div className="min-h-0 flex-1 overflow-auto bg-chat/45">
-            {selectedFile && <DiffView file={selectedFile} />}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
+            {selectedFile && <ReviewDiffView key={selectedFile.path} file={selectedFile} />}
           </div>
           <div className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0">
             <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
@@ -339,6 +363,8 @@ function ReviewPane({
               <button
                 key={file.path}
                 onClick={() => setSelectedPath(file.path)}
+                aria-current={selectedFile?.path === file.path ? "true" : undefined}
+                title={file.path}
                 className={`flex w-full items-start gap-2 border-b border-border/25 px-3 py-2.5 text-left transition-colors ${selectedFile?.path === file.path ? "bg-accent/10" : "hover:bg-hover/60"}`}
               >
                 <FileCode2
@@ -1158,10 +1184,9 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       modelStatuses: state.modelStatuses,
     })),
   );
-  const { isSearchEnabled, toggleSearchEnabled } = useSearchStore(
+  const { activeSearchId } = useSearchStore(
     useShallow((state) => ({
-      isSearchEnabled: state.isSearchEnabled,
-      toggleSearchEnabled: state.toggleSearchEnabled,
+      activeSearchId: state.activeSearchId,
     })),
   );
   const { mcpConfigs, serverStatuses } = useMcpStore(
@@ -1187,7 +1212,7 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
       <EmptyState
         icon={MessageSquare}
         title="Side chat unavailable"
-        detail="Resolve pending workspace changes, then open Side chat again."
+        detail="Close and reopen the Side chat tab to start a new temporary conversation."
       />
     );
   }
@@ -1205,20 +1230,20 @@ function SideChatPane({ conversationId }: { conversationId: string | null }) {
           <ChatArea
             messages={messages}
             conversationId={conversationId}
-            pendingWorktree={conversation.pendingWorktree}
-            onRetry={() => void retryLastMessage(conversationId)}
+            onRetry={(messageId) => void retryLastMessage(conversationId, messageId)}
           />
         )}
       </div>
       <InputBar
         models={models}
-        onSend={(message, attachments, mcpServerIds) => sendMessage(message, attachments, conversationId, mcpServerIds)}
+        onSend={(message, attachments, mcpServerIds, searchConfigId) =>
+          sendMessage(message, attachments, conversationId, mcpServerIds, searchConfigId)
+        }
         selectedModel={conversation.model || selectedModel}
         onModelChange={setConversationModel}
         disabled={models.length === 0}
         modelStatuses={modelStatuses}
-        isSearchEnabled={isSearchEnabled}
-        onToggleSearch={toggleSearchEnabled}
+        searchConfigId={activeSearchId}
         mcpServers={mcpConfigs}
         mcpServerStatuses={serverStatuses}
         isStreaming={isStreaming}
@@ -1261,7 +1286,8 @@ export function AuxiliaryPanel() {
       activeWorktreeBranch: state.activeWorktreeBranch,
     })),
   );
-  const projectId = activeConversation?.projectId || activeProjectId;
+  const projectId =
+    activeConversation?.pendingWorktree?.commitScope?.projectId || activeConversation?.projectId || activeProjectId;
   const project = projects.find((item) => item.id === projectId);
   const worktreePath = activeConversation?.pendingWorktree?.path || activeWorktreePath || undefined;
   const worktreeBranch = activeConversation?.pendingWorktree?.branch || activeWorktreeBranch || undefined;

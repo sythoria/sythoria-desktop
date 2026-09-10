@@ -1,11 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
 import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
 import { useChatStore } from "../store/useChatStore";
 import { useModelStore } from "../store/useModelStore";
 import { useProjectStore } from "../store/useProjectStore";
+import { executeCommand } from "../services/commandDispatcher";
+
+vi.mock("./WorkspaceChangeIndicator", () => ({
+  WorkspaceChangeIndicator: () => <button aria-label="Live workspace changes">1 file changed</button>,
+}));
 
 const mockModels: ModelConfig[] = [
   {
@@ -39,6 +44,39 @@ const defaultMcpProps = {
 };
 
 describe("InputBar", () => {
+  it("keeps the file-change indicator inside the composer dock above the editor", () => {
+    useChatStore.setState({
+      activeId: "changed-chat",
+      conversations: [
+        {
+          id: "changed-chat",
+          title: "Changed chat",
+          timestamp: new Date(),
+          messages: [],
+          model: "model-1",
+          projectId: "project-a",
+        },
+      ],
+    });
+
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const indicator = screen.getByRole("button", { name: "Live workspace changes" });
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    expect(indicator.closest(".chat-composer-dock")).toBe(editor.closest(".chat-composer-dock"));
+    expect(indicator.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    useChatStore.setState({ activeId: null, conversations: [] });
+  });
+
   it("renders the placeholder outside the editable DOM", () => {
     render(
       <InputBar
@@ -47,8 +85,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -59,7 +95,6 @@ describe("InputBar", () => {
     expect(placeholder).toHaveAttribute("aria-hidden", "true");
     expect(editor).not.toContainElement(placeholder);
     expect(editor).toHaveTextContent("");
-    expect(editor).toHaveAttribute("data-has-mcp-mentions", "false");
   });
 
   it("removes WebKit filler nodes when an empty editor regains focus", () => {
@@ -70,8 +105,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -96,8 +129,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -117,8 +148,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isStreaming
         onStop={onStop}
         {...defaultMcpProps}
@@ -147,8 +176,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isStreaming
         onStop={vi.fn()}
         {...defaultMcpProps}
@@ -167,8 +194,6 @@ describe("InputBar", () => {
         onModelChange={vi.fn()}
         disabled={true}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -186,8 +211,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -203,8 +226,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         isCompareMode
         {...defaultMcpProps}
       />,
@@ -225,8 +246,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -256,8 +275,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -280,8 +297,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -289,7 +304,7 @@ describe("InputBar", () => {
     const textarea = screen.getByRole("textbox");
     await user.type(textarea, "Hello{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith("Hello", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("Hello", undefined, [], null);
   });
 
   it("tracks visual editor emptiness from the parsed draft", async () => {
@@ -301,8 +316,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -328,8 +341,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -352,8 +363,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -375,8 +384,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -419,8 +426,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[documentsServer]}
         mcpServerStatuses={{ documents: "connected" }}
       />,
@@ -436,7 +441,6 @@ describe("InputBar", () => {
 
     const mentions = screen.getAllByRole("img", { name: "MCP tool: Documents" });
     expect(mentions).toHaveLength(2);
-    expect(editor).toHaveAttribute("data-has-mcp-mentions", "true");
     expect(mentions[0]).toHaveClass("text-[0.9em]", "align-[-0.08em]");
     expect(mentions[0]).toHaveClass("leading-none");
     expect(mentions[0]).not.toHaveClass("leading-[inherit]", "py-px");
@@ -449,6 +453,7 @@ describe("InputBar", () => {
       "Open this using [MCP: Documents][MCP: Documents] please",
       undefined,
       ["documents", "documents"],
+      null,
     );
     expect(editor).toHaveTextContent("");
   });
@@ -470,8 +475,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[documentsServer]}
         mcpServerStatuses={{ documents: "connected" }}
       />,
@@ -488,7 +491,7 @@ describe("InputBar", () => {
       sendButton.click();
     });
 
-    expect(onSend).toHaveBeenCalledWith("Check my unread email[MCP: Documents]", undefined, ["documents"]);
+    expect(onSend).toHaveBeenCalledWith("Check my unread email[MCP: Documents]", undefined, ["documents"], null);
   });
 
   it("removes an inline MCP label with one Backspace and preserves the caret position", async () => {
@@ -501,8 +504,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[
           { id: "computer", name: "Computer Use", transport: "stdio", command: "computer-mcp", enabled: true },
         ]}
@@ -537,7 +538,7 @@ describe("InputBar", () => {
     await user.keyboard("the available tool");
     await user.keyboard("{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith("Open my browser using the available tool", undefined, []);
+    expect(onSend).toHaveBeenCalledWith("Open my browser using the available tool", undefined, [], null);
     expect(screen.queryByRole("img", { name: "MCP tool: Computer Use" })).not.toBeInTheDocument();
   });
 
@@ -550,8 +551,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         mcpServers={[
           { id: "computer", name: "Computer Use", transport: "stdio", command: "computer-mcp", enabled: true },
         ]}
@@ -582,7 +581,10 @@ describe("InputBar", () => {
     expect(editor).toHaveTextContent("Use the tool");
   });
 
-  it("inserts a plain newline without browser block markup on Shift+Enter", async () => {
+  it.each([
+    ["an empty editor", ""],
+    ["existing text", "Hello"],
+  ])("inserts exactly one line break after Shift+Enter with %s", async (_scenario, initialText) => {
     const onSend = vi.fn();
     render(
       <InputBar
@@ -591,22 +593,49 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
 
-    const textarea = screen.getByRole("textbox");
+    const editor = screen.getByRole("textbox");
     const user = userEvent.setup();
-    await user.type(textarea, "Hello");
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
-    await user.type(textarea, "world");
+    if (initialText) await user.type(editor, initialText);
+    else editor.focus();
 
+    const nativeInsertionWasPrevented = !fireEvent.keyDown(editor, { key: "Enter", shiftKey: true });
+    const lineBreak = editor.querySelector("br");
+    const caretAnchor = lineBreak?.nextSibling;
+
+    expect(nativeInsertionWasPrevented).toBe(true);
+    expect(editor.querySelectorAll("br")).toHaveLength(1);
+    expect(caretAnchor?.textContent).toBe("\u200b");
+    expect(editor).toHaveAttribute("data-editor-empty", "false");
+    expect(window.getSelection()?.anchorNode).toBe(editor);
+    expect(window.getSelection()?.anchorOffset).toBe(Array.from(editor.childNodes).indexOf(caretAnchor!));
     expect(onSend).not.toHaveBeenCalled();
-    expect(textarea.textContent).toBe("Hello\nworld");
-    expect(textarea.querySelector("div, p, br")).not.toBeInTheDocument();
-    expect(textarea.parentElement).toHaveClass("chat-prompt-editor-shell");
+    expect(editor.parentElement).toHaveClass("chat-prompt-editor-shell");
+    expect(editor).toHaveClass("overflow-x-hidden", "overflow-y-auto", "whitespace-pre-wrap", "break-words");
+  });
+
+  it("reads native contenteditable line breaks as one logical newline", async () => {
+    const onSend = vi.fn().mockResolvedValue("accepted");
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={onSend}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        {...defaultMcpProps}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    editor.append("Hello", document.createElement("br"), "world");
+    fireEvent.input(editor);
+    await userEvent.setup().click(screen.getByLabelText("Send message"));
+
+    expect(onSend).toHaveBeenCalledWith("Hello\nworld", undefined, [], null);
   });
 
   it("shows web search option in plus dropdown", () => {
@@ -617,8 +646,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -627,9 +654,8 @@ describe("InputBar", () => {
     expect(plusButton).toBeInTheDocument();
   });
 
-  it("toggles web search from plus dropdown", async () => {
+  it("adds a web search chip from the plus dropdown", async () => {
     const user = userEvent.setup();
-    const onToggleSearch = vi.fn();
     render(
       <InputBar
         models={mockModels}
@@ -637,8 +663,7 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={onToggleSearch}
+        searchConfigId="search-1"
         {...defaultMcpProps}
       />,
     );
@@ -646,11 +671,170 @@ describe("InputBar", () => {
     const plusButton = screen.getByLabelText("Attach or search");
     await user.click(plusButton);
 
-    const searchOption = screen.getByRole("menuitemcheckbox", { name: /web search/i });
+    const searchOption = screen.getByRole("menuitem", { name: /web search/i });
     expect(searchOption).toBeInTheDocument();
+    expect(searchOption).not.toHaveAttribute("aria-checked");
 
     await user.click(searchOption);
-    expect(onToggleSearch).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(screen.queryByText("Web Search enabled")).not.toBeInTheDocument();
+
+    await user.click(plusButton);
+    const repeatedSearchOption = screen.getByRole("menuitem", { name: /web search/i });
+    expect(repeatedSearchOption).not.toHaveAttribute("aria-checked");
+    expect(repeatedSearchOption).not.toHaveClass("bg-active");
+    await user.click(repeatedSearchOption);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(2);
+  });
+
+  it("adds web search to the focused composer from the keyboard command", async () => {
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    screen.getByRole("textbox", { name: "Message" }).focus();
+
+    expect(executeCommand("toggleSearch")).toBe(true);
+
+    expect(await screen.findByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(executeCommand("toggleSearch")).toBe(true);
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(2);
+  });
+
+  it("moves the web search chip into the submitted prompt", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue("accepted");
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={onSend}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
+    expect(editor).toContainElement(searchBubble);
+    expect(searchBubble).toHaveClass("text-[0.9em]", "align-[-0.08em]", "leading-none");
+    expect(searchBubble.querySelector(".lucide-search")).toBeInTheDocument();
+
+    await user.type(editor, "Find the latest release{Enter}");
+    expect(onSend).toHaveBeenCalledWith("[Web Search]Find the latest release", undefined, [], "search-1");
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
+    expect(editor).toHaveTextContent("");
+  });
+
+  it("removes only the adjacent web search chip with Backspace", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubbles = screen.getAllByRole("img", { name: "Web Search tool" });
+    expect(searchBubbles).toHaveLength(2);
+    const searchBubble = searchBubbles[1];
+    const spacer = searchBubble.nextSibling;
+    expect(spacer).not.toBeNull();
+    const range = document.createRange();
+    range.setStartAfter(spacer!);
+    range.collapse(true);
+    editor.focus();
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent.keyDown(editor, { key: "Backspace" });
+
+    expect(screen.getAllByRole("img", { name: "Web Search tool" })).toHaveLength(1);
+  });
+
+  it("removes web search metadata when a native edit deletes its composer chip", async () => {
+    const user = userEvent.setup();
+    render(
+      <InputBar
+        models={mockModels}
+        onSend={vi.fn()}
+        selectedModel="model-1"
+        onModelChange={vi.fn()}
+        modelStatuses={mockStatuses}
+        searchConfigId="search-1"
+        {...defaultMcpProps}
+      />,
+    );
+    await user.click(screen.getByLabelText("Attach or search"));
+    await user.click(screen.getByRole("menuitem", { name: /web search/i }));
+
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    const searchBubble = await screen.findByRole("img", { name: "Web Search tool" });
+    searchBubble.remove();
+    fireEvent.input(editor);
+
+    expect(screen.queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
+  });
+
+  it("keeps web search selection local to each composer", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <div aria-label="Main composer">
+          <InputBar
+            models={mockModels}
+            onSend={vi.fn()}
+            selectedModel="model-1"
+            onModelChange={vi.fn()}
+            modelStatuses={mockStatuses}
+            searchConfigId="search-1"
+            idPrefix="main"
+            {...defaultMcpProps}
+          />
+        </div>
+        <div aria-label="Side composer">
+          <InputBar
+            models={mockModels}
+            onSend={vi.fn()}
+            selectedModel="model-1"
+            onModelChange={vi.fn()}
+            modelStatuses={mockStatuses}
+            searchConfigId="search-1"
+            idPrefix="side"
+            {...defaultMcpProps}
+          />
+        </div>
+      </>,
+    );
+
+    const mainComposer = screen.getByLabelText("Main composer");
+    const sideComposer = screen.getByLabelText("Side composer");
+    await user.click(within(mainComposer).getByLabelText("Attach or search"));
+    await user.click(within(mainComposer).getByRole("menuitem", { name: /web search/i }));
+
+    expect(within(mainComposer).getByRole("img", { name: "Web Search tool" })).toBeInTheDocument();
+    expect(within(sideComposer).queryByRole("img", { name: "Web Search tool" })).not.toBeInTheDocument();
   });
 
   it("renders image attachment and allows opening preview modal", async () => {
@@ -676,8 +860,6 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
@@ -706,7 +888,7 @@ describe("InputBar", () => {
     });
   });
 
-  it("blocks project detachment while workspace changes are pending", async () => {
+  it("allows project detachment while workspace publication is pending", async () => {
     const user = userEvent.setup();
     act(() => {
       useProjectStore.setState({
@@ -737,15 +919,21 @@ describe("InputBar", () => {
         selectedModel="model-1"
         onModelChange={vi.fn()}
         modelStatuses={mockStatuses}
-        isSearchEnabled={false}
-        onToggleSearch={vi.fn()}
         {...defaultMcpProps}
       />,
     );
 
     await user.click(screen.getByRole("button", { name: "Project context" }));
 
-    expect(screen.getByRole("menuitem", { name: "Detach Project" })).toBeDisabled();
-    expect(screen.getByText(/Apply or discard the pending workspace changes/i)).toBeInTheDocument();
+    const detachButton = screen.getByRole("menuitem", { name: "Detach Project" });
+    expect(detachButton).toBeEnabled();
+
+    await user.click(detachButton);
+
+    expect(useChatStore.getState().conversations[0].projectId).toBeUndefined();
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual({
+      path: "/worktrees/a",
+      branch: "sythoria-agent-a",
+    });
   });
 });

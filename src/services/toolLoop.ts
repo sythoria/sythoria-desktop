@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isResponsesEndpoint } from "../utils/responses";
 import type {
   Conversation,
   Message,
@@ -7,6 +8,7 @@ import type {
   UrlContent,
   GenerationState,
   McpTool,
+  ModelConfig,
   Project,
   McpImageContent,
   SkillInfo,
@@ -18,7 +20,18 @@ import { parseApiError } from "../utils/parseApiError";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
-import { continueConversationRunContext, type ConversationRunContext } from "./conversationRunContext";
+import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/lineDiff";
+import { parseGitDiff } from "../utils/gitDiff";
+import { attachWorkspaceChangesToLatestAssistant } from "../utils/workspaceChanges";
+import {
+  continueConversationRunContext,
+  createToolStepBudget,
+  withToolStepBudget,
+  isToolBudgetExhausted,
+  reserveToolRound,
+  type ConversationRunContext,
+  type ToolStepBudget,
+} from "./conversationRunContext";
 import { assembleContext, formatContextDisclosure, type ApiContextMessage } from "./contextAssembler";
 import {
   MAX_SUBAGENTS_PER_CALL,
@@ -28,6 +41,8 @@ import {
   MAX_TOOL_IMAGE_DATA_LENGTH,
   MAX_TOOL_IMAGES,
   MAX_TOOL_RESULT_LENGTH,
+  MAX_TOOL_STEPS_LIMIT,
+  MIN_TOOL_STEPS,
 } from "../config/constants";
 
 export interface ToolLoopSlice {
@@ -40,27 +55,71 @@ export interface ToolLoopSlice {
   activeStreamReasoning?: Record<string, string>;
   activeStreamThinkingStart?: Record<string, number>;
   activeStreamThinkingEnd?: Record<string, number>;
+  activeStreamStartTime?: Record<string, number>;
   persistConversations?: () => Promise<void>;
-  resumeConversation?: (conversationId: string) => Promise<void>;
+  resumeConversation?: (
+    conversationId: string,
+    options?: { stepBudget?: ToolStepBudget; runContext?: ConversationRunContext },
+  ) => Promise<void>;
+  publishPendingWorktree?: (conversationId: string, options?: { automatic?: boolean }) => Promise<boolean>;
 }
 
 interface ProjectRunContext {
   readonly conversationId: string;
   readonly projectId: string;
-  readonly worktreePath: string | null;
-  readonly branch: string | null;
   readonly capabilityToken: string;
+}
+
+interface WorkspaceSnapshotResult {
+  changedPaths: string[];
+  diff: string;
+  undoToken?: string;
 }
 
 type ToolResultDiffSummary = NonNullable<NonNullable<Message["toolResult"]>["diffSummary"]>;
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const structuredMessage = Object.values(error).find((value): value is string => typeof value === "string");
+    if (structuredMessage) return structuredMessage;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      // Fall through to the generic coercion for non-serializable host values.
+    }
+  }
+  return String(error);
 }
 
 const pendingSubagentMessages = new Map<string, Message[]>();
+const activeSubagentWaits = new Map<string, Map<string, number>>();
 const MAX_PROVIDER_CONTINUATION_TURNS = 8;
 const TOOL_LIMIT_FALLBACK_CHARS = 6_000;
+
+function registerSubagentWait(parentId: string, subagentIds: Iterable<string>): void {
+  const waits = activeSubagentWaits.get(parentId) ?? new Map<string, number>();
+  for (const subagentId of subagentIds) {
+    waits.set(subagentId, (waits.get(subagentId) ?? 0) + 1);
+  }
+  if (waits.size > 0) activeSubagentWaits.set(parentId, waits);
+}
+
+function unregisterSubagentWait(parentId: string, subagentIds: Iterable<string>): void {
+  const waits = activeSubagentWaits.get(parentId);
+  if (!waits) return;
+  for (const subagentId of subagentIds) {
+    const count = waits.get(subagentId) ?? 0;
+    if (count <= 1) waits.delete(subagentId);
+    else waits.set(subagentId, count - 1);
+  }
+  if (waits.size === 0) activeSubagentWaits.delete(parentId);
+}
+
+function isSubagentWaitActive(parentId: string, subagentId: string): boolean {
+  return (activeSubagentWaits.get(parentId)?.get(subagentId) ?? 0) > 0;
+}
 
 interface CompletedToolResult {
   name: string;
@@ -68,8 +127,35 @@ interface CompletedToolResult {
   isError: boolean;
 }
 
-export function buildConversationContextMessages(messages: Message[]): ApiContextMessage[] {
+type ReasoningReplayModel = Pick<ModelConfig, "apiBase" | "provider">;
+
+function reasoningContextFields(
+  reasoningContent: string | null | undefined,
+  model?: ReasoningReplayModel,
+): Pick<ApiContextMessage, "reasoning" | "reasoning_content"> {
+  if (!reasoningContent) return {};
+  const provider = model?.provider?.trim().toLowerCase() ?? "";
+  const apiBase = model?.apiBase.toLowerCase() ?? "";
+  if (provider.includes("ollama") || apiBase.includes("localhost:11434")) {
+    return { reasoning: reasoningContent };
+  }
+  return { reasoning_content: reasoningContent };
+}
+
+export function buildConversationContextMessages(
+  messages: Message[],
+  model?: ReasoningReplayModel,
+): ApiContextMessage[] {
   const contextMessages: ApiContextMessage[] = [];
+  const replayedCallIds = new Set<string>();
+  const useResponses = isResponsesEndpoint(model?.apiBase ?? "");
+  const completedCallIds = new Set(
+    messages.flatMap((message) =>
+      !message.isStreaming && !message.excludeFromModelContext && message.toolCall && message.toolResult
+        ? [message.toolCall.id]
+        : [],
+    ),
+  );
 
   for (const message of messages) {
     if (message.isStreaming || message.excludeFromModelContext) continue;
@@ -83,7 +169,28 @@ export function buildConversationContextMessages(messages: Message[]): ApiContex
     }
 
     if (message.role === "assistant") {
-      contextMessages.push({ role: "assistant", content: message.content });
+      const output = useResponses ? message.responsesOutput : undefined;
+      const calls = output?.filter((item) => item.type === "function_call") ?? [];
+      // Interrupted generations may have saved calls without results. Fall back
+      // to visible text rather than replaying an invalid native output group.
+      if (output && calls.every((call) => typeof call.call_id === "string" && completedCallIds.has(call.call_id))) {
+        const toolCalls = calls.map((call) => {
+          replayedCallIds.add(call.call_id as string);
+          return { id: call.call_id, type: "function", function: { name: call.name, arguments: call.arguments } };
+        });
+        contextMessages.push({
+          role: "assistant",
+          content: message.content,
+          responses_output: output,
+          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+        });
+        continue;
+      }
+      contextMessages.push({
+        role: "assistant",
+        content: message.content,
+        ...reasoningContextFields(message.reasoningContent, model),
+      });
       continue;
     }
 
@@ -94,20 +201,21 @@ export function buildConversationContextMessages(messages: Message[]): ApiContex
     if (!message.toolCall || !message.toolResult) continue;
 
     const { toolCall, toolResult } = message;
-    contextMessages.push({
-      role: "assistant",
-      content: null,
-      tool_calls: [
-        {
-          id: toolCall.id,
-          type: "function",
-          function: {
-            name: toolCall.name,
-            arguments: JSON.stringify(toolCall.arguments),
+    if (!replayedCallIds.has(toolCall.id))
+      contextMessages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: toolCall.id,
+            type: "function",
+            function: {
+              name: toolCall.name,
+              arguments: JSON.stringify(toolCall.arguments),
+            },
           },
-        },
-      ],
-    });
+        ],
+      });
     contextMessages.push({
       role: "tool",
       tool_call_id: toolCall.id,
@@ -130,6 +238,36 @@ export function buildConversationContextMessages(messages: Message[]): ApiContex
   }
 
   return contextMessages;
+}
+
+export function buildToolResultContextMessages(
+  results: {
+    toolCallId: string;
+    rawName: string;
+    resultContent: string;
+    images?: McpImageContent[];
+  }[],
+): ApiContextMessage[] {
+  const toolMessages: ApiContextMessage[] = results.map((result) => ({
+    role: "tool",
+    tool_call_id: result.toolCallId,
+    name: result.rawName,
+    content: result.resultContent || (result.images?.length ? "(tool returned images)" : ""),
+  }));
+  const imageMessages: ApiContextMessage[] = results
+    .filter((result) => result.images?.length)
+    .map((result) => ({
+      role: "user",
+      content: [
+        { type: "text", text: `[Images from MCP tool "${result.rawName}" — analyze these images:]` },
+        ...result.images!.map((image) => ({
+          type: "image_url",
+          image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+        })),
+      ],
+    }));
+  // All calls in the assistant batch must be answered before user/image content.
+  return [...toolMessages, ...imageMessages];
 }
 
 function buildToolLimitFallback(results: CompletedToolResult[], error: unknown): string {
@@ -171,58 +309,6 @@ function setConversationGeneration(
   return {
     ...state.generationByConversation,
     [convId]: { state: generationState, label: generationLabel },
-  };
-}
-
-function computeLineDiff(oldContent: string, newContent: string): { added: number; deleted: number } {
-  const oldLines = oldContent ? oldContent.split(/\r?\n/) : [];
-  const newLines = newContent ? newContent.split(/\r?\n/) : [];
-
-  let start = 0;
-  let endOld = oldLines.length - 1;
-  let endNew = newLines.length - 1;
-
-  // Trim common prefix
-  while (start <= endOld && start <= endNew && oldLines[start] === newLines[start]) {
-    start++;
-  }
-
-  // Trim common suffix
-  while (endOld >= start && endNew >= start && oldLines[endOld] === newLines[endNew]) {
-    endOld--;
-    endNew--;
-  }
-
-  const N = endOld - start + 1;
-  const M = endNew - start + 1;
-
-  if (N <= 0) return { added: M > 0 ? M : 0, deleted: 0 };
-  if (M <= 0) return { added: 0, deleted: N > 0 ? N : 0 };
-
-  // Fallback for massive diffs to avoid freezing the thread
-  if (N * M > 1000000) {
-    return { added: M, deleted: N };
-  }
-
-  const dp = new Int32Array(M + 1);
-  for (let i = 1; i <= N; i++) {
-    let prev = 0;
-    const oldLine = oldLines[start + i - 1];
-    for (let j = 1; j <= M; j++) {
-      const temp = dp[j];
-      if (oldLine === newLines[start + j - 1]) {
-        dp[j] = prev + 1;
-      } else {
-        dp[j] = Math.max(dp[j], dp[j - 1]);
-      }
-      prev = temp;
-    }
-  }
-
-  const lcs = dp[M];
-  return {
-    added: M - lcs,
-    deleted: N - lcs,
   };
 }
 
@@ -543,7 +629,7 @@ export function buildToolDefinitions(
   return tools;
 }
 
-function buildProjectToolDefinitions(project: Project | null) {
+export function buildProjectToolDefinitions(project: Project | null) {
   if (!project) return [];
   const tools: ToolDefinition[] = [];
 
@@ -669,11 +755,15 @@ function buildProjectToolDefinitions(project: Project | null) {
       function: {
         name: "project_write",
         description:
-          "Write content to a file within the project, overwriting it entirely. Creates directories if needed.",
+          "Write content to a file within the project, creating a new file or overwriting it entirely. Missing parent directories are created automatically. Paths must be workspace-relative; absolute paths are rejected.",
         parameters: {
           type: "object",
           properties: {
-            file_path: { type: "string", description: "Relative or absolute path to the file" },
+            file_path: {
+              type: "string",
+              description:
+                "Project-relative path to the file (for example 'src/main.py'). Absolute paths and paths outside the workspace are rejected.",
+            },
             content: { type: "string", description: "The content to write" },
           },
           required: ["file_path", "content"],
@@ -692,7 +782,8 @@ function buildProjectToolDefinitions(project: Project | null) {
           properties: {
             file_path: {
               type: "string",
-              description: "The absolute or relative path string pointing to the target file.",
+              description:
+                "Project-relative path to the target file. Absolute paths and paths outside the workspace are rejected.",
             },
             old_string: {
               type: "string",
@@ -776,7 +867,6 @@ function resolveToolEffect(
   args: Record<string, unknown>,
   convId: string,
   project: Project | null,
-  projectRun: ProjectRunContext | null,
   mcpTools: McpTool[],
 ): ResolvedToolEffect {
   let resourceKey: string | null = null;
@@ -786,7 +876,7 @@ function resolveToolEffect(
       break;
     case "project":
       if (project) {
-        resourceKey = `project:${project.id}:${projectRun?.worktreePath ?? project.path}`;
+        resourceKey = `project:${project.id}:${project.path}`;
       }
       break;
     case "mcp-server": {
@@ -849,7 +939,7 @@ export function buildToolSystemPrompt(
 
   if (toolNames.has("search_query")) {
     prompt +=
-      "\n\nWhen you need current information, facts, or recent events, use search_query first. Use fetch_url when a result needs closer inspection. Synthesize the evidence and cite the sources you used.";
+      "\n\nWhen you need current information, facts, or recent events, use search_query first. Use fetch_url when a result needs closer inspection. Synthesize the evidence and cite the sources you used. Place a custom citation marker immediately after each supported claim using the citationId returned by search_query or a successful fetch_url, for example: The API supports streaming. [[cite:1]] Ordinary Markdown links remain ordinary links; use [[cite:N]] specifically for source tags. Cite only results that support the claim; never invent citation IDs or cite a failed fetch. Use separate markers when multiple sources support a claim. The app displays the source title and opens its URL.";
   }
 
   if (toolNames.has("invoke_subagent")) {
@@ -872,7 +962,8 @@ export function buildToolSystemPrompt(
 
   if (project) {
     prompt += `\n\nYou are currently working in a project context.\nProject Name: ${project.name}\nProject Path: ${project.path}\nPermissions: ${project.permissions.toUpperCase()}`;
-    prompt += `\nWhen using project tools, you can use paths relative to the project path.`;
+    prompt += `\nWhen mentioning project files in conversation, use clickable Markdown links with project-relative paths, for example: I updated [App.tsx](src/App.tsx). These links open the file in the Review tab. Use the exact known file path, encode spaces as %20, and do not invent file references.`;
+    prompt += `\nAll project file tools and project_bash operate directly in this exact project folder. Files written by one tool are immediately visible to every other tool and to the user. Use paths relative to the project path; do not assume an isolated worktree or a separate shell directory. Preserve pre-existing user changes and inspect the current file or Git diff before overwriting anything.`;
   }
   return prompt;
 }
@@ -927,6 +1018,21 @@ function toKnownToolName(name: string): KnownToolName | "unknown" {
   return KNOWN_TOOLS.has(name) ? (name as KnownToolName) : "unknown";
 }
 
+export function requiresToolConfirmation(toolName: string, rawName: string, project: Project | null): boolean {
+  if (toolName === "project_bash") {
+    return project?.skipCommandConfirmations !== true;
+  }
+
+  const requiresHitl =
+    toolName === "project_write" ||
+    toolName === "project_edit" ||
+    toolName === "project_multi_replace_file_content" ||
+    toolName === "project_git_commit" ||
+    rawName === "git_create_commit";
+
+  return requiresHitl && project?.permissions !== "full";
+}
+
 interface ToolCallData {
   id: string;
   function: { name: string; arguments: string };
@@ -939,11 +1045,17 @@ interface ToolCallResponse {
     message: {
       content: string | null;
       reasoning?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: ToolCallData[];
       anthropic_content?: unknown[];
       reasoning_details?: unknown[];
+      responses_output?: Record<string, unknown>[];
     };
   }[];
+}
+
+function responseReasoning(message: NonNullable<ToolCallResponse["choices"]>[number]["message"]): string | undefined {
+  return message.reasoning_content || message.reasoning || undefined;
 }
 
 export function assertUsableFinishReason(finishReason: string | null | undefined, hasToolCalls: boolean) {
@@ -1139,10 +1251,18 @@ function isConvStreaming(get: () => ToolLoopSlice, convId: string): boolean {
 
 function triggerParentResume(
   parentId: string,
+  subagentId: string,
   parentMsg: Message,
   set: (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => void,
   get: () => ToolLoopSlice,
+  stepBudget?: ToolStepBudget,
+  runContext?: ConversationRunContext,
 ) {
+  // wait_subagents returns this completion directly to the active parent run.
+  // Scheduling the same completion as a notification would make the parent
+  // generate a second time after it has already written its final response.
+  if (isSubagentWaitActive(parentId, subagentId)) return;
+
   const currentConvs = get().conversations;
   const parentConv = currentConvs.find((c) => c.id === parentId);
   const currentDepth = parentConv?.recursionDepth || 0;
@@ -1180,7 +1300,7 @@ function triggerParentResume(
       conversations: updateConversationMessages(s.conversations, parentId, (msgs) => [...msgs, parentMsg]),
     }));
     get()
-      .resumeConversation?.(parentId)
+      .resumeConversation?.(parentId, { stepBudget, runContext })
       .catch((e) => console.error("Parent auto-resume loop error:", e));
   }
 }
@@ -1192,6 +1312,8 @@ const conversationGenerationEpochs = new Map<string, number>();
 export function cancelConversationGenerationQueue(conversationIds: Iterable<string>): void {
   for (const conversationId of conversationIds) {
     conversationGenerationEpochs.set(conversationId, (conversationGenerationEpochs.get(conversationId) ?? 0) + 1);
+    pendingSubagentMessages.delete(conversationId);
+    activeSubagentWaits.delete(conversationId);
   }
 }
 
@@ -1228,7 +1350,19 @@ async function runWithToolLoop(
 ) {
   const workingStartedAt = Date.now();
   let hasUsedTools = false;
-  let runContext = initialRunContext;
+  const modelSettings = useModelStore.getState();
+  const runContext = withToolStepBudget(
+    initialRunContext,
+    initialRunContext.stepBudget ??
+      createToolStepBudget(
+        modelSettings.unlimitedToolSteps === true
+          ? null
+          : Math.min(
+              MAX_TOOL_STEPS_LIMIT,
+              Math.max(MIN_TOOL_STEPS, Math.round(modelSettings.maxToolSteps) || MIN_TOOL_STEPS),
+            ),
+      ),
+  );
   const {
     conversationId: convId,
     modelConfig,
@@ -1239,22 +1373,40 @@ async function runWithToolLoop(
     mcpCallTool,
     project,
   } = runContext;
-  let worktree = runContext.worktree ? { ...runContext.worktree } : null;
   set((state) => ({
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === convId && conversation.isSubagent ? { ...conversation, status: "running" } : conversation,
+    ),
     isStreaming: true,
     generationState: "loading" as GenerationState,
     generationLabel: "Loading",
     generationByConversation: setConversationGeneration(state, convId, "loading" as GenerationState, "Loading"),
+    activeStreamStartTime: {
+      ...(state.activeStreamStartTime ?? {}),
+      [convId]: workingStartedAt,
+    },
   }));
   useUIStore.getState().setLoading("sendMessage", true);
   useUIStore.getState().setLoading("toolExecution", false);
 
   let wasAborted = false;
   let projectCapability: ProjectRunContext | null = null;
+  let workspaceSnapshotActive = false;
   const collectedSources: { title: string; url: string }[] = [];
+  const citationIdsByUrl = new Map<string, number>();
+  const registerSource = (source: { title: string; url: string }): number => {
+    const existingId = citationIdsByUrl.get(source.url);
+    if (existingId !== undefined) return existingId;
+    collectedSources.push(source);
+    const citationId = collectedSources.length;
+    citationIdsByUrl.set(source.url, citationId);
+    return citationId;
+  };
   let contextDisclosureMessageId: string | null = null;
   let isFinalizingAfterToolLimit = false;
+  let stepBudget: ToolStepBudget | undefined;
   const completedToolResults: CompletedToolResult[] = [];
+  let releaseToolRound: ((completed: boolean) => void) | null = null;
 
   try {
     logInfo("chat", `sendWithToolLoop: started for conversation ${convId}`);
@@ -1335,66 +1487,50 @@ async function runWithToolLoop(
     };
 
     if (project) {
-      if (project.permissions === "read") {
-        const capabilityToken = await invoke<string>("project_run_begin", {
-          projectId: project.id,
-          conversationId: convId,
-          worktreePath: null,
-          branch: null,
-        });
-        projectCapability = Object.freeze({
-          conversationId: convId,
-          projectId: project.id,
-          worktreePath: null,
-          branch: null,
-          capabilityToken,
-        });
-      } else {
-        const isGit = await invoke<string | null>("git_detect_repo", { startPath: project.path });
-        if (!isGit) {
-          throw new Error("Write-capable project tools require a Git repository for worktree isolation.");
+      if (conv?.pendingWorktree && !conv.isSubagent) {
+        const published = await get().publishPendingWorktree?.(convId, { automatic: true });
+        if (!published) {
+          throw new Error(
+            "This conversation still has legacy isolated changes that could not be published. Resolve them in Review before starting another project run.",
+          );
         }
+      }
 
-        if (!worktree) {
-          const [path, branch, capabilityToken] = await invoke<[string, string, string]>("git_worktree_create", {
+      const capabilityToken = await invoke<string>("project_run_begin", {
+        projectId: project.id,
+        conversationId: convId,
+        worktreePath: null,
+        branch: null,
+      });
+      projectCapability = Object.freeze({
+        conversationId: convId,
+        projectId: project.id,
+        capabilityToken,
+      });
+
+      if (project.permissions !== "read") {
+        try {
+          workspaceSnapshotActive = await invoke<boolean>("git_workspace_snapshot_create", {
             projectId: project.id,
-            conversationId: convId,
+            runToken: capabilityToken,
           });
-          worktree = { path, branch };
-          projectCapability = Object.freeze({
-            conversationId: convId,
-            projectId: project.id,
-            worktreePath: path,
-            branch,
-            capabilityToken,
-          });
-        } else {
-          const capabilityToken = await invoke<string>("project_run_begin", {
-            projectId: project.id,
-            conversationId: convId,
-            worktreePath: worktree.path,
-            branch: worktree.branch,
-          });
-          projectCapability = Object.freeze({
-            conversationId: convId,
-            projectId: project.id,
-            worktreePath: worktree.path,
-            branch: worktree.branch,
-            capabilityToken,
+        } catch (error) {
+          logWarn("git", "Could not initialize direct workspace change tracking", {
+            details: error instanceof Error ? error.message : String(error),
           });
         }
-        runContext = continueConversationRunContext(runContext, convId, worktree);
-        const pendingWorktree = {
-          ...worktree,
-          commitScope: {
-            projectId: project.id,
-            projectRoot: project.path,
-            modelId: modelConfig.id,
-          },
-        };
         set((state) => ({
           conversations: state.conversations.map((conversation) =>
-            conversation.id === convId ? { ...conversation, pendingWorktree } : conversation,
+            conversation.id === convId
+              ? {
+                  ...conversation,
+                  messages: attachWorkspaceChangesToLatestAssistant(
+                    conversation.messages,
+                    conversation.workspaceChanges,
+                  ),
+                  workspaceChanges: undefined,
+                }
+              : conversation,
           ),
         }));
       }
@@ -1403,8 +1539,8 @@ async function runWithToolLoop(
       throw new Error("Project run capability could not be established.");
     }
     const projectRun = projectCapability;
-    logInfo("chat", `sendWithToolLoop: git worktree check done for ${convId}`);
-    const baseMessages = buildConversationContextMessages(conv?.messages ?? []);
+    logInfo("chat", `sendWithToolLoop: direct project run ready for ${convId}`);
+    const baseMessages = buildConversationContextMessages(conv?.messages ?? [], modelConfig);
 
     const useSearch = !!searchConfig;
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
@@ -1440,7 +1576,7 @@ async function runWithToolLoop(
           path: "AGENTS.md",
           offset: null,
           limit: null,
-          worktreePath: projectRun?.worktreePath ?? null,
+          worktreePath: null,
         });
         if (agentsMdContent && agentsMdContent.trim()) {
           userSystemPrompt += `\n\n<user_rules>\nThe following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any following instructions.\nReview them carefully and always take them into account when you generate responses and code:\n<RULE[AGENTS.md]>\n${agentsMdContent.trim()}\n</RULE[AGENTS.md]>\n</user_rules>`;
@@ -1456,12 +1592,14 @@ async function runWithToolLoop(
 
     const apiMessages: ApiContextMessage[] = [{ role: "system", content: combinedSystemPrompt }, ...baseMessages];
 
-    const maxToolSteps = useModelStore.getState().maxToolSteps;
-    let completedToolRounds = 0;
+    // One shared step budget spans the whole message chain: subagents,
+    // follow-up messages, and notification-driven resumes all draw from the
+    // same pool so the configured limit cannot be reset by an auto-resume.
+    const budget: ToolStepBudget = (stepBudget = runContext.stepBudget!);
     let providerContinuationTurns = 0;
 
     while (true) {
-      if (completedToolRounds >= maxToolSteps && !isFinalizingAfterToolLimit) {
+      if (isToolBudgetExhausted(budget) && !isFinalizingAfterToolLimit) {
         isFinalizingAfterToolLimit = true;
         apiMessages.push({
           role: "system",
@@ -1491,10 +1629,10 @@ async function runWithToolLoop(
         "chat",
         isFinalizingAfterToolLimit
           ? "Tool loop finalizing after tool limit"
-          : `Tool loop step ${completedToolRounds + 1}/${maxToolSteps}`,
+          : `Tool loop step ${budget.completedToolRounds + 1}/${budget.limit ?? "unlimited"}`,
         { details: `Model: ${modelConfig.modelId}, Messages so far: ${apiMessages.length}` },
       );
-      if (completedToolRounds > 0 || providerContinuationTurns > 0 || isFinalizingAfterToolLimit) {
+      if (budget.completedToolRounds > 0 || providerContinuationTurns > 0 || isFinalizingAfterToolLimit) {
         const continuationLabel = isFinalizingAfterToolLimit ? "Preparing final answer" : "Loading (continued)";
         set((state) => ({
           generationState: "loading" as GenerationState,
@@ -1511,7 +1649,7 @@ async function runWithToolLoop(
       const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
       const requestTools = isFinalizingAfterToolLimit ? [] : apiTools;
       const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig, tools: requestTools });
-      const maxTokens = assembledContext.budget.reservedOutputTokens;
+      const maxTokens = assembledContext.requestMaxOutputTokens;
       if (assembledContext.disclosure) {
         const disclosure = assembledContext.disclosure;
         contextDisclosureMessageId ??= generateId();
@@ -1548,6 +1686,11 @@ async function runWithToolLoop(
         handleStreamDone();
         resolveStreamDone();
       });
+      if (!get().conversations.some((conversation) => conversation.id === convId) || !isConvStreaming(get, convId)) {
+        cleanupStepStream();
+        wasAborted = true;
+        return;
+      }
       modelStore.setActiveStreamId(streamId, convId);
 
       set((state) => ({
@@ -1559,12 +1702,14 @@ async function runWithToolLoop(
             content: "",
             timestamp: new Date(),
             isStreaming: true,
+            sources: collectedSources.length > 0 ? [...collectedSources] : undefined,
           },
         ]),
       }));
 
       const rawPromise = invoke<string>("chat_stream_tools", {
         configId: modelConfig.id,
+        expectedModel: { apiBase: modelConfig.apiBase, modelId: modelConfig.modelId, provider: modelConfig.provider },
         messages: assembledContext.messages,
         tools: JSON.stringify(requestTools),
         temperature: requestTemp,
@@ -1602,6 +1747,7 @@ async function runWithToolLoop(
       }
 
       const msg = choice.message;
+      const reasoningContent = responseReasoning(msg);
       const hasToolCalls = Boolean(msg.tool_calls?.length);
       assertUsableFinishReason(choice.finish_reason, hasToolCalls);
 
@@ -1614,7 +1760,8 @@ async function runWithToolLoop(
           role: "assistant",
           content: msg.content,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
-          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+          ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
+          ...reasoningContextFields(reasoningContent, modelConfig),
         });
         set((state) => ({
           conversations: updateConversationMessages(state.conversations, convId, (msgs) => {
@@ -1625,7 +1772,8 @@ async function runWithToolLoop(
               updated[index] = {
                 ...updated[index],
                 content: updated[index].content || msg.content || "",
-                reasoningContent: updated[index].reasoningContent || msg.reasoning || undefined,
+                reasoningContent: updated[index].reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 thinkingDuration: updated[index].thinkingDuration ?? stepDuration,
               };
@@ -1640,6 +1788,27 @@ async function runWithToolLoop(
         if (isFinalizingAfterToolLimit) {
           throw new Error("The model requested another tool after the tool execution budget was exhausted.");
         }
+        releaseToolRound = reserveToolRound(budget);
+        if (!releaseToolRound) {
+          apiMessages.push({
+            role: "assistant",
+            content: msg.content,
+            tool_calls: msg.tool_calls,
+            ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+            ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
+            ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
+            ...reasoningContextFields(reasoningContent, modelConfig),
+          });
+          for (const call of msg.tool_calls) {
+            apiMessages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              name: call.function.name,
+              content: "Tool execution skipped: the shared tool budget is exhausted.",
+            });
+          }
+          continue;
+        }
         providerContinuationTurns = 0;
         hasUsedTools = true;
         apiMessages.push({
@@ -1647,8 +1816,9 @@ async function runWithToolLoop(
           content: msg.content,
           tool_calls: msg.tool_calls,
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content } : {}),
+          ...(msg.responses_output ? { responses_output: msg.responses_output } : {}),
           ...(msg.reasoning_details ? { reasoning_details: msg.reasoning_details } : {}),
-          ...(msg.reasoning ? { reasoning: msg.reasoning } : {}),
+          ...reasoningContextFields(reasoningContent, modelConfig),
         });
 
         const finalizedAssistantContent = typeof msg.content === "string" ? msg.content.trim() : "";
@@ -1666,7 +1836,8 @@ async function runWithToolLoop(
                 // fall back to the finalized response for providers that emitted no
                 // text chunks.
                 content: last.content.trim() ? last.content : finalizedAssistantContent,
-                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
+                reasoningContent: last.reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
               };
@@ -1681,7 +1852,7 @@ async function runWithToolLoop(
           const fnName = toKnownToolName(rawName);
           const fnArgs = parseToolArguments(toolCall, toolDefinitions);
           const definition = toolDefinitions.find((candidate) => candidate.function.name === rawName)!;
-          const effect = resolveToolEffect(definition, fnArgs, convId, project, projectRun, mcpTools);
+          const effect = resolveToolEffect(definition, fnArgs, convId, project, mcpTools);
           const toolCallMsgId = generateId();
           const isProjectTool = fnName.startsWith("project_");
 
@@ -1770,16 +1941,19 @@ async function runWithToolLoop(
           const { toolCall, rawName, fnName, fnArgs, toolCallMsgId, toolDesc } = td;
 
           const uiStore = useUIStore.getState();
-          const taskLabel =
+          const taskMcpTool =
             fnName === "unknown" && rawName.includes("__")
-              ? `MCP: ${rawName.split("__")[1]} (${rawName.split("__")[0]})`
-              : `Tool: ${fnName}`;
+              ? mcpTools.find((tool) => tool.namespacedName === rawName)
+              : undefined;
+          const taskLabel = taskMcpTool ? `MCP: ${taskMcpTool.name} (${taskMcpTool.serverName})` : `Tool: ${fnName}`;
           uiStore.addTask(toolCall.id, taskLabel, convId);
 
           let resultContent = "";
           let images: McpImageContent[] | undefined = undefined;
           let isError = false;
           let toolResultDiffSummary: ToolResultDiffSummary | undefined = undefined;
+          // Captured before a mutating file tool runs so a failed write/edit can still show its intent.
+          let intendedDiffSummary: ToolResultDiffSummary | undefined = undefined;
           let toolResultSubagentIds: string[] | undefined = undefined;
 
           try {
@@ -1788,17 +1962,8 @@ async function runWithToolLoop(
             }
 
             // 1. Check HITL gate
-            const hasFullAccess = project?.permissions === "full";
-
-            const requiresHitl =
-              fnName === "project_write" ||
-              fnName === "project_edit" ||
-              fnName === "project_multi_replace_file_content" ||
-              fnName === "project_git_commit" ||
-              fnName === "project_bash" ||
-              rawName === "git_create_commit";
-
-            const isHitl = requiresHitl && !hasFullAccess;
+            const isHitl = requiresToolConfirmation(fnName, rawName, project);
+            let commandConfirmationAcknowledged = false;
 
             if (isHitl) {
               const approved = await new Promise<boolean>((resolve) => {
@@ -1813,6 +1978,7 @@ async function runWithToolLoop(
               if (!approved) {
                 throw new Error("Tool execution rejected by the user.");
               }
+              commandConfirmationAcknowledged = fnName === "project_bash";
             }
 
             if (!isConvStreaming(get, convId)) {
@@ -1824,7 +1990,7 @@ async function runWithToolLoop(
               const mcpTool = mcpTools.find((t) => t.namespacedName === rawName);
               if (mcpTool && mcpCallTool) {
                 logInfo("mcp", `Tool loop calling MCP tool: ${mcpTool.name}`, {
-                  details: `Server: ${mcpTool.serverName}, Step ${completedToolRounds + 1}`,
+                  details: `Server: ${mcpTool.serverName}, Step ${budget.completedToolRounds + 1}`,
                 });
 
                 let mcpOldContent = "";
@@ -1847,10 +2013,36 @@ async function runWithToolLoop(
                       path: getRelativePath(resolvedPath),
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun?.worktreePath ?? null,
+                      worktreePath: null,
                     });
                   } catch {
                     mcpIsNew = true;
+                  }
+
+                  const intendedContent =
+                    typeof fnArgs.content === "string"
+                      ? fnArgs.content
+                      : !mcpIsNew && typeof fnArgs.old_string === "string" && typeof fnArgs.new_string === "string"
+                        ? simulateStringReplacement(
+                            mcpOldContent,
+                            fnArgs.old_string,
+                            fnArgs.new_string,
+                            fnArgs.replace_all === true,
+                          )
+                        : null;
+                  if (intendedContent !== null) {
+                    const intendedDiff = computeFileDiff(mcpIsNew ? "" : mcpOldContent, intendedContent);
+                    if (intendedDiff.added > 0 || intendedDiff.deleted > 0) {
+                      intendedDiffSummary = {
+                        added: intendedDiff.added,
+                        deleted: intendedDiff.deleted,
+                        isNew: mcpIsNew,
+                        filename: mcpFileChangeInfo.filename,
+                        language: languageForFilename(mcpFileChangeInfo.filename),
+                        truncated: intendedDiff.truncated,
+                        hunks: intendedDiff.hunks,
+                      };
+                    }
                   }
                 }
 
@@ -1859,7 +2051,11 @@ async function runWithToolLoop(
                 images = result.images;
                 isError = result.isError;
 
-                if (mcpFileChangeInfo && !result.isError) {
+                if (result.isError) {
+                  if (intendedDiffSummary) {
+                    toolResultDiffSummary = { ...intendedDiffSummary, error: true };
+                  }
+                } else if (mcpFileChangeInfo) {
                   try {
                     const mcpNewContent = await invoke<string>("project_read", {
                       projectId: project?.id || "",
@@ -1867,19 +2063,23 @@ async function runWithToolLoop(
                       path: getRelativePath(mcpFileChangeInfo.path),
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun?.worktreePath ?? null,
+                      worktreePath: null,
                     });
-                    const diff = computeLineDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
+                    const diff = computeFileDiff(mcpIsNew ? "" : mcpOldContent, mcpNewContent);
                     toolResultDiffSummary = {
                       added: diff.added,
                       deleted: diff.deleted,
                       isNew: mcpIsNew,
                       filename: mcpFileChangeInfo.filename,
+                      language: languageForFilename(mcpFileChangeInfo.filename),
+                      truncated: diff.truncated,
+                      hunks: diff.hunks,
                     };
                   } catch {
                     // Ignore
                   }
                 }
+                intendedDiffSummary = undefined;
               } else {
                 throw new Error(`Unknown tool: ${rawName}`);
               }
@@ -1919,17 +2119,6 @@ async function runWithToolLoop(
                   ],
                   model: modelConfig.id,
                   projectId: project?.id,
-                  pendingWorktree:
-                    worktree && project
-                      ? {
-                          ...worktree,
-                          commitScope: {
-                            projectId: project.id,
-                            projectRoot: project.path,
-                            modelId: modelConfig.id,
-                          },
-                        }
-                      : undefined,
                   parentId: convId,
                   role: subagentRole,
                   isSubagent: true,
@@ -1939,7 +2128,7 @@ async function runWithToolLoop(
                 set((s) => ({ conversations: [...s.conversations, newConv] }));
 
                 sendWithToolLoop(
-                  continueConversationRunContext(runContext, subagentId, worktree),
+                  continueConversationRunContext(runContext, subagentId),
                   set,
                   get,
                   performSearch,
@@ -1955,40 +2144,50 @@ async function runWithToolLoop(
               const targetIds = Array.isArray(fnArgs.conversationIds)
                 ? fnArgs.conversationIds.slice(0, MAX_ACTIVE_SUBAGENTS)
                 : [];
+              const ownedTargetIds = targetIds.filter((id) => {
+                const target = get().conversations.find((conversation) => conversation.id === id);
+                return target?.isSubagent && target.parentId === convId;
+              });
               const start = Date.now();
               const timeout = 600000; // 10 minutes max wait
 
-              while (Date.now() - start < timeout) {
-                if (!isConvStreaming(get, convId)) {
-                  break;
-                }
-                const convs = get().conversations;
-                let allDone = true;
-                const results: string[] = [];
-                for (const id of targetIds) {
-                  const targetConv = convs.find((c) => c.id === id);
-                  if (!targetConv) {
-                    results.push(`Subagent ${id} not found.`);
-                    continue;
+              registerSubagentWait(convId, ownedTargetIds);
+              try {
+                while (Date.now() - start < timeout) {
+                  if (!isConvStreaming(get, convId)) {
+                    break;
                   }
-                  if (!targetConv.isSubagent || targetConv.parentId !== convId) {
-                    results.push(`Subagent ${id} is outside this conversation's scope.`);
-                    continue;
+                  const convs = get().conversations;
+                  let allDone = true;
+                  const results: string[] = [];
+                  for (const id of targetIds) {
+                    const targetConv = convs.find((c) => c.id === id);
+                    if (!targetConv) {
+                      results.push(`Subagent ${id} not found.`);
+                      continue;
+                    }
+                    if (!targetConv.isSubagent || targetConv.parentId !== convId) {
+                      results.push(`Subagent ${id} is outside this conversation's scope.`);
+                      continue;
+                    }
+                    const hasPendingRuns = (activeToolLoopRuns.get(id)?.size ?? 0) > 0;
+                    if (!hasPendingRuns && (targetConv.status === "completed" || targetConv.status === "error")) {
+                      const lastMsg = targetConv.messages[targetConv.messages.length - 1];
+                      results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
+                    } else {
+                      allDone = false;
+                    }
                   }
-                  if (targetConv.status === "completed" || targetConv.status === "error") {
-                    const lastMsg = targetConv.messages[targetConv.messages.length - 1];
-                    results.push(`Subagent ${id} (${targetConv.status}):\n${lastMsg?.content || "No output"}`);
-                  } else {
-                    allDone = false;
-                  }
-                }
 
-                if (allDone) {
-                  resultContent = results.join("\n\n---\n\n");
-                  break;
-                }
+                  if (allDone) {
+                    resultContent = results.join("\n\n---\n\n");
+                    break;
+                  }
 
-                await new Promise((r) => setTimeout(r, 1000));
+                  await new Promise((r) => setTimeout(r, 1000));
+                }
+              } finally {
+                unregisterSubagentWait(convId, ownedTargetIds);
               }
 
               if (!resultContent) {
@@ -2011,7 +2210,7 @@ async function runWithToolLoop(
                 timestamp: new Date(),
               };
               enqueueToolLoopRun(
-                continueConversationRunContext(runContext, targetId, worktree),
+                continueConversationRunContext(runContext, targetId),
                 set,
                 get,
                 performSearch,
@@ -2037,7 +2236,7 @@ async function runWithToolLoop(
                       runToken: projectRun!.capabilityToken,
                       path: "",
                       pattern: fnArgs.pattern,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2049,7 +2248,7 @@ async function runWithToolLoop(
                       projectId: project.id,
                       runToken: projectRun!.capabilityToken,
                       path: relativeDir,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2062,7 +2261,7 @@ async function runWithToolLoop(
                     path: relativeFile,
                     offset: fnArgs.offset ? Number(fnArgs.offset) : null,
                     limit: fnArgs.limit ? Number(fnArgs.limit) : null,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   break;
                 }
@@ -2075,7 +2274,7 @@ async function runWithToolLoop(
                       pattern: fnArgs.pattern,
                       outputMode: fnArgs.output_mode || "files_with_matches",
                       multiline: fnArgs.multiline === true,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2091,30 +2290,36 @@ async function runWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     });
                   } catch {
                     isNew = true;
                   }
+
+                  const diff = computeFileDiff(isNew ? "" : oldContent, fnArgs.content || "");
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+
+                  intendedDiffSummary = {
+                    added: diff.added,
+                    deleted: diff.deleted,
+                    isNew,
+                    filename,
+                    language: languageForFilename(filename),
+                    truncated: diff.truncated,
+                    hunks: diff.hunks,
+                  };
 
                   await invoke("project_write", {
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
                     path: relativeFile,
                     content: fnArgs.content,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   resultContent = "File written successfully.";
 
-                  const diff = computeLineDiff(isNew ? "" : oldContent, fnArgs.content || "");
-                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
-
-                  toolResultDiffSummary = {
-                    added: diff.added,
-                    deleted: diff.deleted,
-                    isNew,
-                    filename,
-                  };
+                  toolResultDiffSummary = intendedDiffSummary;
+                  intendedDiffSummary = undefined;
                   break;
                 }
                 case "project_edit": {
@@ -2127,10 +2332,30 @@ async function runWithToolLoop(
                       path: relativeFile,
                       offset: null,
                       limit: null,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     });
                   } catch {
                     throw new Error("File does not exist or cannot be read.");
+                  }
+
+                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+                  const intendedContent = simulateStringReplacement(
+                    oldContent,
+                    fnArgs.old_string || "",
+                    fnArgs.new_string || "",
+                    fnArgs.replace_all === true,
+                  );
+                  const intendedDiff = computeFileDiff(oldContent, intendedContent);
+                  if (intendedDiff.added > 0 || intendedDiff.deleted > 0) {
+                    intendedDiffSummary = {
+                      added: intendedDiff.added,
+                      deleted: intendedDiff.deleted,
+                      isNew: false,
+                      filename,
+                      language: languageForFilename(filename),
+                      truncated: intendedDiff.truncated,
+                      hunks: intendedDiff.hunks,
+                    };
                   }
 
                   await invoke("project_edit", {
@@ -2140,9 +2365,10 @@ async function runWithToolLoop(
                     oldString: fnArgs.old_string,
                     newString: fnArgs.new_string,
                     replaceAll: fnArgs.replace_all === true,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   resultContent = "File content replaced successfully.";
+                  intendedDiffSummary = undefined;
 
                   const newContent = await invoke<string>("project_read", {
                     projectId: project.id,
@@ -2150,16 +2376,18 @@ async function runWithToolLoop(
                     path: relativeFile,
                     offset: null,
                     limit: null,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
-                  const diff = computeLineDiff(oldContent, newContent);
-                  const filename = fnArgs.file_path.split(/[/\\]/).pop() || fnArgs.file_path;
+                  const diff = computeFileDiff(oldContent, newContent);
 
                   toolResultDiffSummary = {
                     added: diff.added,
                     deleted: diff.deleted,
                     isNew: false,
                     filename,
+                    language: languageForFilename(filename),
+                    truncated: diff.truncated,
+                    hunks: diff.hunks,
                   };
                   break;
                 }
@@ -2168,10 +2396,11 @@ async function runWithToolLoop(
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
                     command: fnArgs.command,
-                    cwd: projectRun!.worktreePath ?? project.path,
+                    cwd: project.path,
                     timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
                     runInBackground: fnArgs.run_in_background === true,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
+                    confirmationAcknowledged: commandConfirmationAcknowledged,
                   });
                   break;
                 case "project_git_status":
@@ -2179,7 +2408,7 @@ async function runWithToolLoop(
                     await invoke("git_get_status", {
                       projectId: project.id,
                       runToken: projectRun!.capabilityToken,
-                      worktreePath: projectRun!.worktreePath,
+                      worktreePath: null,
                     }),
                   );
                   break;
@@ -2187,7 +2416,7 @@ async function runWithToolLoop(
                   resultContent = await invoke<string>("git_diff_changes", {
                     projectId: project.id,
                     runToken: projectRun!.capabilityToken,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                     files: null,
                   });
                   break;
@@ -2201,17 +2430,18 @@ async function runWithToolLoop(
                     authorName: null,
                     authorEmail: null,
                     bypassHooks: false,
-                    worktreePath: projectRun!.worktreePath,
+                    worktreePath: null,
                   });
                   break;
               }
             } else if (fnName === "search_query" && useSearch && searchConfig) {
               logInfo("search", `Tool loop search: "${fnArgs.query}"`, {
-                details: `Provider: ${searchConfig.provider}, Step ${completedToolRounds + 1}`,
+                details: `Provider: ${searchConfig.provider}, Step ${budget.completedToolRounds + 1}`,
               });
               const results = await performSearch(fnArgs.query!, searchConfig, searchApiKey);
-              resultContent = JSON.stringify(results);
-              results.forEach((r) => collectedSources.push({ title: r.title, url: r.url }));
+              resultContent = JSON.stringify(
+                results.map((r) => ({ ...r, citationId: registerSource({ title: r.title, url: r.url }) })),
+              );
             } else if (fnName === "read_skill") {
               const skillId = fnArgs.id;
               logInfo("chat", `Tool loop read skill: ${skillId}`);
@@ -2309,12 +2539,13 @@ async function runWithToolLoop(
               }
             } else if (fnName === "fetch_url" && useSearch) {
               logInfo("search", `Tool loop fetch URL: ${fnArgs.url}`, {
-                details: `Step ${completedToolRounds + 1}`,
+                details: `Step ${budget.completedToolRounds + 1}`,
               });
               const urlContent = await fetchUrlContent(fnArgs.url!, fnArgs.format);
               resultContent = JSON.stringify(urlContent);
               if (urlContent.status === "ok") {
-                collectedSources.push({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
+                const citationId = registerSource({ title: urlContent.title || fnArgs.url!, url: fnArgs.url! });
+                resultContent = JSON.stringify({ ...urlContent, citationId });
               } else {
                 isError = true;
               }
@@ -2324,6 +2555,10 @@ async function runWithToolLoop(
           } catch (err: unknown) {
             isError = true;
             resultContent = errorMessage(err);
+            if (intendedDiffSummary) {
+              toolResultDiffSummary = { ...intendedDiffSummary, error: true };
+              intendedDiffSummary = undefined;
+            }
           }
 
           if (resultContent.length > MAX_TOOL_RESULT_LENGTH) {
@@ -2393,18 +2628,6 @@ async function runWithToolLoop(
                   : m,
               ),
             ),
-            ...(isError
-              ? {
-                  generationState: "error" as GenerationState,
-                  generationLabel: `Tool failed: ${fnName}`,
-                  generationByConversation: setConversationGeneration(
-                    state,
-                    convId,
-                    "error" as GenerationState,
-                    `Tool failed: ${fnName}`,
-                  ),
-                }
-              : {}),
           }));
 
           uiStore.completeTask(toolCall.id, isError ? "error" : "completed");
@@ -2444,40 +2667,10 @@ async function runWithToolLoop(
             content: res.resultContent,
             isError: res.isError,
           });
-          if (res.images && res.images.length > 0) {
-            apiMessages.push({
-              role: "tool",
-              tool_call_id: res.toolCallId,
-              name: res.rawName,
-              content: res.resultContent || "(tool returned images)",
-            });
-
-            const imageContentParts: unknown[] = [
-              {
-                type: "text",
-                text: `[Images from MCP tool "${res.rawName}" — analyze these images:]`,
-              },
-            ];
-            for (const img of res.images) {
-              imageContentParts.push({
-                type: "image_url",
-                image_url: { url: `data:${img.mimeType};base64,${img.data}` },
-              });
-            }
-            apiMessages.push({
-              role: "user",
-              content: imageContentParts,
-            });
-          } else {
-            apiMessages.push({
-              role: "tool",
-              tool_call_id: res.toolCallId,
-              name: res.rawName,
-              content: res.resultContent,
-            });
-          }
         }
-        completedToolRounds += 1;
+        apiMessages.push(...buildToolResultContextMessages(results));
+        releaseToolRound(true);
+        releaseToolRound = null;
       } else {
         providerContinuationTurns = 0;
         const assistantContent = msg.content || "";
@@ -2492,7 +2685,8 @@ async function runWithToolLoop(
               updated[idx] = {
                 ...last,
                 content: last.content || assistantContent,
-                reasoningContent: last.reasoningContent || msg.reasoning || undefined,
+                reasoningContent: last.reasoningContent || reasoningContent,
+                responsesOutput: msg.responses_output,
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
@@ -2521,8 +2715,6 @@ async function runWithToolLoop(
         useUIStore.getState().setLoading("sendMessage", false);
         useUIStore.getState().setLoading("toolExecution", false);
 
-        await get().persistConversations?.();
-
         const updatedConv = get().conversations.find((c) => c.id === convId);
         if (updatedConv?.isSubagent && updatedConv.parentId) {
           const parentMsg: Message = {
@@ -2532,8 +2724,10 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isSystem: true,
           };
-          triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+          triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, budget, runContext);
         }
+
+        await get().persistConversations?.();
 
         return;
       }
@@ -2588,7 +2782,6 @@ async function runWithToolLoop(
       logWarn("chat", "Tool-limit finalization failed; preserved a partial result", {
         details: errorMessage(err),
       });
-      await get().persistConversations?.();
 
       const updatedConv = get().conversations.find((conversation) => conversation.id === convId);
       if (updatedConv?.isSubagent && updatedConv.parentId) {
@@ -2599,8 +2792,9 @@ async function runWithToolLoop(
           timestamp: new Date(),
           isSystem: true,
         };
-        triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+        triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget, runContext);
       }
+      await get().persistConversations?.();
       return;
     }
     const parsed = parseApiError(err);
@@ -2647,9 +2841,24 @@ async function runWithToolLoop(
         timestamp: new Date(),
         isSystem: true,
       };
-      triggerParentResume(updatedConv.parentId, parentMsg, set, get);
+      triggerParentResume(updatedConv.parentId, updatedConv.id, parentMsg, set, get, stepBudget, runContext);
     }
   } finally {
+    releaseToolRound?.(false);
+    let workspaceSnapshot: WorkspaceSnapshotResult | null = null;
+    if (projectCapability && project && workspaceSnapshotActive) {
+      try {
+        workspaceSnapshot = await invoke<WorkspaceSnapshotResult | null>("git_workspace_snapshot_finish", {
+          projectId: project.id,
+          runToken: projectCapability.capabilityToken,
+        });
+      } catch (error) {
+        logWarn("git", "Failed to capture direct workspace changes", {
+          details: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     if (projectCapability) {
       try {
         await invoke("project_run_end", {
@@ -2663,6 +2872,48 @@ async function runWithToolLoop(
       }
     }
 
+    const completedConversation = get().conversations.find((conversation) => conversation.id === convId);
+    if (project && workspaceSnapshot?.changedPaths.length) {
+      const filesByPath = new Map(
+        parseGitDiff(workspaceSnapshot.diff).map((file) => [
+          file.path,
+          { path: file.path, additions: file.additions, deletions: file.deletions },
+        ]),
+      );
+      const files = workspaceSnapshot.changedPaths.map(
+        (path) => filesByPath.get(path) ?? { path, additions: 0, deletions: 0 },
+      );
+      const workspaceChanges = {
+        projectId: project.id,
+        files,
+        appliedAt: new Date(),
+        undoToken: workspaceSnapshot.undoToken,
+      };
+      set((state) => ({
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === convId
+            ? {
+                ...conversation,
+                messages: attachWorkspaceChangesToLatestAssistant(conversation.messages, workspaceChanges),
+                workspaceChanges,
+              }
+            : conversation,
+        ),
+      }));
+      await get().persistConversations?.();
+      logInfo("git", "Captured changes made during the direct project run");
+
+      if (!completedConversation?.isSubagent) {
+        const { useGitStore } = await import("../store/useGitStore");
+        await useGitStore.getState().autoCommitIfNeeded({
+          projectId: project.id,
+          projectRoot: project.path,
+          modelId: modelConfig.id,
+          files: workspaceSnapshot.changedPaths,
+        });
+      }
+    }
+
     if (!wasAborted) {
       const pending = pendingSubagentMessages.get(convId);
       if (pending && pending.length > 0) {
@@ -2671,7 +2922,7 @@ async function runWithToolLoop(
           conversations: updateConversationMessages(s.conversations, convId, (msgs) => [...msgs, ...pending]),
         }));
         get()
-          .resumeConversation?.(convId)
+          .resumeConversation?.(convId, { stepBudget, runContext })
           .catch((e) => console.error("Auto-resume loop error:", e));
       }
     }
@@ -2687,6 +2938,13 @@ function enqueueToolLoopRun(
   beforeRun?: () => void,
 ): Promise<void> {
   const conversationId = initialRunContext.conversationId;
+  set((state) => ({
+    conversations: state.conversations.map((conversation) =>
+      conversation.id === conversationId && conversation.isSubagent
+        ? { ...conversation, status: "running" }
+        : conversation,
+    ),
+  }));
   const run = enqueueConversationGeneration(conversationId, async () => {
     beforeRun?.();
     await runWithToolLoop(initialRunContext, set, get, performSearch, fetchUrlContent);

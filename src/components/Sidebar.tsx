@@ -158,8 +158,6 @@ export default memo(function Sidebar({
       isProjectsEnabled: state.isProjectsEnabled,
     })),
   );
-  const activeConversation = conversations.find((conversation) => conversation.id === activeId);
-  const hasPendingWorktree = Boolean(activeConversation?.pendingWorktree);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -779,22 +777,9 @@ export default memo(function Sidebar({
                               </button>
                               <button
                                 onClick={() => {
-                                  if (hasPendingWorktree && activeConversation?.projectId !== project.id) {
-                                    addToast(
-                                      "Apply or discard pending workspace changes before switching projects.",
-                                      "error",
-                                    );
-                                    return;
-                                  }
                                   setActiveProject(project.id);
                                   toggleProject(project.id);
                                 }}
-                                aria-disabled={hasPendingWorktree && activeConversation?.projectId !== project.id}
-                                title={
-                                  hasPendingWorktree && activeConversation?.projectId !== project.id
-                                    ? "Resolve pending workspace changes before switching projects"
-                                    : undefined
-                                }
                                 className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                                   isActive
                                     ? "bg-active text-text-primary"

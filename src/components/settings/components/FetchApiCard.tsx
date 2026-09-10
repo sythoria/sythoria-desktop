@@ -1,21 +1,25 @@
-import { memo } from "react";
+import { useSearchStore } from "../../../store/useSearchStore";
+import { endpointFieldError } from "../../../utils/endpointError";
+import { EndpointError } from "./EndpointError";
+import { memo, useState } from "react";
 import { motion } from "motion/react";
-import { Trash2, AlertCircle, Eye, EyeOff } from "lucide-react";
-import { FetchApiConfig, FetchProvider } from "../../../types";
+import { Trash2, AlertCircle } from "lucide-react";
+import { ConnectionStatus, FetchApiConfig, FetchProvider } from "../../../types";
 import { FETCH_PROVIDER_PRESETS } from "../../../config/fetchPresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
 import { validateFetchApiKey } from "../../../utils/validation";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
+import { ProviderConnectionStatus } from "./ProviderConnectionStatus";
 
 interface FetchApiCardProps {
   id?: string;
   config: FetchApiConfig;
   onUpdate: (id: string, updates: Partial<FetchApiConfig>) => void;
   onDelete: (id: string) => void;
-  showKey: boolean;
-  onToggleKey: (id: string) => void;
+  hasStoredApiKey: boolean;
+  connectionStatus: ConnectionStatus;
 }
 
 export const FetchApiCard = memo(function FetchApiCard({
@@ -23,11 +27,17 @@ export const FetchApiCard = memo(function FetchApiCard({
   config,
   onUpdate,
   onDelete,
-  showKey,
-  onToggleKey,
+  hasStoredApiKey,
+  connectionStatus,
 }: FetchApiCardProps) {
   const { t } = useTranslation();
-  const keyValidation = validateFetchApiKey(config.apiKey, config.provider);
+  const connectionError = useSearchStore((s) => s.fetchErrors[config.id]);
+  const endpointError = endpointFieldError(config.baseUrl || "", connectionStatus, connectionError);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const keyValidation = validateFetchApiKey(
+    apiKeyDraft || (hasStoredApiKey ? "stored-credential" : undefined),
+    config.provider,
+  );
 
   return (
     <motion.div
@@ -65,6 +75,8 @@ export const FetchApiCard = memo(function FetchApiCard({
       </div>
 
       <div className="space-y-3">
+        <ProviderConnectionStatus status={connectionStatus} />
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-text-muted" htmlFor={`fetch-name-${config.id}`}>
@@ -119,6 +131,8 @@ export const FetchApiCard = memo(function FetchApiCard({
           <input
             id={`fetch-base-${config.id}`}
             type="url"
+            aria-invalid={!!endpointError}
+            aria-describedby={endpointError ? `endpoint-error-${config.id}` : undefined}
             value={config.baseUrl || ""}
             onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
             placeholder={
@@ -133,46 +147,54 @@ export const FetchApiCard = memo(function FetchApiCard({
             spellCheck="false"
             className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
           />
+          <EndpointError id={`endpoint-error-${config.id}`} message={endpointError} />
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-medium text-text-muted" htmlFor={`fetch-key-${config.id}`}>
-            {config.provider === "jina" ? t("settings.search.apiKeyOptional") : t("settings.search.apiKey")}
-          </label>
-          <div className="relative">
-            <input
-              id={`fetch-key-${config.id}`}
-              type={showKey ? "text" : "password"}
-              value={config.apiKey || ""}
-              onChange={(e) => onUpdate(config.id, { apiKey: e.target.value })}
-              placeholder={
-                config.provider === "jina"
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-text-muted" htmlFor={`fetch-key-${config.id}`}>
+              {config.provider === "jina" ? t("settings.search.apiKeyOptional") : t("settings.search.apiKey")}
+            </label>
+            {hasStoredApiKey && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600 dark:text-green-400">
+                <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                {t("settings.models.apiKeyAdded")}
+              </span>
+            )}
+          </div>
+          <input
+            id={`fetch-key-${config.id}`}
+            type="password"
+            value={apiKeyDraft}
+            onChange={(e) => {
+              setApiKeyDraft(e.target.value);
+              onUpdate(config.id, { apiKey: e.target.value });
+            }}
+            onBlur={() => setApiKeyDraft("")}
+            placeholder={
+              hasStoredApiKey
+                ? t("settings.models.apiKeyReplace")
+                : config.provider === "jina"
                   ? t("settings.search.customApiKeyPlaceholder", { defaultValue: "API Key (optional)" })
                   : t("settings.search.apiKeyPlaceholder", { defaultValue: "API Key" })
-              }
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck="false"
-              className={`w-full h-10 px-3 py-2 pr-9 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
-                !keyValidation.valid
-                  ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
-                  : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
-              }`}
-            />
-            <button
-              onClick={() => onToggleKey(config.id)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors p-1"
-              aria-label={
-                showKey
-                  ? t("settings.search.hideApiKey", { defaultValue: "Hide API key" })
-                  : t("settings.search.showApiKey", { defaultValue: "Show API key" })
-              }
-            >
-              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
+            }
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck="false"
+            aria-invalid={!keyValidation.valid}
+            aria-describedby={!keyValidation.valid ? `fetch-key-warning-${config.id}` : undefined}
+            className={`w-full h-10 px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted focus:outline-none transition-colors ${
+              !keyValidation.valid
+                ? "border-yellow-500/50 focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20"
+                : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
+            }`}
+          />
           {!keyValidation.valid && (
-            <p className="flex items-center gap-1 text-[11px] text-yellow-500 mt-0.5" role="alert">
+            <p
+              id={`fetch-key-warning-${config.id}`}
+              className="flex items-center gap-1 text-[11px] text-yellow-500 mt-0.5"
+              role="alert"
+            >
               <AlertCircle size={11} />
               {keyValidation.warning}
             </p>

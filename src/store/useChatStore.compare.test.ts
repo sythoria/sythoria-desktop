@@ -331,7 +331,6 @@ describe("transactional chat deletion", () => {
         events.push(`discard:${String((args as { worktreePath: string }).worktreePath)}`);
         return undefined;
       }
-      if (command === "set_project_path_override") return undefined;
       if (command === "save_encrypted_conversations") {
         events.push("persist");
         expect(useChatStore.getState().conversations.map((conversation) => conversation.id)).toEqual([destination.id]);
@@ -388,7 +387,6 @@ describe("transactional chat deletion", () => {
         }
         return undefined;
       }
-      if (command === "set_project_path_override") return undefined;
       throw new Error(`Unexpected command: ${command}`);
     });
 
@@ -478,14 +476,18 @@ describe("transactional chat deletion", () => {
   });
 });
 
-describe("worktree approval", () => {
-  it("auto-commits only returned worktree paths after apply succeeds", async () => {
+describe("worktree publishing", () => {
+  it("publishes one shared worktree against its captured project after project selection changes", async () => {
     const invokeMock = vi.mocked(invoke);
     const autoCommitIfNeeded = vi.fn().mockResolvedValue(undefined);
     const originalAutoCommit = useGitStore.getState().autoCommitIfNeeded;
     invokeMock.mockImplementation(async (command) => {
-      if (command === "git_worktree_apply") return ["src/ai.ts", "src/new.ts"];
-      if (command === "set_project_path_override") return undefined;
+      if (command === "git_worktree_apply") {
+        return {
+          changedPaths: ["src/ai.ts", "src/new.ts"],
+          undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+        };
+      }
       throw new Error(`Unexpected command: ${command}`);
     });
     useGitStore.setState({ autoCommitIfNeeded });
@@ -507,6 +509,22 @@ describe("worktree approval", () => {
       conversations: [
         {
           ...primaryConversation,
+          projectId: "project-b",
+          pendingWorktree: {
+            path: "/worktrees/run-a",
+            branch: "sythoria-agent-a",
+            commitScope: {
+              projectId: "project-a",
+              projectRoot: "/projects/a",
+              modelId: "model-a",
+            },
+          },
+        },
+        {
+          ...comparisonConversation,
+          id: "shared-subagent",
+          parentId: primaryConversation.id,
+          isSubagent: true,
           projectId: "project-a",
           pendingWorktree: {
             path: "/worktrees/run-a",
@@ -523,7 +541,7 @@ describe("worktree approval", () => {
     });
 
     try {
-      await useChatStore.getState().applyPendingWorktree(primaryConversation.id);
+      await useChatStore.getState().publishPendingWorktree(primaryConversation.id);
 
       expect(autoCommitIfNeeded).toHaveBeenCalledWith({
         projectId: "project-a",
@@ -531,14 +549,22 @@ describe("worktree approval", () => {
         modelId: "model-a",
         files: ["src/ai.ts", "src/new.ts"],
       });
-      expect(useChatStore.getState().conversations[0].pendingWorktree).toBeUndefined();
+      expect(useChatStore.getState().conversations.every((conversation) => !conversation.pendingWorktree)).toBe(true);
+      expect(useChatStore.getState().conversations[0].workspaceChanges).toMatchObject({
+        projectId: "project-a",
+        undoToken: "4aee927d-7e79-4fa3-a4df-a352c1941c71",
+        files: [
+          { path: "src/ai.ts", additions: 0, deletions: 0 },
+          { path: "src/new.ts", additions: 0, deletions: 0 },
+        ],
+      });
     } finally {
       useGitStore.setState({ autoCommitIfNeeded: originalAutoCommit });
       invokeMock.mockReset();
     }
   });
 
-  it("rejects project detachment while a worktree is pending", () => {
+  it("allows project detachment while background worktree publication is pending", () => {
     useChatStore.setState({
       conversations: [
         {
@@ -552,10 +578,14 @@ describe("worktree approval", () => {
 
     useChatStore.getState().setConversationProject(primaryConversation.id, undefined);
 
-    expect(useChatStore.getState().conversations[0].projectId).toBe("project-a");
+    expect(useChatStore.getState().conversations[0].projectId).toBeUndefined();
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual({
+      path: "/worktrees/run-a",
+      branch: "sythoria-agent-a",
+    });
   });
 
-  it("keeps compare conversations visible until their pending worktrees are resolved", () => {
+  it("leaves compare mode and switches chats while a comparison worktree is publishing", async () => {
     const pendingComparison = {
       ...comparisonConversation,
       pendingWorktree: { path: "/worktrees/compare", branch: "sythoria-agent-compare" },
@@ -569,20 +599,60 @@ describe("worktree approval", () => {
     });
 
     const compareModeChanged = useChatStore.getState().setIsCompareMode(false);
-    useChatStore.getState().setActiveId(destination.id);
+    const switched = await useChatStore.getState().setActiveId(destination.id);
 
     const state = useChatStore.getState();
-    expect(compareModeChanged).toBe(false);
-    expect(state.activeId).toBe(primaryConversation.id);
-    expect(state.isCompareMode).toBe(true);
-    expect(state.compareIds).toEqual([pendingComparison.id]);
+    expect(compareModeChanged).toBe(true);
+    expect(switched).toBe(true);
+    expect(state.activeId).toBe(destination.id);
+    expect(state.isCompareMode).toBe(false);
+    expect(state.compareIds).toEqual([]);
     expect(state.conversations.some((conversation) => conversation.id === pendingComparison.id)).toBe(true);
+  });
+
+  it("switches away from a generating project chat while its worktree is active", async () => {
+    const generating = {
+      ...primaryConversation,
+      id: "generating-project-chat",
+      projectId: "project-a",
+      pendingWorktree: {
+        path: "/worktrees/active-run",
+        branch: "sythoria-agent-active",
+        commitScope: {
+          projectId: "project-a",
+          projectRoot: "/projects/a",
+          modelId: "model-a",
+        },
+      },
+    };
+    const destination = { ...primaryConversation, id: "background-destination" };
+    useChatStore.setState({
+      conversations: [generating, destination],
+      activeId: generating.id,
+      generationByConversation: {
+        [generating.id]: { state: "mcp_executing", label: "Editing files" },
+      },
+      navigationHistory: [generating.id],
+      navigationIndex: 0,
+      compareIds: [],
+      isCompareMode: false,
+    });
+
+    const switched = await useChatStore.getState().setActiveId(destination.id);
+
+    expect(switched).toBe(true);
+    expect(useChatStore.getState().activeId).toBe(destination.id);
+    expect(useChatStore.getState().generationByConversation[generating.id]).toEqual({
+      state: "mcp_executing",
+      label: "Editing files",
+    });
+    expect(useChatStore.getState().conversations[0].pendingWorktree).toEqual(generating.pendingWorktree);
   });
 
   it("can discard a legacy detached worktree using its captured project scope", async () => {
     const invokeMock = vi.mocked(invoke);
     invokeMock.mockImplementation(async (command) => {
-      if (command === "git_worktree_discard" || command === "set_project_path_override") return undefined;
+      if (command === "git_worktree_discard") return undefined;
       throw new Error(`Unexpected command: ${command}`);
     });
     useChatStore.setState({

@@ -34,12 +34,32 @@ export interface ContextDisclosure {
   assembledTokens: number;
 }
 
+export type DiffLineType = "add" | "del" | "context";
+
+/** One rendered row of a file-edit diff; UI-only metadata attached to tool results. */
+export interface DiffLine {
+  type: DiffLineType;
+  oldNumber?: number;
+  newNumber?: number;
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "tool";
   content: string;
   /** Provider-supplied reasoning, kept separate from user-visible assistant text. */
   reasoningContent?: string;
+  /** Complete Responses output items, including opaque reasoning, for stateless replay. */
+  responsesOutput?: Record<string, unknown>[];
   timestamp: Date;
   isStreaming?: boolean;
   isSystem?: boolean;
@@ -56,6 +76,14 @@ export interface Message {
       deleted: number;
       isNew?: boolean;
       filename?: string;
+      /** Highlight language resolved from the filename for the inline diff view. */
+      language?: string;
+      /** True when diff hunks were capped and do not cover every change. */
+      truncated?: boolean;
+      /** True when the write/edit command failed; hunks describe the intended change only. */
+      error?: boolean;
+      /** Unified-diff hunks (with context) rendered by the file-edit diff view. */
+      hunks?: DiffHunk[];
     };
     subagentIds?: string[];
   };
@@ -63,9 +91,13 @@ export interface Message {
   attachments?: Attachment[];
   /** MCP tool routing for this turn; content also preserves readable `[MCP: name]` labels. */
   mcpServerIds?: string[];
+  /** Web-search provider captured for this turn; content also preserves a readable `[Web Search]` label. */
+  searchConfigId?: string;
   thinkingDuration?: number;
   /** Total wall-clock time for a tool-assisted turn, stored on its final assistant message. */
   workingDuration?: number;
+  /** Workspace files changed by the agent turn that produced this assistant message. */
+  workspaceChanges?: WorkspaceChangeSet;
 }
 
 export interface PendingWorktree {
@@ -78,6 +110,21 @@ export interface PendingWorktree {
   };
 }
 
+export interface WorkspaceChangeFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** A run change set captured directly in the project workspace. */
+export interface WorkspaceChangeSet {
+  projectId: string;
+  files: WorkspaceChangeFile[];
+  appliedAt: Date;
+  /** Opaque native token for safely reversing this exact patch. */
+  undoToken?: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -86,6 +133,8 @@ export interface Conversation {
   model: string;
   projectId?: string;
   pendingWorktree?: PendingWorktree;
+  /** Latest captured change set, retained for current Review/Undo compatibility. */
+  workspaceChanges?: WorkspaceChangeSet;
   isPinned?: boolean;
   // Subagent fields
   parentId?: string;
@@ -103,6 +152,7 @@ export interface Project {
   name: string;
   path: string;
   permissions: ProjectPermission;
+  skipCommandConfirmations?: boolean;
   excludePatterns?: string[];
   systemPromptOverride?: string;
   isAutoCommitEnabled?: boolean;

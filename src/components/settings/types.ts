@@ -36,7 +36,6 @@ export type SectionId =
   | "models"
   | "projects"
   | "environments"
-  | "worktrees"
   | "search"
   | "marketplace"
   | "whisper"
@@ -203,7 +202,7 @@ export const SECTION_GROUPS: SettingSectionGroup[] = [
         id: "projects",
         label: "Workspace Projects",
         icon: Folder,
-        keywords: ["workspace", "directories", "git repo", "worktree", "permissions", "auto commit"],
+        keywords: ["workspace", "directories", "git repo", "direct edits", "permissions", "auto commit"],
       },
       {
         id: "skills",
@@ -424,10 +423,10 @@ export const SEARCHABLE_SETTINGS: SearchableSetting[] = [
   {
     id: "setting-projects-config",
     label: "Workspace Projects",
-    description: "Configure active project directories, write permissions, and git worktrees",
+    description: "Configure project directories, direct workspace permissions, and auto-commit",
     sectionId: "projects",
     sectionLabel: "Workspace Projects",
-    keywords: ["workspace", "projects", "git repo", "worktrees", "permissions", "auto-commit"],
+    keywords: ["workspace", "projects", "git repo", "direct edits", "permissions", "auto-commit"],
   },
   {
     id: "setting-logs-viewer",

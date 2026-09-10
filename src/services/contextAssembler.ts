@@ -8,6 +8,8 @@ export interface ApiContextMessage {
   tool_call_id?: string;
   name?: string;
   anthropic_content?: unknown[];
+  responses_output?: unknown[];
+  reasoning_content?: string;
   reasoning_details?: unknown[];
   reasoning?: string;
 }
@@ -25,6 +27,7 @@ export interface ContextBudget {
 export interface AssembledContext {
   messages: ApiContextMessage[];
   budget: ContextBudget;
+  requestMaxOutputTokens: number | undefined;
   disclosure: ContextDisclosure | null;
 }
 
@@ -84,10 +87,12 @@ function estimateContentTokens(content: ApiContextMessage["content"]): number {
 }
 
 export function estimateApiMessageTokens(message: ApiContextMessage): number {
+  if (message.responses_output) return 6 + Math.ceil(JSON.stringify(message.responses_output).length / 4);
   return (
     6 +
     estimateContentTokens(message.content) +
     (message.tool_calls ? Math.ceil(JSON.stringify(message.tool_calls).length / 4) : 0) +
+    (message.reasoning_content ? Math.ceil(message.reasoning_content.length / 4) : 0) +
     (message.reasoning_details ? Math.ceil(JSON.stringify(message.reasoning_details).length / 4) : 0) +
     (message.anthropic_content ? Math.ceil(JSON.stringify(message.anthropic_content).length / 4) : 0) +
     (message.reasoning ? Math.ceil(message.reasoning.length / 4) : 0)
@@ -112,8 +117,16 @@ export function resolveContextBudget(model: ModelConfig, tools: unknown[] = []):
     tools.length > 0
       ? Math.max(2_048, Math.ceil(toolDefinitionTokens * 1.25), Math.floor(assemblyCeilingTokens * toolRatio))
       : 0;
-  const reservedToolTokens = Math.min(requestedToolReserve, Math.floor(assemblyCeilingTokens * 0.25));
-  const inputTokens = Math.max(256, assemblyCeilingTokens - reservedOutputTokens - reservedToolTokens);
+  const reservedToolTokens = Math.max(
+    toolDefinitionTokens,
+    Math.min(requestedToolReserve, Math.floor(assemblyCeilingTokens * 0.25)),
+  );
+  const inputTokens = assemblyCeilingTokens - reservedOutputTokens - reservedToolTokens;
+  if (inputTokens < 256) {
+    throw new Error(
+      "The model context is too small for the configured tools and output allowance. Reduce the tool selection or output limit, or select a model with a larger context.",
+    );
+  }
 
   return {
     provider,
@@ -170,6 +183,7 @@ function compactMessage(
   message: ApiContextMessage,
   tokenLimit: number,
 ): { message: ApiContextMessage; compacted: boolean } {
+  if (message.responses_output) return { message, compacted: false };
   if (estimateApiMessageTokens(message) <= tokenLimit) return { message, compacted: false };
   const characterLimit = Math.max(1_000, tokenLimit * 4);
   if (typeof message.content === "string") {
@@ -323,6 +337,13 @@ export function assembleContext(options: {
   assembled.push(...selectedBody);
 
   const assembledTokens = assembled.reduce((total, message) => total + estimateApiMessageTokens(message), 0);
+  // Signed reasoning, tool arguments, and images are indivisible. Never silently
+  // corrupt them or send a request known to exceed even our local estimate.
+  if (assembledTokens > budget.inputTokens) {
+    throw new Error(
+      `Required conversation context (${assembledTokens} estimated tokens) exceeds this model's input budget (${budget.inputTokens}). Reduce attachments/tool output or select a model with a larger context.`,
+    );
+  }
   const omittedMessages = omittedSegments.flat().length;
   const disclosure =
     omittedMessages > 0 || condensedMessages > 0 || summarizedToolResults > 0
@@ -335,7 +356,29 @@ export function assembleContext(options: {
         }
       : null;
 
-  return { messages: assembled, budget, disclosure };
+  // The prompt reserve is an assembly policy, not a provider generation cap.
+  // When no maximum is configured, omit max_tokens and let the provider use
+  // its native limit. For an explicit maximum, only clamp it to the estimated
+  // space that remains in a known context window. This lets short prompts use
+  // more than the fixed output reserve without overcommitting long prompts.
+  const configuredMaxOutputTokens =
+    typeof options.model.maxOutputTokens === "number" &&
+    Number.isFinite(options.model.maxOutputTokens) &&
+    options.model.maxOutputTokens > 0
+      ? Math.floor(options.model.maxOutputTokens)
+      : undefined;
+  const availableOutputTokens =
+    budget.status === "configured"
+      ? Math.max(1, budget.assemblyCeilingTokens - assembledTokens - budget.reservedToolTokens)
+      : undefined;
+  const requestMaxOutputTokens =
+    configuredMaxOutputTokens === undefined
+      ? undefined
+      : availableOutputTokens === undefined
+        ? configuredMaxOutputTokens
+        : Math.min(configuredMaxOutputTokens, availableOutputTokens);
+
+  return { messages: assembled, budget, requestMaxOutputTokens, disclosure };
 }
 
 export function formatContextDisclosure(disclosure: ContextDisclosure): string {

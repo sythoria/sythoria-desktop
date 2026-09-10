@@ -9,10 +9,17 @@ use tauri_plugin_dialog::DialogExt;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
 
-static ACTIVE_TOOL_CALLS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+#[derive(Default)]
+struct ToolCallRegistry {
+    active: HashMap<String, CancellationToken>,
+    cancelled_before_registration: HashMap<String, Instant>,
+}
+
+static TOOL_CALLS: LazyLock<Mutex<ToolCallRegistry>> =
+    LazyLock::new(|| Mutex::new(ToolCallRegistry::default()));
 
 const MCP_APPROVAL_TTL: Duration = Duration::from_secs(60);
+const PENDING_CANCELLATION_TTL: Duration = Duration::from_secs(5 * 60);
 
 struct McpToolApproval {
     server_id: String,
@@ -102,37 +109,51 @@ fn clear_server_tool_approvals(server_id: &str) {
 }
 
 fn register_tool_call(request_id: &str) -> Result<CancellationToken, AppError> {
-    let mut active_calls = ACTIVE_TOOL_CALLS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    if active_calls.contains_key(request_id) {
+    let mut registry = TOOL_CALLS.lock().unwrap_or_else(|error| error.into_inner());
+    let now = Instant::now();
+    registry
+        .cancelled_before_registration
+        .retain(|_, expires_at| *expires_at > now);
+    if registry.active.contains_key(request_id) {
         return Err(AppError::McpError(format!(
             "MCP request ID is already active: {request_id}"
         )));
     }
     let token = CancellationToken::new();
-    active_calls.insert(request_id.to_string(), token.clone());
+    if registry
+        .cancelled_before_registration
+        .remove(request_id)
+        .is_some()
+    {
+        token.cancel();
+    }
+    registry
+        .active
+        .insert(request_id.to_string(), token.clone());
     Ok(token)
 }
 
 fn cancel_registered_tool_call(request_id: &str) -> bool {
-    let active_calls = ACTIVE_TOOL_CALLS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    active_calls
-        .get(request_id)
-        .map(|token| {
-            token.cancel();
-            true
-        })
-        .unwrap_or(false)
+    let mut registry = TOOL_CALLS.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(token) = registry.active.get(request_id) {
+        token.cancel();
+        return true;
+    }
+
+    let now = Instant::now();
+    registry
+        .cancelled_before_registration
+        .retain(|_, expires_at| *expires_at > now);
+    registry
+        .cancelled_before_registration
+        .insert(request_id.to_string(), now + PENDING_CANCELLATION_TTL);
+    true
 }
 
 fn finish_tool_call(request_id: &str) {
-    ACTIVE_TOOL_CALLS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .remove(request_id);
+    let mut registry = TOOL_CALLS.lock().unwrap_or_else(|error| error.into_inner());
+    registry.active.remove(request_id);
+    registry.cancelled_before_registration.remove(request_id);
 }
 
 struct ToolCallRegistration(String);
@@ -397,7 +418,9 @@ mod tests {
 
         finish_tool_call("request-first");
         finish_tool_call("request-second");
-        assert!(!cancel_registered_tool_call("request-first"));
+        let registry = TOOL_CALLS.lock().expect("lock tool-call registry");
+        assert!(!registry.active.contains_key("request-first"));
+        assert!(!registry.active.contains_key("request-second"));
     }
 
     #[test]
@@ -407,6 +430,16 @@ mod tests {
 
         assert!(duplicate.is_err());
         finish_tool_call("request-duplicate");
+    }
+
+    #[test]
+    fn tool_call_registry_applies_cancellation_requested_before_registration() {
+        assert!(cancel_registered_tool_call("request-pending"));
+
+        let token = register_tool_call("request-pending").expect("register pending request");
+
+        assert!(token.is_cancelled());
+        finish_tool_call("request-pending");
     }
 
     #[test]

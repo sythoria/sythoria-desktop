@@ -429,7 +429,9 @@ impl SseParser {
             msg["reasoning_details"] = serde_json::Value::Array(self.reasoning_details.clone());
         }
         if !self.full_reasoning.is_empty() {
-            msg["reasoning"] = serde_json::Value::String(self.full_reasoning.clone());
+            // Keep the OpenAI-compatible field name returned by llama.cpp so
+            // the renderer can replay it unchanged on the next request.
+            msg["reasoning_content"] = serde_json::Value::String(self.full_reasoning.clone());
         }
 
         serde_json::json!({
@@ -563,7 +565,7 @@ mod tests {
         assert_eq!(parser.finalize(), "The answer is 42");
         let response: serde_json::Value = serde_json::from_str(&parser.finalize_tools()).unwrap();
         assert_eq!(
-            response["choices"][0]["message"]["reasoning"],
+            response["choices"][0]["message"]["reasoning_content"],
             "I need to think"
         );
     }

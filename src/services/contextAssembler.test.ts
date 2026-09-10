@@ -35,6 +35,60 @@ describe("context budgets", () => {
 });
 
 describe("assembleContext", () => {
+  it("counts preserved assistant reasoning in the context budget", () => {
+    const withoutReasoning = estimateApiMessageTokens({ role: "assistant", content: "Answer" });
+    const withReasoning = estimateApiMessageTokens({
+      role: "assistant",
+      content: "Answer",
+      reasoning_content: "r".repeat(400),
+    });
+
+    expect(withReasoning - withoutReasoning).toBe(100);
+  });
+
+  it("does not impose a provider output cap when max output is not configured", () => {
+    const result = assembleContext({
+      messages: [{ role: "user", content: "Write a long response." }],
+      model: model({ contextSize: 128_000 }),
+    });
+
+    expect(result.budget.reservedOutputTokens).toBe(4_096);
+    expect(result.requestMaxOutputTokens).toBeUndefined();
+  });
+
+  it("lets an explicit output maximum use prompt space beyond the fixed reserve", () => {
+    const messages: ApiContextMessage[] = [{ role: "user", content: "Write a long response." }];
+    const result = assembleContext({
+      messages,
+      model: model({ contextSize: 128_000, maxOutputTokens: 128_000 }),
+    });
+    const assembledTokens = result.messages.reduce(
+      (total, message) => total + estimateApiMessageTokens(message),
+      0,
+    );
+
+    expect(result.budget.reservedOutputTokens).toBe(32_000);
+    expect(result.requestMaxOutputTokens).toBe(128_000 - assembledTokens);
+    expect(result.requestMaxOutputTokens).toBeGreaterThan(result.budget.reservedOutputTokens);
+  });
+
+  it("clamps an explicit output maximum to the estimated context remaining after tool schemas", () => {
+    const tools = [{ description: "x".repeat(4_000) }];
+    const result = assembleContext({
+      messages: [{ role: "user", content: "Use the tool and explain the result." }],
+      model: model({ contextSize: 16_000, maxOutputTokens: 16_000 }),
+      tools,
+    });
+    const assembledTokens = result.messages.reduce(
+      (total, message) => total + estimateApiMessageTokens(message),
+      0,
+    );
+
+    expect(result.requestMaxOutputTokens).toBe(
+      16_000 - assembledTokens - result.budget.reservedToolTokens,
+    );
+  });
+
   it("keeps the system prompt and latest user turn while sliding older history", () => {
     const messages: ApiContextMessage[] = [
       { role: "system", content: "system" },
@@ -70,4 +124,41 @@ describe("assembleContext", () => {
       result.messages.reduce((total, message) => total + estimateApiMessageTokens(message), 0),
     ).toBeLessThanOrEqual(result.budget.inputTokens);
   });
+});
+
+it("reserves the full tool schema even when it exceeds a quarter of context", () => {
+  const tools = [{ description: "x".repeat(8_000) }];
+  const budget = resolveContextBudget(model({ contextSize: 4_096 }), tools);
+  expect(budget.reservedToolTokens).toBeGreaterThanOrEqual(Math.ceil(JSON.stringify(tools).length / 4));
+  expect(budget.inputTokens + budget.reservedToolTokens + budget.reservedOutputTokens).toBe(4_096);
+  expect(() => resolveContextBudget(model({ contextSize: 4_096 }), [{ description: "x".repeat(20_000) }])).toThrow(
+    "configured tools",
+  );
+});
+
+it.each([
+  {
+    role: "assistant",
+    content: "short",
+    responses_output: [{ type: "reasoning", encrypted_content: "x".repeat(20_000), summary: [] }],
+  },
+  { role: "assistant", content: null, tool_calls: [{ id: "write", function: { arguments: "x".repeat(20_000) } }] },
+  {
+    role: "assistant",
+    content: "short",
+    anthropic_content: [{ type: "thinking", thinking: "x".repeat(20_000), signature: "signed" }],
+  },
+  {
+    role: "user",
+    content: Array.from({ length: 8 }, () => ({ type: "image_url", image_url: { url: "data:image/png;base64,abc" } })),
+  },
+])("rejects oversized indivisible mandatory context without changing it", (message) => {
+  const original = JSON.stringify(message);
+  expect(() =>
+    assembleContext({
+      messages: [{ role: "user", content: "inspect" }, message],
+      model: model({ contextSize: 4_096 }),
+    }),
+  ).toThrow("input budget");
+  expect(JSON.stringify(message)).toBe(original);
 });

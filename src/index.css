@@ -442,15 +442,33 @@
   );
 }
 
+/* Keep long-form chat readable when the main pane has abundant horizontal
+   space instead of letting messages and the composer expand with the window. */
+.chat-column-content {
+  width: 100%;
+  max-width: 64rem;
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+@media (min-width: 40rem) {
+  .chat-column-content {
+    padding-inline: 3rem;
+  }
+}
+@media (min-width: 64rem) {
+  .chat-column-content {
+    padding-inline: 4rem;
+  }
+}
+
 /* WebKit may keep a filler <br> in an otherwise empty contenteditable. The
    placeholder is a sibling overlay, never generated editable content. */
 .chat-prompt-editor[data-editor-empty="true"] > br {
   display: none;
 }
 
-/* Keep every editable line in one consistent inline formatting context. Native
-   contenteditable block children otherwise produce shifted lines and taller
-   carets in WebKit. */
+/* Native contenteditable may use block children for Enter. Keep those lines in
+   the editor's existing formatting context without synthesizing caret content. */
 .chat-prompt-editor-shell {
   line-height: 1.45;
 }
@@ -458,13 +476,6 @@
   margin: 0;
   padding: 0;
   line-height: inherit;
-}
-
-/* Give WebKit a real paint box after plain text so the caret does not overlap
-   the final glyph. The generated box stays out of the submitted message. */
-.chat-prompt-editor[data-editor-empty="false"][data-has-mcp-mentions="false"]::after {
-  content: "\200b";
-  display: inline;
 }
 
 .sidebar-resizing,
@@ -931,4 +942,36 @@ pre,
 .setting-highlighted {
   animation: setting-highlight-pulse var(--motion-duration-highlight) var(--motion-ease-standard);
   border-radius: 8px;
+}
+
+/* Inline citations retain native link semantics and the external-link warning flow. */
+.markdown-body a.citation-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  max-width: min(18rem, 100%);
+  padding: 0.15em 0.6em;
+  margin-inline: 0.15em;
+  border-radius: 999px;
+  background: var(--theme-active);
+  color: var(--color-text-secondary);
+  font-size: 0.75em;
+  line-height: 1.5;
+  vertical-align: middle;
+  text-decoration: none;
+}
+.markdown-body a.citation-tag span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown-body a.citation-tag svg {
+  flex-shrink: 0;
+}
+.markdown-body a.citation-tag:hover {
+  color: var(--color-text-primary);
+}
+.markdown-body a.citation-tag:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }

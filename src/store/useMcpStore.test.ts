@@ -126,7 +126,37 @@ describe("useMcpStore capability revocation", () => {
       config: JSON.stringify({ ...config, apiKey: undefined }),
       explicitlyEnabled: true,
     });
-    expect(useMcpStore.getState().getToolsForServers([config.id])).toEqual([tool]);
+    expect(useMcpStore.getState().getToolsForServers([config.id])).toEqual([
+      { ...tool, namespacedName: "mcp_7365727665722d31__write" },
+    ]);
+  });
+
+  it("gives same-named servers distinct tool namespaces", async () => {
+    const otherConfig: McpServerConfig = {
+      ...config,
+      id: "server-2",
+      name: "Server",
+    };
+    useMcpStore.setState({
+      mcpConfigs: [config, otherConfig],
+      serverStatuses: { [config.id]: "disconnected", [otherConfig.id]: "disconnected" },
+      availableTools: [],
+      enabledServerIds: new Set([config.id, otherConfig.id]),
+    });
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_start_server") {
+        return Promise.resolve(JSON.stringify([{ name: "write", description: "Writes", inputSchema: {} }]));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await useMcpStore.getState().connectServer(config.id);
+    await useMcpStore.getState().connectServer(otherConfig.id);
+
+    expect(useMcpStore.getState().availableTools.map((candidate) => candidate.namespacedName)).toEqual([
+      "mcp_7365727665722d31__write",
+      "mcp_7365727665722d32__write",
+    ]);
   });
 
   it("does not publish a late connection after deletion", async () => {

@@ -1,6 +1,7 @@
+import { friendlyEndpointError } from "../utils/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { SearchApiConfig, FetchApiConfig, SearchResult, UrlContent } from "../types";
+import type { ConnectionStatus, SearchApiConfig, FetchApiConfig, SearchResult, UrlContent } from "../types";
 import { saveSearchConfigs, saveFetchConfigs, saveSearchApiKeys } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
@@ -26,25 +27,35 @@ const debouncedLogSearchUpdate = debounce((name: string, fields: string[]) => {
   });
 }, 500);
 
+const CONNECTION_CHECK_INTERVAL_MS = 30 * 1000;
+let connectionCheckInterval: ReturnType<typeof setInterval> | null = null;
+let connectionCheckGeneration = 0;
+
 interface SearchState {
   searchConfigs: SearchApiConfig[];
   activeSearchId: string | null;
-  isSearchEnabled: boolean;
   searchApiKeys: Record<string, string>;
+  searchErrors: Record<string, string | undefined>;
+  searchStatuses: Record<string, ConnectionStatus>;
 
   fetchConfigs: FetchApiConfig[];
   activeFetchId: string | null;
+  fetchErrors: Record<string, string | undefined>;
+  fetchStatuses: Record<string, ConnectionStatus>;
 
   addSearchConfig: () => void;
   updateSearchConfig: (id: string, updates: Partial<SearchApiConfig>) => void;
   deleteSearchConfig: (id: string) => void;
   setActiveSearchId: (id: string | null) => void;
-  toggleSearchEnabled: (enabled: boolean) => void;
+  checkSearchConnections: (configIds?: string[]) => Promise<void>;
+  startConnectionChecks: () => void;
+  stopConnectionChecks: () => void;
 
   addFetchConfig: () => void;
   updateFetchConfig: (id: string, updates: Partial<FetchApiConfig>) => void;
   deleteFetchConfig: (id: string) => void;
   setActiveFetchId: (id: string | null) => void;
+  checkFetchConnections: (configIds?: string[]) => Promise<void>;
 
   performSearch: (query: string, config: SearchApiConfig, apiKey: string) => Promise<SearchResult[]>;
   fetchUrlContent: (url: string, format?: string) => Promise<UrlContent>;
@@ -53,10 +64,13 @@ interface SearchState {
 export const useSearchStore = create<SearchState>((set, get) => ({
   searchConfigs: [],
   activeSearchId: null,
-  isSearchEnabled: false,
   searchApiKeys: {},
+  searchErrors: {},
+  searchStatuses: {},
   fetchConfigs: [],
   activeFetchId: null,
+  fetchErrors: {},
+  fetchStatuses: {},
 
   addSearchConfig: () => {
     const newConfig: SearchApiConfig = {
@@ -80,7 +94,11 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     }
     const { searchConfigs } = get();
     const updated = [...searchConfigs, newConfig];
-    set({ searchConfigs: updated, activeSearchId: newConfig.id });
+    set((state) => ({
+      searchConfigs: updated,
+      activeSearchId: newConfig.id,
+      searchStatuses: { ...state.searchStatuses, [newConfig.id]: "disconnected" },
+    }));
     debouncedSaveSearchConfigs.cancel();
     saveSearchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as SearchApiConfig));
     logInfo("search", `Search API added: "${newConfig.name}" (${newConfig.provider})`, {
@@ -90,7 +108,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   },
 
   updateSearchConfig: (id, updates) => {
-    const { searchConfigs, searchApiKeys } = get();
+    const { searchConfigs, searchApiKeys, searchStatuses } = get();
     const updatedConfigs = searchConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     const enabledConfigs = updatedConfigs.filter((config) => config.enabled);
     const currentActiveId = get().activeSearchId;
@@ -100,7 +118,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     set({
       searchConfigs: updatedConfigs,
       activeSearchId,
-      isSearchEnabled: enabledConfigs.length > 0 ? get().isSearchEnabled : false,
+      searchStatuses: { ...searchStatuses, [id]: "disconnected" },
     });
 
     if (updates.apiKey !== undefined) {
@@ -119,16 +137,18 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   },
 
   deleteSearchConfig: (id) => {
-    const { searchConfigs, activeSearchId, searchApiKeys } = get();
+    const { searchConfigs, activeSearchId, searchApiKeys, searchStatuses } = get();
     const config = searchConfigs.find((c) => c.id === id);
     const updated = searchConfigs.filter((c) => c.id !== id);
     const newKeys = { ...searchApiKeys };
     delete newKeys[id];
+    const newStatuses = { ...searchStatuses };
+    delete newStatuses[id];
     set({
       searchConfigs: updated,
       activeSearchId: activeSearchId === id ? (updated.find((config) => config.enabled)?.id ?? null) : activeSearchId,
       searchApiKeys: newKeys,
-      isSearchEnabled: updated.some((config) => config.enabled) ? get().isSearchEnabled : false,
+      searchStatuses: newStatuses,
     });
     debouncedSaveSearchConfigs.cancel();
     debouncedSaveSearchApiKeys.cancel();
@@ -140,16 +160,71 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   setActiveSearchId: (id) =>
     set({ activeSearchId: id && get().searchConfigs.some((config) => config.id === id && config.enabled) ? id : null }),
-  toggleSearchEnabled: (enabled) =>
+
+  checkSearchConnections: async (configIds) => {
+    const { searchConfigs, searchStatuses } = get();
+    const generation = connectionCheckGeneration;
+    const configs = searchConfigs.filter((config) => config.enabled && (!configIds || configIds.includes(config.id)));
+    if (configs.length === 0) return;
+
     set({
-      isSearchEnabled: enabled && get().activeSearchId !== null && get().searchConfigs.some((config) => config.enabled),
-    }),
+      searchStatuses: {
+        ...searchStatuses,
+        ...Object.fromEntries(configs.map((config) => [config.id, "connecting" as const])),
+      },
+    });
+
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        try {
+          await invoke<boolean>("check_web_endpoint", { endpointUrl: config.baseUrl });
+          logInfo("search", `Connection check passed for "${config.name}"`, {
+            details: `Provider: ${config.provider}, Base URL: ${config.baseUrl}`,
+          });
+          return { id: config.id, baseUrl: config.baseUrl, status: "connected" as const };
+        } catch (error) {
+          const parsed = parseApiError(error);
+          logWarn("search", `Connection check failed for "${config.name}"`, {
+            details: `Provider: ${config.provider}. ${parsed.message}`,
+            action: "Check the provider URL and network access.",
+          });
+          return {
+            id: config.id,
+            baseUrl: config.baseUrl,
+            status: "error" as const,
+            error: friendlyEndpointError(error),
+          };
+        }
+      }),
+    );
+
+    const currentConfigs = get().searchConfigs;
+    set((state) => ({
+      searchErrors: {
+        ...state.searchErrors,
+        ...Object.fromEntries(results.map((result) => [result.id, result.error])),
+      },
+      searchStatuses: {
+        ...state.searchStatuses,
+        ...Object.fromEntries(
+          results.map((result) => [
+            result.id,
+            currentConfigs.some(
+              (config) => config.id === result.id && config.enabled && config.baseUrl === result.baseUrl,
+            ) && generation === connectionCheckGeneration
+              ? result.status
+              : ("disconnected" as const),
+          ]),
+        ),
+      },
+    }));
+  },
 
   performSearch: async (query, config, _apiKey) => {
     const currentConfig = get().searchConfigs.find((candidate) => candidate.id === config.id);
-    if (!currentConfig?.enabled || get().activeSearchId !== config.id || !get().isSearchEnabled) {
+    if (!currentConfig?.enabled) {
       logWarn("search", `Blocked search through disabled config: "${config.name}"`, {});
-      return [];
+      throw new Error(`Search provider "${config.name}" is disabled or unavailable`);
     }
     try {
       logInfo("search", `Searching: "${query}"`, {
@@ -175,7 +250,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         details: `Provider: ${config.provider}, Config: "${config.name}". ${parsed.message}`,
       });
       useUIStore.getState().addToast(parsed.message, "error");
-      return [];
+      throw new Error(parsed.message);
     }
   },
 
@@ -184,7 +259,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       id: "fetch-" + Date.now(),
       name: "New Fetch API",
       provider: "firecrawl",
-      baseUrl: "",
+      baseUrl: "https://api.firecrawl.dev/v1",
       apiKey: "",
       enabled: true,
     };
@@ -199,7 +274,11 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     }
     const { fetchConfigs } = get();
     const updated = [...fetchConfigs, newConfig];
-    set({ fetchConfigs: updated, activeFetchId: newConfig.id });
+    set((state) => ({
+      fetchConfigs: updated,
+      activeFetchId: newConfig.id,
+      fetchStatuses: { ...state.fetchStatuses, [newConfig.id]: "disconnected" },
+    }));
     debouncedSaveFetchConfigs.cancel();
     saveFetchConfigs(updated.map(({ apiKey: _apiKey, ...rest }) => rest as FetchApiConfig));
     logInfo("search", `Fetch API added: "${newConfig.name}" (${newConfig.provider})`, {});
@@ -207,7 +286,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   },
 
   updateFetchConfig: (id, updates) => {
-    const { fetchConfigs, searchApiKeys } = get();
+    const { fetchConfigs, searchApiKeys, fetchStatuses } = get();
     const updatedConfigs = fetchConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
     const enabledConfigs = updatedConfigs.filter((config) => config.enabled);
     const currentActiveId = get().activeFetchId;
@@ -216,6 +295,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       activeFetchId: enabledConfigs.some((config) => config.id === currentActiveId)
         ? currentActiveId
         : (enabledConfigs[0]?.id ?? null),
+      fetchStatuses: { ...fetchStatuses, [id]: "disconnected" },
     });
 
     if (updates.apiKey !== undefined) {
@@ -229,15 +309,18 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   },
 
   deleteFetchConfig: (id) => {
-    const { fetchConfigs, activeFetchId, searchApiKeys } = get();
+    const { fetchConfigs, activeFetchId, searchApiKeys, fetchStatuses } = get();
     const config = fetchConfigs.find((c) => c.id === id);
     const updated = fetchConfigs.filter((c) => c.id !== id);
     const newKeys = { ...searchApiKeys };
     delete newKeys[id];
+    const newStatuses = { ...fetchStatuses };
+    delete newStatuses[id];
     set({
       fetchConfigs: updated,
       activeFetchId: activeFetchId === id ? (updated.find((config) => config.enabled)?.id ?? null) : activeFetchId,
       searchApiKeys: newKeys,
+      fetchStatuses: newStatuses,
     });
     debouncedSaveFetchConfigs.cancel();
     debouncedSaveSearchApiKeys.cancel();
@@ -249,6 +332,82 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   setActiveFetchId: (id) =>
     set({ activeFetchId: id && get().fetchConfigs.some((config) => config.id === id && config.enabled) ? id : null }),
+
+  checkFetchConnections: async (configIds) => {
+    const { fetchConfigs, fetchStatuses } = get();
+    const generation = connectionCheckGeneration;
+    const configs = fetchConfigs.filter((config) => config.enabled && (!configIds || configIds.includes(config.id)));
+    if (configs.length === 0) return;
+
+    set({
+      fetchStatuses: {
+        ...fetchStatuses,
+        ...Object.fromEntries(configs.map((config) => [config.id, "connecting" as const])),
+      },
+    });
+
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        try {
+          await invoke<boolean>("check_web_endpoint", { endpointUrl: config.baseUrl });
+          logInfo("search", `Connection check passed for "${config.name}"`, {
+            details: `Provider: ${config.provider}, Base URL: ${config.baseUrl}`,
+          });
+          return { id: config.id, baseUrl: config.baseUrl, status: "connected" as const };
+        } catch (error) {
+          const parsed = parseApiError(error);
+          logWarn("search", `Connection check failed for "${config.name}"`, {
+            details: `Provider: ${config.provider}. ${parsed.message}`,
+            action: "Check the provider URL and network access.",
+          });
+          return {
+            id: config.id,
+            baseUrl: config.baseUrl,
+            status: "error" as const,
+            error: friendlyEndpointError(error),
+          };
+        }
+      }),
+    );
+
+    const currentConfigs = get().fetchConfigs;
+    set((state) => ({
+      fetchErrors: { ...state.fetchErrors, ...Object.fromEntries(results.map((result) => [result.id, result.error])) },
+      fetchStatuses: {
+        ...state.fetchStatuses,
+        ...Object.fromEntries(
+          results.map((result) => [
+            result.id,
+            currentConfigs.some(
+              (config) => config.id === result.id && config.enabled && config.baseUrl === result.baseUrl,
+            ) && generation === connectionCheckGeneration
+              ? result.status
+              : ("disconnected" as const),
+          ]),
+        ),
+      },
+    }));
+  },
+
+  startConnectionChecks: () => {
+    if (connectionCheckInterval) return;
+    const { disableBgActivity, offlineMode } = useUIStore.getState();
+    if (disableBgActivity || offlineMode) return;
+
+    connectionCheckInterval = setInterval(() => {
+      const { disableBgActivity: backgroundDisabled, offlineMode: offline } = useUIStore.getState();
+      if (backgroundDisabled || offline) return;
+      void Promise.all([get().checkSearchConnections(), get().checkFetchConnections()]);
+    }, CONNECTION_CHECK_INTERVAL_MS);
+  },
+
+  stopConnectionChecks: () => {
+    connectionCheckGeneration += 1;
+    if (connectionCheckInterval) {
+      clearInterval(connectionCheckInterval);
+      connectionCheckInterval = null;
+    }
+  },
 
   fetchUrlContent: async (url, format) => {
     try {

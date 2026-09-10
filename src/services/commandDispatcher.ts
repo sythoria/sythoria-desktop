@@ -1,7 +1,6 @@
 import type { CommandId } from "../store/useKeybindStore";
 import { useKeybindStore } from "../store/useKeybindStore";
 import { useChatStore } from "../store/useChatStore";
-import { useSearchStore } from "../store/useSearchStore";
 import { useUIStore } from "../store/useUIStore";
 import { useAppshotStore } from "../store/useAppshotStore";
 
@@ -82,8 +81,12 @@ export function executeCommand(commandId: CommandId, context: CommandExecutionCo
       void chat.stopStreaming(chat.activeId ?? undefined);
       return true;
     case "toggleSearch": {
-      const search = useSearchStore.getState();
-      search.toggleSearchEnabled(!search.isSearchEnabled);
+      const focusedComposer = document.activeElement?.closest(".chat-composer-dock");
+      const searchInsert =
+        focusedComposer?.querySelector<HTMLButtonElement>("[data-search-insert]") ??
+        document.querySelector<HTMLButtonElement>(".chat-composer-dock [data-search-insert]");
+      if (!searchInsert || searchInsert.disabled) return false;
+      searchInsert.click();
       return true;
     }
     case "toggleCompareMode":

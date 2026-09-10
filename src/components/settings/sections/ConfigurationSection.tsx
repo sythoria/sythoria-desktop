@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "../../../utils/i18n";
 import { Select } from "../../ui/Select";
+import { Switch } from "../../ui/Switch";
 import {
   MIN_TEMPERATURE,
   MAX_TEMPERATURE,
@@ -23,6 +24,8 @@ interface ConfigurationSectionProps {
   addToast: (msg: string, variant: "info" | "success" | "error") => void;
   maxToolSteps: number;
   setMaxToolSteps: (steps: number) => void;
+  unlimitedToolSteps: boolean;
+  setUnlimitedToolSteps: (enabled: boolean) => void;
 }
 
 export const ConfigurationSection = ({
@@ -37,6 +40,8 @@ export const ConfigurationSection = ({
   addToast,
   maxToolSteps,
   setMaxToolSteps,
+  unlimitedToolSteps,
+  setUnlimitedToolSteps,
 }: ConfigurationSectionProps) => {
   const { t } = useTranslation();
   const tempToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +65,7 @@ export const ConfigurationSection = ({
   const handleMaxToolStepsChange = useCallback(
     (value: string) => {
       const steps = parseInt(value, 10);
+      if (!Number.isFinite(steps)) return;
       setMaxToolSteps(steps);
       if (maxStepsToastRef.current) clearTimeout(maxStepsToastRef.current);
       maxStepsToastRef.current = setTimeout(() => {
@@ -67,6 +73,19 @@ export const ConfigurationSection = ({
       }, 800);
     },
     [setMaxToolSteps, addToast, t],
+  );
+
+  const handleUnlimitedToolStepsChange = useCallback(
+    (checked: boolean) => {
+      setUnlimitedToolSteps(checked);
+      addToast(
+        checked
+          ? t("settings.chat.unlimitedToast", { defaultValue: "Tool step limit disabled" })
+          : t("settings.chat.maxStepsToast", { steps: String(maxToolSteps) }),
+        "info",
+      );
+    },
+    [setUnlimitedToolSteps, addToast, t, maxToolSteps],
   );
 
   useEffect(() => {
@@ -175,12 +194,21 @@ export const ConfigurationSection = ({
             <label htmlFor="max-tool-steps-slider" className="text-sm font-medium text-text-primary">
               {t("settings.chat.maxToolSteps")}
             </label>
-            <span className="text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono">
-              {maxToolSteps}
-            </span>
+            <input
+              id="max-tool-steps-input"
+              type="number"
+              min={MIN_TOOL_STEPS}
+              max={MAX_TOOL_STEPS_LIMIT}
+              step={1}
+              value={maxToolSteps}
+              disabled={unlimitedToolSteps}
+              onChange={(e) => handleMaxToolStepsChange(e.target.value)}
+              className="w-20 text-xs text-text-muted bg-input border border-input-border rounded px-2 py-0.5 font-mono text-right disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              aria-label={t("settings.chat.maxToolSteps")}
+            />
           </div>
           <p className="text-xs text-text-muted">{t("settings.chat.maxToolStepsDesc")}</p>
-          <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-4 ${unlimitedToolSteps ? "opacity-50 pointer-events-none" : ""}`}>
             <span className="text-xs text-text-muted whitespace-nowrap">{MIN_TOOL_STEPS}</span>
             <div className="relative flex-1 h-1.5 bg-input-border rounded-full">
               <div
@@ -195,6 +223,7 @@ export const ConfigurationSection = ({
                 step={1}
                 value={maxToolSteps}
                 onChange={(e) => handleMaxToolStepsChange(e.target.value)}
+                disabled={unlimitedToolSteps}
                 className="peer absolute inset-0 w-full h-full opacity-0 cursor-pointer focus:outline-none"
                 aria-label="Maximum Tool Steps"
               />
@@ -206,10 +235,14 @@ export const ConfigurationSection = ({
             </div>
             <span className="text-xs text-text-muted whitespace-nowrap">{MAX_TOOL_STEPS_LIMIT}</span>
           </div>
-          <div className="flex justify-between text-[10px] text-text-muted pt-1">
-            <span>{t("settings.chat.stepsMin", { defaultValue: "Minimum (1)" })}</span>
-            <span>{t("settings.chat.stepsDefault", { defaultValue: "Default (25)" })}</span>
-            <span>{t("settings.chat.stepsMax", { defaultValue: `Maximum (${MAX_TOOL_STEPS_LIMIT})` })}</span>
+          <div className="pt-3 border-t border-border/50">
+            <Switch
+              checked={unlimitedToolSteps}
+              onChange={handleUnlimitedToolStepsChange}
+              label={t("settings.chat.unlimitedToolSteps")}
+              description={t("settings.chat.unlimitedToolStepsDesc")}
+              ariaLabel={t("settings.chat.unlimitedToolSteps")}
+            />
           </div>
         </div>
       </SettingsPanel>

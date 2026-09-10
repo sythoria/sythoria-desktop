@@ -1,3 +1,6 @@
+import { useMcpStore } from "../../../store/useMcpStore";
+import { endpointFieldError } from "../../../utils/endpointError";
+import { EndpointError } from "./EndpointError";
 import { memo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useUIStore } from "../../../store/useUIStore";
@@ -65,6 +68,8 @@ export const McpServerCard = memo(function McpServerCard({
   onToggleKey,
 }: McpServerCardProps) {
   const { t } = useTranslation();
+  const connectionError = useMcpStore((s) => s.serverErrors[config.id]);
+  const endpointError = endpointFieldError(config.baseUrl || "", status, connectionError);
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const disableBgActivity = useUIStore((s) => s.disableBgActivity);
   const [exeCheck, setExeCheck] = useState<ExecutableCheck | null>(null);
@@ -287,6 +292,8 @@ export const McpServerCard = memo(function McpServerCard({
               </label>
               <input
                 id={`mcp-command-${config.id}`}
+                aria-invalid={status === "error" && !!connectionError}
+                aria-describedby={status === "error" && connectionError ? `command-error-${config.id}` : undefined}
                 type="text"
                 value={commandValue}
                 onChange={(e) => onUpdate(config.id, { command: e.target.value })}
@@ -306,6 +313,10 @@ export const McpServerCard = memo(function McpServerCard({
                   {t("settings.mcp.validation.spaces")}
                 </p>
               )}
+              <EndpointError
+                id={`command-error-${config.id}`}
+                message={status === "error" ? connectionError : undefined}
+              />
               {exeChecking && (
                 <p className="flex items-center gap-1 text-[11px] text-text-muted mt-0.5">
                   <Loader2 size={11} className="animate-spin" />
@@ -411,6 +422,8 @@ export const McpServerCard = memo(function McpServerCard({
               <input
                 id={`mcp-base-${config.id}`}
                 type="url"
+                aria-invalid={!!endpointError}
+                aria-describedby={endpointError ? `endpoint-error-${config.id}` : undefined}
                 value={config.baseUrl || ""}
                 onChange={(e) => onUpdate(config.id, { baseUrl: e.target.value })}
                 placeholder={
@@ -421,6 +434,7 @@ export const McpServerCard = memo(function McpServerCard({
                 spellCheck="false"
                 className="w-full h-10 px-3 py-2 rounded-lg border border-input-border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors"
               />
+              <EndpointError id={`endpoint-error-${config.id}`} message={endpointError} />
               <p className="text-[11px] text-text-muted/60 mt-0.5">
                 {config.transport === "sse"
                   ? "SSE endpoint URL (usually ends with /sse)"

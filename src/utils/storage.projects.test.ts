@@ -12,6 +12,7 @@ const project = (name: string): Project => ({
   name,
   path: `C:/projects/${name}`,
   permissions: "read",
+  skipCommandConfirmations: true,
   excludePatterns: ["node_modules/**"],
 });
 
@@ -43,7 +44,7 @@ describe("project persistence", () => {
       projects: [expect.objectContaining({ name: "First" })],
     });
     expect(invokeMock).toHaveBeenNthCalledWith(2, "save_projects", {
-      projects: [expect.objectContaining({ name: "Latest" })],
+      projects: [expect.objectContaining({ name: "Latest", skipCommandConfirmations: true })],
     });
   });
 

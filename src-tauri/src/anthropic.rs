@@ -683,7 +683,13 @@ pub async fn check_api_anthropic(
         .header("x-api-key", api_key);
 
     let resp = request.send().await?;
-    Ok(resp.status().is_success())
+    if !resp.status().is_success() {
+        return Err(AppError::ApiError {
+            status: resp.status().as_u16(),
+            message: "Connection check was rejected by the provider".to_string(),
+        });
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -718,7 +724,9 @@ mod tests {
             tool_calls: None,
             tool_call_id: None,
             name: None,
+            responses_output: None,
             anthropic_content: Some(native.clone()),
+            reasoning_content: None,
             reasoning_details: None,
             reasoning: None,
         };

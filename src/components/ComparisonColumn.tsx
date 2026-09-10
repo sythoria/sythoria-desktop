@@ -16,7 +16,7 @@ interface ComparisonColumnProps {
   models: ModelConfig[];
   onModelChange: (modelId: string) => void;
   onClose?: () => void;
-  onRetry: () => void;
+  onRetry: (messageId: string) => void;
   isStreaming: boolean;
   onScroll?: (scrollTop: number, ratio: number) => void;
 }
@@ -110,7 +110,6 @@ export const ComparisonColumn = React.memo(
             onRetry={onRetry}
             onScroll={onScroll}
             conversationId={conversation.id}
-            pendingWorktree={conversation.pendingWorktree}
             scrollContainerRef={nonVirtualizedRef}
             showEmptyState={false}
           />

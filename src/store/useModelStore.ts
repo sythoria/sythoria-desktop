@@ -1,3 +1,4 @@
+import { friendlyEndpointError } from "../utils/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -10,6 +11,7 @@ import {
   saveSystemPrompt,
   saveAutoGenerateMemory,
   saveMaxToolSteps,
+  saveUnlimitedToolSteps,
   saveSelectedModel,
 } from "../utils/storage";
 import { logError, logWarn, logInfo } from "../utils/logger";
@@ -188,15 +190,18 @@ interface ModelState {
   selectedModel: string;
   temperature: number;
   apiKeys: Record<string, string>;
+  modelErrors: Record<string, string | undefined>;
   modelStatuses: ModelStatuses;
   titleConfig: TitleGenerationConfig;
   systemPrompt: string;
   autoGenerateMemory: boolean;
   maxToolSteps: number;
+  unlimitedToolSteps: boolean;
 
   setSelectedModel: (model: string) => void;
   setTemperature: (t: number) => void;
   setMaxToolSteps: (steps: number) => void;
+  setUnlimitedToolSteps: (enabled: boolean) => void;
   updateModels: (models: ModelConfig[]) => void;
   updateModel: (id: string, updates: Partial<ModelConfig>) => void;
   deleteModel: (id: string) => void;
@@ -228,11 +233,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   selectedModel: "",
   temperature: DEFAULT_TEMPERATURE,
   apiKeys: {},
+  modelErrors: {},
   modelStatuses: {},
   titleConfig: { enabled: true, modelId: "__same__", systemPrompt: DEFAULT_TITLE_SYSTEM_PROMPT },
   systemPrompt: "",
   autoGenerateMemory: false,
   maxToolSteps: DEFAULT_MAX_TOOL_STEPS,
+  unlimitedToolSteps: false,
 
   setSelectedModel: (model) => {
     const { models, modelStatuses } = get();
@@ -246,9 +253,13 @@ export const useModelStore = create<ModelState>((set, get) => ({
   },
   setTemperature: (t) => set({ temperature: t }),
   setMaxToolSteps: (t) => {
-    const clamped = Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(t)));
+    const clamped = Math.min(MAX_TOOL_STEPS_LIMIT, Math.max(MIN_TOOL_STEPS, Math.round(t) || MIN_TOOL_STEPS));
     set({ maxToolSteps: clamped });
     saveMaxToolSteps(clamped);
+  },
+  setUnlimitedToolSteps: (enabled) => {
+    set({ unlimitedToolSteps: enabled });
+    saveUnlimitedToolSteps(enabled);
   },
 
   updateModels: (models) => {
@@ -418,10 +429,16 @@ export const useModelStore = create<ModelState>((set, get) => ({
       }),
     );
 
+    const errors = { ...get().modelErrors };
     const newStatuses: ModelStatuses = { ...get().modelStatuses };
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       const model = toCheck[i];
+      if (get().models.find((current) => current.id === model.id) !== model) continue;
+      errors[model.id] =
+        result.status === "fulfilled" && result.value.status === "connected"
+          ? undefined
+          : friendlyEndpointError(result.status === "fulfilled" ? result.value.errorDetail : result.reason);
       if (result.status === "fulfilled") {
         newStatuses[model.id] = result.value.status;
         if (result.value.status === "connected") {
@@ -445,7 +462,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       }
     }
 
-    set({ modelStatuses: newStatuses });
+    set({ modelStatuses: newStatuses, modelErrors: errors });
     useUIStore.getState().setLoading("checkConnection", false);
   },
 

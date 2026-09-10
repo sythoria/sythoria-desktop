@@ -22,6 +22,8 @@ pub struct Project {
     pub name: String,
     pub path: String,
     pub permissions: ProjectPermission,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_command_confirmations: Option<bool>,
     #[serde(default)]
     pub exclude_patterns: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,6 +48,7 @@ struct ProjectRunCapability {
     project_id: String,
     worktree_path: Option<PathBuf>,
     branch: Option<String>,
+    workspace_baseline: Option<String>,
     read_only: bool,
 }
 
@@ -377,11 +380,6 @@ pub(crate) fn register_project_run(
             (Some(verified.path), Some(verified.branch))
         }
         None => {
-            if project.permissions != ProjectPermission::Read {
-                return Err(AppError::AppPath(
-                    "Write-capable project runs require an isolated Git worktree".to_string(),
-                ));
-            }
             if branch.is_some() {
                 return Err(AppError::AppPath(
                     "A worktree branch cannot be supplied without a worktree path".to_string(),
@@ -403,6 +401,7 @@ pub(crate) fn register_project_run(
                 project_id: project_id.to_string(),
                 worktree_path: canonical_worktree,
                 branch: verified_branch,
+                workspace_baseline: None,
                 read_only: false,
             },
         );
@@ -453,6 +452,7 @@ fn register_project_browser(
                 project_id: project_id.to_string(),
                 worktree_path: canonical_worktree,
                 branch: verified_branch,
+                workspace_baseline: None,
                 read_only: true,
             },
         );
@@ -466,32 +466,31 @@ pub(crate) fn validate_project_run_access(
     requested_worktree: Option<&str>,
     write_required: bool,
 ) -> Result<Option<PathBuf>, AppError> {
-    if write_required {
-        let capabilities = state
-            .run_capabilities
-            .lock()
-            .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
-        let capability = capabilities.get(run_token).ok_or_else(|| {
-            AppError::AppPath(
-                "Access denied: Project run capability is invalid or expired".to_string(),
-            )
-        })?;
-        if capability.read_only {
-            return Err(AppError::AppPath(
-                "Access denied: Project browser capability is read-only".to_string(),
-            ));
-        }
+    let capability = get_project_run_capability(state, run_token)?;
+    if write_required && capability.read_only {
+        return Err(AppError::AppPath(
+            "Access denied: Project browser capability is read-only".to_string(),
+        ));
     }
-    validate_project_run(state, run_token, project_id, requested_worktree)
+    validate_project_run_capability(state, &capability, project_id, requested_worktree)
 }
 
+#[cfg(test)]
 pub(crate) fn validate_project_run(
     state: &ProjectRegistry,
     run_token: &str,
     project_id: &str,
     requested_worktree: Option<&str>,
 ) -> Result<Option<PathBuf>, AppError> {
-    let capability = state
+    let capability = get_project_run_capability(state, run_token)?;
+    validate_project_run_capability(state, &capability, project_id, requested_worktree)
+}
+
+fn get_project_run_capability(
+    state: &ProjectRegistry,
+    run_token: &str,
+) -> Result<ProjectRunCapability, AppError> {
+    state
         .run_capabilities
         .lock()
         .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?
@@ -501,8 +500,75 @@ pub(crate) fn validate_project_run(
             AppError::AppPath(
                 "Access denied: Project run capability is invalid or expired".to_string(),
             )
-        })?;
+        })
+}
 
+pub(crate) fn set_project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+    baseline: String,
+) -> Result<(), AppError> {
+    let mut capabilities = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let capability = capabilities.get_mut(run_token).ok_or_else(|| {
+        AppError::AppPath("Access denied: Project run capability is invalid or expired".to_string())
+    })?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    capability.workspace_baseline = Some(baseline);
+    Ok(())
+}
+
+pub(crate) fn project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+) -> Result<Option<String>, AppError> {
+    let capability = get_project_run_capability(state, run_token)?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    Ok(capability.workspace_baseline)
+}
+
+pub(crate) fn clear_project_run_workspace_baseline(
+    state: &ProjectRegistry,
+    run_token: &str,
+    project_id: &str,
+) -> Result<(), AppError> {
+    let mut capabilities = state
+        .run_capabilities
+        .lock()
+        .map_err(|_| AppError::AppPath("Poisoned lock".to_string()))?;
+    let capability = capabilities.get_mut(run_token).ok_or_else(|| {
+        AppError::AppPath("Access denied: Project run capability is invalid or expired".to_string())
+    })?;
+    if capability.project_id != project_id || capability.worktree_path.is_some() {
+        return Err(AppError::AppPath(
+            "Access denied: Workspace snapshot does not belong to this direct project run"
+                .to_string(),
+        ));
+    }
+    capability.workspace_baseline = None;
+    Ok(())
+}
+
+fn validate_project_run_capability(
+    state: &ProjectRegistry,
+    capability: &ProjectRunCapability,
+    project_id: &str,
+    requested_worktree: Option<&str>,
+) -> Result<Option<PathBuf>, AppError> {
     if capability.project_id != project_id {
         return Err(AppError::AppPath(
             "Access denied: Project run capability belongs to another project".to_string(),
@@ -537,7 +603,8 @@ pub(crate) fn validate_project_run(
         }
         (None, None) => Ok(None),
         _ => Err(AppError::AppPath(
-            "Access denied: Every project command must use the run's explicit worktree".to_string(),
+            "Access denied: Every project command must use the run's bound workspace root"
+                .to_string(),
         )),
     }
 }
@@ -629,9 +696,10 @@ pub(crate) fn validate_project_path(
 
     let user_path = Path::new(relative_path);
     if user_path.is_absolute() {
-        return Err(AppError::AppPath(
-            "Absolute paths are not allowed".to_string(),
-        ));
+        return Err(AppError::AppPath(format!(
+            "Absolute paths are not allowed. Use a path relative to the workspace root '{}' instead (for example 'src/main.rs').",
+            root.display()
+        )));
     }
     let full_path = root_canonical.join(user_path);
 
@@ -656,16 +724,18 @@ pub(crate) fn validate_project_path(
             AppError::AppPath(format!("Failed to canonicalize resolved path: {}", e))
         })?
     } else {
+        // Collect the not-yet-existing components from deepest to shallowest so
+        // they can be re-joined onto the closest existing ancestor. Pushing an
+        // empty PathBuf into the suffix would append a trailing separator, which
+        // made fs::write fail with ENOENT for every brand-new file.
         let mut ancestor = clean_path.as_path();
-        let mut suffix = PathBuf::new();
+        let mut missing_components = Vec::new();
         while let Some(parent) = ancestor.parent() {
             if ancestor.exists() {
                 break;
             }
             if let Some(name) = ancestor.file_name() {
-                let mut new_suffix = PathBuf::from(name);
-                new_suffix.push(&suffix);
-                suffix = new_suffix;
+                missing_components.push(name.to_os_string());
             }
             ancestor = parent;
         }
@@ -673,7 +743,11 @@ pub(crate) fn validate_project_path(
             let canon_ancestor = ancestor.canonicalize().map_err(|e| {
                 AppError::AppPath(format!("Failed to canonicalize ancestor: {}", e))
             })?;
-            canon_ancestor.join(suffix)
+            let mut resolved = canon_ancestor;
+            for name in missing_components.into_iter().rev() {
+                resolved.push(name);
+            }
+            resolved
         } else {
             clean_path.clone()
         }
@@ -699,8 +773,10 @@ mod tests {
     use super::{
         is_sythoria_agent_branch, parse_git_worktrees, register_project_run,
         sythoria_worktree_root, validate_owned_worktree, validate_project_path,
-        validate_project_run, Project, ProjectExclusions, ProjectPermission, ProjectRegistry,
+        validate_project_run, validate_project_run_access, Project, ProjectExclusions,
+        ProjectPermission, ProjectRegistry,
     };
+    use super::AppError;
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
@@ -713,6 +789,7 @@ mod tests {
             name: "Project".to_string(),
             path: path.to_string_lossy().into_owned(),
             permissions: ProjectPermission::Full,
+            skip_command_confirmations: None,
             exclude_patterns: None,
             system_prompt_override: None,
             model_override: None,
@@ -726,6 +803,7 @@ mod tests {
         let mut project = test_project(PathBuf::from("C:/workspace"));
         project.system_prompt_override = Some("Be concise".to_string());
         project.model_override = Some("model-x".to_string());
+        project.skip_command_confirmations = Some(true);
         project.is_auto_commit_enabled = Some(true);
         project.auto_commit_msg_template = Some("feat: {summary}".to_string());
 
@@ -737,12 +815,14 @@ mod tests {
             project.system_prompt_override
         );
         assert_eq!(decoded.model_override, project.model_override);
+        assert_eq!(decoded.skip_command_confirmations, Some(true));
         assert_eq!(decoded.is_auto_commit_enabled, Some(true));
         assert_eq!(
             decoded.auto_commit_msg_template,
             project.auto_commit_msg_template
         );
         assert!(json.contains("systemPromptOverride"));
+        assert!(json.contains("skipCommandConfirmations"));
         assert!(json.contains("isAutoCommitEnabled"));
     }
 
@@ -783,6 +863,25 @@ mod tests {
     }
 
     #[test]
+    fn write_capability_can_bind_directly_to_the_registered_project() {
+        let current = std::env::current_dir().expect("current directory");
+        let registry = ProjectRegistry::new();
+        registry
+            .projects
+            .lock()
+            .expect("lock registry")
+            .insert("project".to_string(), test_project(current));
+
+        let token = register_project_run(&registry, "project", "conversation", None, None)
+            .expect("register direct project run");
+        assert_eq!(
+            validate_project_run_access(&registry, &token, "project", None, true)
+                .expect("validate direct write access"),
+            None
+        );
+    }
+
+    #[test]
     fn root_relative_exclusions_match_nested_files_and_directories() {
         let root =
             std::env::temp_dir().join(format!("sythoria-exclusions-{}", uuid::Uuid::new_v4()));
@@ -804,6 +903,62 @@ mod tests {
         assert!(validate_project_path(&project, "visible.txt", "read").is_ok());
 
         std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    #[test]
+    fn new_files_resolve_to_writable_paths_without_trailing_separators() {
+        let root = std::env::temp_dir().join(format!("sythoria-write-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+        std::fs::write(root.join("existing.txt"), "old content").expect("write existing file");
+
+        let mut project = test_project(root.clone());
+        project.permissions = ProjectPermission::Write;
+
+        // Regression: creating a brand-new file used to resolve with a trailing
+        // separator, which made fs::write fail with ENOENT (os error 2).
+        let new_at_root = validate_project_path(&project, "cap_bypass_poc.py", "write")
+            .expect("new file at workspace root");
+        assert!(
+            !new_at_root.to_string_lossy().ends_with('/'),
+            "resolved path must not end with a separator: {}",
+            new_at_root.display()
+        );
+        std::fs::write(&new_at_root, "poc").expect("write new file at workspace root");
+
+        let nested = validate_project_path(&project, "poc/sub/new.py", "write")
+            .expect("nested new file");
+        assert!(!nested.to_string_lossy().ends_with('/'));
+        std::fs::create_dir_all(nested.parent().expect("nested parent directory"))
+            .expect("create missing parent directories");
+        std::fs::write(&nested, "nested").expect("write nested new file");
+
+        let overwritten =
+            validate_project_path(&project, "existing.txt", "write").expect("existing file");
+        std::fs::write(&overwritten, "new content").expect("overwrite existing file");
+
+        assert!(absolute_paths_are_rejected_with_guidance(&project));
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("cap_bypass_poc.py")).expect("root file"),
+            "poc"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("poc/sub/new.py")).expect("nested file"),
+            "nested"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("existing.txt")).expect("overwritten file"),
+            "new content"
+        );
+
+        std::fs::remove_dir_all(&root).expect("remove test root");
+    }
+
+    fn absolute_paths_are_rejected_with_guidance(project: &Project) -> bool {
+        matches!(
+            validate_project_path(project, "/tmp/cap_bypass_poc.py", "write"),
+            Err(AppError::AppPath(message)) if message.contains("Absolute paths are not allowed") && message.contains("relative to the workspace root")
+        )
     }
 
     #[cfg(unix)]
@@ -866,6 +1021,7 @@ mod tests {
         run_git(&repo, &["init"]);
         run_git(&repo, &["config", "user.name", "Sythoria Test"]);
         run_git(&repo, &["config", "user.email", "test@sythoria.local"]);
+        run_git(&repo, &["config", "commit.gpgsign", "false"]);
         fs::write(repo.join("shared.txt"), "base").expect("write fixture file");
         run_git(&repo, &["add", "shared.txt"]);
         run_git(&repo, &["commit", "-m", "fixture"]);
@@ -905,6 +1061,22 @@ mod tests {
             Some(&branch_two),
         )
         .expect("register second run");
+
+        assert_eq!(
+            validate_project_run_access(
+                &registry,
+                &token_one,
+                "project",
+                Some(&worktree_one_arg),
+                true,
+            )
+            .expect("validate write access"),
+            Some(
+                worktree_one
+                    .canonicalize()
+                    .expect("canonical first worktree")
+            )
+        );
 
         assert!(
             validate_project_run(&registry, &token_one, "project", Some(&worktree_two_arg))

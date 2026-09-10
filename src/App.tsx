@@ -31,7 +31,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
-import { isGenerationActive, type Conversation } from "./types";
+import { isGenerationActive, type Attachment, type Conversation } from "./types";
 import InputBar from "./components/InputBar";
 import ScrollToBottomButton from "./components/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
@@ -245,14 +245,9 @@ function App() {
     })),
   );
 
-  const { isSearchEnabled } = useSearchStore(
+  const { activeSearchId } = useSearchStore(
     useShallow((s) => ({
-      isSearchEnabled: s.isSearchEnabled,
-    })),
-  );
-  const { toggleSearchEnabled } = useSearchStore(
-    useShallow((s) => ({
-      toggleSearchEnabled: s.toggleSearchEnabled,
+      activeSearchId: s.activeSearchId,
     })),
   );
 
@@ -773,30 +768,45 @@ function App() {
   const showScrollToBottom = !primaryIsAtBottom;
   const hasNewMessages = primaryTracking.hasNewMessages;
 
-  const handleScrollToBottom = useCallback(() => {
-    primaryScrollToBottom();
-    primaryTracking.setHasNewMessages(false);
+  const scrollChatsToBottom = useCallback(
+    (behavior: "auto" | "smooth" = "smooth") => {
+      primaryScrollToBottom(behavior);
 
-    if (isCompareMode) {
+      if (!isCompareMode) return;
+
+      const scrollOptions = {
+        index: Number.MAX_SAFE_INTEGER,
+        behavior,
+        align: "end" as const,
+      };
+      primaryComparisonRef.current?.scrollToIndex(scrollOptions);
       compareIds.forEach((id) => {
-        const compRef = compareRefsMap.current[id];
-        compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+        compareRefsMap.current[id]?.scrollToIndex(scrollOptions);
       });
-    }
-  }, [primaryScrollToBottom, primaryTracking, isCompareMode, compareIds]);
+    },
+    [primaryScrollToBottom, isCompareMode, compareIds],
+  );
+
+  const handleScrollToBottom = useCallback(() => {
+    scrollChatsToBottom();
+    primaryTracking.setHasNewMessages(false);
+  }, [scrollChatsToBottom, primaryTracking]);
+
+  const handleSendMessage = useCallback(
+    async (message: string, attachments?: Attachment[], mcpServerIds?: string[], searchConfigId?: string | null) => {
+      const status = await sendMessage(message, attachments, undefined, mcpServerIds, searchConfigId);
+      if (status === "accepted") {
+        requestAnimationFrame(() => scrollChatsToBottom());
+      }
+      return status;
+    },
+    [sendMessage, scrollChatsToBottom],
+  );
 
   // Scroll to bottom instantly when switching conversations or going to the chat view
   useEffect(() => {
     if (view === "chat" && activeId) {
-      const scroll = () => {
-        primaryScrollToBottom("auto");
-        if (isCompareMode) {
-          compareIds.forEach((id) => {
-            const compRef = compareRefsMap.current[id];
-            compRef?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
-          });
-        }
-      };
+      const scroll = () => scrollChatsToBottom("auto");
 
       scroll();
 
@@ -813,7 +823,7 @@ function App() {
         clearTimeout(timer);
       };
     }
-  }, [activeId, view, isCompareMode, primaryScrollToBottom, compareIds]);
+  }, [activeId, view, scrollChatsToBottom]);
 
   useEffect(() => {
     performance.mark("sythoria:bootstrap-start");
@@ -1073,9 +1083,12 @@ function App() {
     setSidebarOpen(false);
   }, [setView, setSidebarOpen]);
 
-  const handleRetry = useCallback(() => {
-    if (activeId) retryLastMessage(activeId);
-  }, [activeId, retryLastMessage]);
+  const handleRetry = useCallback(
+    (messageId: string) => {
+      if (activeId) retryLastMessage(activeId, messageId);
+    },
+    [activeId, retryLastMessage],
+  );
 
   const renderArtifactContent = () => {
     if (!activeArtifact) return null;
@@ -1167,8 +1180,8 @@ function App() {
   );
 
   const handleCompareRetry = useCallback(
-    (cId: string) => {
-      retryLastMessage(cId);
+    (cId: string, messageId: string) => {
+      retryLastMessage(cId, messageId);
     },
     [retryLastMessage],
   );
@@ -1549,7 +1562,7 @@ function App() {
                                   models={models}
                                   onModelChange={(newModelId) => handleCompareModelChange(c.id, newModelId)}
                                   onClose={() => handleCompareClose(c.id)}
-                                  onRetry={() => handleCompareRetry(c.id)}
+                                  onRetry={(messageId) => handleCompareRetry(c.id, messageId)}
                                   isStreaming={isStreaming}
                                   onScroll={
                                     syncScrolls ? (top, ratio) => handleCompareScroll(c.id, top, ratio) : undefined
@@ -1568,7 +1581,6 @@ function App() {
                             virtuosoRef={primaryVirtuosoRef}
                             onRetry={handleRetry}
                             conversationId={activeId || undefined}
-                            pendingWorktree={activeConversation?.pendingWorktree}
                           />
                         )}
                       </Suspense>
@@ -1591,15 +1603,12 @@ function App() {
 
                     <InputBar
                       models={models}
-                      onSend={(message, attachments, mcpServerIds) =>
-                        sendMessage(message, attachments, undefined, mcpServerIds)
-                      }
+                      onSend={handleSendMessage}
                       selectedModel={activeConversation?.model || selectedModel}
                       onModelChange={handlePrimaryModelChange}
                       disabled={isInputDisabled}
                       modelStatuses={modelStatuses}
-                      isSearchEnabled={isSearchEnabled}
-                      onToggleSearch={toggleSearchEnabled}
+                      searchConfigId={activeSearchId}
                       mcpServers={mcpConfigs}
                       mcpServerStatuses={serverStatuses}
                       isStreaming={isPrimaryGenerating}

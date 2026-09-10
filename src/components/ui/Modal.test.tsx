@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Modal, ConfirmModal, RenameChatModal } from "./Modal";
+import { Modal, ConfirmModal, RenameChatModal, ToolConfirmationModal } from "./Modal";
 
 describe("Modal", () => {
   it("renders when isOpen is true", () => {
@@ -64,6 +64,32 @@ describe("ConfirmModal", () => {
 
     const confirmBtn = screen.getByText("Delete");
     expect(confirmBtn.className).toContain("red");
+  });
+});
+
+describe("ToolConfirmationModal", () => {
+  it("shows shell commands with explicit reject and approve actions", async () => {
+    const user = userEvent.setup();
+    const onRespond = vi.fn();
+    render(
+      <ToolConfirmationModal
+        confirmation={{
+          id: "command-1",
+          conversationId: "conversation-1",
+          toolName: "project_bash",
+          arguments: { command: "npm run build" },
+          resolve: vi.fn(),
+        }}
+        onRespond={onRespond}
+      />,
+    );
+
+    expect(screen.getByRole("alertdialog", { name: "Tool Execution Authorization" })).toHaveTextContent(
+      "npm run build",
+    );
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onRespond).toHaveBeenCalledWith("command-1", true);
   });
 });
 

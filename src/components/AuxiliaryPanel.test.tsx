@@ -97,6 +97,7 @@ describe("workspace panel", () => {
       activeAuxTab: null,
       openAuxTabs: [],
       activeAuxConversationId: null,
+      activeReviewFilePath: null,
       sideChatConversationId: null,
       backgroundTasks: [
         {
@@ -155,6 +156,141 @@ describe("workspace panel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Review/ }));
     expect(await screen.findByText("1 file changed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close Review" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Diff for src/App.tsx" })).toBeInTheDocument();
+    expect(screen.getByText("old", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("new", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText(/diff --git/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/@@ -1/)).not.toBeInTheDocument();
+  });
+
+  it("reviews every uncommitted file instead of filtering to the latest agent change set", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/App.tsx", "src/older-change.ts"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1 +1 @@
+-old
++new
+diff --git a/src/older-change.ts b/src/older-change.ts
+--- a/src/older-change.ts
++++ b/src/older-change.ts
+@@ -1 +1 @@
+-before
++after` as never;
+      }
+      return [] as never;
+    });
+    useChatStore.setState((state) => ({
+      conversations: state.conversations.map((conversation) => ({
+        ...conversation,
+        workspaceChanges: {
+          projectId: "project-1",
+          appliedAt: new Date(),
+          files: [{ path: "src/App.tsx", additions: 1, deletions: 1 }],
+        },
+      })),
+    }));
+
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    expect(await screen.findByText("2 files changed")).toBeInTheDocument();
+    expect(screen.getByText("src/older-change.ts")).toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith("git_diff_changes", {
+      projectId: "project-1",
+      worktreePath: null,
+      files: null,
+      runToken: null,
+    });
+  });
+
+  it("opens Review with the file selected from the changed-files summary", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/App.tsx", "src/selected.ts"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/src/App.tsx b/src/App.tsx
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1 +1 @@
+-first old
++first new
+diff --git a/src/selected.ts b/src/selected.ts
+--- a/src/selected.ts
++++ b/src/selected.ts
+@@ -1 +1 @@
+-selected old
++selected new` as never;
+      }
+      return [] as never;
+    });
+    useUIStore.setState({
+      activeAuxTab: "review",
+      openAuxTabs: ["review"],
+      activeAuxConversationId: "conversation-1",
+      activeReviewFilePath: "src/selected.ts",
+    });
+
+    render(<AuxiliaryPanel />);
+
+    expect(await screen.findByText("selected new")).toBeInTheDocument();
+    expect(screen.queryByText("first new")).not.toBeInTheDocument();
+  });
+
+  it("does not render an untracked directory marker as a diff file", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: [".claude/", ".claude/settings.json"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/.claude/settings.json b/.claude/settings.json
+new file mode 100644
+--- /dev/null
++++ b/.claude/settings.json
+@@ -0,0 +1 @@
++{"permissions": []}` as never;
+      }
+      return [] as never;
+    });
+
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    expect(await screen.findByText("1 file changed")).toBeInTheDocument();
+    expect(screen.getByText(".claude/settings.json")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ".claude/" })).not.toBeInTheDocument();
   });
 
   it("opens a temporary side chat and supports the launcher shortcuts", async () => {

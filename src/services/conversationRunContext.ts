@@ -7,12 +7,43 @@ export type McpToolCaller = (
   conversationId: string,
 ) => Promise<McpToolResult>;
 
+// Mutable holder shared by reference across every run descending from one
+// user message (subagents, follow-up messages, notification-driven resumes)
+// so the configured tool-step limit cannot be reset mid-chain.
+export interface ToolStepBudget {
+  readonly limit: number | null;
+  completedToolRounds: number;
+}
+
+export function createToolStepBudget(limit: number | null): ToolStepBudget {
+  return { limit, completedToolRounds: 0 };
+}
+
+const reservedToolRounds = new WeakMap<ToolStepBudget, number>();
+
+export function isToolBudgetExhausted(budget: ToolStepBudget): boolean {
+  return budget.limit !== null && budget.completedToolRounds + (reservedToolRounds.get(budget) ?? 0) >= budget.limit;
+}
+
+// Synchronous admission prevents parallel descendants from spending the same slot.
+export function reserveToolRound(budget: ToolStepBudget): ((completed: boolean) => void) | null {
+  if (isToolBudgetExhausted(budget)) return null;
+  reservedToolRounds.set(budget, (reservedToolRounds.get(budget) ?? 0) + 1);
+  let released = false;
+  return (completed) => {
+    if (released) return;
+    released = true;
+    reservedToolRounds.set(budget, (reservedToolRounds.get(budget) ?? 1) - 1);
+    if (completed) budget.completedToolRounds++;
+  };
+}
+
 export interface ConversationRunContext {
+  readonly stepBudget?: ToolStepBudget;
   readonly conversationId: string;
   readonly modelConfig: ModelConfig;
   readonly temperature: number;
   readonly project: Project | null;
-  readonly worktree: Readonly<{ path: string; branch: string }> | null;
   readonly searchConfig: SearchApiConfig | undefined;
   readonly searchApiKey: string;
   readonly mcpTools: McpTool[];
@@ -23,8 +54,6 @@ export interface ConversationRunContext {
     projectId: string | null;
     projectRoot: string | null;
     modelId: string;
-    worktreePath: string | null;
-    worktreeBranch: string | null;
   }>;
   readonly shouldUseTools: boolean;
 }
@@ -41,6 +70,7 @@ interface BuildConversationRunContextOptions {
   mcpTools: McpTool[];
   mcpCallTool: McpToolCaller | undefined;
   skills: readonly SkillInfo[];
+  stepBudget?: ToolStepBudget;
 }
 
 function cloneProject(project: Project | null): Project | null {
@@ -81,9 +111,6 @@ export function buildConversationRunContext(
   if (!selectedModel) return undefined;
 
   const modelConfig = Object.freeze({ ...selectedModel }) as ModelConfig;
-  const worktree = options.conversation.pendingWorktree
-    ? Object.freeze({ ...options.conversation.pendingWorktree })
-    : null;
   const searchConfig = options.searchConfig
     ? (Object.freeze({ ...options.searchConfig }) as SearchApiConfig)
     : undefined;
@@ -94,8 +121,6 @@ export function buildConversationRunContext(
     projectId: project?.id ?? null,
     projectRoot: project?.path ?? null,
     modelId: modelConfig.id,
-    worktreePath: worktree?.path ?? null,
-    worktreeBranch: worktree?.branch ?? null,
   });
 
   return Object.freeze({
@@ -103,7 +128,6 @@ export function buildConversationRunContext(
     modelConfig,
     temperature: options.temperature,
     project,
-    worktree,
     searchConfig,
     searchApiKey: options.searchApiKey,
     mcpTools,
@@ -112,23 +136,24 @@ export function buildConversationRunContext(
     attachmentCapabilities,
     commitScope,
     shouldUseTools: Boolean(project || searchConfig || mcpTools.length > 0 || skills.length > 0),
+    ...(options.stepBudget ? { stepBudget: options.stepBudget } : {}),
   });
+}
+
+export function withToolStepBudget(
+  context: ConversationRunContext,
+  stepBudget: ToolStepBudget,
+): ConversationRunContext {
+  if (context.stepBudget === stepBudget) return context;
+  return Object.freeze({ ...context, stepBudget });
 }
 
 export function continueConversationRunContext(
   context: ConversationRunContext,
   conversationId: string,
-  worktree: Readonly<{ path: string; branch: string }> | null = context.worktree,
 ): ConversationRunContext {
-  const worktreeSnapshot = worktree ? Object.freeze({ ...worktree }) : null;
   return Object.freeze({
     ...context,
     conversationId,
-    worktree: worktreeSnapshot,
-    commitScope: Object.freeze({
-      ...context.commitScope,
-      worktreePath: worktreeSnapshot?.path ?? null,
-      worktreeBranch: worktreeSnapshot?.branch ?? null,
-    }),
   });
 }

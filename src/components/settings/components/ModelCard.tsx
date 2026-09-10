@@ -1,3 +1,6 @@
+import { useModelStore } from "../../../store/useModelStore";
+import { endpointFieldError } from "../../../utils/endpointError";
+import { EndpointError } from "./EndpointError";
 import { memo, useState } from "react";
 import { motion } from "motion/react";
 import { Trash2, ChevronDown, AlertCircle, Sparkles } from "lucide-react";
@@ -35,6 +38,8 @@ interface ModelCardProps {
 
 export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete, connectionStatus }: ModelCardProps) {
   const { t } = useTranslation();
+  const connectionError = useModelStore((s) => s.modelErrors[model.id]);
+  const endpointError = endpointFieldError(model.apiBase, connectionStatus, connectionError);
   const urlValidation = validateApiUrl(model.apiBase);
   const keyValidation = validateApiKey(model.apiKey, model.provider);
   const isApiKeyOptional = isApiKeyOptionalForProvider(model.provider);
@@ -194,30 +199,21 @@ export const ModelCard = memo(function ModelCard({ id, model, onUpdate, onDelete
           <input
             id={`model-api-${model.id}`}
             type="url"
+            aria-invalid={!!endpointError}
+            aria-describedby={endpointError ? `endpoint-error-${model.id}` : undefined}
             value={model.apiBase}
             onChange={(e) => onUpdate(model.id, { apiBase: e.target.value })}
             placeholder="https://api.openai.com/v1/chat/completions"
             autoComplete="off"
             autoCorrect="off"
             spellCheck="false"
-            aria-invalid={!urlValidation.valid}
-            aria-describedby={!urlValidation.valid ? `url-error-${model.id}` : undefined}
             className={`w-full h-10 px-3 py-2 rounded-lg border bg-input text-sm text-text-primary placeholder-text-muted font-mono text-xs focus:outline-none transition-colors ${
               !urlValidation.valid
                 ? "border-red-500/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
                 : "border-input-border focus:border-accent focus:ring-2 focus:ring-accent/20"
             }`}
           />
-          {!urlValidation.valid && model.apiBase && (
-            <p
-              id={`url-error-${model.id}`}
-              className="flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400 mt-0.5"
-              role="alert"
-            >
-              <AlertCircle size={11} />
-              {urlValidation.error}
-            </p>
-          )}
+          <EndpointError id={`endpoint-error-${model.id}`} message={endpointError} />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

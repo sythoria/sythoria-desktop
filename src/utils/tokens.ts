@@ -5,7 +5,9 @@ import type { Message } from "../types";
  * Approximation: 1 token ≈ 4 characters for text, plus ~1000 tokens for each image attachment.
  */
 export function estimateMessageTokens(message: Message): number {
-  let charCount = message.content.length;
+  let charCount = message.responsesOutput
+    ? JSON.stringify(message.responsesOutput).length
+    : message.content.length + (message.reasoningContent?.length ?? 0);
   let imageCount = 0;
 
   if (message.attachments) {
@@ -50,7 +52,9 @@ export function estimateConversationTokens(
   let attachmentsTokens = 0;
 
   for (const msg of messages) {
-    let msgTextCharCount = msg.content.length;
+    let msgTextCharCount = msg.responsesOutput
+      ? JSON.stringify(msg.responsesOutput).length
+      : msg.content.length + (msg.reasoningContent?.length ?? 0);
 
     if (msg.toolCall) {
       msgTextCharCount += JSON.stringify(msg.toolCall).length;

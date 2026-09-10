@@ -1,6 +1,7 @@
 import React from "react";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { isResponsesEndpoint } from "../utils/responses";
 import type {
   Conversation,
   Message,
@@ -42,6 +43,7 @@ import {
   loadShowContextWindow,
   loadContextTokenizationMode,
   loadMaxToolSteps,
+  loadUnlimitedToolSteps,
   loadIsLoggingEnabled,
   loadDisableBgActivity,
   loadNetworkSettings,
@@ -53,11 +55,13 @@ import {
   verifyEncryptedPreferences,
 } from "../utils/storage";
 import { generateId } from "../utils/generateId";
+import { attachWorkspaceChangesToLatestAssistant, removeWorkspaceChangesByUndoToken } from "../utils/workspaceChanges";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import {
   DEFAULT_AUX_PANEL_WIDTH,
   MAX_AUX_PANEL_WIDTH,
   MIN_AUX_PANEL_WIDTH,
+  DEFAULT_MAX_TOOL_STEPS,
   TITLE_MAX_LENGTH,
 } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
@@ -68,7 +72,13 @@ import {
   sendWithToolLoop,
   waitForConversationToolLoops,
 } from "../services/toolLoop";
-import { buildConversationRunContext, type ConversationRunContext } from "../services/conversationRunContext";
+import {
+  buildConversationRunContext,
+  continueConversationRunContext,
+  withToolStepBudget,
+  type ConversationRunContext,
+  type ToolStepBudget,
+} from "../services/conversationRunContext";
 import { useSkillStore } from "./useSkillStore";
 import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
 import { validateFile } from "../utils/attachments";
@@ -91,6 +101,9 @@ import {
   searchSetState,
   searchPerformSearch,
   searchFetchUrlContent,
+  searchCheckConnections,
+  searchStartConnectionChecks,
+  searchStopConnectionChecks,
   mcpSetState,
 } from "./helpers";
 import { useModelStore } from "./useModelStore";
@@ -101,12 +114,41 @@ import { useProjectStore } from "./useProjectStore";
 import { useGitStore } from "./useGitStore";
 import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
 import { collectConversationTreeIds, reduceConversationDeletion } from "./conversationLifecycle";
+import { parseGitDiff } from "../utils/gitDiff";
 
 const processingTokens = new Set<string>();
 const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;
 const CANCELLED_ASSISTANT_MESSAGE = "Cancelled agent execution.";
 let conversationDeletionTail: Promise<void> = Promise.resolve();
 const activeNormalRuns = new Map<string, Set<Promise<void>>>();
+const activeWorktreePublications = new Map<string, Promise<boolean>>();
+const projectWorktreePublicationTails = new Map<string, Promise<void>>();
+
+interface PublishWorktreeOptions {
+  automatic?: boolean;
+}
+
+interface WorktreePublicationResult {
+  changedPaths: string[];
+  undoToken?: string;
+}
+
+async function serializeProjectWorktreePublication<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+  const previous = projectWorktreePublicationTails.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => turn);
+  projectWorktreePublicationTails.set(projectId, tail);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (projectWorktreePublicationTails.get(projectId) === tail) projectWorktreePublicationTails.delete(projectId);
+  }
+}
 
 interface ConversationDeletionOptions {
   preferredActiveId?: string | null;
@@ -208,12 +250,15 @@ interface EnabledToolLoopConfig {
   skills: ReturnType<typeof useSkillStore.getState>["skills"];
 }
 
-function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): EnabledToolLoopConfig {
-  const { isSearchEnabled, activeSearchId, searchConfigs, searchApiKeys } = useSearchStore.getState();
-  const searchConfig =
-    isSearchEnabled && activeSearchId
-      ? searchConfigs.find((config) => config.id === activeSearchId && config.enabled)
-      : undefined;
+function getEnabledToolLoopConfig(
+  mcpServerIds: readonly string[] = [],
+  requestedSearchConfigId?: string | null,
+): EnabledToolLoopConfig {
+  const { searchConfigs, searchApiKeys } = useSearchStore.getState();
+  const searchConfigId = requestedSearchConfigId ?? null;
+  const searchConfig = searchConfigId
+    ? searchConfigs.find((config) => config.id === searchConfigId && config.enabled)
+    : undefined;
   const searchApiKey = searchConfig ? (searchApiKeys[searchConfig.id] ?? searchConfig.apiKey ?? "") : "";
 
   const mcpTools = useMcpStore.getState().getToolsForServers(mcpServerIds);
@@ -230,6 +275,62 @@ function getEnabledToolLoopConfig(mcpServerIds: readonly string[] = []): Enabled
     mcpCallTool,
     skills: useSkillStore.getState().skills,
   };
+}
+
+function getMessageSearchConfigId(message: Message | undefined): string | null {
+  return message?.searchConfigId ?? null;
+}
+
+async function prepareReferencedToolLoop(
+  mcpServerIds: readonly string[],
+  searchConfigId: string | null,
+  rejectedAction: string,
+): Promise<EnabledToolLoopConfig | null> {
+  for (const serverId of mcpServerIds) {
+    const mcpState = useMcpStore.getState();
+    const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
+    if (!config?.enabled) {
+      uiToast(`A referenced MCP server is unavailable. ${rejectedAction}`, "error");
+      return null;
+    }
+
+    if (!mcpState.enabledServerIds.has(serverId) || mcpState.serverStatuses[serverId] !== "connected") {
+      try {
+        await mcpState.toggleServerEnabled(serverId, true);
+      } catch (error) {
+        logError("mcp", `Could not prepare referenced MCP server: "${config.name}"`, { error });
+        uiToast(`Could not connect ${config.name}. ${rejectedAction}`, "error");
+        return null;
+      }
+    }
+  }
+
+  const toolLoop = getEnabledToolLoopConfig(mcpServerIds, searchConfigId);
+  if (searchConfigId && !toolLoop.searchConfig) {
+    logWarn("search", "Referenced search provider is unavailable", {
+      details: searchConfigId,
+      action: "Choose an enabled search provider before trying again.",
+    });
+    uiToast(`The referenced web-search provider is unavailable. ${rejectedAction}`, "error");
+    return null;
+  }
+
+  const unresolvedMcpServerIds = mcpServerIds.filter(
+    (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
+  );
+  if (unresolvedMcpServerIds.length > 0) {
+    const unresolvedNames = unresolvedMcpServerIds.map(
+      (serverId) => useMcpStore.getState().mcpConfigs.find((config) => config.id === serverId)?.name ?? serverId,
+    );
+    logWarn("mcp", "Referenced MCP servers did not expose any tools", {
+      details: unresolvedNames.join(", "),
+      action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
+    });
+    uiToast(`${unresolvedNames.join(", ")} did not provide any tools. ${rejectedAction}`, "error");
+    return null;
+  }
+
+  return toolLoop;
 }
 
 function showMissingModelConfig(message: string) {
@@ -296,15 +397,20 @@ interface ChatState {
     attachments?: Attachment[],
     conversationId?: string,
     mcpServerIds?: string[],
+    searchConfigId?: string | null,
   ) => Promise<SendMessageStatus>;
-  retryLastMessage: (convId: string) => Promise<void>;
+  retryLastMessage: (convId: string, messageId?: string) => Promise<void>;
   stopStreaming: (convId?: string, persist?: boolean) => Promise<boolean>;
   exportChat: (id: string) => void | Promise<void>;
   importConversations: (imported: Conversation[]) => Promise<void>;
   persistConversations: () => Promise<void>;
-  resumeConversation: (convId: string) => Promise<void>;
+  resumeConversation: (
+    convId: string,
+    options?: { stepBudget?: ToolStepBudget; runContext?: ConversationRunContext },
+  ) => Promise<void>;
   clearAllChats: () => Promise<void>;
-  applyPendingWorktree: (convId: string) => Promise<void>;
+  publishPendingWorktree: (convId: string, options?: PublishWorktreeOptions) => Promise<boolean>;
+  undoWorkspaceChanges: (convId: string, undoToken?: string) => Promise<boolean>;
   discardPendingWorktree: (convId: string) => Promise<void>;
   cleanup: () => void;
   setGenerationState: (state: GenerationState, label?: string, error?: string) => void;
@@ -364,19 +470,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setCompareIds: (compareIds) => set({ compareIds }),
   setIsCompareMode: (isCompareMode) => {
-    if (!isCompareMode) {
-      const state = get();
-      const pendingComparison = state.compareIds
-        .map((compareId) => state.conversations.find((conversation) => conversation.id === compareId))
-        .find((conversation) => conversation?.pendingWorktree);
-      if (pendingComparison) {
-        uiToast(
-          `Apply or discard pending workspace changes in “${pendingComparison.title}” before leaving compare mode.`,
-          "error",
-        );
-        return false;
-      }
-    }
     set({ isCompareMode });
     return true;
   },
@@ -428,6 +521,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedShowContextWindow,
         loadedContextTokenizationMode,
         loadedMaxToolSteps,
+        loadedUnlimitedToolSteps,
         loadedIsLoggingEnabled,
         loadedDisableBgActivity,
         loadedNetworkSettings,
@@ -460,7 +554,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadOptionalStartupValue("auto-generate memory preference", loadAutoGenerateMemory, false),
         loadOptionalStartupValue("context-window preference", loadShowContextWindow, false),
         loadOptionalStartupValue("context-tokenization preference", loadContextTokenizationMode, "local" as const),
-        loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, 10),
+        loadOptionalStartupValue("tool-step preference", loadMaxToolSteps, DEFAULT_MAX_TOOL_STEPS),
+        loadOptionalStartupValue("unlimited tool steps preference", loadUnlimitedToolSteps, false),
         loadOptionalStartupValue("logging preference", loadIsLoggingEnabled, true),
         loadOptionalStartupValue("background-activity preference", loadDisableBgActivity, false),
         loadOptionalStartupValue("network policy", loadNetworkSettings, {
@@ -518,6 +613,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         systemPrompt: loadedSystemPrompt,
         autoGenerateMemory: loadedAutoGenerateMemory,
         maxToolSteps: loadedMaxToolSteps,
+        unlimitedToolSteps: loadedUnlimitedToolSteps,
       });
       if (selectedModel !== loadedSelectedModel) {
         void saveSelectedModel(selectedModel);
@@ -526,8 +622,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       searchSetState({
         searchConfigs,
         activeSearchId: searchConfigs.find((c) => c.enabled)?.id ?? null,
+        searchStatuses: Object.fromEntries(searchConfigs.map((config) => [config.id, "disconnected" as const])),
         fetchConfigs,
         activeFetchId: fetchConfigs.find((c) => c.enabled)?.id ?? null,
+        fetchStatuses: Object.fromEntries(fetchConfigs.map((config) => [config.id, "disconnected" as const])),
         searchApiKeys: loadedSearchKeys,
       });
 
@@ -617,6 +715,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!loadedDisableBgActivity) {
           modelCheckConnections();
           modelStartHealthCheck();
+          if (!loadedNetworkSettings.offlineMode) {
+            void searchCheckConnections();
+            searchStartConnectionChecks();
+          }
         }
         useMcpStore.getState().connectAllEnabled();
       }, 500);
@@ -666,28 +768,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveId: (id, isHistoryMove = false) => {
-    const { activeId, navigationHistory, navigationIndex, conversations, compareIds } = get();
+    const { activeId, navigationHistory, navigationIndex, conversations } = get();
     if (activeId === id) return Promise.resolve(true);
 
     const activeConversation = conversations.find((conversation) => conversation.id === activeId);
-    if (activeConversation?.pendingWorktree) {
-      uiToast(
-        `Apply or discard pending workspace changes in “${activeConversation.title}” before switching conversations.`,
-        "error",
-      );
-      return Promise.resolve(false);
-    }
-
-    const pendingComparison = compareIds
-      .map((compareId) => conversations.find((conversation) => conversation.id === compareId))
-      .find((conversation) => conversation?.pendingWorktree);
-    if (pendingComparison) {
-      uiToast(
-        `Resolve pending workspace changes in “${pendingComparison.title}” before switching conversations.`,
-        "error",
-      );
-      return Promise.resolve(false);
-    }
 
     if (activeConversation?.isTemporary) {
       return get().deleteConversationTrees([activeConversation.id], {
@@ -737,11 +821,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting another chat.", "error");
-      return currentConversation.id;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = generateId();
@@ -762,11 +841,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newTemporaryChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting a temporary chat.", "error");
-      return currentConversation.id;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = "temp-" + generateId();
@@ -788,11 +862,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   newSideChat: () => {
-    const currentConversation = get().conversations.find((conversation) => conversation.id === get().activeId);
-    if (currentConversation?.pendingWorktree) {
-      uiToast("Apply or discard pending workspace changes before starting a side chat.", "error");
-      return null;
-    }
     const { selectedModel, models } = useModelStore.getState();
     const { activeProjectId, isProjectsEnabled } = useProjectStore.getState();
     const id = "side-" + generateId();
@@ -868,7 +937,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const missingProjectWorktrees = new Set<string>();
       for (const conversation of get().conversations) {
         if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) continue;
-        const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+        const projectId = conversation.pendingWorktree.commitScope?.projectId ?? conversation.projectId;
         if (!projectId) {
           missingProjectWorktrees.add(conversation.id);
           continue;
@@ -890,13 +959,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
               worktreePath: worktree.path,
               branchName: worktree.branch,
             });
-            try {
-              await invoke("set_project_path_override", { projectId: worktree.projectId, pathOverride: null });
-            } catch (error) {
-              logWarn("git", "Discarded deleted chat worktree but could not clear its project path override", {
-                details: String(error),
-              });
-            }
             return { ...worktree, discarded: true as const };
           } catch (error) {
             logError("chat", "Failed to discard worktree during chat deletion", {
@@ -913,7 +975,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set((state) => ({
           conversations: state.conversations.map((conversation) => {
             if (!idsToDelete.has(conversation.id) || !conversation.pendingWorktree) return conversation;
-            const projectId = conversation.projectId ?? conversation.pendingWorktree.commitScope?.projectId;
+            const projectId = conversation.pendingWorktree.commitScope?.projectId ?? conversation.projectId;
             if (!projectId) return conversation;
             const key = `${projectId}\u0000${conversation.pendingWorktree.path}\u0000${conversation.pendingWorktree.branch}`;
             return discardedKeys.has(key) ? { ...conversation, pendingWorktree: undefined } : conversation;
@@ -974,13 +1036,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setConversationProject: (id, projectId) => {
-    const conversation = get().conversations.find((candidate) => candidate.id === id);
-    if (conversation?.pendingWorktree && conversation.projectId !== projectId) {
-      uiToast("Apply or discard pending workspace changes before changing this conversation's project.", "error");
-      return;
-    }
     set((state) => ({
-      conversations: state.conversations.map((c) => (c.id === id ? { ...c, projectId } : c)),
+      conversations: state.conversations.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              messages:
+                c.projectId === projectId
+                  ? c.messages
+                  : attachWorkspaceChangesToLatestAssistant(c.messages, c.workspaceChanges),
+              projectId,
+              workspaceChanges: c.projectId === projectId ? c.workspaceChanges : undefined,
+            }
+          : c,
+      ),
     }));
     get().persistConversations();
   },
@@ -993,7 +1062,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     uiCloseRenameModal();
   },
 
-  sendMessage: async (text, attachments, requestedConversationId, requestedMcpServerIds = []) => {
+  sendMessage: async (
+    text,
+    attachments,
+    requestedConversationId,
+    requestedMcpServerIds = [],
+    requestedSearchConfigId,
+  ) => {
     const { activeId, isCompareMode, compareIds } = get();
     const { selectedModel, models, temperature, titleConfig } = useModelStore.getState();
     const {
@@ -1002,41 +1077,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projects: sendProjects,
     } = useProjectStore.getState();
     const uniqueMcpServerIds = [...new Set(requestedMcpServerIds)];
+    const submittedSearchConfigId = requestedSearchConfigId ?? null;
 
     await useSkillStore.getState().loadSkills(true);
 
-    for (const serverId of uniqueMcpServerIds) {
-      const mcpState = useMcpStore.getState();
-      const config = mcpState.mcpConfigs.find((candidate) => candidate.id === serverId);
-      if (!config?.enabled) {
-        uiToast("A referenced MCP server is unavailable. Re-enable it in Settings and try again.", "error");
-        return "rejected";
-      }
-
-      if (!mcpState.enabledServerIds.has(serverId) || mcpState.serverStatuses[serverId] !== "connected") {
-        try {
-          await mcpState.toggleServerEnabled(serverId, true);
-        } catch (error) {
-          logError("mcp", `Could not prepare referenced MCP server: "${config.name}"`, { error });
-          uiToast(`Could not connect ${config.name}. Your message was not sent.`, "error");
-          return "rejected";
-        }
-      }
-    }
-
-    const toolLoop = getEnabledToolLoopConfig(uniqueMcpServerIds);
-    const unresolvedMcpServerIds = uniqueMcpServerIds.filter(
-      (serverId) => !toolLoop.mcpTools.some((tool) => tool.serverId === serverId),
+    const toolLoop = await prepareReferencedToolLoop(
+      uniqueMcpServerIds,
+      submittedSearchConfigId,
+      "Your message was not sent.",
     );
-    if (unresolvedMcpServerIds.length > 0) {
-      const unresolvedNames = unresolvedMcpServerIds.map(
-        (serverId) => useMcpStore.getState().mcpConfigs.find((config) => config.id === serverId)?.name ?? serverId,
-      );
-      logWarn("mcp", "Referenced MCP servers did not expose any tools", {
-        details: unresolvedNames.join(", "),
-        action: "Reconnect the affected MCP server in Settings and verify that it publishes tools.",
-      });
-      uiToast(`${unresolvedNames.join(", ")} did not provide any tools. Your message was not sent.`, "error");
+    if (!toolLoop) {
       return "rejected";
     }
 
@@ -1146,6 +1196,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       timestamp: new Date(),
       attachments,
       ...(uniqueMcpServerIds.length > 0 ? { mcpServerIds: uniqueMcpServerIds } : {}),
+      ...(toolLoop.searchConfig ? { searchConfigId: toolLoop.searchConfig.id } : {}),
     };
 
     const fallbackTitle = text ? truncateTitle(text) : firstAttachmentName;
@@ -1158,15 +1209,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const isTemporary = conversation?.isTemporary === true;
 
       set((state) => ({
-        conversations: updateConversationMessages(state.conversations, cId, (msgs) => [...msgs, userMsg], {
-          title:
-            isFirstForThis && !isTemporary
-              ? activeCompareIds.includes(cId)
-                ? fallbackTitle + " (Compare)"
-                : fallbackTitle
-              : undefined,
-          recursionDepth: 0,
-        }),
+        conversations: updateConversationMessages(
+          state.conversations,
+          cId,
+          (msgs) => [...attachWorkspaceChangesToLatestAssistant(msgs, conversation?.workspaceChanges), userMsg],
+          {
+            title:
+              isFirstForThis && !isTemporary
+                ? activeCompareIds.includes(cId)
+                  ? fallbackTitle + " (Compare)"
+                  : fallbackTitle
+                : undefined,
+            recursionDepth: 0,
+            workspaceChanges: undefined,
+          },
+        ),
       }));
 
       if (isFirstForThis && !isTemporary && titleConfig.enabled) {
@@ -1316,7 +1373,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return stopped;
   },
 
-  retryLastMessage: async (convId) => {
+  retryLastMessage: async (convId, messageId) => {
     const { isStreaming, conversations } = get();
     const { selectedModel, models, temperature } = useModelStore.getState();
 
@@ -1326,8 +1383,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conv || conv.messages.length === 0) return;
 
     const { isProjectsEnabled, projects } = useProjectStore.getState();
+    const targetIdx =
+      messageId === undefined
+        ? conv.messages.length - 1
+        : conv.messages.findIndex((message) => message.id === messageId);
+    if (targetIdx < 0) return;
+
     let lastUserIdx = -1;
-    for (let i = conv.messages.length - 1; i >= 0; i--) {
+    for (let i = targetIdx; i >= 0; i--) {
       if (conv.messages[i].role === "user") {
         lastUserIdx = i;
         break;
@@ -1336,7 +1399,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (lastUserIdx === -1) return;
 
     await useSkillStore.getState().loadSkills(true);
-    const toolLoop = getEnabledToolLoopConfig(conv.messages[lastUserIdx].mcpServerIds);
+    const lastUserMessage = conv.messages[lastUserIdx];
+    const toolLoop = await prepareReferencedToolLoop(
+      [...new Set(lastUserMessage.mcpServerIds ?? [])],
+      getMessageSearchConfigId(lastUserMessage),
+      "The retry was not started.",
+    );
+    if (!toolLoop) return;
     const runContext = buildConversationRunContext({
       conversation: conv,
       models,
@@ -1361,11 +1430,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    // Preparation can reconnect tools asynchronously; never overwrite a newer conversation.
+    const currentConversation = get().conversations.find((c) => c.id === convId);
+    if (get().isStreaming || currentConversation?.messages !== conv.messages) return;
+
     const trimmed = conv.messages.slice(0, lastUserIdx + 1);
 
     set((state) => ({
       conversations: state.conversations.map((c) =>
-        c.id === convId ? { ...c, messages: trimmed, timestamp: new Date() } : c,
+        c.id === convId ? { ...c, messages: trimmed, timestamp: new Date(), workspaceChanges: undefined } : c,
       ),
     }));
 
@@ -1382,98 +1455,219 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  applyPendingWorktree: async (convId) => {
+  publishPendingWorktree: async (convId, options = {}) => {
     const conv = get().conversations.find((c) => c.id === convId);
-    if (!conv || !conv.pendingWorktree) return;
-    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    if (!conv || !conv.pendingWorktree) return false;
+    const pendingWorktree = conv.pendingWorktree;
+    const projectId = pendingWorktree.commitScope?.projectId ?? conv.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
-      return;
+      return false;
     }
 
-    uiLoading("toolExecution", true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const changedPaths = await invoke<string[]>("git_worktree_apply", {
-        projectId,
-        worktreePath: conv.pendingWorktree.path,
-        branchName: conv.pendingWorktree.branch,
-      });
+    const publicationKey = `${projectId}\u0000${pendingWorktree.path}\u0000${pendingWorktree.branch}`;
+    const activePublication = activeWorktreePublications.get(publicationKey);
+    if (activePublication) return activePublication;
 
+    const publication = serializeProjectWorktreePublication(projectId, async () => {
+      uiLoading("toolExecution", true);
       try {
-        await invoke("set_project_path_override", { projectId, pathOverride: null });
-      } catch (error) {
-        logWarn("git", "Applied worktree but could not clear its project path override", { details: String(error) });
-      }
-      const projectStore = useProjectStore.getState();
-      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
-        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
-      }
+        const capturedFiles = new Map<string, { additions: number; deletions: number }>();
+        try {
+          const [diff, status] = await Promise.all([
+            invoke<string>("git_diff_changes", {
+              projectId,
+              worktreePath: pendingWorktree.path,
+              files: null,
+              runToken: null,
+            }),
+            invoke<{ unstagedFiles: string[]; stagedFiles: string[] }>("git_get_status", {
+              projectId,
+              worktreePath: pendingWorktree.path,
+            }),
+          ]);
+          for (const file of parseGitDiff(diff)) {
+            const previous = capturedFiles.get(file.path);
+            capturedFiles.set(file.path, {
+              additions: (previous?.additions ?? 0) + file.additions,
+              deletions: (previous?.deletions ?? 0) + file.deletions,
+            });
+          }
+          for (const path of [...status.unstagedFiles, ...status.stagedFiles]) {
+            if (path.endsWith("/")) continue;
+            if (!capturedFiles.has(path)) capturedFiles.set(path, { additions: 0, deletions: 0 });
+          }
+        } catch (error) {
+          logWarn("git", "Could not capture worktree diff statistics before publishing", {
+            details: error instanceof Error ? error.message : String(error),
+          });
+        }
 
-      set((state) => ({
-        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
-      }));
-      get().persistConversations();
-      uiToast("Changes applied successfully to workspace!", "success");
-
-      const commitScope = conv.pendingWorktree.commitScope;
-      if (commitScope && commitScope.projectId === projectId) {
-        await useGitStore.getState().autoCommitIfNeeded({
-          ...commitScope,
-          files: changedPaths,
+        const publicationResult = await invoke<WorktreePublicationResult>("git_worktree_apply", {
+          projectId,
+          worktreePath: pendingWorktree.path,
+          branchName: pendingWorktree.branch,
         });
-      } else if (changedPaths.length > 0) {
-        logWarn("git", "Skipped auto-commit because the applied worktree had no captured run scope");
+        const changedPaths = publicationResult.changedPaths;
+
+        const workspaceChanges = {
+          projectId,
+          appliedAt: new Date(),
+          undoToken: publicationResult.undoToken,
+          files: changedPaths.map((path) => ({
+            path,
+            additions: capturedFiles.get(path)?.additions ?? 0,
+            deletions: capturedFiles.get(path)?.deletions ?? 0,
+          })),
+        };
+
+        const projectStore = useProjectStore.getState();
+        if (projectStore.activeWorktreePath === pendingWorktree.path) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.pendingWorktree?.path === pendingWorktree.path &&
+            candidate.pendingWorktree.branch === pendingWorktree.branch
+              ? {
+                  ...candidate,
+                  messages: attachWorkspaceChangesToLatestAssistant(candidate.messages, workspaceChanges),
+                  pendingWorktree: undefined,
+                  workspaceChanges,
+                }
+              : candidate,
+          ),
+        }));
+        await get().persistConversations();
+        if (!options.automatic) uiToast("Changes published to the workspace.", "success");
+
+        const commitScope = pendingWorktree.commitScope;
+        if (commitScope && commitScope.projectId === projectId) {
+          await useGitStore.getState().autoCommitIfNeeded({
+            ...commitScope,
+            files: changedPaths,
+          });
+        } else if (changedPaths.length > 0) {
+          logWarn("git", "Skipped auto-commit because the published worktree had no captured run scope");
+        }
+        return true;
+      } catch (err) {
+        logError("chat", "Failed to publish worktree changes", { error: err });
+        uiToast(
+          options.automatic
+            ? "Changes are still safely isolated because they could not be published. Open Review to resolve them."
+            : "Failed to publish changes: " + parseApiError(err).message,
+          "error",
+        );
+        return false;
+      } finally {
+        uiLoading("toolExecution", false);
       }
-    } catch (err) {
-      logError("chat", "Failed to apply worktree changes", { error: err });
-      uiToast("Failed to apply changes: " + parseApiError(err).message, "error");
+    });
+
+    activeWorktreePublications.set(publicationKey, publication);
+    try {
+      return await publication;
     } finally {
-      uiLoading("toolExecution", false);
+      if (activeWorktreePublications.get(publicationKey) === publication) {
+        activeWorktreePublications.delete(publicationKey);
+      }
     }
+  },
+
+  undoWorkspaceChanges: async (convId, undoToken) => {
+    const conversation = get().conversations.find((candidate) => candidate.id === convId);
+    const workspaceChanges = undoToken
+      ? conversation?.workspaceChanges?.undoToken === undoToken
+        ? conversation.workspaceChanges
+        : [...(conversation?.messages ?? [])]
+            .reverse()
+            .find((message) => message.workspaceChanges?.undoToken === undoToken)?.workspaceChanges
+      : conversation?.workspaceChanges;
+    if (!workspaceChanges?.undoToken) {
+      uiToast("This change can no longer be undone automatically.", "info");
+      return false;
+    }
+    const workspaceUndoToken = workspaceChanges.undoToken;
+
+    return serializeProjectWorktreePublication(workspaceChanges.projectId, async () => {
+      uiLoading("toolExecution", true);
+      try {
+        await invoke("git_workspace_undo", {
+          projectId: workspaceChanges.projectId,
+          undoToken: workspaceChanges.undoToken,
+        });
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.workspaceChanges?.undoToken === workspaceUndoToken ||
+            candidate.messages.some((message) => message.workspaceChanges?.undoToken === workspaceUndoToken)
+              ? {
+                  ...candidate,
+                  messages: removeWorkspaceChangesByUndoToken(candidate.messages, workspaceUndoToken),
+                  workspaceChanges:
+                    candidate.workspaceChanges?.undoToken === workspaceUndoToken
+                      ? undefined
+                      : candidate.workspaceChanges,
+                }
+              : candidate,
+          ),
+        }));
+        await get().persistConversations();
+        uiToast("Captured workspace changes were undone.", "success");
+        return true;
+      } catch (err) {
+        logError("chat", "Failed to undo workspace changes", { error: err });
+        uiToast("Could not undo changes: " + parseApiError(err).message, "error");
+        return false;
+      } finally {
+        uiLoading("toolExecution", false);
+      }
+    });
   },
 
   discardPendingWorktree: async (convId) => {
     const conv = get().conversations.find((c) => c.id === convId);
     if (!conv || !conv.pendingWorktree) return;
-    const projectId = conv.projectId ?? conv.pendingWorktree.commitScope?.projectId;
+    const pendingWorktree = conv.pendingWorktree;
+    const projectId = pendingWorktree.commitScope?.projectId ?? conv.projectId;
     if (!projectId) {
       uiToast("The original project could not be identified. This worktree was left intact for recovery.", "error");
       return;
     }
 
-    uiLoading("toolExecution", true);
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("git_worktree_discard", {
-        projectId,
-        worktreePath: conv.pendingWorktree.path,
-        branchName: conv.pendingWorktree.branch,
-      });
-
+    await serializeProjectWorktreePublication(projectId, async () => {
+      uiLoading("toolExecution", true);
       try {
-        await invoke("set_project_path_override", { projectId, pathOverride: null });
-      } catch (error) {
-        logWarn("git", "Discarded worktree but could not clear its project path override", {
-          details: String(error),
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("git_worktree_discard", {
+          projectId,
+          worktreePath: pendingWorktree.path,
+          branchName: pendingWorktree.branch,
         });
-      }
-      const projectStore = useProjectStore.getState();
-      if (projectStore.activeWorktreePath === conv.pendingWorktree.path) {
-        useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
-      }
 
-      set((state) => ({
-        conversations: state.conversations.map((c) => (c.id === convId ? { ...c, pendingWorktree: undefined } : c)),
-      }));
-      get().persistConversations();
-      uiToast("Changes discarded successfully.", "info");
-    } catch (err) {
-      logError("chat", "Failed to discard worktree changes", { error: err });
-      uiToast("Failed to discard changes: " + parseApiError(err).message, "error");
-    } finally {
-      uiLoading("toolExecution", false);
-    }
+        const projectStore = useProjectStore.getState();
+        if (projectStore.activeWorktreePath === pendingWorktree.path) {
+          useProjectStore.setState({ activeWorktreePath: null, activeWorktreeBranch: null });
+        }
+
+        set((state) => ({
+          conversations: state.conversations.map((candidate) =>
+            candidate.pendingWorktree?.path === pendingWorktree.path &&
+            candidate.pendingWorktree.branch === pendingWorktree.branch
+              ? { ...candidate, pendingWorktree: undefined, workspaceChanges: undefined }
+              : candidate,
+          ),
+        }));
+        get().persistConversations();
+        uiToast("Changes discarded successfully.", "info");
+      } catch (err) {
+        logError("chat", "Failed to discard worktree changes", { error: err });
+        uiToast("Failed to discard changes: " + parseApiError(err).message, "error");
+      } finally {
+        uiLoading("toolExecution", false);
+      }
+    });
   },
 
   exportChat: async (id) => {
@@ -1541,17 +1735,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  resumeConversation: async (convId) => {
+  resumeConversation: async (convId, options = {}) => {
     const { conversations } = get();
     const conv = conversations.find((c) => c.id === convId);
     if (!conv) return;
 
+    // Automatic continuations keep the exact capabilities accepted with the
+    // originating prompt, including MCP references and the installed skill snapshot.
+    if (options.runContext) {
+      const context = continueConversationRunContext(options.runContext, convId);
+      if (context.shouldUseTools) {
+        await sendWithToolLoop(
+          context,
+          (fn) => set(fn as (state: ChatState) => Partial<ChatState>),
+          get,
+          searchPerformSearch,
+          searchFetchUrlContent,
+        );
+      } else {
+        await sendNormal(convId, context.modelConfig, context.temperature, set, get);
+      }
+      return;
+    }
+
     const { selectedModel, models, temperature } = useModelStore.getState();
     const { isProjectsEnabled, projects } = useProjectStore.getState();
-    const lastUserMessage = [...conv.messages].reverse().find((message) => message.role === "user");
+    const lastUserMessage = [...conv.messages]
+      .reverse()
+      .find((message) => message.role === "user" && !message.isSystem);
     await useSkillStore.getState().loadSkills(true);
-    const toolLoop = getEnabledToolLoopConfig(lastUserMessage?.mcpServerIds);
-    const runContext = buildConversationRunContext({
+    const toolLoop = await prepareReferencedToolLoop(
+      [...new Set(lastUserMessage?.mcpServerIds ?? [])],
+      getMessageSearchConfigId(lastUserMessage),
+      "The continuation was not started.",
+    );
+    if (!toolLoop) return;
+    let runContext = buildConversationRunContext({
       conversation: conv,
       models,
       selectedModel,
@@ -1566,6 +1785,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       uiToast("No enabled model configured — enable one in settings/model-providers", "error");
       return;
+    }
+    // Notification-driven resumes inherit the originating message's step
+    // budget; only fresh user sends start a new one.
+    if (options.stepBudget) {
+      runContext = withToolStepBudget(runContext, options.stepBudget);
     }
 
     if (runContext.shouldUseTools) {
@@ -1608,6 +1832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   cleanup: () => {
     modelStopHealthCheck();
+    searchStopConnectionChecks();
     void get().stopStreaming();
     modelReleaseListeners();
   },
@@ -1867,7 +2092,7 @@ async function runNormal(
     modelStore.setActiveStreamId(streamId, convId);
 
     const conv = get().conversations.find((c) => c.id === convId);
-    const apiMessages = buildConversationContextMessages(conv?.messages ?? []);
+    const apiMessages = buildConversationContextMessages(conv?.messages ?? [], modelConfig);
 
     const systemPrompt =
       modelConfig.systemPromptOverride && modelConfig.systemPromptOverride.trim()
@@ -1879,7 +2104,7 @@ async function runNormal(
 
     const requestTemp = modelConfig.temperature !== undefined ? modelConfig.temperature : temperature;
     const assembledContext = assembleContext({ messages: apiMessages, model: modelConfig });
-    const maxTokens = assembledContext.budget.reservedOutputTokens;
+    const maxTokens = assembledContext.requestMaxOutputTokens;
     if (assembledContext.disclosure) {
       const disclosure = assembledContext.disclosure;
       const disclosureMessage: Message = {
@@ -1900,14 +2125,31 @@ async function runNormal(
       }));
     }
 
-    await invoke("chat_stream", {
+    const useResponses = isResponsesEndpoint(modelConfig.apiBase);
+    const rawResponse = await invoke<string>(useResponses ? "chat_stream_tools" : "chat_stream", {
+      ...(useResponses ? { tools: "[]" } : {}),
       configId: modelConfig.id,
+      expectedModel: { apiBase: modelConfig.apiBase, modelId: modelConfig.modelId, provider: modelConfig.provider },
       messages: assembledContext.messages,
       temperature: requestTemp,
       maxTokens,
       thinkingLevel: modelConfig.thinkingLevel ?? "auto",
       streamId,
     });
+
+    if (useResponses) {
+      const response = JSON.parse(rawResponse);
+      const output = response.choices?.[0]?.message?.responses_output as Message["responsesOutput"];
+      if (output) {
+        set((state) => ({
+          conversations: updateConversationMessages(state.conversations, convId, (messages) =>
+            messages.map((message) =>
+              message.id === assistantMsg.id ? { ...message, responsesOutput: output } : message,
+            ),
+          ),
+        }));
+      }
+    }
 
     useModelStore.getState().removeActiveStreamId(streamId);
 
