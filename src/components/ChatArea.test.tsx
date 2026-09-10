@@ -300,6 +300,34 @@ describe("ChatArea", () => {
     expect(screen.getByRole("button", { name: "Expand reasoning" })).toHaveTextContent("Thought for 2m 3s");
   });
 
+  it("shows sub-second precision in completed thinking and working tags", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({ id: "fast-user", role: "user", content: "Check this quickly" }),
+      makeMessage({
+        id: "fast-tool",
+        role: "tool",
+        content: "Checked",
+        toolCall: { id: "fast-call", name: "project_read", arguments: { file_path: "src/App.tsx" } },
+        toolResult: { id: "fast-call", name: "project_read", content: "Done" },
+      }),
+      makeMessage({
+        id: "fast-final",
+        role: "assistant",
+        content: "Done.",
+        reasoningContent: "Quick check complete.",
+        thinkingDuration: 0.347,
+        workingDuration: 0.654,
+      }),
+    ];
+
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    const workingDisclosure = screen.getByRole("button", { name: "Worked for 654ms" });
+    await user.click(workingDisclosure);
+    expect(screen.getByText("Thought for 347ms")).toBeInTheDocument();
+  });
+
   it("shows one cancellation message without a duplicate status label", () => {
     const messages = [makeMessage({ role: "assistant", content: "Cancelled agent execution." })];
     const conversation: Conversation = {
@@ -657,7 +685,7 @@ describe("ChatArea", () => {
     expect(screen.getByText("I’ll inspect the relevant files.")).toBeInTheDocument();
     const reasoningDisclosure = screen.getByRole("button", { name: "Expand reasoning" });
     expect(activeDisclosure.closest("section")).toContainElement(reasoningDisclosure);
-    expect(reasoningDisclosure).toHaveTextContent(/Thinking for \d+s/);
+    expect(reasoningDisclosure).toHaveTextContent(/Thinking for \d+(?:ms|s)/);
 
     await userEvent.click(activeDisclosure);
     expect(activeDisclosure).toHaveAttribute("aria-expanded", "false");
@@ -884,7 +912,7 @@ describe("ChatArea", () => {
     render(<ChatArea messages={messages} {...defaultProps} conversationId={conversation.id} />);
 
     expect(screen.getByRole("button", { name: "Worked for 2s" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Working for \d+s/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Working for \d+(?:ms|s)/i })).toBeInTheDocument();
     expect(screen.getByText("The app uses React.")).toBeInTheDocument();
     expect(screen.getByText("useChatStore.ts")).toBeInTheDocument();
   });

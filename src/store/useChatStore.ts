@@ -65,6 +65,7 @@ import {
   TITLE_MAX_LENGTH,
 } from "../config/constants";
 import { parseApiError } from "../utils/parseApiError";
+import { elapsedSeconds } from "../utils/duration";
 import {
   cancelConversationGenerationQueue,
   buildConversationContextMessages,
@@ -1280,7 +1281,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const start = state.activeStreamThinkingStart?.[c.id];
             if (start) {
               const end = state.activeStreamThinkingEnd?.[c.id] || Date.now();
-              thinkingDuration = Math.floor((end - start) / 1000);
+              thinkingDuration = elapsedSeconds(start, end);
             }
             const content = m.content + (state.activeStreamContent[c.id] || "");
             return {
@@ -2037,7 +2038,7 @@ async function runNormal(
           const start = state.activeStreamThinkingStart?.[convId];
           if (start) {
             const end = state.activeStreamThinkingEnd?.[convId] || Date.now();
-            thinkingDuration = Math.floor((end - start) / 1000);
+            thinkingDuration = elapsedSeconds(start, end);
           }
 
           const conversations = state.conversations.map((c) => {
@@ -2157,7 +2158,7 @@ async function runNormal(
     let thinkingDuration: number | undefined = undefined;
     if (start) {
       const end = get().activeStreamThinkingEnd?.[convId] || Date.now();
-      thinkingDuration = Math.floor((end - start) / 1000);
+      thinkingDuration = elapsedSeconds(start, end);
     }
 
     set((state) => {

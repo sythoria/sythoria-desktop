@@ -62,6 +62,7 @@ import { parseReasoning } from "../utils/messageParser";
 import { ImagePreviewModal } from "./ui/ImagePreviewModal";
 import { FileEditDiffCard } from "./FileEditDiffCard";
 import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
+import { elapsedSeconds, formatElapsedDuration } from "../utils/duration";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },
@@ -1357,7 +1358,7 @@ function ReasoningBubble({
   const thinkingActive = isStreaming && !isReasoningComplete;
   const completedElapsed =
     startTimestamp !== undefined && endTimestamp !== undefined
-      ? Math.max(0, Math.floor((endTimestamp - startTimestamp) / 1000))
+      ? elapsedSeconds(startTimestamp, endTimestamp)
       : undefined;
   const displayedDuration = thinkingDuration ?? completedElapsed;
 
@@ -1368,13 +1369,12 @@ function ReasoningBubble({
 
     const updateElapsed = () => {
       const start = startTimestamp || Date.now();
-      const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
-      setElapsed(diff);
+      setElapsed(elapsedSeconds(start));
     };
 
     updateElapsed();
 
-    const interval = setInterval(updateElapsed, 1000);
+    const interval = setInterval(updateElapsed, 100);
     return () => clearInterval(interval);
   }, [thinkingActive, startTimestamp]);
 
@@ -1397,10 +1397,10 @@ function ReasoningBubble({
         <span>
           {thinkingActive
             ? elapsed !== null
-              ? `Thinking for ${formatWorkingDuration(elapsed)}`
+              ? `Thinking for ${formatElapsedDuration(elapsed)}`
               : "Thinking"
             : displayedDuration !== undefined
-              ? `Thought for ${formatWorkingDuration(displayedDuration)}`
+              ? `Thought for ${formatElapsedDuration(displayedDuration)}`
               : "Thought"}
         </span>
         <ChevronRight size={13} className={`-ml-0.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
@@ -1569,13 +1569,6 @@ function buildChatRenderItems(messages: Message[], isConversationWorking: boolea
   }
 
   return items;
-}
-
-function formatWorkingDuration(totalSeconds: number): string {
-  const seconds = Math.max(0, Math.round(totalSeconds));
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
 }
 
 function parseQuestionBlock(content: string): ParsedQuestion | null {
@@ -2111,15 +2104,15 @@ function ToolActivityDisclosure({
     const endedAt = isActive
       ? Date.now()
       : (activity.finalMessage?.timestamp ?? activity.messages[activity.messages.length - 1].timestamp);
-    return Math.max(0, Math.round((new Date(endedAt).getTime() - elapsedStartedAt) / 1000));
+    return elapsedSeconds(elapsedStartedAt, new Date(endedAt).getTime());
   });
 
   useEffect(() => {
     if (!isActive) return;
 
-    const updateElapsed = () => setElapsed(Math.max(0, Math.round((Date.now() - elapsedStartedAt) / 1000)));
+    const updateElapsed = () => setElapsed(elapsedSeconds(elapsedStartedAt));
     updateElapsed();
-    const timer = window.setInterval(updateElapsed, 1000);
+    const timer = window.setInterval(updateElapsed, 100);
     return () => window.clearInterval(timer);
   }, [elapsedStartedAt, isActive]);
 
@@ -2143,8 +2136,8 @@ function ToolActivityDisclosure({
     : undefined;
 
   const statusLabel = isActive
-    ? `Working for ${formatWorkingDuration(displayedElapsed)}`
-    : `Worked for ${formatWorkingDuration(displayedElapsed)}`;
+    ? `Working for ${formatElapsedDuration(displayedElapsed)}`
+    : `Worked for ${formatElapsedDuration(displayedElapsed)}`;
   const latestActivityMessage =
     isActive && !activity.finalMessage
       ? [...activity.messages]

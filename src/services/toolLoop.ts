@@ -17,6 +17,7 @@ import { isGenerationActive } from "../types";
 import { generateId } from "../utils/generateId";
 import { logError, logInfo, logWarn } from "../utils/logger";
 import { parseApiError } from "../utils/parseApiError";
+import { elapsedSeconds } from "../utils/duration";
 import { useUIStore } from "../store/useUIStore";
 import { useModelStore } from "../store/useModelStore";
 import { buildUserApiContent } from "../utils/attachments";
@@ -1449,8 +1450,7 @@ async function runWithToolLoop(
         const streamReasoning = state.activeStreamReasoning?.[convId] || "";
         const thinkingStart = state.activeStreamThinkingStart?.[convId];
         const thinkingEnd = state.activeStreamThinkingEnd?.[convId] ?? Date.now();
-        const thinkingDuration =
-          thinkingStart !== undefined ? Math.max(0, Math.floor((thinkingEnd - thinkingStart) / 1000)) : undefined;
+        const thinkingDuration = thinkingStart !== undefined ? elapsedSeconds(thinkingStart, thinkingEnd) : undefined;
         const conversations = state.conversations.map((c) => {
           if (c.id !== convId) return c;
           const updated = [...c.messages];
@@ -1614,11 +1614,7 @@ async function runWithToolLoop(
       }
       if (!isConvStreaming(get, convId)) {
         logInfo("chat", "Tool loop aborted: stream was stopped by user before step start");
-        setCancelledStatus(
-          set,
-          convId,
-          hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
-        );
+        setCancelledStatus(set, convId, hasUsedTools ? elapsedSeconds(workingStartedAt) : undefined);
         await get().persistConversations?.();
         wasAborted = true;
         return;
@@ -1726,18 +1722,14 @@ async function runWithToolLoop(
           // Stream cancellation commonly rejects the pending Tauri invocation.
         });
         logInfo("chat", "Tool loop aborted: stream was stopped by user during streaming");
-        setCancelledStatus(
-          set,
-          convId,
-          hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
-        );
+        setCancelledStatus(set, convId, hasUsedTools ? elapsedSeconds(workingStartedAt) : undefined);
         await get().persistConversations?.();
         wasAborted = true;
         return;
       }
 
       const raw = await rawPromise;
-      const stepDuration = Math.round((Date.now() - stepStartTime) / 1000);
+      const stepDuration = elapsedSeconds(stepStartTime);
 
       const response: ToolCallResponse = JSON.parse(raw);
 
@@ -2650,11 +2642,7 @@ async function runWithToolLoop(
 
         if (!isConvStreaming(get, convId)) {
           logInfo("chat", "Tool loop aborted: stream was stopped by user during tool executions");
-          setCancelledStatus(
-            set,
-            convId,
-            hasUsedTools ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)) : undefined,
-          );
+          setCancelledStatus(set, convId, hasUsedTools ? elapsedSeconds(workingStartedAt) : undefined);
           await get().persistConversations?.();
           wasAborted = true;
           return;
@@ -2690,9 +2678,7 @@ async function runWithToolLoop(
                 isStreaming: false,
                 sources: collectedSources.length > 0 ? collectedSources : last.sources,
                 thinkingDuration: last.thinkingDuration ?? stepDuration,
-                workingDuration: hasUsedTools
-                  ? Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000))
-                  : last.workingDuration,
+                workingDuration: hasUsedTools ? elapsedSeconds(workingStartedAt) : last.workingDuration,
               };
             }
             return updated;
@@ -2746,7 +2732,7 @@ async function runWithToolLoop(
             timestamp: new Date(),
             isStreaming: false,
             sources: collectedSources.length > 0 ? collectedSources : undefined,
-            workingDuration: Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000)),
+            workingDuration: elapsedSeconds(workingStartedAt),
           };
           if (lastAssistantIndex < 0) return [...updated, fallbackMessage];
           const index = updated.length - 1 - lastAssistantIndex;
@@ -2802,7 +2788,7 @@ async function runWithToolLoop(
       const generationLabel = `Generation failed: ${parsed.message}`;
       let conversations = setAssistantError(state.conversations, convId, err);
       if (hasUsedTools) {
-        const workingDuration = Math.max(0, Math.round((Date.now() - workingStartedAt) / 1000));
+        const workingDuration = elapsedSeconds(workingStartedAt);
         conversations = updateConversationMessages(conversations, convId, (messages) => {
           const updated = [...messages];
           const reversedAssistantIndex = [...updated].reverse().findIndex((message) => message.role === "assistant");
