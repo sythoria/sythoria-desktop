@@ -388,7 +388,7 @@ export const PromptEditor = memo(function PromptEditor({
     mention.dataset.webSearchMention = "true";
     mention.contentEditable = "false";
     mention.className =
-      "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
+      "inline-reference inline-text-reference max-w-[14rem] select-none";
     mention.setAttribute("role", "img");
     mention.setAttribute("aria-label", `${webSearchLabel} tool`);
     mention.setAttribute("title", webSearchLabel);
@@ -441,7 +441,7 @@ export const PromptEditor = memo(function PromptEditor({
       mention.dataset.mcpMentionId = crypto.randomUUID();
       mention.contentEditable = "false";
       mention.className =
-        "mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent select-none";
+        "inline-reference inline-text-reference max-w-[14rem] select-none";
       mention.setAttribute("role", "img");
       mention.setAttribute("aria-label", `MCP tool: ${server.name}`);
 

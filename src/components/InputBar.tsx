@@ -1093,12 +1093,12 @@ export default memo(function InputBar({
                               animate={{ opacity: 1, scale: 1 }}
                               exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
                               transition={motionTransitions.content}
-                              className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
+                              className="inline-reference relative group pr-7 py-1 text-xs select-none"
                             >
                               {a.kind === "image" ? (
-                                <ImageIcon size={13} className="text-text-muted shrink-0" />
+                                <ImageIcon size={13} className="shrink-0" aria-hidden="true" />
                               ) : (
-                                <FileTextIcon size={13} className="text-text-muted shrink-0" />
+                                <FileTextIcon size={13} className="shrink-0" aria-hidden="true" />
                               )}
                               <span className="max-w-[120px] truncate font-medium" title={a.name}>
                                 {a.name}

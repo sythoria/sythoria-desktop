@@ -975,3 +975,40 @@ pre,
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+
+/* Shared inline references in composers, messages, and tool disclosures. */
+.inline-reference {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  vertical-align: baseline;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.inline-reference > svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+/* Text mentions participate in the surrounding line instead of establishing
+   an inline-flex baseline from their leading icon. */
+.inline-text-reference {
+  display: inline;
+  line-height: inherit;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.inline-text-reference > svg {
+  display: inline-block;
+  margin-right: 0.3em;
+  vertical-align: -0.125em;
+}
+
+.inline-text-reference > span {
+  display: inline;
+}

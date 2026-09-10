@@ -356,7 +356,7 @@ function UserMessageContent({ message }: { message: Message }) {
         key={`${matchIndex}-${label}`}
         role="img"
         aria-label={isWebSearch ? `${label} tool` : `MCP tool: ${label}`}
-        className="mx-0.5 inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-accent/25 bg-accent-soft/40 px-1.5 align-[-0.08em] text-[0.9em] font-medium leading-none text-accent"
+        className="inline-reference inline-text-reference max-w-[14rem]"
       >
         {isWebSearch ? (
           <Search size={13} className="shrink-0" aria-hidden="true" />
@@ -480,12 +480,12 @@ function SourcesList({ sources }: { sources: { title: string; url: string }[] })
               event.preventDefault();
               void openExternalUrl(s.url, { confirmInsecure: true });
             }}
-            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-text-secondary hover:text-text-primary hover:bg-hover border border-border max-w-[200px] truncate transition-colors"
+            className="inline-reference py-1 text-[11px] max-w-[200px] hover:underline focus-visible:ring-2 focus-visible:ring-accent/50"
             title={s.title || s.url}
             whileHover={{ scale: motionTokens.scale.pop }}
             transition={springs.snappy}
           >
-            <ExternalLink size={10} className="shrink-0 text-text-muted" />
+            <ExternalLink size={10} className="shrink-0" aria-hidden="true" />
             <span className="truncate">{s.title || s.url}</span>
           </motion.a>
         ))}
@@ -1078,7 +1078,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
               ) : nativeInfo.type === "skill" ? (
                 <>
                   <span>{nativeInfo.label}</span>
-                  <span className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 text-[0.9em] font-medium leading-none text-red-600 dark:text-red-400">
+                  <span className="inline-reference inline-text-reference max-w-[14rem]">
                     <nativeInfo.IconComponent size={13} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{nativeInfo.skillId}</span>
                   </span>
@@ -1458,10 +1458,10 @@ function AttachmentList({
           return (
             <div
               key={a.id}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-surface text-text-secondary text-xs shrink-0 max-w-[200px]"
+              className="inline-reference py-1.5 text-xs shrink-0 max-w-[200px]"
               title={`${a.name} (${formatFileSize(a.size)})`}
             >
-              <FileTextIcon size={14} className="text-text-muted shrink-0" />
+              <FileTextIcon size={14} className="shrink-0" aria-hidden="true" />
               <span className="truncate select-none font-medium">{a.name}</span>
             </div>
           );
