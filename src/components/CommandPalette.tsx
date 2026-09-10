@@ -4,6 +4,7 @@ import { useUIStore } from "../store/useUIStore";
 import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { executeCommand } from "../services/commandDispatcher";
+import { formatShortcut } from "../utils/shortcutDisplay";
 import { useShallow } from "zustand/react/shallow";
 
 interface CommandItem {
@@ -144,7 +145,7 @@ export function CommandPalette() {
                 <span>{cmd.label}</span>
                 {cmd.shortcut && (
                   <span className="text-xs text-text-muted bg-surface-raised px-1.5 py-0.5 rounded border border-border/30">
-                    {cmd.shortcut}
+                    {formatShortcut(cmd.shortcut)}
                   </span>
                 )}
               </button>

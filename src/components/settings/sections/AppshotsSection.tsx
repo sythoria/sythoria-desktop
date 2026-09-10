@@ -16,6 +16,7 @@ import { useAppshotStore } from "../../../store/useAppshotStore";
 import { useKeybindStore } from "../../../store/useKeybindStore";
 import { useUIStore } from "../../../store/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
+import { getShortcutDisplayParts } from "../../../utils/shortcutDisplay";
 import { useShallow } from "zustand/react/shallow";
 
 export function AppshotsSection() {
@@ -219,7 +220,7 @@ export function AppshotsSection() {
                   aria-label={t("settings.appshots.shortcutDesc")}
                   className="flex w-fit items-center gap-1 rounded-lg border border-border bg-input/40 py-1 pl-1 pr-2 text-text-secondary transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
                 >
-                  {captureShortcut.split("+").map((key) => (
+                  {getShortcutDisplayParts(captureShortcut).map((key) => (
                     <kbd
                       key={key}
                       className="rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px] font-semibold shadow-sm"

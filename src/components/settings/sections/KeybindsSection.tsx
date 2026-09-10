@@ -4,6 +4,7 @@ import { RotateCcw, Keyboard, Edit3, X } from "lucide-react";
 import { motion } from "motion/react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
+import { getShortcutDisplayParts } from "../../../utils/shortcutDisplay";
 
 export const KeybindsSection = () => {
   const { t } = useTranslation();
@@ -75,7 +76,7 @@ export const KeybindsSection = () => {
   const renderCombo = (combo: string) => {
     return (
       <div className="flex items-center gap-1">
-        {combo.split("+").map((part, idx) => (
+        {getShortcutDisplayParts(combo).map((part, idx) => (
           <span key={idx} className="inline-flex items-center">
             {idx > 0 && <span className="text-text-muted mx-0.5 text-[10px]">+</span>}
             <kbd className="px-2 py-1 text-[10px] font-mono font-bold bg-hover border border-border/70 text-text-primary rounded-md shadow-sm">

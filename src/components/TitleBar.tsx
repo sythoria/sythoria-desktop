@@ -5,6 +5,7 @@ import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useK
 import { useUIStore } from "../store/useUIStore";
 import { useAppVersion } from "../hooks/useAppVersion";
 import { executeCommand } from "../services/commandDispatcher";
+import { formatShortcut } from "../utils/shortcutDisplay";
 
 type MenuId = "sythoria" | "file" | "view" | "window";
 type MenuType = MenuId | null;
@@ -57,7 +58,9 @@ const DropdownItem = ({
     className="w-full text-left px-3 py-1.5 text-sm hover:bg-hover text-text-secondary hover:text-text-primary transition-colors flex justify-between items-center gap-4"
   >
     <span className="whitespace-nowrap">{label}</span>
-    {shortcut && <span className="shrink-0 whitespace-nowrap text-text-muted text-xs">{shortcut}</span>}
+    {shortcut && (
+      <span className="shrink-0 whitespace-nowrap text-text-muted text-xs">{formatShortcut(shortcut)}</span>
+    )}
   </button>
 );
 

@@ -49,6 +49,7 @@ import { AuxiliaryTab, useUIStore } from "../store/useUIStore";
 import { isGenerationActive, type UrlContent } from "../types";
 import { useShallow } from "zustand/react/shallow";
 import { openExternalUrl } from "../utils/externalUrl";
+import { formatShortcut } from "../utils/shortcutDisplay";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
 import { ReviewDiffView } from "./ReviewDiffView";
@@ -1433,7 +1434,7 @@ export function AuxiliaryPanel() {
                         aria-hidden="true"
                         className="rounded-full bg-chat/60 px-1.5 py-0.5 font-sans text-[10px] text-text-muted"
                       >
-                        {shortcut}
+                        {formatShortcut(shortcut)}
                       </kbd>
                     )}
                   </button>
