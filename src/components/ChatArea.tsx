@@ -36,6 +36,7 @@ import {
   RotateCw,
   Terminal,
   FileText as FileTextIcon,
+  Image as ImageIcon,
   File,
   FileCode,
   FileJson,
@@ -621,6 +622,19 @@ function getNativeToolDisplayInfo(
   }
 
   // 2. Read / Explore (grep, glob, read, list_dir)
+  if (lowerName === "read_image") {
+    const target = args.file_path || "image";
+    const filename = target.split(/[/\\\\]/).pop() || target;
+    return {
+      type: "image",
+      filename,
+      fullPath: target,
+      IconComponent: ImageIcon,
+      colorClass: "text-text-muted",
+      label: isCompleted ? t("chat.tools.viewedImage") : t("chat.tools.viewingImage"),
+    };
+  }
+
   const isRead = lowerName === "read";
   const isGrep = lowerName === "grep";
   const isGlob = lowerName === "glob";
@@ -1038,12 +1052,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
       }
     }
 
-    const mcpImages = message.toolResult?.images || [];
-    const previewImages = mcpImages.map((img, idx) => {
+    const toolImages = message.toolResult?.images || [];
+    const imageFilename = nativeInfo?.type === "image" ? nativeInfo.filename : undefined;
+    const previewImages = toolImages.map((img, idx) => {
       const ext = img.mimeType.split("/")[1] || "png";
       return {
         url: `data:${img.mimeType};base64,${img.data}`,
-        name: `mcp_image_${idx + 1}.${ext}`,
+        name: imageFilename || `tool_image_${idx + 1}.${ext}`,
       };
     });
 
@@ -1067,6 +1082,16 @@ function ToolCallDisplay({ message }: { message: Message }) {
             <span className="text-sm flex items-center gap-1.5">
               {nativeInfo.type === "todo" ? (
                 <span>{isCompleted ? t("chat.tools.updatedTodo") : t("chat.tools.updatingTodo")}</span>
+              ) : nativeInfo.type === "image" ? (
+                <>
+                  <nativeInfo.IconComponent
+                    size={14}
+                    className={`${nativeInfo.colorClass} shrink-0`}
+                    aria-hidden="true"
+                  />
+                  <span>{nativeInfo.label}</span>
+                  <span className="max-w-[18rem] truncate font-medium text-text-primary">{nativeInfo.filename}</span>
+                </>
               ) : nativeInfo.type === "bash" ? (
                 <>
                   <nativeInfo.IconComponent
@@ -1185,6 +1210,42 @@ function ToolCallDisplay({ message }: { message: Message }) {
                     </div>
                   )}
                 </div>
+              ) : nativeInfo?.type === "image" ? (
+                <section
+                  className="min-w-0 overflow-hidden rounded-xl border border-border/50 bg-input/20"
+                  aria-label={t("chat.tools.imagePreview")}
+                >
+                  <div className="flex min-w-0 items-center gap-2 border-b border-border/40 px-3 py-2">
+                    <ImageIcon size={13} className="shrink-0 text-text-muted" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary">
+                      {nativeInfo.fullPath}
+                    </span>
+                    {toolImages[0]?.mimeType && (
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-muted">
+                        {toolImages[0].mimeType.replace("image/", "")}
+                      </span>
+                    )}
+                  </div>
+                  {isCompleted && toolImages[0] ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewImageIndex(0)}
+                      className="group flex max-h-80 w-full cursor-zoom-in items-center justify-center overflow-hidden bg-surface/60 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-active focus-visible:ring-inset"
+                      aria-label={t("chat.tools.openImagePreview", { name: nativeInfo.filename || "image" })}
+                    >
+                      <img
+                        src={`data:${toolImages[0].mimeType};base64,${toolImages[0].data}`}
+                        alt={t("chat.tools.imagePreviewAlt", { name: nativeInfo.filename || "image" })}
+                        className="max-h-72 max-w-full rounded-md object-contain shadow-sm transition-transform group-hover:scale-[1.01] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
+                      />
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-text-muted" role="status">
+                      <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden="true" />
+                      <span>{t("chat.tools.viewingImage")}</span>
+                    </div>
+                  )}
+                </section>
               ) : (
                 <div className="bg-input/20 border border-border/40 rounded-xl p-3 flex flex-col gap-3">
                   {/* Arguments */}
@@ -1232,13 +1293,13 @@ function ToolCallDisplay({ message }: { message: Message }) {
                   )}
 
                   {/* Images */}
-                  {isCompleted && mcpImages.length > 0 && (
+                  {isCompleted && toolImages.length > 0 && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[10px] font-medium text-text-muted font-mono">
                         {t("chat.tools.images")}
                       </span>
                       <div className="flex flex-wrap gap-2">
-                        {mcpImages.map((img, idx) => {
+                        {toolImages.map((img, idx) => {
                           const dataUrl = `data:${img.mimeType};base64,${img.data}`;
                           return (
                             <button

@@ -130,6 +130,79 @@ pub async fn project_read(
     .map_err(|e| AppError::AppPath(format!("Failed to join thread: {}", e)))?
 }
 
+// 5 MiB stays below the tool loop's 7,000,000-character base64 limit.
+const MAX_PROJECT_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectImage {
+    mime_type: String,
+    data: String,
+}
+
+fn read_project_image(path: &Path) -> Result<ProjectImage, AppError> {
+    use base64::Engine;
+    use std::io::Read;
+
+    let file = fs::File::open(path)
+        .map_err(|e| AppError::AppPath(format!("Failed to open image: {e}")))?;
+    let metadata = file
+        .metadata()
+        .map_err(|e| AppError::AppPath(format!("Failed to read image metadata: {e}")))?;
+    if !metadata.is_file() {
+        return Err(AppError::AppPath(
+            "Image path must be a regular file".into(),
+        ));
+    }
+    if metadata.len() > MAX_PROJECT_IMAGE_BYTES {
+        return Err(AppError::AppPath("Image exceeds the 5 MiB limit".into()));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_PROJECT_IMAGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| AppError::AppPath(format!("Failed to read image: {e}")))?;
+    if bytes.len() as u64 > MAX_PROJECT_IMAGE_BYTES {
+        return Err(AppError::AppPath("Image exceeds the 5 MiB limit".into()));
+    }
+    let mime_type = match image::guess_format(&bytes) {
+        Ok(image::ImageFormat::Png) => "image/png",
+        Ok(image::ImageFormat::Jpeg) => "image/jpeg",
+        Ok(image::ImageFormat::Gif) => "image/gif",
+        Ok(image::ImageFormat::WebP) => "image/webp",
+        _ => {
+            return Err(AppError::AppPath(
+                "Unsupported image format. Use PNG, JPEG, GIF, or WebP.".into(),
+            ))
+        }
+    };
+    Ok(ProjectImage {
+        mime_type: mime_type.into(),
+        data: base64::prelude::BASE64_STANDARD.encode(bytes),
+    })
+}
+
+#[tauri::command]
+pub async fn project_read_image(
+    state: tauri::State<'_, ProjectRegistry>,
+    project_id: String,
+    run_token: String,
+    path: String,
+    worktree_path: Option<String>,
+) -> Result<ProjectImage, AppError> {
+    let validated_path = get_and_validate_project(
+        &state,
+        &project_id,
+        &run_token,
+        &path,
+        "read",
+        worktree_path.as_deref(),
+    )?
+    .path;
+    tokio::task::spawn_blocking(move || read_project_image(&validated_path))
+        .await
+        .map_err(|e| AppError::AppPath(format!("Failed to join thread: {e}")))?
+}
+
 #[tauri::command]
 pub async fn project_write(
     state: tauri::State<'_, ProjectRegistry>,

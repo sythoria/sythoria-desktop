@@ -560,133 +560,142 @@ describe("buildProjectToolDefinitions", () => {
 });
 
 describe("sendWithToolLoop", () => {
-  it("runs tools with the captured read-only project when global navigation points elsewhere", async () => {
-    mockMaxToolSteps = 2;
-    mockStreamContent = "";
-    const project = {
-      id: "project-1",
-      name: "Default project",
-      path: "/workspace/project",
-      permissions: "read" as const,
-    };
-    useProjectStore.setState({
-      projects: [
-        project,
-        {
-          id: "project-2",
-          name: "Current navigation project",
-          path: "/workspace/other",
-          permissions: "full",
-        },
-      ],
-      activeProjectId: "project-2",
-      isProjectsEnabled: true,
-    });
+  it.each(["project_read", "project_read_image"])(
+    "runs %s with the captured read-only project when global navigation points elsewhere",
+    async (toolName) => {
+      mockMaxToolSteps = 2;
+      mockStreamContent = "";
+      const project = {
+        id: "project-1",
+        name: "Default project",
+        path: "/workspace/project",
+        permissions: "read" as const,
+      };
+      useProjectStore.setState({
+        projects: [
+          project,
+          {
+            id: "project-2",
+            name: "Current navigation project",
+            path: "/workspace/other",
+            permissions: "full",
+          },
+        ],
+        activeProjectId: "project-2",
+        isProjectsEnabled: true,
+      });
 
-    const responsesOutput = [
-      { type: "reasoning", id: "rs_read", summary: [], encrypted_content: "opaque-reasoning" },
-      {
-        type: "function_call",
-        id: "fc_read",
-        call_id: "read-call",
-        name: "project_read",
-        arguments: JSON.stringify({ file_path: "README.md" }),
-      },
-    ];
-    let modelCall = 0;
-    invokeMock.mockImplementation(async (command, args) => {
-      const invokeArgs = args as Record<string, unknown> | undefined;
-      if (command === "project_run_begin") return undefined;
-      if (command === "project_read") {
-        return invokeArgs?.path === "AGENTS.md" ? "" : "read-only content";
-      }
-      if (command === "chat_stream_tools") {
-        modelCall += 1;
-        if (modelCall === 1) {
-          return JSON.stringify({
-            choices: [
-              {
-                finish_reason: "tool_calls",
-                message: {
-                  content: "I’ll inspect the project.",
-                  responses_output: responsesOutput,
-                  tool_calls: [
-                    {
-                      id: "read-call",
-                      function: {
-                        name: "project_read",
-                        arguments: JSON.stringify({ file_path: "README.md" }),
+      const responsesOutput = [
+        { type: "reasoning", id: "rs_read", summary: [], encrypted_content: "opaque-reasoning" },
+        {
+          type: "function_call",
+          id: "fc_read",
+          call_id: "read-call",
+          name: toolName,
+          arguments: JSON.stringify({ file_path: "README.md" }),
+        },
+      ];
+      let modelCall = 0;
+      invokeMock.mockImplementation(async (command, args) => {
+        const invokeArgs = args as Record<string, unknown> | undefined;
+        if (command === "project_run_begin") return undefined;
+        if (command === "project_read_image") return { mimeType: "image/png", data: "aW1hZ2U=" };
+        if (command === "project_read") {
+          return invokeArgs?.path === "AGENTS.md" ? "" : "read-only content";
+        }
+        if (command === "chat_stream_tools") {
+          modelCall += 1;
+          if (modelCall === 1) {
+            return JSON.stringify({
+              choices: [
+                {
+                  finish_reason: "tool_calls",
+                  message: {
+                    content: "I’ll inspect the project.",
+                    responses_output: responsesOutput,
+                    tool_calls: [
+                      {
+                        id: "read-call",
+                        function: {
+                          name: toolName,
+                          arguments: JSON.stringify({ file_path: "README.md" }),
+                        },
                       },
-                    },
-                  ],
+                    ],
+                  },
                 },
-              },
-            ],
+              ],
+            });
+          }
+          setTimeout(() => mockStreamDone?.(), 0);
+          return JSON.stringify({
+            choices: [{ finish_reason: "stop", message: { content: "Read complete." } }],
           });
         }
-        setTimeout(() => mockStreamDone?.(), 0);
-        return JSON.stringify({
-          choices: [{ finish_reason: "stop", message: { content: "Read complete." } }],
-        });
+        throw new Error(`Unexpected command: ${command}`);
+      });
+
+      mockConversations.push({
+        id: "conv-read",
+        title: "Read project",
+        timestamp: new Date(),
+        model: "model-1",
+        projectId: project.id,
+        messages: [{ id: "msg-read", role: "user", content: "Read the README", timestamp: new Date() }],
+      });
+      let state: ToolLoopSlice = {
+        conversations: mockConversations,
+        isStreaming: true,
+        generationState: "loading",
+        generationLabel: "",
+        generationByConversation: { "conv-read": { state: "loading", label: "Loading" } },
+      };
+      const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
+        const next = fn(state);
+        state = { ...state, ...next };
+        if (next.conversations) {
+          const conversations = [...next.conversations];
+          mockConversations.length = 0;
+          mockConversations.push(...conversations);
+          state.conversations = mockConversations;
+        }
+      };
+
+      await sendWithToolLoop(makeRunContext("conv-read", { project }), set, () => state, vi.fn(), vi.fn());
+
+      const modelRequests = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
+      const secondMessages = (modelRequests[1][1] as { messages: { responses_output?: unknown[] }[] }).messages;
+      expect(
+        secondMessages.some((message) => JSON.stringify(message.responses_output) === JSON.stringify(responsesOutput)),
+      ).toBe(true);
+      expect(
+        state.conversations[0].messages.some(
+          (message) => JSON.stringify(message.responsesOutput) === JSON.stringify(responsesOutput),
+        ),
+      ).toBe(true);
+
+      expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
+        projectId: project.id,
+        conversationId: "conv-read",
+        worktreePath: null,
+        branch: null,
+      });
+      expect(invokeMock).not.toHaveBeenCalledWith("git_worktree_create", expect.anything());
+      expect(invokeMock).toHaveBeenCalledWith(toolName, {
+        projectId: project.id,
+        runToken: undefined,
+        path: "README.md",
+        ...(toolName === "project_read" ? { offset: null, limit: null } : {}),
+        worktreePath: null,
+      });
+      if (toolName === "project_read_image") {
+        expect(JSON.stringify(secondMessages)).toContain("data:image/png;base64,aW1hZ2U=");
+        expect(
+          state.conversations[0].messages.some((message) => message.toolResult?.images?.[0]?.data === "aW1hZ2U="),
+        ).toBe(true);
       }
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    mockConversations.push({
-      id: "conv-read",
-      title: "Read project",
-      timestamp: new Date(),
-      model: "model-1",
-      projectId: project.id,
-      messages: [{ id: "msg-read", role: "user", content: "Read the README", timestamp: new Date() }],
-    });
-    let state: ToolLoopSlice = {
-      conversations: mockConversations,
-      isStreaming: true,
-      generationState: "loading",
-      generationLabel: "",
-      generationByConversation: { "conv-read": { state: "loading", label: "Loading" } },
-    };
-    const set = (fn: (state: ToolLoopSlice) => Partial<ToolLoopSlice>) => {
-      const next = fn(state);
-      state = { ...state, ...next };
-      if (next.conversations) {
-        const conversations = [...next.conversations];
-        mockConversations.length = 0;
-        mockConversations.push(...conversations);
-        state.conversations = mockConversations;
-      }
-    };
-
-    await sendWithToolLoop(makeRunContext("conv-read", { project }), set, () => state, vi.fn(), vi.fn());
-
-    const modelRequests = invokeMock.mock.calls.filter(([command]) => command === "chat_stream_tools");
-    const secondMessages = (modelRequests[1][1] as { messages: { responses_output?: unknown[] }[] }).messages;
-    expect(
-      secondMessages.some((message) => JSON.stringify(message.responses_output) === JSON.stringify(responsesOutput)),
-    ).toBe(true);
-    expect(
-      state.conversations[0].messages.some(
-        (message) => JSON.stringify(message.responsesOutput) === JSON.stringify(responsesOutput),
-      ),
-    ).toBe(true);
-
-    expect(invokeMock).toHaveBeenCalledWith("project_run_begin", {
-      projectId: project.id,
-      conversationId: "conv-read",
-      worktreePath: null,
-      branch: null,
-    });
-    expect(invokeMock).not.toHaveBeenCalledWith("git_worktree_create", expect.anything());
-    expect(invokeMock).toHaveBeenCalledWith("project_read", {
-      projectId: project.id,
-      runToken: undefined,
-      path: "README.md",
-      offset: null,
-      limit: null,
-      worktreePath: null,
-    });
-  });
+    },
+  );
 
   it("runs write-capable tools in the real project folder and captures the resulting changes", async () => {
     mockStreamContent = "";

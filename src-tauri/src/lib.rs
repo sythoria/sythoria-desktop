@@ -2792,6 +2792,7 @@ pub fn run() {
             git::git_worktree_cleanup_if_empty,
             git::git_worktree_discard,
             project_tools::project_read,
+            project_tools::project_read_image,
             project_tools::project_write,
             project_tools::project_edit,
             project_tools::project_multi_replace_file_content,

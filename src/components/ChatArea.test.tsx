@@ -621,6 +621,69 @@ describe("ChatArea", () => {
     expect(transcript).not.toHaveTextContent("Result");
   });
 
+  it("renders project image reads as a native image disclosure and preview", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Read image",
+        toolCall: {
+          id: "image-call",
+          name: "project_read_image",
+          arguments: { file_path: "assets/screens/home.png" },
+        },
+        toolResult: {
+          id: "image-call",
+          name: "project_read_image",
+          content: "Read image: assets/screens/home.png (image/png)",
+          images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+        },
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    const disclosure = screen.getByRole("button", { name: "Expand details" });
+    expect(disclosure).toHaveTextContent("Viewed imagehome.png");
+    expect(disclosure.querySelector(".lucide-image")).toBeInTheDocument();
+    expect(disclosure.firstElementChild?.firstElementChild).toHaveClass("lucide-image");
+
+    await user.click(disclosure);
+
+    const preview = screen.getByRole("region", { name: "Image preview" });
+    expect(preview).toHaveTextContent("assets/screens/home.png");
+    expect(preview).toHaveTextContent("png");
+    expect(screen.getByRole("img", { name: "Preview of home.png" })).toHaveAttribute(
+      "src",
+      "data:image/png;base64,aW1hZ2U=",
+    );
+    expect(screen.getByRole("button", { name: "Open image preview: home.png" })).toBeEnabled();
+    expect(screen.queryByText("Arguments")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
+  it("labels an active project image read as viewing", async () => {
+    const user = userEvent.setup();
+    const messages = [
+      makeMessage({
+        role: "tool",
+        content: "Reading image",
+        toolCall: {
+          id: "active-image-call",
+          name: "project_read_image",
+          arguments: { file_path: "assets/loading.webp" },
+        },
+      }),
+    ];
+    render(<ChatArea messages={messages} {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: /Worked for/i }));
+    const disclosure = screen.getByRole("button", { name: "Expand details" });
+    expect(disclosure).toHaveTextContent("Viewing imageloading.webp...");
+    expect(disclosure.querySelector(".lucide-image")).toBeInTheDocument();
+    expect(disclosure.firstElementChild?.firstElementChild).toHaveClass("lucide-image");
+  });
+
   it("keeps active assistant output inside working and promotes only the completed final response", async () => {
     const startedAt = Date.now() - 5_000;
     const userMessage = makeMessage({

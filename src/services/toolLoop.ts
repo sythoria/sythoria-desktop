@@ -228,7 +228,7 @@ export function buildConversationContextMessages(
       contextMessages.push({
         role: "user",
         content: [
-          { type: "text", text: `[Images from MCP tool "${toolCall.name}" — analyze these images:]` },
+          { type: "text", text: `[Images from tool "${toolCall.name}" — analyze these images:]` },
           ...toolResult.images.map((image) => ({
             type: "image_url",
             image_url: { url: `data:${image.mimeType};base64,${image.data}` },
@@ -260,7 +260,7 @@ export function buildToolResultContextMessages(
     .map((result) => ({
       role: "user",
       content: [
-        { type: "text", text: `[Images from MCP tool "${result.rawName}" — analyze these images:]` },
+        { type: "text", text: `[Images from tool "${result.rawName}" — analyze these images:]` },
         ...result.images!.map((image) => ({
           type: "image_url",
           image_url: { url: `data:${image.mimeType};base64,${image.data}` },
@@ -638,6 +638,25 @@ export function buildProjectToolDefinitions(project: Project | null) {
     type: "function",
     effect: { mode: "read", resource: "project" },
     function: {
+      name: "project_read_image",
+      description:
+        "Read an image file in the project and return its visual contents for inspection. Supports PNG, JPEG, GIF, and WebP up to 5 MiB. Use this instead of project_read for images.",
+      parameters: {
+        type: "object",
+        properties: {
+          file_path: {
+            type: "string",
+            description: "The path to the image relative to the project folder.",
+          },
+        },
+        required: ["file_path"],
+      },
+    },
+  });
+  tools.push({
+    type: "function",
+    effect: { mode: "read", resource: "project" },
+    function: {
       name: "project_read",
       description:
         "Retrieves the raw textual contents of a targeted file within the project. Handles data formatting and clear text extraction automatically.",
@@ -978,6 +997,7 @@ type KnownToolName =
   | "project_glob"
   | "project_grep"
   | "project_list_dir"
+  | "project_read_image"
   | "project_read"
   | "project_write"
   | "project_edit"
@@ -1000,6 +1020,7 @@ const KNOWN_TOOLS: Set<string> = new Set([
   "project_glob",
   "project_grep",
   "project_list_dir",
+  "project_read_image",
   "project_read",
   "project_write",
   "project_edit",
@@ -2243,6 +2264,18 @@ async function runWithToolLoop(
                       worktreePath: null,
                     }),
                   );
+                  break;
+                }
+                case "project_read_image": {
+                  const relativeFile = getRelativePath(fnArgs.file_path || "");
+                  const image = await invoke<McpImageContent>("project_read_image", {
+                    projectId: project.id,
+                    runToken: projectRun!.capabilityToken,
+                    path: relativeFile,
+                    worktreePath: null,
+                  });
+                  images = [image];
+                  resultContent = `Read image: ${relativeFile} (${image.mimeType})`;
                   break;
                 }
                 case "project_read": {
