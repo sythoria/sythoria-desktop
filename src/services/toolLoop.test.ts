@@ -543,12 +543,15 @@ describe("requiresToolConfirmation", () => {
 
 describe("buildProjectToolDefinitions", () => {
   it("tells the model that file mutations require project-relative paths", () => {
-    const tools = buildProjectToolDefinitions({
-      id: "project-1",
-      name: "Project",
-      path: "/workspace/project",
-      permissions: "write",
-    });
+    const tools = buildProjectToolDefinitions(
+      {
+        id: "project-1",
+        name: "Project",
+        path: "/workspace/project",
+        permissions: "write",
+      },
+      true,
+    );
 
     for (const name of ["project_write", "project_edit"]) {
       const tool = tools.find((candidate) => candidate.function.name === name);
@@ -556,6 +559,22 @@ describe("buildProjectToolDefinitions", () => {
       expect(filePath?.description).toContain("Project-relative");
       expect(filePath?.description).toContain("Absolute paths");
     }
+  });
+
+  it("only exposes image reading to models that support image input", () => {
+    const project = {
+      id: "project-1",
+      name: "Project",
+      path: "/workspace/project",
+      permissions: "read" as const,
+    };
+
+    expect(buildProjectToolDefinitions(project, true).map((tool) => tool.function.name)).toContain(
+      "project_read_image",
+    );
+    expect(buildProjectToolDefinitions(project, false).map((tool) => tool.function.name)).not.toContain(
+      "project_read_image",
+    );
   });
 });
 

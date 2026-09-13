@@ -630,29 +630,31 @@ export function buildToolDefinitions(
   return tools;
 }
 
-export function buildProjectToolDefinitions(project: Project | null) {
+export function buildProjectToolDefinitions(project: Project | null, supportsImageInput: boolean) {
   if (!project) return [];
   const tools: ToolDefinition[] = [];
 
-  tools.push({
-    type: "function",
-    effect: { mode: "read", resource: "project" },
-    function: {
-      name: "project_read_image",
-      description:
-        "Read an image file in the project and return its visual contents for inspection. Supports PNG, JPEG, GIF, and WebP up to 5 MiB. Use this instead of project_read for images.",
-      parameters: {
-        type: "object",
-        properties: {
-          file_path: {
-            type: "string",
-            description: "The path to the image relative to the project folder.",
+  if (supportsImageInput) {
+    tools.push({
+      type: "function",
+      effect: { mode: "read", resource: "project" },
+      function: {
+        name: "project_read_image",
+        description:
+          "Read an image file in the project and return its visual contents for inspection. Supports PNG, JPEG, GIF, and WebP up to 5 MiB. Use this instead of project_read for images.",
+        parameters: {
+          type: "object",
+          properties: {
+            file_path: {
+              type: "string",
+              description: "The path to the image relative to the project folder.",
+            },
           },
+          required: ["file_path"],
         },
-        required: ["file_path"],
       },
-    },
-  });
+    });
+  }
   tools.push({
     type: "function",
     effect: { mode: "read", resource: "project" },
@@ -1567,7 +1569,7 @@ async function runWithToolLoop(
     const useMcp = mcpTools.length > 0 && !!mcpCallTool;
     const toolDefinitions = [
       ...buildToolDefinitions(useMcp ? mcpTools : [], useSearch, initialRunContext.skills),
-      ...buildProjectToolDefinitions(project),
+      ...buildProjectToolDefinitions(project, initialRunContext.attachmentCapabilities.images),
     ];
     const apiTools = toolDefinitions.map(({ effect: _effect, ...definition }) => definition);
 
