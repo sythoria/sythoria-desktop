@@ -7,9 +7,9 @@ pub mod storage;
 use crate::AppError;
 use embeddings::{generate_embeddings, EmbeddingProvider};
 use retrieval::SearchResultChunk;
-use storage::{KnowledgeCollection, KnowledgeDocument, RagStats, StoredChunk};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use storage::{KnowledgeCollection, KnowledgeDocument, RagStats, StoredChunk};
 use tauri::{AppHandle, Manager};
 
 pub struct RagManager {
@@ -106,10 +106,7 @@ pub async fn rag_get_collection(
 }
 
 #[tauri::command]
-pub async fn rag_delete_collection(
-    app: AppHandle,
-    collection_id: String,
-) -> Result<(), AppError> {
+pub async fn rag_delete_collection(app: AppHandle, collection_id: String) -> Result<(), AppError> {
     let app_dir = get_app_data_dir(&app)?;
     let manager = RagManager::new(&app_dir)?;
     let conn = manager.get_connection()?;
@@ -134,11 +131,8 @@ pub async fn rag_index_file(
     let path = PathBuf::from(&file_path);
     let parsed_doc = parser::extract_document(&path)?;
 
-    let raw_chunks = chunker::chunk_document(
-        &parsed_doc,
-        collection.chunk_size,
-        collection.chunk_overlap,
-    );
+    let raw_chunks =
+        chunker::chunk_document(&parsed_doc, collection.chunk_size, collection.chunk_overlap);
 
     let provider = provider_config.unwrap_or_else(|| EmbeddingProvider::Ollama {
         endpoint: "http://localhost:11434".to_string(),
@@ -199,11 +193,8 @@ pub async fn rag_index_text(
 
     let parsed_doc = parser::extract_from_raw_text(title, content.clone(), None);
 
-    let raw_chunks = chunker::chunk_document(
-        &parsed_doc,
-        collection.chunk_size,
-        collection.chunk_overlap,
-    );
+    let raw_chunks =
+        chunker::chunk_document(&parsed_doc, collection.chunk_size, collection.chunk_overlap);
 
     let provider = provider_config.unwrap_or_else(|| EmbeddingProvider::Ollama {
         endpoint: "http://localhost:11434".to_string(),
@@ -288,7 +279,8 @@ pub async fn rag_search(
         model: collection.embedding_model.clone(),
     });
 
-    let query_embeddings = generate_embeddings(&manager.client, &provider, &[query.clone()]).await?;
+    let query_embeddings =
+        generate_embeddings(&manager.client, &provider, &[query.clone()]).await?;
     let query_vector = query_embeddings.first().map(|v| v.as_slice());
 
     retrieval::hybrid_search(
@@ -455,4 +447,3 @@ mod tests {
         }
     }
 }
-
