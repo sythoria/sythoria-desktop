@@ -932,3 +932,11 @@ pre,
   animation: setting-highlight-pulse var(--motion-duration-highlight) var(--motion-ease-standard);
   border-radius: 8px;
 }
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
