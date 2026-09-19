@@ -61,4 +61,37 @@ describe("encrypted preferences", () => {
       clear: false,
     });
   });
+
+  it("migrates legacy Sythoria Light and Dark presets to default presets on load", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "load_encrypted_preferences") {
+        return {
+          "sythoria-theme": {
+            mode: "system",
+            lightTheme: {
+              preset: "Sythoria Light",
+              background: "#ffffff",
+              foreground: "#09090b",
+              accent: "#3b82f6",
+            },
+            darkTheme: {
+              preset: "Sythoria Dark",
+              background: "#09090b",
+              foreground: "#fafafa",
+              accent: "#3b82f6",
+            },
+            translucentSidebar: true,
+          },
+        };
+      }
+      if (command === "mutate_encrypted_preferences") return {};
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const { loadTheme } = await import("./storage");
+    const theme = await loadTheme();
+
+    expect(theme.lightTheme.preset).toBe("Default Light");
+    expect(theme.darkTheme.preset).toBe("Default Dark");
+  });
 });
