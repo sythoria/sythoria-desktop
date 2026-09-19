@@ -32,6 +32,12 @@ import {
   DEFAULT_GOOGLE_CLIENT_ID,
   DEFAULT_GOOGLE_SCOPES,
 } from "../../../services/googleOAuth";
+import {
+  startSpotifyOAuthFlow,
+  saveSpotifyMcpTokens,
+  DEFAULT_SPOTIFY_CLIENT_ID,
+  DEFAULT_SPOTIFY_SCOPES,
+} from "../../../services/spotifyOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
 
 // Sythoria Desktop Official Brand Logo Mark
@@ -181,6 +187,18 @@ export function PluginsSection() {
   });
   const googleAbortRef = useRef<AbortController | null>(null);
 
+  // Spotify 1-Click PKCE OAuth State
+  const [spotifyOAuth, setSpotifyOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const spotifyAbortRef = useRef<AbortController | null>(null);
+
   const [showManualToken, setShowManualToken] = useState(false);
 
   // Clean up pending OAuth polling on unmount
@@ -197,6 +215,10 @@ export function PluginsSection() {
       if (googleAbortRef.current) {
         googleAbortRef.current.abort();
         googleAbortRef.current = null;
+      }
+      if (spotifyAbortRef.current) {
+        spotifyAbortRef.current.abort();
+        spotifyAbortRef.current = null;
       }
     };
   }, []);
@@ -219,6 +241,11 @@ export function PluginsSection() {
         error: null,
       });
       setGoogleOAuth({
+        isActive: false,
+        isConnecting: false,
+        error: null,
+      });
+      setSpotifyOAuth({
         isActive: false,
         isConnecting: false,
         error: null,
@@ -257,6 +284,10 @@ export function PluginsSection() {
       googleAbortRef.current.abort();
       googleAbortRef.current = null;
     }
+    if (spotifyAbortRef.current) {
+      spotifyAbortRef.current.abort();
+      spotifyAbortRef.current = null;
+    }
     setGithubOAuth({
       isActive: false,
       userCode: "",
@@ -270,6 +301,11 @@ export function PluginsSection() {
       error: null,
     });
     setGoogleOAuth({
+      isActive: false,
+      isConnecting: false,
+      error: null,
+    });
+    setSpotifyOAuth({
       isActive: false,
       isConnecting: false,
       error: null,
@@ -458,6 +494,61 @@ export function PluginsSection() {
     }
   };
 
+  // 1-Click Spotify PKCE OAuth
+  const handleStartSpotifyOAuth = async (plugin: PluginItem) => {
+    if (spotifyAbortRef.current) {
+      spotifyAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    spotifyAbortRef.current = abortController;
+
+    setSpotifyOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const customClientId = formValues["SPOTIFY_CLIENT_ID"]?.trim() || undefined;
+      const tokens = await startSpotifyOAuthFlow(
+        customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        DEFAULT_SPOTIFY_SCOPES,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      // Save tokens atomically to ~/.spotify-mcp/tokens.json for spotify-mcp server
+      await saveSpotifyMcpTokens(
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.expiresIn,
+      );
+
+      // Build secrets map
+      const secrets: Record<string, string> = {
+        SPOTIFY_CLIENT_ID: customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        SPOTIFY_ACCESS_TOKEN: tokens.accessToken,
+      };
+
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = err instanceof Error ? err.message : "Spotify OAuth failed";
+      setSpotifyOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
+      addToast(errorMsg, "error");
+    }
+  };
+
   // Connect or Update plugin
   const handleConnectPlugin = async () => {
     if (!activeModalPlugin) return;
@@ -615,17 +706,17 @@ export function PluginsSection() {
         </div>
 
         {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setSelectedCategory("all")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+            title={`All (${PLUGINS_CATALOG.length})`}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               selectedCategory === "all"
                 ? "bg-accent text-accent-foreground shadow-sm"
                 : "bg-surface border border-border text-text-muted hover:text-text-primary hover:bg-hover"
             }`}
           >
-            {t("settings.plugins.categoryAll", { count: String(PLUGINS_CATALOG.length) }) ||
-              `All (${PLUGINS_CATALOG.length})`}
+            {t("settings.plugins.categoryAll") || "All"}
           </button>
           {PLUGIN_CATEGORIES.map((cat) => {
             const count = PLUGINS_CATALOG.filter((p) => p.category === cat.id).length;
@@ -634,13 +725,14 @@ export function PluginsSection() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                title={`${t(cat.labelKey) || cat.id} (${count})`}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   isSelected
                     ? "bg-accent text-accent-foreground shadow-sm"
                     : "bg-surface border border-border text-text-muted hover:text-text-primary hover:bg-hover"
                 }`}
               >
-                {t(cat.labelKey) || cat.id} ({count})
+                {t(cat.labelKey) || cat.id}
               </button>
             );
           })}
@@ -682,18 +774,18 @@ export function PluginsSection() {
                           handleOpenModal(plugin);
                         }
                       }}
-                      className="px-3 py-2.5 rounded-xl transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 group hover:bg-white/[0.05] active:bg-white/[0.08]"
+                      className="px-3 py-2.5 rounded-xl transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 group hover:bg-hover active:bg-active"
                     >
                       {/* Left: Brand Icon + Title & Subtitle */}
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                        <div className="w-11 h-11 rounded-2xl bg-[#141415] border border-white/5 flex items-center justify-center shrink-0 shadow-sm relative p-2">
+                        <div className="w-11 h-11 rounded-2xl bg-[#141415] border border-black/5 dark:border-white/5 flex items-center justify-center shrink-0 shadow-sm relative p-2">
                           <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={24} showSparkle={isGoogleApp} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold text-white truncate">{plugin.name}</span>
+                            <span className="text-sm font-semibold text-text-primary truncate">{plugin.name}</span>
                           </div>
-                          <p className="text-xs text-neutral-400 truncate mt-0.5">{plugin.description}</p>
+                          <p className="text-xs text-text-muted truncate mt-0.5">{plugin.description}</p>
                         </div>
                       </div>
 
@@ -703,7 +795,9 @@ export function PluginsSection() {
                           <div className="flex items-center gap-1.5">
                             <span
                               className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-medium ${
-                                isConnected ? "text-emerald-400" : "text-amber-400"
+                                isConnected
+                                  ? "text-emerald-500 dark:text-emerald-400"
+                                  : "text-amber-500 dark:text-amber-400"
                               }`}
                               title={isConnected ? "Active & Connected" : "Paused"}
                             >
@@ -713,7 +807,7 @@ export function PluginsSection() {
                         ) : (
                           <button
                             onClick={(e) => void handleQuickConnect(plugin, e)}
-                            className="w-7 h-7 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                            className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-hover rounded-lg transition-colors"
                             title={`Connect ${plugin.name}`}
                           >
                             <Plus size={20} strokeWidth={2} />
@@ -761,19 +855,19 @@ export function PluginsSection() {
                       {/* Connection Visual Header */}
                       <div className="text-center space-y-3">
                         <div className="flex items-center justify-center gap-3 mb-3">
-                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-1.5">
                             <SythoriaMark size={36} />
                           </div>
 
-                          <div className="flex items-center gap-1.5 text-emerald-400">
+                          <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
                             <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
-                            <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm shadow-emerald-500/20">
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/20">
                               <Check size={14} strokeWidth={3} />
                             </div>
                             <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
                           </div>
 
-                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-2 relative">
                             <BrandIcon
                               name={activeModalPlugin.id}
                               iconUrl={activeModalPlugin.icon}
@@ -784,15 +878,15 @@ export function PluginsSection() {
                                 activeModalPlugin.id === "google-calendar"
                               }
                             />
-                            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#141415] rounded-full shadow-xs" />
+                            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-surface dark:border-[#141415] rounded-full shadow-xs" />
                           </div>
                         </div>
 
                         <div>
                           <div className="flex items-center justify-center gap-2">
                             <h3 className="text-lg font-semibold text-text-primary">{activeModalPlugin.name}</h3>
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
                               Connected
                             </span>
                           </div>
@@ -807,7 +901,7 @@ export function PluginsSection() {
                       <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-text-muted font-medium">Integration Status</span>
-                          <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-emerald-500" />
                             {info.isConnected ? "Active & Ready" : "Standby (Ready)"}
                           </span>
@@ -816,7 +910,7 @@ export function PluginsSection() {
                         <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
                           <span className="text-text-muted font-medium">Data Privacy & Security</span>
                           <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
-                            <Lock size={12} className="text-emerald-400" />
+                            <Lock size={12} className="text-emerald-600 dark:text-emerald-400" />
                             AES-256 Keychain (Local)
                           </span>
                         </div>
@@ -832,9 +926,9 @@ export function PluginsSection() {
                         <button
                           type="button"
                           onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
-                          className="w-full py-3.5 rounded-xl border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer group"
+                          className="w-full py-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:text-rose-700 dark:hover:text-rose-200 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer group"
                         >
-                          <Trash2 size={16} className="text-rose-400 group-hover:scale-110 transition-transform" />
+                          <Trash2 size={16} className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform" />
                           <span>Revoke Access & Disconnect</span>
                         </button>
 
@@ -867,7 +961,7 @@ export function PluginsSection() {
                   {/* OAuth App Connection Visual (Sythoria <---> App) */}
                   <div className="px-6 pb-4 text-center">
                     <div className="flex items-center justify-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-1.5">
                         <SythoriaMark size={36} />
                       </div>
 
@@ -881,7 +975,7 @@ export function PluginsSection() {
                         <span className="w-2 h-0.5 bg-border rounded" />
                       </div>
 
-                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-2 relative">
                         <BrandIcon
                           name={activeModalPlugin.id}
                           iconUrl={activeModalPlugin.icon}
@@ -910,15 +1004,15 @@ export function PluginsSection() {
 
                       <div className="space-y-2.5 text-xs text-text-secondary">
                         <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                           <span>Verify your {activeModalPlugin.name} identity</span>
                         </div>
                         <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                           <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
                         </div>
                         <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                           <span>Act on your behalf via local Model Context Protocol tools</span>
                         </div>
                       </div>
@@ -939,7 +1033,7 @@ export function PluginsSection() {
 
                       {/* Security & Privacy Guarantee */}
                       <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
-                        <Lock size={13} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <Lock size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                         <span>
                           <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256
                           keychain. Data never touches third-party cloud servers.
@@ -976,13 +1070,13 @@ export function PluginsSection() {
                               <strong>Authorize Sythoria</strong>.
                             </p>
                             {githubOAuth.isPolling ? (
-                              <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-medium pt-1">
+                              <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-1">
                                 <RefreshCw size={13} className="animate-spin" />
                                 <span>Waiting for approval in browser...</span>
                               </div>
                             ) : githubOAuth.error ? (
                               <div className="space-y-2 pt-1">
-                                <div className="text-xs text-rose-400 font-medium">{githubOAuth.error}</div>
+                                <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{githubOAuth.error}</div>
                                 <button
                                   type="button"
                                   onClick={() => void handleStartGitHubOAuth()}
@@ -1050,7 +1144,7 @@ export function PluginsSection() {
                           </div>
                         ) : linearOAuth.error ? (
                           <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-400 font-medium">{linearOAuth.error}</div>
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{linearOAuth.error}</div>
                             <div className="flex items-center justify-center gap-2 pt-1">
                               <button
                                 type="button"
@@ -1102,8 +1196,8 @@ export function PluginsSection() {
                       activeModalPlugin.id === "gmail") && (
                       <div className="space-y-3 pt-1">
                         {googleOAuth.isConnecting ? (
-                          <div className="p-4 rounded-xl border border-blue-500/40 bg-blue-500/10 space-y-3 text-center">
-                            <div className="flex items-center justify-center gap-2 text-xs text-blue-400 font-semibold pt-1">
+                          <div className="p-4 rounded-xl border border-blue-500/30 dark:border-blue-500/40 bg-blue-500/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-semibold pt-1">
                               <RefreshCw size={15} className="animate-spin" />
                               <span>Waiting for Google Authorization in browser...</span>
                             </div>
@@ -1126,7 +1220,7 @@ export function PluginsSection() {
                           </div>
                         ) : googleOAuth.error ? (
                           <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-400 font-medium">{googleOAuth.error}</div>
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{googleOAuth.error}</div>
                             <div className="flex items-center justify-center gap-2 pt-1">
                               <button
                                 type="button"
@@ -1181,17 +1275,93 @@ export function PluginsSection() {
                       </div>
                     )}
 
+                    {/* Spotify 1-Click PKCE OAuth Integration */}
+                    {activeModalPlugin.id === "spotify" && (
+                      <div className="space-y-3 pt-1">
+                        {spotifyOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-[#1DB954]/30 dark:border-[#1DB954]/40 bg-[#1DB954]/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#1DB954] font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for Spotify Authorization in browser...</span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Spotify sign-in. Grant access to connect your account.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (spotifyAbortRef.current) {
+                                  spotifyAbortRef.current.abort();
+                                  spotifyAbortRef.current = null;
+                                }
+                                setSpotifyOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : spotifyOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{spotifyOAuth.error}</div>
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartSpotifyOAuth(activeModalPlugin)}
+                                className="px-3 py-1 text-xs rounded-lg bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold transition-colors cursor-pointer"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Enter Client ID manually
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartSpotifyOAuth(activeModalPlugin)}
+                              className="w-full py-3 rounded-xl bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                            >
+                              <BrandIcon name="spotify" size={18} />
+                              <span>1-Click Connect with Spotify</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or specify a custom Spotify Client ID"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Input Fields (if service requires API token / OAuth Token and not in 1-Click mode) */}
                     {activeModalPlugin.authFields.length > 0 &&
                       ((activeModalPlugin.id !== "github" &&
                         activeModalPlugin.id !== "linear" &&
                         activeModalPlugin.id !== "google-drive" &&
                         activeModalPlugin.id !== "google-calendar" &&
-                        activeModalPlugin.id !== "gmail") ||
+                        activeModalPlugin.id !== "gmail" &&
+                        activeModalPlugin.id !== "spotify") ||
                         (showManualToken &&
                           !githubOAuth.isActive &&
                           !linearOAuth.isConnecting &&
-                          !googleOAuth.isConnecting)) && (
+                          !googleOAuth.isConnecting &&
+                          !spotifyOAuth.isConnecting)) && (
                         <div className="space-y-3 pt-1">
                           {activeModalPlugin.authFields.map((field) => {
                             const isPassword = field.type === "password";
@@ -1257,11 +1427,13 @@ export function PluginsSection() {
                     {!githubOAuth.isActive &&
                       !linearOAuth.isConnecting &&
                       !googleOAuth.isConnecting &&
+                      !spotifyOAuth.isConnecting &&
                       ((activeModalPlugin.id !== "github" &&
                         activeModalPlugin.id !== "linear" &&
                         activeModalPlugin.id !== "google-drive" &&
                         activeModalPlugin.id !== "google-calendar" &&
-                        activeModalPlugin.id !== "gmail") ||
+                        activeModalPlugin.id !== "gmail" &&
+                        activeModalPlugin.id !== "spotify") ||
                         showManualToken) && (
                         <button
                           onClick={() => void handleConnectPlugin()}
