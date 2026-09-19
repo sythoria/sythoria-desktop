@@ -52,12 +52,37 @@ export interface GoogleOAuthResult {
   scope?: string;
 }
 
+export interface ParsedGoogleClientSecret {
+  clientId?: string;
+  clientSecret?: string;
+  projectId?: string;
+}
+
+/**
+ * Parses Google Cloud Console downloaded client credentials JSON (client_secret_xxx.json).
+ * Handles both "installed" (Desktop app) and "web" (Web application) client formats.
+ */
+export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleClientSecret {
+  try {
+    const parsed = JSON.parse(jsonString);
+    const data = parsed.installed || parsed.web || parsed;
+    return {
+      clientId: typeof data.client_id === "string" ? data.client_id.trim() : undefined,
+      clientSecret: typeof data.client_secret === "string" ? data.client_secret.trim() : undefined,
+      projectId: typeof data.project_id === "string" ? data.project_id.trim() : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export async function startGoogleOAuthFlow(
   clientId: string = DEFAULT_GOOGLE_CLIENT_ID,
   scope: string = DEFAULT_GOOGLE_SCOPES,
   redirectUri: string = DEFAULT_GOOGLE_REDIRECT_URI,
   port: number = DEFAULT_GOOGLE_PORT,
   signal?: AbortSignal,
+  clientSecret?: string,
 ): Promise<GoogleOAuthResult> {
   const codeVerifier = generateRandomString(64);
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -96,9 +121,10 @@ export async function startGoogleOAuthFlow(
     throw new Error("No authorization code received from Google callback.");
   }
 
-  // Exchange code + codeVerifier for access_token
+  // Exchange code + codeVerifier for access_token (and pass clientSecret if configured)
   const tokenResult = await invoke<GoogleTokenResult>("google_exchange_token", {
     clientId,
+    clientSecret: clientSecret?.trim() || undefined,
     code: callbackResult.code,
     codeVerifier,
     redirectUri,
@@ -132,9 +158,11 @@ export async function saveGoogleMcpTokens(
   refreshToken?: string,
   expiresIn?: number,
   scope?: string,
+  clientSecret?: string,
 ): Promise<GoogleMcpTokenPaths> {
   return invoke<GoogleMcpTokenPaths>("save_google_mcp_tokens", {
     clientId,
+    clientSecret: clientSecret?.trim() || undefined,
     accessToken,
     refreshToken,
     expiresIn,
