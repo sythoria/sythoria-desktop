@@ -383,7 +383,7 @@ export function parseApiErrorMessage(err: unknown): string {
 
 /** Pulls the first quoted token out of an MCP spawn error like `Could not start "npx": ...`. */
 function extractProgramName(msg: string): string | null {
-  const match = msg.match(/"([^"]+)"/);
+  const match = msg.match(/["']([^"']+)["']/);
   if (match) {
     // Only keep the program name (first token), in case a full command leaked in.
     return match[1].split(/\s+/)[0];
