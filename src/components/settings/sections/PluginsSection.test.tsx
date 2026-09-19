@@ -103,6 +103,23 @@ describe("PluginsSection", () => {
     expect(screen.getByRole("button", { name: /Authorize Google Drive/i })).toBeInTheDocument();
   });
 
+  it("opens modal for Spotify and displays 1-Click OAuth with manual fallback", () => {
+    render(<PluginsSection />);
+
+    const spotifyCard = screen.getByTestId("plugin-card-spotify");
+    fireEvent.click(spotifyCard);
+
+    expect(screen.getByText(/1-Click Connect with Spotify/i)).toBeInTheDocument();
+    expect(screen.getByText(/Or specify a custom Spotify Client ID/i)).toBeInTheDocument();
+
+    // Click manual token toggle
+    fireEvent.click(screen.getByText(/Or specify a custom Spotify Client ID/i));
+
+    expect(screen.getByText(/Spotify Client ID/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Leave blank to use Sythoria Default/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Authorize Spotify/i })).toBeInTheDocument();
+  });
+
   it("renders installed plugins ribbon and revokes access when cross button is clicked", async () => {
     useMcpStore.setState({
       mcpConfigs: [
