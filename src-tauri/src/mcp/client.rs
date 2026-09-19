@@ -150,51 +150,104 @@ async fn find_executable(name: &str) -> String {
         return name.to_string();
     }
 
-    let common_paths = [
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ];
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![name.to_string()];
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".cmd") && !lower.ends_with(".exe") && !lower.ends_with(".bat") {
+            candidates.push(format!("{}.cmd", name));
+            candidates.push(format!("{}.exe", name));
+            candidates.push(format!("{}.bat", name));
+        }
 
-    for dir in &common_paths {
-        let path = std::path::Path::new(dir).join(name);
-        if path.exists() {
-            return path.to_string_lossy().to_string();
+        let mut win_dirs = vec![
+            std::path::PathBuf::from("C:\\Program Files\\nodejs"),
+            std::path::PathBuf::from("C:\\Program Files (x86)\\nodejs"),
+            std::path::PathBuf::from("C:\\Windows\\System32"),
+            std::path::PathBuf::from("C:\\Windows"),
+        ];
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            win_dirs.push(std::path::PathBuf::from(appdata).join("npm"));
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let py_dir = std::path::PathBuf::from(&local_appdata).join("Programs").join("Python");
+            if let Ok(entries) = std::fs::read_dir(&py_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        win_dirs.push(p.join("Scripts"));
+                        win_dirs.push(p);
+                    }
+                }
+            }
+            win_dirs.push(std::path::PathBuf::from(&local_appdata).join("Python").join("bin"));
+            win_dirs.push(std::path::PathBuf::from(&local_appdata).join("Programs").join("uv"));
+        }
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let up = std::path::PathBuf::from(&userprofile);
+            win_dirs.push(up.join(".cargo").join("bin"));
+            win_dirs.push(up.join(".local").join("bin"));
+            win_dirs.push(up.join(".bun").join("bin"));
+        }
+
+        for dir in &win_dirs {
+            for cand in &candidates {
+                let path = dir.join(cand);
+                if path.exists() {
+                    return path.to_string_lossy().to_string();
+                }
+            }
         }
     }
 
-    if let Ok(home) = std::env::var("HOME") {
-        let npm_paths = [
-            format!("{}/.npm-global/bin", home),
-            format!("{}/.local/bin", home),
-            format!("{}/n/bin", home),
+    #[cfg(not(windows))]
+    {
+        let common_paths = [
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
         ];
-        for dir in &npm_paths {
+
+        for dir in &common_paths {
             let path = std::path::Path::new(dir).join(name);
             if path.exists() {
                 return path.to_string_lossy().to_string();
             }
         }
 
-        if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
-            let nvm_bin = std::path::Path::new(&nvm_dir).join("versions").join("node");
-            if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
-                let mut versions: Vec<_> = entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().is_dir())
-                    .collect();
-                versions.sort_by(|a, b| {
-                    let a_name = a.file_name().to_string_lossy().to_string();
-                    let b_name = b.file_name().to_string_lossy().to_string();
-                    b_name.cmp(&a_name)
-                });
-                for version_dir in versions {
-                    let bin_path = version_dir.path().join("bin").join(name);
-                    if bin_path.exists() {
-                        return bin_path.to_string_lossy().to_string();
+        if let Ok(home) = std::env::var("HOME") {
+            let npm_paths = [
+                format!("{}/.npm-global/bin", home),
+                format!("{}/.local/bin", home),
+                format!("{}/n/bin", home),
+            ];
+            for dir in &npm_paths {
+                let path = std::path::Path::new(dir).join(name);
+                if path.exists() {
+                    return path.to_string_lossy().to_string();
+                }
+            }
+
+            if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
+                let nvm_bin = std::path::Path::new(&nvm_dir).join("versions").join("node");
+                if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
+                    let mut versions: Vec<_> = entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().is_dir())
+                        .collect();
+                    versions.sort_by(|a, b| {
+                        let a_name = a.file_name().to_string_lossy().to_string();
+                        let b_name = b.file_name().to_string_lossy().to_string();
+                        b_name.cmp(&a_name)
+                    });
+                    for version_dir in versions {
+                        let bin_path = version_dir.path().join("bin").join(name);
+                        if bin_path.exists() {
+                            return bin_path.to_string_lossy().to_string();
+                        }
                     }
                 }
             }
@@ -329,13 +382,39 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
         })
         .unwrap_or_default();
     let paths = std::env::split_paths(&current_path);
-    let mut new_paths: Vec<std::path::PathBuf> = paths.collect();
+    let mut new_paths: Vec<std::path::PathBuf> = Vec::new();
+    for p in paths {
+        let s = p.to_string_lossy();
+        if s.contains("\\target\\") || s.contains("/target/") {
+            continue;
+        }
+        if !p.exists() || !p.is_dir() {
+            continue;
+        }
+        let already_present = new_paths.iter().any(|existing| {
+            if cfg!(windows) {
+                existing.to_string_lossy().eq_ignore_ascii_case(&s)
+            } else {
+                existing == &p
+            }
+        });
+        if !already_present {
+            new_paths.push(p);
+        }
+    }
 
     let program_path = std::path::Path::new(program);
     if program_path.is_absolute() {
         if let Some(parent) = program_path.parent() {
             let parent_buf = parent.to_path_buf();
-            if !new_paths.contains(&parent_buf) {
+            let already_present = new_paths.iter().any(|existing| {
+                if cfg!(windows) {
+                    existing.to_string_lossy().eq_ignore_ascii_case(&parent_buf.to_string_lossy())
+                } else {
+                    existing == &parent_buf
+                }
+            });
+            if !already_present {
                 new_paths.insert(0, parent_buf);
             }
         }
@@ -457,8 +536,25 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
     {
         cmd.env_remove("Path");
         cmd.env_remove("path");
+
+        // Windows cmd.exe has an 8191 character limit for the environment block / variable.
+        // Keep PATH safely under 4096 chars so child launchers (like npx) have plenty of room.
+        let mut total_len = 0;
+        let mut bounded_paths = Vec::new();
+        for p in new_paths {
+            let p_len = p.as_os_str().len() + 1;
+            if total_len + p_len > 4096 {
+                break;
+            }
+            total_len += p_len;
+            bounded_paths.push(p);
+        }
+        if let Ok(joined) = std::env::join_paths(bounded_paths) {
+            cmd.env("PATH", joined);
+        }
     }
 
+    #[cfg(not(windows))]
     if let Ok(joined) = std::env::join_paths(new_paths) {
         cmd.env("PATH", joined);
     }
@@ -470,9 +566,14 @@ async fn resolve_executable_via_shell(program: &str) -> Option<String> {
     if std::path::Path::new(program).is_absolute() && std::path::Path::new(program).exists() {
         return Some(program.to_string());
     }
-    which::which(program)
-        .ok()
-        .map(|path| path.to_string_lossy().into_owned())
+    if let Ok(path) = which::which(program) {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    let fb = find_executable(program).await;
+    if fb != program && std::path::Path::new(&fb).exists() {
+        return Some(fb);
+    }
+    None
 }
 
 /// Probes whether the given program is resolvable to an executable.
@@ -1357,5 +1458,40 @@ process.exit(1);
             "Error should contain captured stderr, got: {}",
             err
         );
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_with_npx() {
+        let server_id = format!("test-srv-npx-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "GitHub Plugin Test".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args: Some(vec!["-y".to_string(), "@modelcontextprotocol/server-github".to_string()]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let mut env_secrets = HashMap::new();
+        env_secrets.insert("GITHUB_PERSONAL_ACCESS_TOKEN".to_string(), "dummy_token".to_string());
+        let result = connect_server(&config, env_secrets).await;
+        if let Err(err) = &result {
+            assert!(
+                !err.contains("is not recognized as an internal or external command"),
+                "MCP launcher failed to find command shim: {}",
+                err
+            );
+        } else {
+            let tools = result.unwrap();
+            assert!(!tools.is_empty(), "Expected GitHub server to return tools");
+        }
     }
 }
