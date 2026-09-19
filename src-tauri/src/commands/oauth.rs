@@ -12,6 +12,9 @@ pub const DEFAULT_LINEAR_SCOPE: &str = "read,write,issues:create";
 pub const DEFAULT_GOOGLE_CLIENT_ID: &str = "566025429774-vh5b4ie4edatstbismtj0d5ku233ndlk.apps.googleusercontent.com";
 pub const DEFAULT_GOOGLE_SCOPE: &str = "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
 
+pub const DEFAULT_SPOTIFY_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
+pub const DEFAULT_SPOTIFY_SCOPE: &str = "user-read-private user-read-email user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-read-playback-position user-top-read user-library-read user-library-modify user-follow-read user-follow-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GitHubDeviceCodeResponse {
     pub device_code: String,
@@ -514,3 +517,148 @@ pub async fn save_google_mcp_tokens(
         credentials_path: credentials_path.to_string_lossy().to_string(),
     })
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SpotifyTokenResponse {
+    pub access_token: String,
+    pub token_type: Option<String>,
+    pub expires_in: Option<u64>,
+    pub refresh_token: Option<String>,
+    pub scope: Option<String>,
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotifyMcpTokenPaths {
+    pub token_path: String,
+}
+
+/// Exchanges authorization code + PKCE code_verifier for a Spotify access & refresh token.
+#[tauri::command]
+pub async fn spotify_exchange_token(
+    client_id: Option<String>,
+    code: String,
+    code_verifier: String,
+    redirect_uri: String,
+) -> Result<SpotifyTokenResponse, AppError> {
+    crate::ensure_online()?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
+
+    let cid = client_id.unwrap_or_else(|| DEFAULT_SPOTIFY_CLIENT_ID.to_string());
+
+    let form_body = format!(
+        "grant_type=authorization_code&client_id={}&redirect_uri={}&code={}&code_verifier={}",
+        urlencoding::encode(&cid),
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode(&code),
+        urlencoding::encode(&code_verifier)
+    );
+
+    let response = client
+        .post("https://accounts.spotify.com/api/token")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
+        .header("User-Agent", "Sythoria-Desktop")
+        .body(form_body)
+        .send()
+        .await
+        .map_err(|e| AppError::RequestFailed(format!("Failed to reach Spotify OAuth token API: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::RequestFailed(format!(
+            "Spotify token exchange failed with HTTP {status}: {body}"
+        )));
+    }
+
+    let result: SpotifyTokenResponse = response
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(format!("Failed to parse Spotify token response: {e}")))?;
+
+    if let Some(err) = result.error {
+        let desc = result.error_description.unwrap_or_default();
+        return Err(AppError::RequestFailed(format!("Spotify OAuth error: {err} - {desc}")));
+    }
+
+    Ok(result)
+}
+
+/// Saves Spotify OAuth tokens into ~/.spotify-mcp/tokens.json for the spotify-mcp server.
+#[tauri::command]
+pub async fn save_spotify_mcp_tokens(
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+) -> Result<SpotifyMcpTokenPaths, AppError> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| AppError::AppPath("Could not determine user home directory".to_string()))?;
+
+    let spotify_dir = std::path::PathBuf::from(home).join(".spotify-mcp");
+    std::fs::create_dir_all(&spotify_dir)
+        .map_err(|e| AppError::AppPath(format!("Failed to create .spotify-mcp directory: {e}")))?;
+
+    let expires_at = chrono::Utc::now().timestamp_millis() + (expires_in.unwrap_or(3600) as i64 * 1000);
+    let mut token_obj = serde_json::json!({
+        "access_token": access_token,
+        "expires_at": expires_at,
+    });
+    if let Some(ref rt) = refresh_token {
+        token_obj["refresh_token"] = serde_json::Value::String(rt.clone());
+    }
+
+    let token_path = spotify_dir.join("tokens.json");
+    crate::atomic_file::write_atomic(
+        &token_path,
+        serde_json::to_string_pretty(&token_obj).unwrap_or_default().as_bytes(),
+    )
+    .map_err(|e| AppError::AppPath(format!("Failed to write Spotify tokens.json: {e}")))?;
+
+    Ok(SpotifyMcpTokenPaths {
+        token_path: token_path.to_string_lossy().to_string(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_spotify_token_response_deserialization() {
+        let json_data = r#"{
+            "access_token": "mock_spotify_access_token",
+            "token_type": "Bearer",
+            "scope": "user-read-private playlist-read-private",
+            "expires_in": 3600,
+            "refresh_token": "mock_spotify_refresh_token"
+        }"#;
+
+        let res: Result<SpotifyTokenResponse, _> = serde_json::from_str(json_data);
+        assert!(res.is_ok());
+        let token = res.unwrap();
+        assert_eq!(token.access_token, "mock_spotify_access_token");
+        assert_eq!(token.refresh_token.as_deref(), Some("mock_spotify_refresh_token"));
+        assert_eq!(token.expires_in, Some(3600));
+        assert_eq!(token.token_type.as_deref(), Some("Bearer"));
+    }
+
+    #[test]
+    fn test_spotify_token_error_deserialization() {
+        let json_data = r#"{
+            "error": "invalid_grant",
+            "error_description": "Invalid authorization code"
+        }"#;
+
+        let res: Result<SpotifyTokenResponse, _> = serde_json::from_str(json_data);
+        assert!(res.is_err()); // access_token is mandatory on success
+    }
+}
+
