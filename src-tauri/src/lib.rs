@@ -2565,6 +2565,8 @@ pub fn run() {
             commands::oauth::linear_exchange_token,
             commands::oauth::google_exchange_token,
             commands::oauth::save_google_mcp_tokens,
+            commands::oauth::spotify_exchange_token,
+            commands::oauth::save_spotify_mcp_tokens,
             commands::config::wipe_config_files,
             set_autostart_enabled,
             is_autostart_enabled,
