@@ -824,7 +824,14 @@ export async function loadTheme(): Promise<ThemeConfig> {
           mode: data as "light" | "dark" | "system",
         };
       }
-      return data;
+      const loaded: ThemeConfig = { ...data };
+      if (loaded.lightTheme?.preset === "Sythoria Light") {
+        loaded.lightTheme = { ...DEFAULT_THEME_CONFIG.lightTheme };
+      }
+      if (loaded.darkTheme?.preset === "Sythoria Dark") {
+        loaded.darkTheme = { ...DEFAULT_THEME_CONFIG.darkTheme };
+      }
+      return loaded;
     }
   } catch (e) {
     logError("storage", "Failed to load theme from encrypted storage", {
