@@ -5,9 +5,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../../../utils/externalUrl", () => ({
+  openExternalUrl: vi.fn().mockResolvedValue(true),
+}));
+
 import { PluginsSection } from "./PluginsSection";
 import { useMcpStore } from "../../../store/useMcpStore";
 import { useUIStore } from "../../../store/useUIStore";
+import { openExternalUrl } from "../../../utils/externalUrl";
 
 describe("PluginsSection", () => {
   beforeEach(() => {
@@ -86,14 +91,31 @@ describe("PluginsSection", () => {
     expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
   });
 
-  it("opens modal for Google Drive and displays 1-Click OAuth with manual fallback", () => {
+  it("opens modal for Google Drive and displays 1-Click OAuth with manual fallback", async () => {
     render(<PluginsSection />);
 
     const gdriveCard = screen.getByTestId("plugin-card-google-drive");
     fireEvent.click(gdriveCard);
 
     expect(screen.getByText(/1-Click Connect with Google/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Client Secret/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Import JSON/i)[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/Get Credentials/i)[0]).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toBeInTheDocument();
     expect(screen.getByText(/Or enter Service Account \/ credentials manually/i)).toBeInTheDocument();
+
+    // Click Get Credentials
+    const getCredsBtn = screen.getByRole("button", { name: /Get Credentials/i });
+    fireEvent.click(getCredsBtn);
+    expect(openExternalUrl).toHaveBeenCalledWith("https://console.cloud.google.com/apis/credentials");
+
+    // Click Connect without entering secret -> triggers pre-flight error
+    const connectBtn = screen.getByText(/1-Click Connect with Google/i);
+    fireEvent.click(connectBtn);
+    expect(await screen.findByText(/Google requires a Client Secret to exchange tokens/i)).toBeInTheDocument();
+
+    // Click Edit Credentials to dismiss error
+    fireEvent.click(screen.getByRole("button", { name: /Edit Credentials/i }));
 
     // Click manual token toggle
     fireEvent.click(screen.getByText(/Or enter Service Account \/ credentials manually/i));
