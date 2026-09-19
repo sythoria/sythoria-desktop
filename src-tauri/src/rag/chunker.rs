@@ -17,7 +17,11 @@ pub fn chunk_document(
     chunk_overlap: usize,
 ) -> Vec<DocumentChunk> {
     let target_size = if chunk_size < 100 { 800 } else { chunk_size };
-    let overlap = if chunk_overlap >= target_size { target_size / 4 } else { chunk_overlap };
+    let overlap = if chunk_overlap >= target_size {
+        target_size / 4
+    } else {
+        chunk_overlap
+    };
 
     let mut chunks = Vec::new();
     let mut current_chunk_idx = 0;
