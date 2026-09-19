@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Sliders,
   Copy,
+  Upload,
 } from "lucide-react";
 import { useTranslation } from "../../../utils/i18n";
 import { useMcpStore } from "../../../store/useMcpStore";
@@ -29,6 +30,7 @@ import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../service
 import {
   startGoogleOAuthFlow,
   saveGoogleMcpTokens,
+  parseGoogleClientSecretsFile,
   DEFAULT_GOOGLE_CLIENT_ID,
   DEFAULT_GOOGLE_SCOPES,
 } from "../../../services/googleOAuth";
@@ -39,6 +41,23 @@ import {
   DEFAULT_SPOTIFY_SCOPES,
 } from "../../../services/spotifyOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
+
+function formatOAuthError(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  if (typeof err === "object" && err !== null) {
+    const rec = err as Record<string, unknown>;
+    for (const key of ["RequestFailed", "AuthError", "ApiError", "ParseError", "McpError", "message", "error"]) {
+      if (typeof rec[key] === "string" && rec[key]) return rec[key] as string;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      // ignore
+    }
+  }
+  return fallback;
+}
 
 // Sythoria Desktop Official Brand Logo Mark
 const SythoriaMark: React.FC<{ size?: number; className?: string }> = ({ size = 32, className = "" }) => (
@@ -376,7 +395,7 @@ export function PluginsSection() {
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
-      const errorMsg = err instanceof Error ? err.message : "GitHub OAuth failed";
+      const errorMsg = formatOAuthError(err, "GitHub OAuth failed");
       setGithubOAuth((prev) => ({
         ...prev,
         isPolling: false,
@@ -424,7 +443,7 @@ export function PluginsSection() {
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
-      const errorMsg = err instanceof Error ? err.message : "Linear OAuth failed";
+      const errorMsg = formatOAuthError(err, "Linear OAuth failed");
       setLinearOAuth({
         isActive: true,
         isConnecting: false,
@@ -432,6 +451,30 @@ export function PluginsSection() {
       });
       addToast(errorMsg, "error");
     }
+  };
+
+  // Import credentials file downloaded from Google Cloud Console (client_secret_xxx.json)
+  const handleImportGoogleCredentials = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result;
+      if (typeof content === "string") {
+        const parsed = parseGoogleClientSecretsFile(content);
+        if (parsed.clientId || parsed.clientSecret) {
+          setFormValues((prev) => ({
+            ...prev,
+            ...(parsed.clientId ? { GOOGLE_CLIENT_ID: parsed.clientId } : {}),
+            ...(parsed.clientSecret ? { GOOGLE_CLIENT_SECRET: parsed.clientSecret } : {}),
+          }));
+          addToast("Imported Google credentials file", "success");
+        } else {
+          addToast("Could not find client_id or client_secret in JSON", "error");
+        }
+      }
+    };
+    reader.readAsText(file);
   };
 
   // 1-Click Google PKCE OAuth
@@ -449,21 +492,38 @@ export function PluginsSection() {
     });
 
     try {
+      const customClientId = formValues["GOOGLE_CLIENT_ID"]?.trim() || undefined;
+      const customClientSecret = formValues["GOOGLE_CLIENT_SECRET"]?.trim() || undefined;
+      const effectiveClientId = customClientId || DEFAULT_GOOGLE_CLIENT_ID;
+
+      if (!customClientSecret) {
+        setGoogleOAuth({
+          isActive: true,
+          isConnecting: false,
+          error:
+            "Google requires a Client Secret to exchange tokens. Please enter your secret (GOCSPX-...) or click 'Import JSON' / 'Get Credentials' above.",
+        });
+        addToast("Client Secret required for Google OAuth", "error");
+        return;
+      }
+
       const tokens = await startGoogleOAuthFlow(
-        DEFAULT_GOOGLE_CLIENT_ID,
+        effectiveClientId,
         DEFAULT_GOOGLE_SCOPES,
         undefined,
         undefined,
         abortController.signal,
+        customClientSecret,
       );
 
       // Save token files atomically for MCP servers
       const paths = await saveGoogleMcpTokens(
-        DEFAULT_GOOGLE_CLIENT_ID,
+        effectiveClientId,
         tokens.accessToken,
         tokens.refreshToken,
         tokens.expiresIn,
         tokens.scope,
+        customClientSecret,
       );
 
       // Build secrets map
@@ -475,6 +535,12 @@ export function PluginsSection() {
         GOOGLE_CALENDAR_CREDENTIALS: paths.tokenPath,
         GOOGLE_APPLICATION_CREDENTIALS: paths.credentialsPath,
       };
+      if (customClientSecret) {
+        secrets["GOOGLE_CLIENT_SECRET"] = customClientSecret;
+      }
+      if (customClientId) {
+        secrets["GOOGLE_CLIENT_ID"] = customClientId;
+      }
 
       const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
 
@@ -484,7 +550,7 @@ export function PluginsSection() {
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
-      const errorMsg = err instanceof Error ? err.message : "Google OAuth failed";
+      const errorMsg = formatOAuthError(err, "Google OAuth failed");
       setGoogleOAuth({
         isActive: true,
         isConnecting: false,
@@ -519,11 +585,7 @@ export function PluginsSection() {
       );
 
       // Save tokens atomically to ~/.spotify-mcp/tokens.json for spotify-mcp server
-      await saveSpotifyMcpTokens(
-        tokens.accessToken,
-        tokens.refreshToken,
-        tokens.expiresIn,
-      );
+      await saveSpotifyMcpTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn);
 
       // Build secrets map
       const secrets: Record<string, string> = {
@@ -539,7 +601,7 @@ export function PluginsSection() {
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
-      const errorMsg = err instanceof Error ? err.message : "Spotify OAuth failed";
+      const errorMsg = formatOAuthError(err, "Spotify OAuth failed");
       setSpotifyOAuth({
         isActive: true,
         isConnecting: false,
@@ -928,7 +990,10 @@ export function PluginsSection() {
                           onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
                           className="w-full py-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:text-rose-700 dark:hover:text-rose-200 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer group"
                         >
-                          <Trash2 size={16} className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform" />
+                          <Trash2
+                            size={16}
+                            className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform"
+                          />
                           <span>Revoke Access & Disconnect</span>
                         </button>
 
@@ -1076,7 +1141,9 @@ export function PluginsSection() {
                               </div>
                             ) : githubOAuth.error ? (
                               <div className="space-y-2 pt-1">
-                                <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{githubOAuth.error}</div>
+                                <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                                  {githubOAuth.error}
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => void handleStartGitHubOAuth()}
@@ -1144,7 +1211,9 @@ export function PluginsSection() {
                           </div>
                         ) : linearOAuth.error ? (
                           <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{linearOAuth.error}</div>
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                              {linearOAuth.error}
+                            </div>
                             <div className="flex items-center justify-center gap-2 pt-1">
                               <button
                                 type="button"
@@ -1220,8 +1289,10 @@ export function PluginsSection() {
                           </div>
                         ) : googleOAuth.error ? (
                           <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{googleOAuth.error}</div>
-                            <div className="flex items-center justify-center gap-2 pt-1">
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium whitespace-pre-wrap text-left font-mono break-all max-h-32 overflow-y-auto">
+                              {googleOAuth.error}
+                            </div>
+                            <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
                               <button
                                 type="button"
                                 onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
@@ -1231,15 +1302,101 @@ export function PluginsSection() {
                               </button>
                               <button
                                 type="button"
+                                onClick={() => {
+                                  setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
+                                }}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Edit Credentials
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternalUrl("https://console.cloud.google.com/apis/credentials")
+                                }
+                                className="px-3 py-1 text-xs rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <ExternalLink size={11} />
+                                <span>Get Credentials</span>
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => setShowManualToken(true)}
                                 className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
                               >
-                                Enter credentials manually
+                                Service Account
                               </button>
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-3">
+                            {/* Step 1: Google OAuth Client Credentials Box */}
+                            <div className="p-3 rounded-xl bg-surface/50 border border-border/60 space-y-2 text-left">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
+                                  <Lock size={12} className="text-emerald-500 shrink-0" />
+                                  <span>Google Client Secret</span>
+                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void openExternalUrl("https://console.cloud.google.com/apis/credentials")
+                                    }
+                                    className="text-[11px] text-blue-500 hover:text-blue-400 font-medium cursor-pointer inline-flex items-center gap-1"
+                                    title="Open Google Cloud Console Credentials in browser"
+                                  >
+                                    <ExternalLink size={11} />
+                                    <span>Get Credentials</span>
+                                  </button>
+                                  <span className="text-border text-xs select-none">|</span>
+                                  <label className="text-[11px] text-blue-500 hover:text-blue-400 font-medium cursor-pointer inline-flex items-center gap-1">
+                                    <Upload size={11} />
+                                    <span>Import JSON</span>
+                                    <input
+                                      type="file"
+                                      accept=".json,application/json"
+                                      className="hidden"
+                                      onChange={handleImportGoogleCredentials}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-text-muted leading-relaxed">
+                                Client Secret from your Google Cloud Console OAuth 2.0 client. Click{" "}
+                                <strong>Get Credentials</strong> to open Google Cloud Console, or{" "}
+                                <strong>Import JSON</strong> if you downloaded{" "}
+                                <code className="font-mono text-text-primary text-[9px] bg-hover/40 px-1 py-0.5 rounded">
+                                  client_secret_xxx.json
+                                </code>
+                                . Stored in local AES-256-GCM encrypted storage.
+                              </p>
+                              <div className="relative">
+                                <input
+                                  type={showPasswordMap["GOOGLE_CLIENT_SECRET"] ? "text" : "password"}
+                                  value={formValues["GOOGLE_CLIENT_SECRET"] || ""}
+                                  onChange={(e) =>
+                                    setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_SECRET: e.target.value }))
+                                  }
+                                  placeholder="GOCSPX-... (From Google Cloud Console > Clients)"
+                                  className="w-full px-3 py-1.5 text-xs rounded-lg bg-input border border-border focus:border-focus focus:outline-none pr-8 text-text-primary placeholder:text-text-muted/60 font-mono"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setShowPasswordMap((prev) => ({
+                                      ...prev,
+                                      GOOGLE_CLIENT_SECRET: !prev["GOOGLE_CLIENT_SECRET"],
+                                    }))
+                                  }
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary cursor-pointer"
+                                >
+                                  {showPasswordMap["GOOGLE_CLIENT_SECRET"] ? <EyeOff size={13} /> : <Eye size={13} />}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Step 2: 1-Click Connect Button */}
                             <button
                               type="button"
                               onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
@@ -1303,7 +1460,9 @@ export function PluginsSection() {
                           </div>
                         ) : spotifyOAuth.error ? (
                           <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">{spotifyOAuth.error}</div>
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                              {spotifyOAuth.error}
+                            </div>
                             <div className="flex items-center justify-center gap-2 pt-1">
                               <button
                                 type="button"
