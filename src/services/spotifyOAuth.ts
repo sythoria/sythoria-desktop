@@ -70,9 +70,7 @@ export async function startSpotifyOAuthFlow(
     clientId,
   )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
     scope,
-  )}&state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(
-    codeChallenge,
-  )}&code_challenge_method=S256`;
+  )}&state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(codeChallenge)}&code_challenge_method=S256`;
 
   // Start background loopback listener
   const listenerPromise = invoke<{ code: string; state?: string }>("listen_oauth_callback", {
