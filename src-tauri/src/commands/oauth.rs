@@ -498,7 +498,32 @@ pub async fn save_google_mcp_tokens(
         .app_data_dir()
         .map_err(|e| AppError::AppPath(format!("Failed to get app data directory: {e}")))?;
 
-    let google_dir = app_dir.join("google-oauth");
+    write_google_mcp_tokens(
+        &app_dir,
+        client_id,
+        client_secret,
+        access_token,
+        refresh_token,
+        expires_in,
+        scope,
+    )
+}
+
+fn write_google_mcp_tokens(
+    app_dir: &std::path::Path,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+    scope: Option<String>,
+) -> Result<GoogleMcpTokenPaths, AppError> {
+    // Every grant owns a fresh directory, including reauthorization of the same plugin.
+    // Never replace files an already-running MCP server or another client may be using.
+    let google_dir = app_dir
+        .join("google-oauth")
+        .join(uuid::Uuid::new_v4().to_string());
+
     std::fs::create_dir_all(&google_dir)
         .map_err(|e| AppError::AppPath(format!("Failed to create google-oauth directory: {e}")))?;
 
@@ -558,51 +583,6 @@ pub async fn save_google_mcp_tokens(
             .as_bytes(),
     )
     .map_err(|e| AppError::AppPath(format!("Failed to write credentials.json: {e}")))?;
-
-    // Also populate user's home paths (~/.config/google-drive-mcp, ~/.gmail-mcp, ~/.gdrive-server-credentials.json)
-    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        let home_path = std::path::PathBuf::from(home);
-
-        let legacy_gdrive_path = home_path.join(".gdrive-server-credentials.json");
-        let _ = crate::atomic_file::write_atomic(
-            &legacy_gdrive_path,
-            serde_json::to_string_pretty(&token_obj)
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-
-        let cfg_gdrive = home_path.join(".config").join("google-drive-mcp");
-        if std::fs::create_dir_all(&cfg_gdrive).is_ok() {
-            let _ = crate::atomic_file::write_atomic(
-                &cfg_gdrive.join("gcp-oauth.keys.json"),
-                serde_json::to_string_pretty(&oauth_keys)
-                    .unwrap_or_default()
-                    .as_bytes(),
-            );
-            let _ = crate::atomic_file::write_atomic(
-                &cfg_gdrive.join("tokens.json"),
-                serde_json::to_string_pretty(&token_obj)
-                    .unwrap_or_default()
-                    .as_bytes(),
-            );
-        }
-
-        let gmail_dir = home_path.join(".gmail-mcp");
-        if std::fs::create_dir_all(&gmail_dir).is_ok() {
-            let _ = crate::atomic_file::write_atomic(
-                &gmail_dir.join("credentials.json"),
-                serde_json::to_string_pretty(&creds_obj)
-                    .unwrap_or_default()
-                    .as_bytes(),
-            );
-            let _ = crate::atomic_file::write_atomic(
-                &gmail_dir.join("tokens.json"),
-                serde_json::to_string_pretty(&token_obj)
-                    .unwrap_or_default()
-                    .as_bytes(),
-            );
-        }
-    }
 
     Ok(GoogleMcpTokenPaths {
         oauth_keys_path: oauth_keys_path.to_string_lossy().to_string(),
@@ -728,6 +708,48 @@ pub async fn save_spotify_mcp_tokens(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn google_grants_have_isolated_node_credentials() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let write = |token: &str| {
+            write_google_mcp_tokens(
+                &root,
+                Some("client".into()),
+                Some("secret".into()),
+                token.into(),
+                Some("refresh".into()),
+                Some(3600),
+                Some("scope".into()),
+            )
+            .unwrap()
+        };
+        let first = write("first");
+        let second = write("second");
+        assert_ne!(first.token_path, second.token_path);
+        let credentials: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&first.credentials_path).unwrap()).unwrap();
+        assert_eq!(credentials["access_token"], "first");
+        assert_eq!(credentials["refresh_token"], "refresh");
+        assert!(credentials["expiry_date"].is_number());
+        assert!(credentials.get("token").is_none());
+        let keys: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&first.oauth_keys_path).unwrap()).unwrap();
+        assert_eq!(keys["installed"]["client_id"], "client");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&first.credentials_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn google_listener_cancellation_releases_port() {
         let id = uuid::Uuid::new_v4().to_string();
