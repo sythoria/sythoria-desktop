@@ -522,7 +522,7 @@ export function PluginsSection() {
     e.target.value = "";
   };
 
-  // 1-Click Google PKCE OAuth
+  // Google Desktop OAuth
   const handleStartGoogleOAuth = async (plugin: PluginItem) => {
     if (googleAbortRef.current) {
       googleAbortRef.current.abort();
@@ -714,7 +714,12 @@ export function PluginsSection() {
     try {
       await toggleServerEnabled(installedInfo.configId, false);
       await deleteMcpConfig(installedInfo.configId);
-      addToast(`Revoked access for ${plugin.name}`, "info");
+      addToast(
+        ["gmail", "google-drive", "google-calendar"].includes(plugin.id)
+          ? `Disconnected ${plugin.name}`
+          : `Revoked access for ${plugin.name}`,
+        "info",
+      );
       if (activeModalPlugin?.id === plugin.id) {
         handleCloseModal();
       }
@@ -722,6 +727,9 @@ export function PluginsSection() {
       addToast(`Failed to revoke ${plugin.name}`, "error");
     }
   };
+
+  const isGoogleConnection =
+    !!activeModalPlugin && ["gmail", "google-drive", "google-calendar"].includes(activeModalPlugin.id);
 
   return (
     <div className="space-y-6 pb-16 max-w-4xl mx-auto">
@@ -995,12 +1003,13 @@ export function PluginsSection() {
                             <h3 className="text-lg font-semibold text-text-primary">{activeModalPlugin.name}</h3>
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
                               <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-                              Connected
+                              {info.isConnected ? "Connected" : "Not connected"}
                             </span>
                           </div>
                           <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
-                            Sythoria is authorized and ready to execute {activeModalPlugin.name} Model Context Protocol
-                            tools.
+                            {info.isConnected
+                              ? `${activeModalPlugin.name} tools are available for chat.`
+                              : "Reconnect this plugin to use its tools."}
                           </p>
                         </div>
                       </div>
@@ -1011,7 +1020,11 @@ export function PluginsSection() {
                           <span className="text-text-muted font-medium">Integration Status</span>
                           <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                            {info.isConnected ? "Active & Ready" : "Standby (Ready)"}
+                            {info.isConnected
+                              ? "Connected"
+                              : serverStatuses[info.configId] === "error"
+                                ? "Connection failed"
+                                : "Disconnected"}
                           </span>
                         </div>
 
@@ -1019,16 +1032,25 @@ export function PluginsSection() {
                           <span className="text-text-muted font-medium">Data Privacy & Security</span>
                           <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
                             <Lock size={12} className="text-emerald-600 dark:text-emerald-400" />
-                            AES-256 Keychain (Local)
+                            {isGoogleConnection ? "Local credential files" : "Local credential storage"}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
                           <span className="text-text-muted font-medium">Scope</span>
-                          <span className="text-text-secondary font-medium">Full AI Toolset (Read & Write)</span>
+                          <span className="text-text-secondary font-medium">
+                            {isGoogleConnection ? "Selected during authorization" : "Configured plugin permissions"}
+                          </span>
                         </div>
                       </div>
 
+                      {isGoogleConnection && (
+                        <p className="text-xs text-text-muted">
+                          Disconnecting stops this plugin. To revoke Google account access, remove your OAuth app from
+                          your Google Account connections. Reauthorize existing installations to apply service-specific
+                          permissions.
+                        </p>
+                      )}
                       {/* Big Prominent Revoke Access Button */}
                       <div className="space-y-3 pt-1">
                         <button
@@ -1040,7 +1062,7 @@ export function PluginsSection() {
                             size={16}
                             className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform"
                           />
-                          <span>Revoke Access & Disconnect</span>
+                          <span>{isGoogleConnection ? "Disconnect plugin" : "Revoke Access & Disconnect"}</span>
                         </button>
 
                         <div className="flex items-center justify-between pt-1">
@@ -1100,57 +1122,61 @@ export function PluginsSection() {
                       </div>
                     </div>
 
-                    <h3 className="text-lg font-semibold text-text-primary">Sythoria Connector by Sythoria</h3>
+                    <h3 className="text-lg font-semibold text-text-primary">Connect {activeModalPlugin.name}</h3>
                     <p className="text-xs text-text-muted mt-0.5">
-                      wants access to your {activeModalPlugin.name} account
+                      {isGoogleConnection
+                        ? "Choose access, then authorize in your browser."
+                        : `Authorize access to your ${activeModalPlugin.name} account.`}
                     </p>
                   </div>
 
                   {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
                   <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
-                    <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
-                      <div className="text-xs font-semibold text-text-primary tracking-tight">
-                        Authorizing allows this app to:
-                      </div>
+                    {!isGoogleConnection && (
+                      <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
+                        <div className="text-xs font-semibold text-text-primary tracking-tight">
+                          Authorizing allows this app to:
+                        </div>
 
-                      <div className="space-y-2.5 text-xs text-text-secondary">
-                        <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                          <span>Verify your {activeModalPlugin.name} identity</span>
+                        <div className="space-y-2.5 text-xs text-text-secondary">
+                          <div className="flex items-start gap-2">
+                            <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                            <span>Verify your {activeModalPlugin.name} identity</span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                            <span>Act on your behalf via local Model Context Protocol tools</span>
+                          </div>
                         </div>
-                        <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                          <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                          <span>Act on your behalf via local Model Context Protocol tools</span>
-                        </div>
-                      </div>
 
-                      {/* Resource Scopes */}
-                      <div className="pt-3 border-t border-border/40">
-                        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
-                          Resources on your account
+                        {/* Resource Scopes */}
+                        <div className="pt-3 border-t border-border/40">
+                          <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
+                            Resources on your account
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
+                            <Sparkles size={14} className="text-accent shrink-0" />
+                            <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
+                            <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
+                              read & write
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
-                          <Sparkles size={14} className="text-accent shrink-0" />
-                          <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
-                          <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
-                            read & write
+
+                        {/* Security & Privacy Guarantee */}
+                        <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
+                          <Lock size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                          <span>
+                            Credentials are stored locally. Connected services receive API requests, and tool results
+                            may be sent to your selected AI provider.
                           </span>
                         </div>
                       </div>
-
-                      {/* Security & Privacy Guarantee */}
-                      <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
-                        <Lock size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                        <span>
-                          <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256
-                          keychain. Data never touches third-party cloud servers.
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
                     {/* GitHub 1-Click OAuth Integration */}
                     {activeModalPlugin.id === "github" && (
@@ -1305,7 +1331,7 @@ export function PluginsSection() {
                       </div>
                     )}
 
-                    {/* Google 1-Click PKCE OAuth Integration (Google Drive, Google Calendar, Gmail) */}
+                    {/* Google Desktop OAuth Integration (Google Drive, Google Calendar, Gmail) */}
                     {(activeModalPlugin.id === "google-drive" ||
                       activeModalPlugin.id === "google-calendar" ||
                       activeModalPlugin.id === "gmail") && (
@@ -1340,7 +1366,7 @@ export function PluginsSection() {
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
                                   <Lock size={12} className="text-emerald-500 shrink-0" />
-                                  <span>Google Client Secret</span>
+                                  <span>Set up Google credentials</span>
                                 </span>
                                 <div className="flex items-center gap-2 shrink-0">
                                   <button
@@ -1352,7 +1378,7 @@ export function PluginsSection() {
                                     title="Open Google Cloud Console Credentials in browser"
                                   >
                                     <ExternalLink size={11} />
-                                    <span>Get Credentials</span>
+                                    <span>Google Cloud setup</span>
                                   </button>
                                   <span className="text-border text-xs select-none">|</span>
                                   <label className="text-[11px] text-blue-500 hover:text-blue-400 font-medium cursor-pointer inline-flex items-center gap-1">
@@ -1367,15 +1393,18 @@ export function PluginsSection() {
                                   </label>
                                 </div>
                               </div>
-                              <p className="text-[10px] text-text-muted leading-relaxed">
-                                Client Secret from your Google Cloud Console OAuth 2.0 client. Click{" "}
-                                <strong>Get Credentials</strong> to open Google Cloud Console, or{" "}
-                                <strong>Import JSON</strong> if you downloaded{" "}
-                                <code className="font-mono text-text-primary text-[9px] bg-hover/40 px-1 py-0.5 rounded">
-                                  client_secret_xxx.json
-                                </code>
-                                . Stored in local AES-256-GCM encrypted storage.
+                              <p className="text-xs text-text-muted leading-relaxed">
+                                Create an OAuth client with type Desktop app in Google Cloud, enable the{" "}
+                                {activeModalPlugin.id === "gmail"
+                                  ? "Gmail API"
+                                  : activeModalPlugin.id === "google-calendar"
+                                    ? "Calendar API"
+                                    : "Drive, Docs, Sheets, and Slides APIs"}
+                                , and add your account as a test user if your app is in testing. Import the downloaded
+                                JSON or enter the matching client ID and secret below. This setup is reused across
+                                Google plugins.
                               </p>
+
                               <label className="block text-xs text-text-primary">
                                 Google Client ID
                                 <input
@@ -1397,6 +1426,8 @@ export function PluginsSection() {
                               )}
                               <div className="relative">
                                 <input
+                                  aria-label="Google Client Secret"
+                                  disabled={googleClientLoading}
                                   type={showPasswordMap["GOOGLE_CLIENT_SECRET"] ? "text" : "password"}
                                   value={formValues["GOOGLE_CLIENT_SECRET"] || ""}
                                   onChange={(e) =>
@@ -1407,6 +1438,9 @@ export function PluginsSection() {
                                 />
                                 <button
                                   type="button"
+                                  aria-label={
+                                    showPasswordMap.GOOGLE_CLIENT_SECRET ? "Hide client secret" : "Show client secret"
+                                  }
                                   onClick={() =>
                                     setShowPasswordMap((prev) => ({
                                       ...prev,
@@ -1458,9 +1492,14 @@ export function PluginsSection() {
                                 }
                                 size={18}
                               />
-                              <span>1-Click Connect with Google</span>
+                              <span>Continue with Google</span>
                               <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your shared client settings are encrypted in Sythoria. The local plugin uses unencrypted
+                              credential files protected by file permissions. Google receives API requests, and tool
+                              results may be sent to your selected AI provider.
+                            </p>
                           </div>
                         )}
                       </div>

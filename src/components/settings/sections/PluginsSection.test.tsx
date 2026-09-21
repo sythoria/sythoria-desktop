@@ -98,19 +98,19 @@ describe("PluginsSection", () => {
     const gdriveCard = screen.getByTestId("plugin-card-google-drive");
     fireEvent.click(gdriveCard);
 
-    expect(screen.getByText(/1-Click Connect with Google/i)).toBeInTheDocument();
-    expect(screen.getByText(/Google Client Secret/i)).toBeInTheDocument();
+    expect(screen.getByText(/Continue with Google/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Google Client Secret/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Import JSON/i)[0]).toBeInTheDocument();
-    expect(screen.getAllByText(/Get Credentials/i)[0]).toBeInTheDocument();
+    expect(screen.getAllByText(/Google Cloud setup/i)[0]).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toBeInTheDocument();
 
     // Click Get Credentials
-    const getCredsBtn = screen.getByRole("button", { name: /Get Credentials/i });
+    const getCredsBtn = screen.getByRole("button", { name: /Google Cloud setup/i });
     fireEvent.click(getCredsBtn);
     expect(openExternalUrl).toHaveBeenCalledWith("https://console.cloud.google.com/apis/credentials");
 
     // Click Connect without entering secret -> triggers pre-flight error
-    const connectBtn = screen.getByRole("button", { name: /1-Click Connect with Google/i });
+    const connectBtn = screen.getByRole("button", { name: /Continue with Google/i });
     await waitFor(() => expect(connectBtn).not.toBeDisabled());
     fireEvent.click(connectBtn);
     expect(await screen.findByText(/Import a Google Desktop app credentials file/i)).toBeInTheDocument();

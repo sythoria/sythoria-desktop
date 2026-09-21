@@ -216,7 +216,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authFields: [
       {
         key: "GOOGLE_CLIENT_SECRET",
-        label: "Google Client Secret (Optional / For custom GCP apps)",
+        label: "Google Desktop app client secret",
         placeholder: "GOCSPX-...",
         type: "password",
         required: false,
@@ -225,11 +225,11 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       },
       {
         key: "GOOGLE_APPLICATION_CREDENTIALS",
-        label: "Google Service Account Credentials (Path or JSON)",
+        label: "Google Service Account Credentials Path",
         placeholder: "/path/to/credentials.json",
         type: "text",
         required: false,
-        helpText: "Google Cloud Service Account key JSON file path or inline JSON.",
+        helpText: "Google Cloud Service Account key JSON file path.",
         docUrl: "https://console.cloud.google.com/apis/credentials",
       },
     ],
@@ -953,13 +953,13 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     icon: "/plugins/google-calendar/icon.svg",
     category: "productivity",
     badge: "Popular",
-    description: "Check schedule availability, view meetings, and create calendar events.",
+    description: "View calendar events; optionally allow creating, editing, and deleting events.",
     iconName: "Calendar",
     authType: "oauth",
     authFields: [
       {
         key: "GOOGLE_CLIENT_SECRET",
-        label: "Google Client Secret (Optional / For custom GCP apps)",
+        label: "Google Desktop app client secret",
         placeholder: "GOCSPX-...",
         type: "password",
         required: false,
@@ -1000,13 +1000,13 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     icon: "/plugins/gmail/icon.svg",
     category: "communication",
     badge: "Popular",
-    description: "Search email threads, summarize inbox newsletters, and draft message replies.",
+    description: "Read and search email; optionally allow drafting and sending replies.",
     iconName: "Mail",
     authType: "oauth",
     authFields: [
       {
         key: "GOOGLE_CLIENT_SECRET",
-        label: "Google Client Secret (Optional / For custom GCP apps)",
+        label: "Google Desktop app client secret",
         placeholder: "GOCSPX-...",
         type: "password",
         required: false,

@@ -2,9 +2,6 @@ import { validateGoogleScopes } from "./googlePermissions";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalUrl } from "../utils/externalUrl";
 
-export const DEFAULT_GOOGLE_PORT = 54321;
-export const DEFAULT_GOOGLE_REDIRECT_URI = `http://127.0.0.1:${DEFAULT_GOOGLE_PORT}/oauth/callback`;
-
 export interface GoogleTokenResult {
   access_token: string;
   token_type?: string;
@@ -36,9 +33,9 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 }
 
 /**
- * Initiates the 1-Click Google OAuth 2.0 PKCE Flow.
+ * Initiates the Google Desktop OAuth 2.0 PKCE flow.
  * 1. Generates PKCE code_verifier and code_challenge.
- * 2. Starts a local loopback listener on port 54321.
+ * 2. Starts a local loopback listener on an OS-assigned port.
  * 3. Opens the user's browser to Google authorization consent page.
  * 4. Captures authorization code on loopback redirect.
  * 5. Exchanges code for Google OAuth access and refresh tokens.
@@ -58,7 +55,7 @@ export interface ParsedGoogleClientSecret {
 
 /**
  * Parses Google Cloud Console downloaded client credentials JSON (client_secret_xxx.json).
- * Handles both "installed" (Desktop app) and "web" (Web application) client formats.
+ * Accepts only complete "installed" (Desktop app) clients for dynamic loopback redirects.
  */
 export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleClientSecret {
   try {
