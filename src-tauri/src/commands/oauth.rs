@@ -1,7 +1,7 @@
 use crate::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Ov23liEBjp5NydEwaPFX";
 pub const DEFAULT_GITHUB_SCOPE: &str = "repo,read:user,workflow";
@@ -134,6 +134,52 @@ pub async fn github_poll_device_token(
     Ok(result)
 }
 
+fn parse_oauth_callback(
+    request_line: &str,
+    expected_state: Option<&str>,
+) -> Result<OAuthCallbackResponse, std::io::Error> {
+    let invalid = |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
+    let mut parts = request_line.split_whitespace();
+    if parts.next() != Some("GET") {
+        return Err(invalid("Invalid OAuth callback method"));
+    }
+    let target = parts
+        .next()
+        .ok_or_else(|| invalid("Missing OAuth callback URL"))?;
+    let url = url::Url::parse(&format!("http://127.0.0.1{target}"))
+        .map_err(|_| invalid("Invalid OAuth callback URL"))?;
+    if url.path() != "/oauth/callback" {
+        return Err(invalid("Unexpected OAuth callback path"));
+    }
+    let mut params = HashMap::new();
+    for (key, value) in url.query_pairs() {
+        if params
+            .insert(key.into_owned(), value.into_owned())
+            .is_some()
+        {
+            return Err(invalid("Duplicate OAuth callback parameter"));
+        }
+    }
+    let state = params.get("state").cloned();
+    if let Some(expected) = expected_state {
+        if state.as_deref() != Some(expected) {
+            return Err(invalid(
+                "OAuth state parameter mismatch (CSRF check failed)",
+            ));
+        }
+    }
+    if params.contains_key("error") {
+        return Err(invalid(
+            "Authorization was declined or cancelled. No connection was made.",
+        ));
+    }
+    let code = params
+        .remove("code")
+        .filter(|code| !code.is_empty())
+        .ok_or_else(|| invalid("OAuth code parameter missing in callback"))?;
+    Ok(OAuthCallbackResponse { code, state })
+}
+
 /// Starts a temporary local loopback HTTP listener to catch the OAuth authorization callback redirect.
 #[tauri::command]
 pub async fn listen_oauth_callback(
@@ -154,114 +200,36 @@ pub async fn listen_oauth_callback(
         let (reader, mut writer) = stream.split();
         let mut buf_reader = BufReader::new(reader);
         let mut request_line = String::new();
-        buf_reader.read_line(&mut request_line).await?;
-
-        // Parse: GET /oauth/callback?code=abc&state=xyz HTTP/1.1
-        let parts: Vec<&str> = request_line.split_whitespace().collect();
-        if parts.len() < 2 {
+        (&mut buf_reader)
+            .take(8193)
+            .read_line(&mut request_line)
+            .await?;
+        if request_line.len() > 8192 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "Invalid HTTP request",
+                "OAuth callback too large",
             ));
         }
 
-        let path = parts[1];
-        let query_string = path.split_once('?').map(|(_, q)| q).unwrap_or("");
-        let query_params: HashMap<String, String> = query_string
-            .split('&')
-            .filter_map(|pair| {
-                let mut split = pair.splitn(2, '=');
-                let key = split.next()?;
-                let val = split.next().unwrap_or("");
-                Some((key.to_string(), val.to_string()))
-            })
-            .collect();
-
-        let code = query_params.get("code").cloned().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "OAuth code parameter missing in callback",
+        let result = parse_oauth_callback(&request_line, expected_state.as_deref());
+        let (status, body) = if result.is_ok() {
+            (
+                "200 OK",
+                "Authorization received. Return to Sythoria to finish connecting.",
             )
-        })?;
-
-        let state = query_params.get("state").cloned();
-
-        // Send a sleek HTML confirmation response to the user's browser
-        let html_body = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sythoria - Authorization Successful</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: #0d0d0e;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 1rem;
-      box-sizing: border-box;
-    }
-    .card {
-      background: #141415;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 1.25rem;
-      padding: 2.5rem 2rem;
-      text-align: center;
-      max-width: 420px;
-      width: 100%;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-    }
-    .icon-badge {
-      width: 52px;
-      height: 52px;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 1.25rem;
-      color: #10b981;
-      font-size: 26px;
-    }
-    h1 {
-      font-size: 1.35rem;
-      font-weight: 700;
-      margin: 0 0 0.5rem;
-      letter-spacing: -0.02em;
-    }
-    p {
-      font-size: 0.875rem;
-      color: #9ca3af;
-      margin: 0;
-      line-height: 1.5;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon-badge">&#10003;</div>
-    <h1>Authorization Successful!</h1>
-    <p>Sythoria has successfully connected to your account. You can now close this browser tab and return to the application.</p>
-  </div>
-</body>
-</html>"#;
-
+        } else {
+            (
+                "400 Bad Request",
+                "Authorization could not be completed. Return to Sythoria for details.",
+            )
+        };
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            html_body.len(),
-            html_body
+            "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
         );
-
         let _ = writer.write_all(response.as_bytes()).await;
         let _ = writer.flush().await;
-
-        Ok::<OAuthCallbackResponse, std::io::Error>(OAuthCallbackResponse { code, state })
+        result
     };
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(120), accept_future)
@@ -272,14 +240,6 @@ pub async fn listen_oauth_callback(
             )
         })?
         .map_err(|e| AppError::RequestFailed(format!("OAuth loopback error: {e}")))?;
-
-    if let Some(expected) = expected_state {
-        if result.state.as_deref() != Some(&expected) {
-            return Err(AppError::RequestFailed(
-                "OAuth state parameter mismatch (CSRF check failed)".to_string(),
-            ));
-        }
-    }
 
     Ok(result)
 }
@@ -696,6 +656,42 @@ pub async fn save_spotify_mcp_tokens(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn oauth_callback_decodes_code_and_checks_state() {
+        let result = super::parse_oauth_callback(
+            "GET /oauth/callback?code=4%2Fabc%2Bdef%3D&state=expected HTTP/1.1",
+            Some("expected"),
+        )
+        .unwrap();
+        assert_eq!(result.code, "4/abc+def=");
+        assert!(super::parse_oauth_callback(
+            "GET /oauth/callback?code=x&state=wrong HTTP/1.1",
+            Some("expected")
+        )
+        .is_err());
+        assert!(super::parse_oauth_callback(
+            "GET /oauth/callback?code=x&code=y&state=expected HTTP/1.1",
+            Some("expected")
+        )
+        .is_err());
+        assert!(super::parse_oauth_callback(
+            "GET /favicon.ico?code=x&state=expected HTTP/1.1",
+            Some("expected")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn oauth_callback_reports_denied_authorization() {
+        let error = super::parse_oauth_callback(
+            "GET /oauth/callback?error=access_denied&state=expected HTTP/1.1",
+            Some("expected"),
+        )
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("declined or cancelled"));
+    }
+
     use super::*;
 
     #[test]
