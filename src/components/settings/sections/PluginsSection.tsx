@@ -534,6 +534,7 @@ export function PluginsSection() {
         GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
         GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
         GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
+        GMAIL_OAUTH_PATH: paths.oauthKeysPath,
         GOOGLE_CALENDAR_CREDENTIALS: paths.tokenPath,
         GOOGLE_APPLICATION_CREDENTIALS: paths.credentialsPath,
       };

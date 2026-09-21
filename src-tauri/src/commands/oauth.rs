@@ -547,24 +547,9 @@ pub async fn save_google_mcp_tokens(
     )
     .map_err(|e| AppError::AppPath(format!("Failed to write tokens.json: {e}")))?;
 
-    // 3. credentials.json for Gmail / Python
-    let scopes_vec: Vec<String> = scope
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
-    let mut creds_obj = serde_json::json!({
-        "token": access_token,
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "client_id": cid,
-        "scopes": scopes_vec
-    });
-    if let Some(ref sec) = client_secret.as_ref().filter(|s| !s.trim().is_empty()) {
-        creds_obj["client_secret"] = serde_json::Value::String(sec.to_string());
-    }
-    if let Some(ref rt) = refresh_token {
-        creds_obj["refresh_token"] = serde_json::Value::String(rt.clone());
-    }
+    // Gmail's Node OAuth2Client expects the same access_token/expiry_date shape.
+    // Its OAuth client keys are supplied separately through GMAIL_OAUTH_PATH.
+    let creds_obj = token_obj.clone();
     let credentials_path = google_dir.join("credentials.json");
     crate::atomic_file::write_atomic(
         &credentials_path,

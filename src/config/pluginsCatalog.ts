@@ -1028,7 +1028,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       description: "Search, summarize, and draft emails with Gmail API.",
       command: "npx",
       args: ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
-      envKeys: ["GMAIL_CREDENTIALS_PATH", "GOOGLE_CLIENT_SECRET"],
+      envKeys: ["GMAIL_CREDENTIALS_PATH", "GMAIL_OAUTH_PATH", "GOOGLE_CLIENT_SECRET"],
     },
     keywords: ["gmail", "email", "mail", "inbox", "threads", "draft", "google"],
   },
