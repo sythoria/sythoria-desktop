@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseGoogleClientSecretsFile } from "./googleOAuth";
+import { buildGoogleMcpEnvironment, parseGoogleClientSecretsFile } from "./googleOAuth";
 
 describe("parseGoogleClientSecretsFile", () => {
   it("parses Google Cloud installed (Desktop app) client credentials JSON", () => {
@@ -96,4 +96,27 @@ describe("Google OAuth lifecycle", () => {
     });
     await expect(startGoogleOAuthFlow("client", "scope", controller.signal)).rejects.toThrow("cancelled");
   });
+});
+
+describe("Google server credential contracts", () => {
+  const paths = {
+    oauthKeysPath: "/grant/keys.json",
+    tokenPath: "/grant/tokens.json",
+    credentialsPath: "/grant/credentials.json",
+  };
+  it("configures Gmail with separate client keys and Node credentials", () => {
+    expect(buildGoogleMcpEnvironment("gmail", paths)).toEqual({
+      GMAIL_OAUTH_PATH: paths.oauthKeysPath,
+      GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
+    });
+  });
+  it.each(["google-drive", "google-calendar"])(
+    "uses local OAuth without activating service-account mode for %s",
+    (id) => {
+      expect(buildGoogleMcpEnvironment(id, paths)).toEqual({
+        GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
+        GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
+      });
+    },
+  );
 });

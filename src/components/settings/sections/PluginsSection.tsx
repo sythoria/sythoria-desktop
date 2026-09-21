@@ -30,6 +30,7 @@ import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../service
 import {
   startGoogleOAuthFlow,
   saveGoogleMcpTokens,
+  buildGoogleMcpEnvironment,
   parseGoogleClientSecretsFile,
   DEFAULT_GOOGLE_CLIENT_ID,
   DEFAULT_GOOGLE_SCOPES,
@@ -528,16 +529,7 @@ export function PluginsSection() {
 
       if (abortController.signal.aborted) return;
 
-      // Build secrets map
-      const secrets: Record<string, string> = {
-        GOOGLE_ACCESS_TOKEN: tokens.accessToken,
-        GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
-        GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
-        GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
-        GMAIL_OAUTH_PATH: paths.oauthKeysPath,
-        GOOGLE_CALENDAR_CREDENTIALS: paths.tokenPath,
-        GOOGLE_APPLICATION_CREDENTIALS: paths.credentialsPath,
-      };
+      const secrets = buildGoogleMcpEnvironment(plugin.id, paths);
       if (customClientSecret) {
         secrets["GOOGLE_CLIENT_SECRET"] = customClientSecret;
       }

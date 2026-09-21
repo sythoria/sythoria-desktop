@@ -164,3 +164,13 @@ export async function saveGoogleMcpTokens(
     scope,
   });
 }
+
+export function buildGoogleMcpEnvironment(pluginId: string, paths: GoogleMcpTokenPaths): Record<string, string> {
+  if (pluginId === "gmail") {
+    return { GMAIL_OAUTH_PATH: paths.oauthKeysPath, GMAIL_CREDENTIALS_PATH: paths.credentialsPath };
+  }
+  if (pluginId === "google-drive" || pluginId === "google-calendar") {
+    return { GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath, GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath };
+  }
+  throw new Error("Unsupported Google plugin");
+}
