@@ -40,6 +40,74 @@ impl LegacyCredential {
     }
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct GoogleOAuthClient {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+impl Drop for GoogleOAuthClient {
+    fn drop(&mut self) {
+        self.client_secret.zeroize();
+    }
+}
+
+pub(crate) fn get_google_oauth_client(
+    app: &tauri::AppHandle,
+) -> Result<Option<GoogleOAuthClient>, AppError> {
+    let _guard = lock_store()?;
+    let mut secrets = load_locked(app)?;
+    if secrets.google_oauth_client.is_none() {
+        // Recover only an unambiguous, complete legacy pair. Never guess which app a secret belongs to.
+        let pairs: HashSet<(String, String)> = secrets
+            .mcp_env
+            .values()
+            .filter_map(|env| {
+                let id = env.get("GOOGLE_CLIENT_ID")?;
+                let secret = env.get("GOOGLE_CLIENT_SECRET")?;
+                if id.ends_with(".apps.googleusercontent.com")
+                    && !secret.is_empty()
+                    && secret != STORED_SECRET_PLACEHOLDER
+                {
+                    Some((id.clone(), secret.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if pairs.len() == 1 {
+            let (client_id, client_secret) = pairs.into_iter().next().unwrap();
+            secrets.google_oauth_client = Some(GoogleOAuthClient {
+                client_id,
+                client_secret,
+            });
+            secure_storage::save_json(app, StorageDomain::Secrets, &secrets)?;
+        }
+    }
+    Ok(secrets.google_oauth_client.clone())
+}
+
+pub(crate) fn save_google_oauth_client(
+    app: &tauri::AppHandle,
+    client: GoogleOAuthClient,
+) -> Result<(), AppError> {
+    if !client.client_id.ends_with(".apps.googleusercontent.com")
+        || client.client_secret.trim().is_empty()
+        || client.client_secret == STORED_SECRET_PLACEHOLDER
+        || client.client_secret.len() > 4096
+        || client.client_id.len() > 512
+    {
+        return Err(AppError::RequestFailed(
+            "Enter the matching client ID and secret from a Google Desktop app credentials file."
+                .into(),
+        ));
+    }
+    let _guard = lock_store()?;
+    let mut secrets = load_locked(app)?;
+    secrets.google_oauth_client = Some(client);
+    secure_storage::save_json(app, StorageDomain::Secrets, &secrets)
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativeSecrets {
@@ -53,6 +121,8 @@ struct NativeSecrets {
     mcp_env: HashMap<String, HashMap<String, String>>,
     #[serde(default)]
     cloud_stt_api_key: Option<String>,
+    #[serde(default)]
+    google_oauth_client: Option<GoogleOAuthClient>,
     #[serde(default)]
     network_policy_initialized: bool,
     #[serde(default)]

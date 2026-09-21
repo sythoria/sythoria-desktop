@@ -2757,6 +2757,8 @@ pub fn run() {
             commands::oauth::start_google_oauth_listener,
             commands::oauth::wait_google_oauth_callback,
             commands::oauth::cancel_google_oauth_listener,
+            commands::oauth::get_google_oauth_client,
+            commands::oauth::save_google_oauth_client,
             commands::oauth::google_exchange_token,
             commands::oauth::save_google_mcp_tokens,
             commands::oauth::spotify_exchange_token,

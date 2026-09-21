@@ -20,29 +20,16 @@ describe("parseGoogleClientSecretsFile", () => {
     expect(parsed.projectId).toBe("sythoria-desktop");
   });
 
-  it("parses Google Cloud web application client credentials JSON", () => {
-    const json = JSON.stringify({
-      web: {
-        client_id: "566025429774-web.apps.googleusercontent.com",
-        project_id: "sythoria-web",
-        client_secret: "GOCSPX-web-secret-67890",
-        redirect_uris: ["http://127.0.0.1:54321/oauth/callback"],
-      },
-    });
-
-    const parsed = parseGoogleClientSecretsFile(json);
-    expect(parsed.clientId).toBe("566025429774-web.apps.googleusercontent.com");
-    expect(parsed.clientSecret).toBe("GOCSPX-web-secret-67890");
-    expect(parsed.projectId).toBe("sythoria-web");
+  it("rejects web and incomplete credential files for the dynamic desktop callback", () => {
+    expect(parseGoogleClientSecretsFile(JSON.stringify({ web: { client_id: "id", client_secret: "secret" } }))).toEqual(
+      {},
+    );
+    expect(parseGoogleClientSecretsFile(JSON.stringify({ installed: { client_id: "id" } }))).toEqual({});
   });
 
   it("handles malformed or invalid JSON gracefully", () => {
     expect(parseGoogleClientSecretsFile("not valid json")).toEqual({});
-    expect(parseGoogleClientSecretsFile("{}")).toEqual({
-      clientId: undefined,
-      clientSecret: undefined,
-      projectId: undefined,
-    });
+    expect(parseGoogleClientSecretsFile("{}")).toEqual({});
   });
 });
 

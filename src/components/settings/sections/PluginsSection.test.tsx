@@ -13,6 +13,7 @@ import { PluginsSection } from "./PluginsSection";
 import { useMcpStore } from "../../../store/useMcpStore";
 import { useUIStore } from "../../../store/useUIStore";
 import { openExternalUrl } from "../../../utils/externalUrl";
+import { invoke } from "@tauri-apps/api/core";
 
 describe("PluginsSection", () => {
   beforeEach(() => {
@@ -110,9 +111,10 @@ describe("PluginsSection", () => {
     expect(openExternalUrl).toHaveBeenCalledWith("https://console.cloud.google.com/apis/credentials");
 
     // Click Connect without entering secret -> triggers pre-flight error
-    const connectBtn = screen.getByText(/1-Click Connect with Google/i);
+    const connectBtn = screen.getByRole("button", { name: /1-Click Connect with Google/i });
+    await waitFor(() => expect(connectBtn).not.toBeDisabled());
     fireEvent.click(connectBtn);
-    expect(await screen.findByText(/Google requires a Client Secret to exchange tokens/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Import a Google Desktop app credentials file/i)).toBeInTheDocument();
 
     // Click Edit Credentials to dismiss error
     fireEvent.click(screen.getByRole("button", { name: /Edit Credentials/i }));
@@ -123,6 +125,17 @@ describe("PluginsSection", () => {
     expect(screen.getByText(/Google Service Account Credentials/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("/path/to/credentials.json")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Authorize Google Drive/i })).toBeInTheDocument();
+  });
+
+  it("reuses the saved Google client without loading masked plugin secrets", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ clientId: "shared.apps.googleusercontent.com" });
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-google-drive"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Google Client ID")).toHaveValue("shared.apps.googleusercontent.com"),
+    );
+    expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toHaveValue("");
+    expect(screen.getByText(/Saved Google credentials are shared/i)).toBeInTheDocument();
   });
 
   it("opens modal for Spotify and displays 1-Click OAuth with manual fallback", () => {

@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalUrl } from "../utils/externalUrl";
 
-export const DEFAULT_GOOGLE_CLIENT_ID = "566025429774-vh5b4ie4edatstbismtj0d5ku233ndlk.apps.googleusercontent.com";
 export const DEFAULT_GOOGLE_SCOPES =
   "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
 export const DEFAULT_GOOGLE_PORT = 54321;
@@ -65,7 +64,15 @@ export interface ParsedGoogleClientSecret {
 export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleClientSecret {
   try {
     const parsed = JSON.parse(jsonString);
-    const data = parsed.installed || parsed.web || parsed;
+    const data = parsed?.installed;
+    if (
+      !data ||
+      typeof data.client_id !== "string" ||
+      typeof data.client_secret !== "string" ||
+      !data.client_id.trim() ||
+      !data.client_secret.trim()
+    )
+      return {};
     return {
       clientId: typeof data.client_id === "string" ? data.client_id.trim() : undefined,
       clientSecret: typeof data.client_secret === "string" ? data.client_secret.trim() : undefined,
@@ -77,10 +84,9 @@ export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleCl
 }
 
 export async function startGoogleOAuthFlow(
-  clientId: string = DEFAULT_GOOGLE_CLIENT_ID,
+  clientId: string,
   scope: string = DEFAULT_GOOGLE_SCOPES,
   signal?: AbortSignal,
-  clientSecret?: string,
 ): Promise<GoogleOAuthResult> {
   const sessionId = crypto.randomUUID();
   const checkCancelled = () => {
@@ -121,7 +127,6 @@ export async function startGoogleOAuthFlow(
     if (!callback.code) throw new Error("No authorization code received from Google.");
     const tokenResult = await invoke<GoogleTokenResult>("google_exchange_token", {
       clientId,
-      clientSecret: clientSecret?.trim() || undefined,
       code: callback.code,
       codeVerifier,
       redirectUri: callbackUri,
@@ -153,11 +158,9 @@ export async function saveGoogleMcpTokens(
   refreshToken?: string,
   expiresIn?: number,
   scope?: string,
-  clientSecret?: string,
 ): Promise<GoogleMcpTokenPaths> {
   return invoke<GoogleMcpTokenPaths>("save_google_mcp_tokens", {
     clientId,
-    clientSecret: clientSecret?.trim() || undefined,
     accessToken,
     refreshToken,
     expiresIn,
@@ -173,4 +176,14 @@ export function buildGoogleMcpEnvironment(pluginId: string, paths: GoogleMcpToke
     return { GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath, GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath };
   }
   throw new Error("Unsupported Google plugin");
+}
+
+export interface GoogleClientStatus {
+  clientId: string;
+}
+export function getGoogleOAuthClient(): Promise<GoogleClientStatus | null> {
+  return invoke("get_google_oauth_client");
+}
+export function saveGoogleOAuthClient(clientId: string, clientSecret: string): Promise<void> {
+  return invoke("save_google_oauth_client", { clientId, clientSecret });
 }

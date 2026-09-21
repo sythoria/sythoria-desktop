@@ -32,7 +32,8 @@ import {
   saveGoogleMcpTokens,
   buildGoogleMcpEnvironment,
   parseGoogleClientSecretsFile,
-  DEFAULT_GOOGLE_CLIENT_ID,
+  getGoogleOAuthClient,
+  saveGoogleOAuthClient,
   DEFAULT_GOOGLE_SCOPES,
 } from "../../../services/googleOAuth";
 import {
@@ -207,6 +208,33 @@ export function PluginsSection() {
   });
   const googleAbortRef = useRef<AbortController | null>(null);
 
+  const [savedGoogleClientId, setSavedGoogleClientId] = useState<string | null>(null);
+  const [googleClientLoading, setGoogleClientLoading] = useState(false);
+  useEffect(() => {
+    if (!activeModalPlugin || !["gmail", "google-drive", "google-calendar"].includes(activeModalPlugin.id)) return;
+    let active = true;
+    void getGoogleOAuthClient()
+      .then((client) => {
+        if (!active) return;
+        setSavedGoogleClientId(client?.clientId ?? null);
+        setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_ID: client?.clientId ?? "", GOOGLE_CLIENT_SECRET: "" }));
+      })
+      .catch(() => {
+        if (active)
+          setGoogleOAuth({
+            isActive: false,
+            isConnecting: false,
+            error: "Could not load saved Google credentials. Try opening setup again.",
+          });
+      })
+      .finally(() => {
+        if (active) setGoogleClientLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeModalPlugin]);
+
   // Spotify 1-Click PKCE OAuth State
   const [spotifyOAuth, setSpotifyOAuth] = useState<{
     isActive: boolean;
@@ -247,6 +275,8 @@ export function PluginsSection() {
   const handleOpenModal = useCallback(
     (plugin: PluginItem) => {
       setActiveModalPlugin(plugin);
+      setGoogleClientLoading(["gmail", "google-drive", "google-calendar"].includes(plugin.id));
+      setSavedGoogleClientId(null);
       setShowManualToken(false);
       setGithubOAuth({
         isActive: false,
@@ -463,7 +493,7 @@ export function PluginsSection() {
       const content = event.target?.result;
       if (typeof content === "string") {
         const parsed = parseGoogleClientSecretsFile(content);
-        if (parsed.clientId || parsed.clientSecret) {
+        if (parsed.clientId && parsed.clientSecret) {
           setFormValues((prev) => ({
             ...prev,
             ...(parsed.clientId ? { GOOGLE_CLIENT_ID: parsed.clientId } : {}),
@@ -471,7 +501,10 @@ export function PluginsSection() {
           }));
           addToast("Imported Google credentials file", "success");
         } else {
-          addToast("Could not find client_id or client_secret in JSON", "error");
+          addToast(
+            "Import the JSON for a Google Desktop app OAuth client, including its client ID and secret.",
+            "error",
+          );
         }
       }
     };
@@ -495,25 +528,19 @@ export function PluginsSection() {
     try {
       const customClientId = formValues["GOOGLE_CLIENT_ID"]?.trim() || undefined;
       const customClientSecret = formValues["GOOGLE_CLIENT_SECRET"]?.trim() || undefined;
-      const effectiveClientId = customClientId || DEFAULT_GOOGLE_CLIENT_ID;
+      const effectiveClientId = customClientId || savedGoogleClientId;
 
-      if (!customClientSecret) {
-        setGoogleOAuth({
-          isActive: true,
-          isConnecting: false,
-          error:
-            "Google requires a Client Secret to exchange tokens. Please enter your secret (GOCSPX-...) or click 'Import JSON' / 'Get Credentials' above.",
-        });
-        addToast("Client Secret required for Google OAuth", "error");
-        return;
+      if (!effectiveClientId || (!customClientSecret && effectiveClientId !== savedGoogleClientId)) {
+        throw new Error("Import a Google Desktop app credentials file, or enter its matching client ID and secret.");
+      }
+      if (customClientSecret) {
+        await saveGoogleOAuthClient(effectiveClientId, customClientSecret);
+        if (abortController.signal.aborted) return;
+        setSavedGoogleClientId(effectiveClientId);
+        setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_SECRET: "" }));
       }
 
-      const tokens = await startGoogleOAuthFlow(
-        effectiveClientId,
-        DEFAULT_GOOGLE_SCOPES,
-        abortController.signal,
-        customClientSecret,
-      );
+      const tokens = await startGoogleOAuthFlow(effectiveClientId, DEFAULT_GOOGLE_SCOPES, abortController.signal);
 
       if (abortController.signal.aborted) return;
 
@@ -524,19 +551,11 @@ export function PluginsSection() {
         tokens.refreshToken,
         tokens.expiresIn,
         tokens.scope,
-        customClientSecret,
       );
 
       if (abortController.signal.aborted) return;
 
       const secrets = buildGoogleMcpEnvironment(plugin.id, paths);
-      if (customClientSecret) {
-        secrets["GOOGLE_CLIENT_SECRET"] = customClientSecret;
-      }
-      if (customClientId) {
-        secrets["GOOGLE_CLIENT_ID"] = customClientId;
-      }
-
       const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
 
       if (success) {
@@ -1373,6 +1392,25 @@ export function PluginsSection() {
                                 </code>
                                 . Stored in local AES-256-GCM encrypted storage.
                               </p>
+                              <label className="block text-xs text-text-primary">
+                                Google Client ID
+                                <input
+                                  aria-label="Google Client ID"
+                                  value={formValues.GOOGLE_CLIENT_ID || ""}
+                                  onChange={(event) =>
+                                    setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_ID: event.target.value }))
+                                  }
+                                  placeholder="Your Desktop app client ID"
+                                  disabled={googleClientLoading}
+                                  className="mt-1 w-full px-3 py-1.5 rounded-lg bg-input border border-border"
+                                />
+                              </label>
+                              {savedGoogleClientId && (
+                                <p className="text-xs text-text-muted">
+                                  Saved Google credentials are shared across Google plugins. Leave the secret blank to
+                                  reuse them.
+                                </p>
+                              )}
                               <div className="relative">
                                 <input
                                   type={showPasswordMap["GOOGLE_CLIENT_SECRET"] ? "text" : "password"}
@@ -1402,6 +1440,7 @@ export function PluginsSection() {
                             <button
                               type="button"
                               onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                              disabled={googleClientLoading}
                               className="w-full py-3 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
                               <BrandIcon

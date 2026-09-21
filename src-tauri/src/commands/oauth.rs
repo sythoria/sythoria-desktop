@@ -9,8 +9,6 @@ pub const DEFAULT_GITHUB_SCOPE: &str = "repo,read:user,workflow";
 pub const DEFAULT_LINEAR_CLIENT_ID: &str = "4c8cf80a34931c6e5b6338c9df74f1f8";
 pub const DEFAULT_LINEAR_SCOPE: &str = "read,write,issues:create";
 
-pub const DEFAULT_GOOGLE_CLIENT_ID: &str =
-    "566025429774-vh5b4ie4edatstbismtj0d5ku233ndlk.apps.googleusercontent.com";
 pub const DEFAULT_GOOGLE_SCOPE: &str = "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
 
 pub const DEFAULT_SPOTIFY_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
@@ -403,11 +401,58 @@ pub struct GoogleTokenResponse {
     pub error_description: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleClientStatus {
+    client_id: String,
+}
+
+#[tauri::command]
+pub fn get_google_oauth_client(
+    app: tauri::AppHandle,
+) -> Result<Option<GoogleClientStatus>, AppError> {
+    Ok(
+        crate::secret_storage::get_google_oauth_client(&app)?.map(|client| GoogleClientStatus {
+            client_id: client.client_id.clone(),
+        }),
+    )
+}
+
+#[tauri::command]
+pub fn save_google_oauth_client(
+    app: tauri::AppHandle,
+    client_id: String,
+    client_secret: String,
+) -> Result<(), AppError> {
+    crate::secret_storage::save_google_oauth_client(
+        &app,
+        crate::secret_storage::GoogleOAuthClient {
+            client_id: client_id.trim().into(),
+            client_secret: client_secret.trim().into(),
+        },
+    )
+}
+
+fn resolve_google_client(
+    app: &tauri::AppHandle,
+    client_id: &str,
+) -> Result<crate::secret_storage::GoogleOAuthClient, AppError> {
+    let client = crate::secret_storage::get_google_oauth_client(app)?.ok_or_else(|| {
+        AppError::RequestFailed("Set up Google Desktop app credentials first.".into())
+    })?;
+    if client.client_id != client_id {
+        return Err(AppError::RequestFailed(
+            "Google credentials changed. Start the connection again.".into(),
+        ));
+    }
+    Ok(client)
+}
+
 /// Exchanges authorization code + PKCE code_verifier for a Google access token.
 #[tauri::command]
 pub async fn google_exchange_token(
-    client_id: Option<String>,
-    client_secret: Option<String>,
+    app: tauri::AppHandle,
+    client_id: String,
     code: String,
     code_verifier: String,
     redirect_uri: String,
@@ -419,18 +464,15 @@ pub async fn google_exchange_token(
         .build()
         .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_GOOGLE_CLIENT_ID.to_string());
-
-    let mut form_params = vec![
+    let credentials = resolve_google_client(&app, &client_id)?;
+    let form_params = vec![
         ("grant_type", "authorization_code".to_string()),
-        ("client_id", cid),
+        ("client_id", client_id),
+        ("client_secret", credentials.client_secret.clone()),
         ("redirect_uri", redirect_uri),
         ("code", code),
         ("code_verifier", code_verifier),
     ];
-    if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
-        form_params.push(("client_secret", secret));
-    }
 
     let form_body = form_params
         .into_iter()
@@ -485,8 +527,7 @@ pub struct GoogleMcpTokenPaths {
 #[tauri::command]
 pub async fn save_google_mcp_tokens(
     app: tauri::AppHandle,
-    client_id: Option<String>,
-    client_secret: Option<String>,
+    client_id: String,
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<u64>,
@@ -498,10 +539,11 @@ pub async fn save_google_mcp_tokens(
         .app_data_dir()
         .map_err(|e| AppError::AppPath(format!("Failed to get app data directory: {e}")))?;
 
+    let credentials = resolve_google_client(&app, &client_id)?;
     write_google_mcp_tokens(
         &app_dir,
-        client_id,
-        client_secret,
+        Some(client_id),
+        Some(credentials.client_secret.clone()),
         access_token,
         refresh_token,
         expires_in,
@@ -527,7 +569,8 @@ fn write_google_mcp_tokens(
     std::fs::create_dir_all(&google_dir)
         .map_err(|e| AppError::AppPath(format!("Failed to create google-oauth directory: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_GOOGLE_CLIENT_ID.to_string());
+    let cid =
+        client_id.ok_or_else(|| AppError::RequestFailed("Google client ID is required".into()))?;
 
     // 1. gcp-oauth.keys.json
     let mut installed_obj = serde_json::json!({
