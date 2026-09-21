@@ -239,7 +239,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       description: "Read, search, and parse Google Drive documents and spreadsheets.",
       homepageUrl: "https://github.com/piotr-agier/google-drive-mcp",
       command: "npx",
-      args: ["-y", "@piotr-agier/google-drive-mcp"],
+      args: ["-y", "@piotr-agier/google-drive-mcp@2.11.0"],
       envKeys: [
         "GOOGLE_DRIVE_OAUTH_CREDENTIALS",
         "GOOGLE_DRIVE_MCP_TOKEN_PATH",
@@ -980,7 +980,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "Google Calendar",
       description: "Manage events and check schedule availability on Google Calendar.",
       command: "npx",
-      args: ["-y", "@piotr-agier/google-drive-mcp"],
+      args: ["-y", "@piotr-agier/google-drive-mcp@2.11.0"],
       envKeys: [
         "GOOGLE_DRIVE_OAUTH_CREDENTIALS",
         "GOOGLE_DRIVE_MCP_TOKEN_PATH",
@@ -1027,7 +1027,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "Gmail",
       description: "Search, summarize, and draft emails with Gmail API.",
       command: "npx",
-      args: ["-y", "@gongrzhe/server-gmail-autoauth-mcp"],
+      args: ["-y", "@gongrzhe/server-gmail-autoauth-mcp@1.1.11"],
       envKeys: ["GMAIL_CREDENTIALS_PATH", "GMAIL_OAUTH_PATH", "GOOGLE_CLIENT_SECRET"],
     },
     keywords: ["gmail", "email", "mail", "inbox", "threads", "draft", "google"],

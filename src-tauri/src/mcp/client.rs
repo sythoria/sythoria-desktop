@@ -11,6 +11,23 @@ use std::sync::Arc;
 use tokio::process::Command;
 use zeroize::Zeroize;
 
+fn restrict_catalog_tools(
+    mut tools: Vec<McpToolInfo>,
+    env: &HashMap<String, String>,
+) -> Result<Vec<McpToolInfo>, String> {
+    if let Some(value) = env.get("SYTHORIA_ALLOWED_TOOLS") {
+        let allowed: Vec<String> = serde_json::from_str(value)
+            .map_err(|_| "Invalid catalog tool permissions".to_string())?;
+        tools.retain(|tool| allowed.contains(&tool.name));
+        if tools.is_empty() {
+            return Err(
+                "The plugin does not expose any tools for the selected permissions.".into(),
+            );
+        }
+    }
+    Ok(tools)
+}
+
 struct SensitiveEnvironment(HashMap<String, String>);
 
 impl Drop for SensitiveEnvironment {
@@ -830,7 +847,10 @@ pub async fn connect_server(
                 .await
                 .map_err(|e| format!("Failed to list MCP tools: {}", e))?;
 
-            let tools: Vec<McpToolInfo> = tools_result.tools.iter().map(convert_tool).collect();
+            let tools = restrict_catalog_tools(
+                tools_result.tools.iter().map(convert_tool).collect(),
+                &env_secrets.0,
+            )?;
 
             let (request_tx, mut request_rx) = tokio::sync::mpsc::channel::<McpServerRequest>(64);
 
@@ -959,7 +979,10 @@ pub async fn connect_server(
                 .await
                 .map_err(|e| format!("Failed to list MCP tools: {}", e))?;
 
-            let tools: Vec<McpToolInfo> = tools_result.tools.iter().map(convert_tool).collect();
+            let tools = restrict_catalog_tools(
+                tools_result.tools.iter().map(convert_tool).collect(),
+                &env_secrets.0,
+            )?;
 
             let (request_tx, mut request_rx) = tokio::sync::mpsc::channel::<McpServerRequest>(64);
 
@@ -1108,6 +1131,7 @@ pub async fn call_tool_on_server(
 
     let request_tx = {
         let manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+        manager.tool_authorization(server_id, tool_name)?;
         manager.executable_request_tx(server_id)?
     };
 
@@ -1210,6 +1234,33 @@ pub async fn list_prompts_on_server(server_id: &str) -> Result<serde_json::Value
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn catalog_permissions_hide_unapproved_tools_and_reject_invalid_policy() {
+        let tool = |name: &str| McpToolInfo {
+            name: name.into(),
+            description: "".into(),
+            inputSchema: serde_json::json!({}),
+            readOnlyHint: None,
+        };
+        let env = HashMap::from([("SYTHORIA_ALLOWED_TOOLS".into(), "[\"read_email\"]".into())]);
+        let tools = restrict_catalog_tools(
+            vec![
+                tool("read_email"),
+                tool("send_email"),
+                tool("manage_accounts"),
+            ],
+            &env,
+        )
+        .unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "read_email");
+        assert!(restrict_catalog_tools(
+            vec![tool("read_email")],
+            &HashMap::from([("SYTHORIA_ALLOWED_TOOLS".into(), "invalid".into())])
+        )
+        .is_err());
+    }
+
     use super::*;
 
     #[test]

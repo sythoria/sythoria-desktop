@@ -1,8 +1,7 @@
+import { validateGoogleScopes } from "./googlePermissions";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalUrl } from "../utils/externalUrl";
 
-export const DEFAULT_GOOGLE_SCOPES =
-  "openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly";
 export const DEFAULT_GOOGLE_PORT = 54321;
 export const DEFAULT_GOOGLE_REDIRECT_URI = `http://127.0.0.1:${DEFAULT_GOOGLE_PORT}/oauth/callback`;
 
@@ -85,7 +84,7 @@ export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleCl
 
 export async function startGoogleOAuthFlow(
   clientId: string,
-  scope: string = DEFAULT_GOOGLE_SCOPES,
+  scope: string,
   signal?: AbortSignal,
 ): Promise<GoogleOAuthResult> {
   const sessionId = crypto.randomUUID();
@@ -138,7 +137,7 @@ export async function startGoogleOAuthFlow(
       accessToken: tokenResult.access_token,
       refreshToken: tokenResult.refresh_token,
       expiresIn: tokenResult.expires_in,
-      scope: tokenResult.scope,
+      scope: validateGoogleScopes(scope, tokenResult.scope),
     };
   } finally {
     signal?.removeEventListener("abort", cancel);

@@ -1,3 +1,5 @@
+import { Select } from "../../ui/Select";
+import { googlePermissions, type GoogleAccess } from "../../../services/googlePermissions";
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -34,7 +36,6 @@ import {
   parseGoogleClientSecretsFile,
   getGoogleOAuthClient,
   saveGoogleOAuthClient,
-  DEFAULT_GOOGLE_SCOPES,
 } from "../../../services/googleOAuth";
 import {
   startSpotifyOAuthFlow,
@@ -124,7 +125,10 @@ export function PluginsSection() {
     const map = new Map<string, { configId: string; isConnected: boolean; isEnabled: boolean }>();
     for (const config of mcpConfigs) {
       const matched = PLUGINS_CATALOG.find(
-        (p) => p.id === config.id || p.name.toLowerCase() === config.name.toLowerCase(),
+        (p) =>
+          p.id === config.id ||
+          p.name.toLowerCase() === config.name.toLowerCase() ||
+          p.preset.name.toLowerCase() === config.name.toLowerCase(),
       );
       if (matched) {
         const isConnected = serverStatuses[config.id] === "connected";
@@ -207,6 +211,7 @@ export function PluginsSection() {
     error: null,
   });
   const googleAbortRef = useRef<AbortController | null>(null);
+  const [googleAccess, setGoogleAccess] = useState<GoogleAccess>("read");
 
   const [savedGoogleClientId, setSavedGoogleClientId] = useState<string | null>(null);
   const [googleClientLoading, setGoogleClientLoading] = useState(false);
@@ -275,6 +280,7 @@ export function PluginsSection() {
   const handleOpenModal = useCallback(
     (plugin: PluginItem) => {
       setActiveModalPlugin(plugin);
+      setGoogleAccess("read");
       setGoogleClientLoading(["gmail", "google-drive", "google-calendar"].includes(plugin.id));
       setSavedGoogleClientId(null);
       setShowManualToken(false);
@@ -540,7 +546,12 @@ export function PluginsSection() {
         setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_SECRET: "" }));
       }
 
-      const tokens = await startGoogleOAuthFlow(effectiveClientId, DEFAULT_GOOGLE_SCOPES, abortController.signal);
+      const permissions = googlePermissions(plugin.id, googleAccess);
+      const tokens = await startGoogleOAuthFlow(
+        effectiveClientId,
+        permissions.scopes.join(" "),
+        abortController.signal,
+      );
 
       if (abortController.signal.aborted) return;
 
@@ -555,7 +566,17 @@ export function PluginsSection() {
 
       if (abortController.signal.aborted) return;
 
-      const secrets = buildGoogleMcpEnvironment(plugin.id, paths);
+      const secrets: Record<string, string> = {
+        ...buildGoogleMcpEnvironment(plugin.id, paths),
+        SYTHORIA_ALLOWED_TOOLS: JSON.stringify(permissions.tools),
+        ...(plugin.id === "gmail"
+          ? {}
+          : {
+              GOOGLE_DRIVE_MCP_SCOPES: permissions.scopes.join(","),
+              GOOGLE_DRIVE_MCP_DISABLE_RESOURCES: "true",
+            }),
+      };
+
       const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
 
       if (success) {
@@ -1436,6 +1457,22 @@ export function PluginsSection() {
                               </div>
                             </div>
 
+                            <div className="block text-xs text-text-primary">
+                              Access
+                              <Select
+                                aria-label="Google access level"
+                                value={googleAccess}
+                                onChange={(value) => setGoogleAccess(value as GoogleAccess)}
+                                options={[
+                                  { value: "read", label: "Read only" },
+                                  { value: "write", label: googlePermissions(activeModalPlugin.id).writeLabel },
+                                ]}
+                                size="compact"
+                              />
+                            </div>
+                            <p className="text-xs text-text-muted">
+                              {googlePermissions(activeModalPlugin.id, googleAccess).description}
+                            </p>
                             {/* Step 2: 1-Click Connect Button */}
                             <button
                               type="button"
