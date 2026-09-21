@@ -307,8 +307,11 @@ function userFriendlyMcpError(mcpMessage: string, raw: string): ParsedError {
     lower.includes("PeerPlugin") ||
     lower.includes("not supported")
   ) {
+    const formatted = mcpMessage.toLowerCase().startsWith("mcp handshake failed")
+      ? mcpMessage
+      : `MCP handshake failed: ${mcpMessage}`;
     return {
-      message: `MCP handshake failed: ${mcpMessage}`,
+      message: formatted,
       action:
         "Check that the MCP server is running correctly, its port/URL is reachable, and any command arguments are valid.",
       category: "mcp",
@@ -380,7 +383,7 @@ export function parseApiErrorMessage(err: unknown): string {
 
 /** Pulls the first quoted token out of an MCP spawn error like `Could not start "npx": ...`. */
 function extractProgramName(msg: string): string | null {
-  const match = msg.match(/"([^"]+)"/);
+  const match = msg.match(/["']([^"']+)["']/);
   if (match) {
     // Only keep the program name (first token), in case a full command leaked in.
     return match[1].split(/\s+/)[0];

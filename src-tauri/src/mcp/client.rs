@@ -47,10 +47,47 @@ const MCP_RUNTIME_ENV_ALLOWLIST: &[&str] = &[
     "APPDATA",
     "LOCALAPPDATA",
     "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)",
+    "COMMONPROGRAMW6432",
+    "SYSTEMDRIVE",
     "SYSTEMROOT",
     "WINDIR",
     "COMSPEC",
     "PATHEXT",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "NUMBER_OF_PROCESSORS",
+    "USERNAME",
+    "COMPUTERNAME",
+    "USERDOMAIN",
+    "NODE_PATH",
+    "NODE_OPTIONS",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NPM_CONFIG_CACHE",
+    "NPM_CONFIG_PREFIX",
+    "NPM_CONFIG_USERCONFIG",
+    "NPM_CONFIG_REGISTRY",
+    // Python and package-manager toolchain discovery.
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONUSERBASE",
+    "UV_CACHE_DIR",
+    "UV_PYTHON",
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+    "PIP_CACHE_DIR",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "BUN_INSTALL",
 ];
 
 fn is_explicit_env_key_allowed(key: &str) -> bool {
@@ -113,51 +150,114 @@ async fn find_executable(name: &str) -> String {
         return name.to_string();
     }
 
-    let common_paths = [
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ];
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![name.to_string()];
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".cmd") && !lower.ends_with(".exe") && !lower.ends_with(".bat") {
+            candidates.push(format!("{}.cmd", name));
+            candidates.push(format!("{}.exe", name));
+            candidates.push(format!("{}.bat", name));
+        }
 
-    for dir in &common_paths {
-        let path = std::path::Path::new(dir).join(name);
-        if path.exists() {
-            return path.to_string_lossy().to_string();
+        let mut win_dirs = vec![
+            std::path::PathBuf::from("C:\\Program Files\\nodejs"),
+            std::path::PathBuf::from("C:\\Program Files (x86)\\nodejs"),
+            std::path::PathBuf::from("C:\\Windows\\System32"),
+            std::path::PathBuf::from("C:\\Windows"),
+        ];
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            win_dirs.push(std::path::PathBuf::from(appdata).join("npm"));
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let py_dir = std::path::PathBuf::from(&local_appdata)
+                .join("Programs")
+                .join("Python");
+            if let Ok(entries) = std::fs::read_dir(&py_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        win_dirs.push(p.join("Scripts"));
+                        win_dirs.push(p);
+                    }
+                }
+            }
+            win_dirs.push(
+                std::path::PathBuf::from(&local_appdata)
+                    .join("Python")
+                    .join("bin"),
+            );
+            win_dirs.push(
+                std::path::PathBuf::from(&local_appdata)
+                    .join("Programs")
+                    .join("uv"),
+            );
+        }
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let up = std::path::PathBuf::from(&userprofile);
+            win_dirs.push(up.join(".cargo").join("bin"));
+            win_dirs.push(up.join(".local").join("bin"));
+            win_dirs.push(up.join(".bun").join("bin"));
+        }
+
+        for dir in &win_dirs {
+            for cand in &candidates {
+                let path = dir.join(cand);
+                if path.exists() {
+                    return path.to_string_lossy().to_string();
+                }
+            }
         }
     }
 
-    if let Ok(home) = std::env::var("HOME") {
-        let npm_paths = [
-            format!("{}/.npm-global/bin", home),
-            format!("{}/.local/bin", home),
-            format!("{}/n/bin", home),
+    #[cfg(not(windows))]
+    {
+        let common_paths = [
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
         ];
-        for dir in &npm_paths {
+
+        for dir in &common_paths {
             let path = std::path::Path::new(dir).join(name);
             if path.exists() {
                 return path.to_string_lossy().to_string();
             }
         }
 
-        if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
-            let nvm_bin = std::path::Path::new(&nvm_dir).join("versions").join("node");
-            if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
-                let mut versions: Vec<_> = entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().is_dir())
-                    .collect();
-                versions.sort_by(|a, b| {
-                    let a_name = a.file_name().to_string_lossy().to_string();
-                    let b_name = b.file_name().to_string_lossy().to_string();
-                    b_name.cmp(&a_name)
-                });
-                for version_dir in versions {
-                    let bin_path = version_dir.path().join("bin").join(name);
-                    if bin_path.exists() {
-                        return bin_path.to_string_lossy().to_string();
+        if let Ok(home) = std::env::var("HOME") {
+            let npm_paths = [
+                format!("{}/.npm-global/bin", home),
+                format!("{}/.local/bin", home),
+                format!("{}/n/bin", home),
+            ];
+            for dir in &npm_paths {
+                let path = std::path::Path::new(dir).join(name);
+                if path.exists() {
+                    return path.to_string_lossy().to_string();
+                }
+            }
+
+            if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
+                let nvm_bin = std::path::Path::new(&nvm_dir).join("versions").join("node");
+                if let Ok(entries) = std::fs::read_dir(&nvm_bin) {
+                    let mut versions: Vec<_> = entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| e.path().is_dir())
+                        .collect();
+                    versions.sort_by(|a, b| {
+                        let a_name = a.file_name().to_string_lossy().to_string();
+                        let b_name = b.file_name().to_string_lossy().to_string();
+                        b_name.cmp(&a_name)
+                    });
+                    for version_dir in versions {
+                        let bin_path = version_dir.path().join("bin").join(name);
+                        if bin_path.exists() {
+                            return bin_path.to_string_lossy().to_string();
+                        }
                     }
                 }
             }
@@ -168,27 +268,174 @@ async fn find_executable(name: &str) -> String {
 }
 
 fn create_shell_command(program: &str, args: &[String]) -> Command {
-    let mut cmd = Command::new(program);
-    cmd.args(args);
+    let program_path = std::path::Path::new(program);
+    let mut cmd = if cfg!(windows) {
+        // On Windows, running `npx.cmd` directly through batch execution can fail if npm
+        // fails to resolve shims via cmd.exe without PATHEXT. If `npx` or `npx.cmd` is invoked
+        // and `node.exe` with `npx-cli.js` exists beside it, invoke `node.exe <npx-cli.js>` directly.
+        let is_npx = program.eq_ignore_ascii_case("npx")
+            || program.to_ascii_lowercase().ends_with("npx.cmd")
+            || program.to_ascii_lowercase().ends_with("npx.exe");
+        if is_npx {
+            let mut direct_node = None;
+            if program_path.is_absolute() {
+                if let Some(parent) = program_path.parent() {
+                    let node_exe = parent.join("node.exe");
+                    let npx_cli = parent
+                        .join("node_modules")
+                        .join("npm")
+                        .join("bin")
+                        .join("npx-cli.js");
+                    if node_exe.exists() && npx_cli.exists() {
+                        direct_node = Some((node_exe, npx_cli));
+                    }
+                }
+            }
+            if direct_node.is_none() {
+                let common_node_dirs = [
+                    "C:\\Program Files\\nodejs",
+                    "C:\\Program Files (x86)\\nodejs",
+                ];
+                for dir in &common_node_dirs {
+                    let pb = std::path::PathBuf::from(dir);
+                    let node_exe = pb.join("node.exe");
+                    let npx_cli = pb
+                        .join("node_modules")
+                        .join("npm")
+                        .join("bin")
+                        .join("npx-cli.js");
+                    if node_exe.exists() && npx_cli.exists() {
+                        direct_node = Some((node_exe, npx_cli));
+                        break;
+                    }
+                }
+            }
+
+            if let Some((node_exe, npx_cli)) = direct_node {
+                let mut c = Command::new(node_exe);
+                c.arg(npx_cli);
+                c.args(args);
+                c
+            } else if program.to_ascii_lowercase().ends_with(".cmd")
+                || program.to_ascii_lowercase().ends_with(".bat")
+            {
+                let comspec = std::env::var("COMSPEC")
+                    .unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+                let mut c = Command::new(comspec);
+                c.arg("/c");
+                c.arg(program);
+                c.args(args);
+                c
+            } else {
+                let mut c = Command::new(program);
+                c.args(args);
+                c
+            }
+        } else if program.to_ascii_lowercase().ends_with(".cmd")
+            || program.to_ascii_lowercase().ends_with(".bat")
+        {
+            let comspec = std::env::var("COMSPEC")
+                .unwrap_or_else(|_| "C:\\Windows\\System32\\cmd.exe".to_string());
+            let mut c = Command::new(comspec);
+            c.arg("/c");
+            c.arg(program);
+            c.args(args);
+            c
+        } else {
+            let mut c = Command::new(program);
+            c.args(args);
+            c
+        }
+    } else {
+        let mut c = Command::new(program);
+        c.args(args);
+        c
+    };
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000);
+    }
 
     // MCP stdio servers are renderer-configurable executables. Do not let them
     // implicitly inherit credentials or ambient desktop integration sockets.
     cmd.env_clear();
-    for key in MCP_RUNTIME_ENV_ALLOWLIST {
-        if let Some(value) = std::env::var_os(key) {
+    for (key, value) in std::env::vars_os() {
+        let normalized = key.to_string_lossy().to_ascii_uppercase();
+        if MCP_RUNTIME_ENV_ALLOWLIST.contains(&normalized.as_str()) {
             cmd.env(key, value);
         }
     }
 
-    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    #[cfg(windows)]
+    {
+        // Guarantee critical Windows environment variables for batch/cmd/node child processes
+        cmd.env(
+            "PATHEXT",
+            std::env::var("PATHEXT").unwrap_or_else(|_| {
+                ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC".to_string()
+            }),
+        );
+        let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+        cmd.env("SystemRoot", &sysroot);
+        cmd.env(
+            "SystemDrive",
+            std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string()),
+        );
+        cmd.env(
+            "COMSPEC",
+            std::env::var("COMSPEC").unwrap_or_else(|_| format!("{}\\System32\\cmd.exe", sysroot)),
+        );
+        let temp = std::env::temp_dir();
+        cmd.env("TEMP", &temp);
+        cmd.env("TMP", &temp);
+    }
+
+    let current_path = std::env::vars_os()
+        .find_map(|(k, v)| {
+            if k.to_string_lossy().eq_ignore_ascii_case("PATH") {
+                Some(v)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
     let paths = std::env::split_paths(&current_path);
-    let mut new_paths: Vec<std::path::PathBuf> = paths.collect();
+    let mut new_paths: Vec<std::path::PathBuf> = Vec::new();
+    for p in paths {
+        let s = p.to_string_lossy();
+        if s.contains("\\target\\") || s.contains("/target/") {
+            continue;
+        }
+        if !p.exists() || !p.is_dir() {
+            continue;
+        }
+        let already_present = new_paths.iter().any(|existing| {
+            if cfg!(windows) {
+                existing.to_string_lossy().eq_ignore_ascii_case(&s)
+            } else {
+                existing == &p
+            }
+        });
+        if !already_present {
+            new_paths.push(p);
+        }
+    }
 
     let program_path = std::path::Path::new(program);
     if program_path.is_absolute() {
         if let Some(parent) = program_path.parent() {
             let parent_buf = parent.to_path_buf();
-            if !new_paths.contains(&parent_buf) {
+            let already_present = new_paths.iter().any(|existing| {
+                if cfg!(windows) {
+                    existing
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&parent_buf.to_string_lossy())
+                } else {
+                    existing == &parent_buf
+                }
+            });
+            if !already_present {
                 new_paths.insert(0, parent_buf);
             }
         }
@@ -247,6 +494,92 @@ fn create_shell_command(program: &str, args: &[String]) -> Command {
         }
     }
 
+    #[cfg(windows)]
+    {
+        let win_dirs = [
+            "C:\\Windows\\System32",
+            "C:\\Windows",
+            "C:\\Windows\\System32\\Wbem",
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0",
+            "C:\\Program Files\\nodejs",
+        ];
+        for dir in &win_dirs {
+            let pb = std::path::PathBuf::from(dir);
+            if pb.exists() && !new_paths.contains(&pb) {
+                new_paths.push(pb);
+            }
+        }
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_roaming = std::path::PathBuf::from(appdata).join("npm");
+            if npm_roaming.exists() && !new_paths.contains(&npm_roaming) {
+                new_paths.push(npm_roaming);
+            }
+        }
+        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+            let py_dir = std::path::PathBuf::from(&local_appdata)
+                .join("Programs")
+                .join("Python");
+            if let Ok(entries) = std::fs::read_dir(&py_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        let scripts = p.join("Scripts");
+                        if scripts.exists() && !new_paths.contains(&scripts) {
+                            new_paths.push(scripts);
+                        }
+                        if !new_paths.contains(&p) {
+                            new_paths.push(p);
+                        }
+                    }
+                }
+            }
+            let py_bin = std::path::PathBuf::from(&local_appdata)
+                .join("Python")
+                .join("bin");
+            if py_bin.exists() && !new_paths.contains(&py_bin) {
+                new_paths.push(py_bin);
+            }
+        }
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let user_profile_path = std::path::PathBuf::from(&userprofile);
+            let local_bin = user_profile_path.join(".local").join("bin");
+            if local_bin.exists() && !new_paths.contains(&local_bin) {
+                new_paths.push(local_bin);
+            }
+            let cargo_bin = user_profile_path.join(".cargo").join("bin");
+            if cargo_bin.exists() && !new_paths.contains(&cargo_bin) {
+                new_paths.push(cargo_bin);
+            }
+            let bun_bin = user_profile_path.join(".bun").join("bin");
+            if bun_bin.exists() && !new_paths.contains(&bun_bin) {
+                new_paths.push(bun_bin);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        cmd.env_remove("Path");
+        cmd.env_remove("path");
+
+        // Windows cmd.exe has an 8191 character limit for the environment block / variable.
+        // Keep PATH safely under 4096 chars so child launchers (like npx) have plenty of room.
+        let mut total_len = 0;
+        let mut bounded_paths = Vec::new();
+        for p in new_paths {
+            let p_len = p.as_os_str().len() + 1;
+            if total_len + p_len > 4096 {
+                break;
+            }
+            total_len += p_len;
+            bounded_paths.push(p);
+        }
+        if let Ok(joined) = std::env::join_paths(bounded_paths) {
+            cmd.env("PATH", joined);
+        }
+    }
+
+    #[cfg(not(windows))]
     if let Ok(joined) = std::env::join_paths(new_paths) {
         cmd.env("PATH", joined);
     }
@@ -258,9 +591,14 @@ async fn resolve_executable_via_shell(program: &str) -> Option<String> {
     if std::path::Path::new(program).is_absolute() && std::path::Path::new(program).exists() {
         return Some(program.to_string());
     }
-    which::which(program)
-        .ok()
-        .map(|path| path.to_string_lossy().into_owned())
+    if let Ok(path) = which::which(program) {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    let fb = find_executable(program).await;
+    if fb != program && std::path::Path::new(&fb).exists() {
+        return Some(fb);
+    }
+    None
 }
 
 /// Probes whether the given program is resolvable to an executable.
@@ -413,7 +751,7 @@ pub async fn connect_server(
             let mut cmd = create_shell_command(&resolved_program, &resolved_args);
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::inherit());
+                .stderr(std::process::Stdio::null());
 
             for (key, value) in &env_secrets.0 {
                 if is_explicit_env_key_allowed(key) {
@@ -423,24 +761,68 @@ pub async fn connect_server(
                 }
             }
 
-            // Build the child process, translating NotFound/permission into a
-            // friendly, actionable error before it becomes an opaque OS message.
-            let transport = TokioChildProcess::new(cmd).map_err(|e| {
-                // TokioChildProcess wraps the underlying io::Error in its own Display.
-                // Pull the raw kind by attempting a downcast-style inspection via string.
-                let raw_err = std::io::Error::other(e.to_string());
-                let kind = io_error_kind_from_display(&e.to_string());
-                let synthetic = match kind {
-                    Some(k) => std::io::Error::new(k, e.to_string()),
-                    None => raw_err,
-                };
-                friendly_spawn_error(&program, &resolved_program, &synthetic)
-            })?;
+            let stderr_buffer = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+            let (transport, stderr_opt) = TokioChildProcess::builder(cmd)
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| {
+                    // TokioChildProcess wraps the underlying io::Error in its own Display.
+                    // Pull the raw kind by attempting a downcast-style inspection via string.
+                    let raw_err = std::io::Error::other(e.to_string());
+                    let kind = io_error_kind_from_display(&e.to_string());
+                    let synthetic = match kind {
+                        Some(k) => std::io::Error::new(k, e.to_string()),
+                        None => raw_err,
+                    };
+                    friendly_spawn_error(&program, &resolved_program, &synthetic)
+                })?;
 
-            let mut running = client
-                .serve_with_ct(transport, ct)
-                .await
-                .map_err(|e| format!("MCP handshake failed for '{}': {}", resolved_program, e))?;
+            if let Some(stderr) = stderr_opt {
+                let s_id = server_id.clone();
+                let buf_clone = stderr_buffer.clone();
+                tokio::spawn(async move {
+                    use tokio::io::AsyncBufReadExt;
+                    let mut reader = tokio::io::BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        log::info!("[MCP {} stderr] {}", s_id, line);
+                        let mut buf = buf_clone.lock().await;
+                        if buf.len() > 30 {
+                            buf.remove(0);
+                        }
+                        buf.push(line);
+                    }
+                });
+            }
+
+            let mut running = match client.serve_with_ct(transport, ct).await {
+                Ok(r) => r,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let captured = {
+                        let buf = stderr_buffer.lock().await;
+                        buf.join(" | ")
+                    };
+                    if !captured.trim().is_empty() {
+                        return Err(format!(
+                            "MCP handshake failed for '{}': {}",
+                            resolved_program,
+                            captured.trim()
+                        ));
+                    }
+                    if err_str.contains("connection closed")
+                        || err_str.contains("Connection closed")
+                    {
+                        return Err(format!(
+                            "MCP handshake failed for '{}': the process exited unexpectedly before completing initialization. Verify that required credentials, arguments, and runtime dependencies are correctly configured.",
+                            resolved_program
+                        ));
+                    }
+                    return Err(format!(
+                        "MCP handshake failed for '{}': {}",
+                        resolved_program, err_str
+                    ));
+                }
+            };
 
             let tools_result = running
                 .peer()
@@ -905,6 +1287,22 @@ mod tests {
     }
 
     #[test]
+    fn test_create_shell_command_npx_windows() {
+        if cfg!(windows) {
+            let cmd =
+                create_shell_command("npx", &["-y".to_string(), "linear-mcp-server".to_string()]);
+            let prog = cmd.as_std().get_program().to_string_lossy().to_string();
+            assert!(
+                prog.ends_with("node.exe")
+                    || prog.ends_with("cmd.exe")
+                    || prog.ends_with("npx.cmd"),
+                "Expected node.exe or cmd.exe or npx.cmd on Windows, got: {}",
+                prog
+            );
+        }
+    }
+
+    #[test]
     fn explicit_server_environment_keys_are_portable_identifiers() {
         assert!(is_explicit_env_key_allowed("GITHUB_PERSONAL_ACCESS_TOKEN"));
         assert!(is_explicit_env_key_allowed("custom_value"));
@@ -966,5 +1364,173 @@ mod tests {
 
         let fake = resolve_executable_via_shell("non_existent_command_12345").await;
         assert!(fake.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_stdio_node() {
+        let Some(node) = resolve_executable_via_shell("node").await else {
+            return;
+        };
+
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join(format!("mcp_test_{}.js", uuid::Uuid::new_v4()));
+        let script_content = r#"
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+
+console.error("Test server starting on stdio...");
+rl.on('line', (line) => {
+    try {
+        const req = JSON.parse(line);
+        if (req.method === 'initialize') {
+            const res = {
+                jsonrpc: "2.0",
+                id: req.id,
+                result: {
+                    protocolVersion: "2024-11-05",
+                    capabilities: { tools: {} },
+                    serverInfo: { name: "test-server", version: "1.0.0" }
+                }
+            };
+            process.stdout.write(JSON.stringify(res) + "\n");
+        } else if (req.method === 'notifications/initialized') {
+            // Handshake complete
+        } else if (req.method === 'tools/list') {
+            const res = {
+                jsonrpc: "2.0",
+                id: req.id,
+                result: {
+                    tools: [
+                        {
+                            name: "hello_tool",
+                            description: "Says hello",
+                            inputSchema: { type: "object" }
+                        }
+                    ]
+                }
+            };
+            process.stdout.write(JSON.stringify(res) + "\n");
+        }
+    } catch (e) {
+        console.error("Error processing line:", e);
+    }
+});
+"#;
+        std::fs::write(&script_path, script_content).unwrap();
+
+        let server_id = format!("test-srv-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "Test Node MCP".to_string(),
+            transport: "stdio".to_string(),
+            command: Some(node),
+            args: Some(vec![script_path.to_string_lossy().to_string()]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let result = connect_server(&config, HashMap::new()).await;
+        let _ = std::fs::remove_file(&script_path);
+
+        assert!(
+            result.is_ok(),
+            "Expected connect_server to succeed, got error: {:?}",
+            result.err()
+        );
+        let tools = result.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "hello_tool");
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_captures_stderr_on_exit() {
+        let Some(node) = resolve_executable_via_shell("node").await else {
+            return;
+        };
+
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join(format!("mcp_fail_test_{}.js", uuid::Uuid::new_v4()));
+        let script_content = r#"
+console.error("Fatal: API key invalid or missing!");
+process.exit(1);
+"#;
+        std::fs::write(&script_path, script_content).unwrap();
+
+        let server_id = format!("test-srv-fail-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "Failing MCP".to_string(),
+            transport: "stdio".to_string(),
+            command: Some(node),
+            args: Some(vec![script_path.to_string_lossy().to_string()]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let result = connect_server(&config, HashMap::new()).await;
+        let _ = std::fs::remove_file(&script_path);
+
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("Fatal: API key invalid or missing!"),
+            "Error should contain captured stderr, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_connect_server_with_npx() {
+        let server_id = format!("test-srv-npx-{}", uuid::Uuid::new_v4());
+        let config = McpServerConfig {
+            id: server_id.clone(),
+            name: "GitHub Plugin Test".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args: Some(vec![
+                "-y".to_string(),
+                "@modelcontextprotocol/server-github".to_string(),
+            ]),
+            baseUrl: None,
+            apiKey: None,
+            enabled: true,
+            trustLevel: Some("untrusted".to_string()),
+        };
+
+        {
+            let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
+            manager.set_explicitly_enabled(&server_id, true);
+        }
+
+        let mut env_secrets = HashMap::new();
+        env_secrets.insert(
+            "GITHUB_PERSONAL_ACCESS_TOKEN".to_string(),
+            "dummy_token".to_string(),
+        );
+        let result = connect_server(&config, env_secrets).await;
+        if let Err(err) = &result {
+            assert!(
+                !err.contains("is not recognized as an internal or external command"),
+                "MCP launcher failed to find command shim: {}",
+                err
+            );
+        } else {
+            let tools = result.unwrap();
+            assert!(!tools.is_empty(), "Expected GitHub server to return tools");
+        }
     }
 }

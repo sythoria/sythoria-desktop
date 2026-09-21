@@ -57,9 +57,8 @@ pub fn open_or_create_db(db_path: &Path) -> Result<Connection, AppError> {
         })?;
     }
 
-    let conn = Connection::open(db_path).map_err(|e| {
-        AppError::RagError(format!("Failed to open RAG SQLite database: {}", e))
-    })?;
+    let conn = Connection::open(db_path)
+        .map_err(|e| AppError::RagError(format!("Failed to open RAG SQLite database: {}", e)))?;
 
     // Enable WAL mode & foreign keys for performance and data integrity
     conn.execute_batch(
@@ -225,13 +224,18 @@ pub fn get_collection(
             description: row.get(2).map_err(|e| AppError::RagError(e.to_string()))?,
             embedding_provider: row.get(3).map_err(|e| AppError::RagError(e.to_string()))?,
             embedding_model: row.get(4).map_err(|e| AppError::RagError(e.to_string()))?,
-            chunk_size: row.get::<_, i64>(5).map_err(|e| AppError::RagError(e.to_string()))?
-                as usize,
-            chunk_overlap: row.get::<_, i64>(6).map_err(|e| AppError::RagError(e.to_string()))?
+            chunk_size: row
+                .get::<_, i64>(5)
+                .map_err(|e| AppError::RagError(e.to_string()))? as usize,
+            chunk_overlap: row
+                .get::<_, i64>(6)
+                .map_err(|e| AppError::RagError(e.to_string()))?
                 as usize,
             created_at: row.get(7).map_err(|e| AppError::RagError(e.to_string()))?,
             updated_at: row.get(8).map_err(|e| AppError::RagError(e.to_string()))?,
-            document_count: row.get::<_, i64>(9).map_err(|e| AppError::RagError(e.to_string()))?
+            document_count: row
+                .get::<_, i64>(9)
+                .map_err(|e| AppError::RagError(e.to_string()))?
                 as usize,
             chunk_count: row
                 .get::<_, i64>(10)
@@ -305,11 +309,14 @@ pub fn insert_document_and_chunks(
             INSERT INTO chunks_fts (chunk_id, collection_id, document_id, content)
             VALUES (?1, ?2, ?3, ?4)
             "#,
-            params![chunk.id, chunk.collection_id, chunk.document_id, chunk.content],
+            params![
+                chunk.id,
+                chunk.collection_id,
+                chunk.document_id,
+                chunk.content
+            ],
         )
-        .map_err(|e| {
-            AppError::RagError(format!("Failed to insert FTS chunk: {}", e))
-        })?;
+        .map_err(|e| AppError::RagError(format!("Failed to insert FTS chunk: {}", e)))?;
     }
 
     let now = chrono::Utc::now().timestamp_millis();

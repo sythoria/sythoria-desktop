@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Sliders,
   Copy,
+  Upload,
 } from "lucide-react";
 import { useTranslation } from "../../../utils/i18n";
 import { useMcpStore } from "../../../store/useMcpStore";
@@ -25,7 +26,38 @@ import { motionTransitions } from "../../../lib/motion-tokens";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { BrandIcon } from "../../ui/BrandIcons";
 import { startGitHubDeviceFlow, pollGitHubDeviceToken } from "../../../services/githubOAuth";
+import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../services/linearOAuth";
+import {
+  startGoogleOAuthFlow,
+  saveGoogleMcpTokens,
+  parseGoogleClientSecretsFile,
+  DEFAULT_GOOGLE_CLIENT_ID,
+  DEFAULT_GOOGLE_SCOPES,
+} from "../../../services/googleOAuth";
+import {
+  startSpotifyOAuthFlow,
+  saveSpotifyMcpTokens,
+  DEFAULT_SPOTIFY_CLIENT_ID,
+  DEFAULT_SPOTIFY_SCOPES,
+} from "../../../services/spotifyOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
+
+function formatOAuthError(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim()) return err;
+  if (typeof err === "object" && err !== null) {
+    const rec = err as Record<string, unknown>;
+    for (const key of ["RequestFailed", "AuthError", "ApiError", "ParseError", "McpError", "message", "error"]) {
+      if (typeof rec[key] === "string" && rec[key]) return rec[key] as string;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      // ignore
+    }
+  }
+  return fallback;
+}
 
 // Sythoria Desktop Official Brand Logo Mark
 const SythoriaMark: React.FC<{ size?: number; className?: string }> = ({ size = 32, className = "" }) => (
@@ -73,10 +105,8 @@ export function PluginsSection() {
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
   const envSecrets = useMcpStore((s) => s.envSecrets);
   const enabledServerIds = useMcpStore((s) => s.enabledServerIds);
-  const addMcpConfigFromPreset = useMcpStore((s) => s.addMcpConfigFromPreset);
   const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
   const toggleServerEnabled = useMcpStore((s) => s.toggleServerEnabled);
-  const setEnvSecrets = useMcpStore((s) => s.setEnvSecrets);
 
   // Local UI State
   const [selectedCategory, setSelectedCategory] = useState<PluginCategory | "all">("all");
@@ -84,6 +114,7 @@ export function PluginsSection() {
   const [activeModalPlugin, setActiveModalPlugin] = useState<PluginItem | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+  const [showReauthForm, setShowReauthForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Map installed MCP configs to catalog items
@@ -149,8 +180,45 @@ export function PluginsSection() {
     isPolling: false,
     error: null,
   });
-  const [showManualToken, setShowManualToken] = useState(false);
   const githubAbortRef = useRef<AbortController | null>(null);
+
+  // Linear 1-Click PKCE OAuth State
+  const [linearOAuth, setLinearOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const linearAbortRef = useRef<AbortController | null>(null);
+
+  // Google 1-Click PKCE OAuth State
+  const [googleOAuth, setGoogleOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const googleAbortRef = useRef<AbortController | null>(null);
+
+  // Spotify 1-Click PKCE OAuth State
+  const [spotifyOAuth, setSpotifyOAuth] = useState<{
+    isActive: boolean;
+    isConnecting: boolean;
+    error: string | null;
+  }>({
+    isActive: false,
+    isConnecting: false,
+    error: null,
+  });
+  const spotifyAbortRef = useRef<AbortController | null>(null);
+
+  const [showManualToken, setShowManualToken] = useState(false);
 
   // Clean up pending OAuth polling on unmount
   useEffect(() => {
@@ -158,6 +226,18 @@ export function PluginsSection() {
       if (githubAbortRef.current) {
         githubAbortRef.current.abort();
         githubAbortRef.current = null;
+      }
+      if (linearAbortRef.current) {
+        linearAbortRef.current.abort();
+        linearAbortRef.current = null;
+      }
+      if (googleAbortRef.current) {
+        googleAbortRef.current.abort();
+        googleAbortRef.current = null;
+      }
+      if (spotifyAbortRef.current) {
+        spotifyAbortRef.current.abort();
+        spotifyAbortRef.current = null;
       }
     };
   }, []);
@@ -172,6 +252,21 @@ export function PluginsSection() {
         userCode: "",
         verificationUri: "",
         isPolling: false,
+        error: null,
+      });
+      setLinearOAuth({
+        isActive: false,
+        isConnecting: false,
+        error: null,
+      });
+      setGoogleOAuth({
+        isActive: false,
+        isConnecting: false,
+        error: null,
+      });
+      setSpotifyOAuth({
+        isActive: false,
+        isConnecting: false,
         error: null,
       });
       const installedInfo = installedPluginMap.get(plugin.id);
@@ -190,6 +285,7 @@ export function PluginsSection() {
 
       setFormValues(initialForm);
       setShowPasswordMap({});
+      setShowReauthForm(false);
     },
     [installedPluginMap, envSecrets],
   );
@@ -199,6 +295,18 @@ export function PluginsSection() {
       githubAbortRef.current.abort();
       githubAbortRef.current = null;
     }
+    if (linearAbortRef.current) {
+      linearAbortRef.current.abort();
+      linearAbortRef.current = null;
+    }
+    if (googleAbortRef.current) {
+      googleAbortRef.current.abort();
+      googleAbortRef.current = null;
+    }
+    if (spotifyAbortRef.current) {
+      spotifyAbortRef.current.abort();
+      spotifyAbortRef.current = null;
+    }
     setGithubOAuth({
       isActive: false,
       userCode: "",
@@ -206,7 +314,23 @@ export function PluginsSection() {
       isPolling: false,
       error: null,
     });
+    setLinearOAuth({
+      isActive: false,
+      isConnecting: false,
+      error: null,
+    });
+    setGoogleOAuth({
+      isActive: false,
+      isConnecting: false,
+      error: null,
+    });
+    setSpotifyOAuth({
+      isActive: false,
+      isConnecting: false,
+      error: null,
+    });
     setShowManualToken(false);
+    setShowReauthForm(false);
     setActiveModalPlugin(null);
     setFormValues({});
     setIsSubmitting(false);
@@ -260,27 +384,229 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "github");
       if (plugin) {
-        addMcpConfigFromPreset(plugin.preset);
-        const latestConfigs = useMcpStore.getState().mcpConfigs;
-        const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-        const targetId = newConfig?.id || plugin.preset.id;
-
-        setEnvSecrets(targetId, {
+        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
           GITHUB_PERSONAL_ACCESS_TOKEN: token,
         });
 
-        await toggleServerEnabled(targetId, true);
-        addToast("GitHub successfully authorized via 1-Click OAuth!", "success");
-        handleCloseModal();
+        if (success) {
+          addToast(`Connected ${plugin.name}`, "success");
+          handleCloseModal();
+        }
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
-      const errorMsg = err instanceof Error ? err.message : "GitHub OAuth failed";
+      const errorMsg = formatOAuthError(err, "GitHub OAuth failed");
       setGithubOAuth((prev) => ({
         ...prev,
         isPolling: false,
         error: errorMsg,
       }));
+      addToast(errorMsg, "error");
+    }
+  };
+
+  // 1-Click Linear PKCE OAuth
+  const handleStartLinearOAuth = async () => {
+    if (linearAbortRef.current) {
+      linearAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    linearAbortRef.current = abortController;
+
+    setLinearOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const token = await startLinearOAuthFlow(
+        DEFAULT_LINEAR_CLIENT_ID,
+        undefined,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      // Successfully authorized
+      const plugin = PLUGINS_CATALOG.find((p) => p.id === "linear");
+      if (plugin) {
+        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
+          LINEAR_API_KEY: token,
+          LINEAR_ACCESS_TOKEN: token,
+        });
+
+        if (success) {
+          addToast(`Connected ${plugin.name}`, "success");
+          handleCloseModal();
+        }
+      }
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = formatOAuthError(err, "Linear OAuth failed");
+      setLinearOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
+      addToast(errorMsg, "error");
+    }
+  };
+
+  // Import credentials file downloaded from Google Cloud Console (client_secret_xxx.json)
+  const handleImportGoogleCredentials = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result;
+      if (typeof content === "string") {
+        const parsed = parseGoogleClientSecretsFile(content);
+        if (parsed.clientId || parsed.clientSecret) {
+          setFormValues((prev) => ({
+            ...prev,
+            ...(parsed.clientId ? { GOOGLE_CLIENT_ID: parsed.clientId } : {}),
+            ...(parsed.clientSecret ? { GOOGLE_CLIENT_SECRET: parsed.clientSecret } : {}),
+          }));
+          addToast("Imported Google credentials file", "success");
+        } else {
+          addToast("Could not find client_id or client_secret in JSON", "error");
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // 1-Click Google PKCE OAuth
+  const handleStartGoogleOAuth = async (plugin: PluginItem) => {
+    if (googleAbortRef.current) {
+      googleAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    googleAbortRef.current = abortController;
+
+    setGoogleOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const customClientId = formValues["GOOGLE_CLIENT_ID"]?.trim() || undefined;
+      const customClientSecret = formValues["GOOGLE_CLIENT_SECRET"]?.trim() || undefined;
+      const effectiveClientId = customClientId || DEFAULT_GOOGLE_CLIENT_ID;
+
+      if (!customClientSecret) {
+        setGoogleOAuth({
+          isActive: true,
+          isConnecting: false,
+          error:
+            "Google requires a Client Secret to exchange tokens. Please enter your secret (GOCSPX-...) or click 'Import JSON' / 'Get Credentials' above.",
+        });
+        addToast("Client Secret required for Google OAuth", "error");
+        return;
+      }
+
+      const tokens = await startGoogleOAuthFlow(
+        effectiveClientId,
+        DEFAULT_GOOGLE_SCOPES,
+        undefined,
+        undefined,
+        abortController.signal,
+        customClientSecret,
+      );
+
+      // Save token files atomically for MCP servers
+      const paths = await saveGoogleMcpTokens(
+        effectiveClientId,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.expiresIn,
+        tokens.scope,
+        customClientSecret,
+      );
+
+      // Build secrets map
+      const secrets: Record<string, string> = {
+        GOOGLE_ACCESS_TOKEN: tokens.accessToken,
+        GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
+        GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
+        GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
+        GOOGLE_CALENDAR_CREDENTIALS: paths.tokenPath,
+        GOOGLE_APPLICATION_CREDENTIALS: paths.credentialsPath,
+      };
+      if (customClientSecret) {
+        secrets["GOOGLE_CLIENT_SECRET"] = customClientSecret;
+      }
+      if (customClientId) {
+        secrets["GOOGLE_CLIENT_ID"] = customClientId;
+      }
+
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = formatOAuthError(err, "Google OAuth failed");
+      setGoogleOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
+      addToast(errorMsg, "error");
+    }
+  };
+
+  // 1-Click Spotify PKCE OAuth
+  const handleStartSpotifyOAuth = async (plugin: PluginItem) => {
+    if (spotifyAbortRef.current) {
+      spotifyAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    spotifyAbortRef.current = abortController;
+
+    setSpotifyOAuth({
+      isActive: true,
+      isConnecting: true,
+      error: null,
+    });
+
+    try {
+      const customClientId = formValues["SPOTIFY_CLIENT_ID"]?.trim() || undefined;
+      const tokens = await startSpotifyOAuthFlow(
+        customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        DEFAULT_SPOTIFY_SCOPES,
+        undefined,
+        undefined,
+        abortController.signal,
+      );
+
+      // Save tokens atomically to ~/.spotify-mcp/tokens.json for spotify-mcp server
+      await saveSpotifyMcpTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn);
+
+      // Build secrets map
+      const secrets: Record<string, string> = {
+        SPOTIFY_CLIENT_ID: customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        SPOTIFY_ACCESS_TOKEN: tokens.accessToken,
+      };
+
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
+    } catch (err: unknown) {
+      if (abortController.signal.aborted) return;
+      const errorMsg = formatOAuthError(err, "Spotify OAuth failed");
+      setSpotifyOAuth({
+        isActive: true,
+        isConnecting: false,
+        error: errorMsg,
+      });
       addToast(errorMsg, "error");
     }
   };
@@ -294,35 +620,20 @@ export function PluginsSection() {
       const plugin = activeModalPlugin;
       const installedInfo = installedPluginMap.get(plugin.id);
 
-      let targetConfigId = installedInfo?.configId;
-
-      if (!targetConfigId) {
-        addMcpConfigFromPreset(plugin.preset);
-        const latestConfigs = useMcpStore.getState().mcpConfigs;
-        const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-        targetConfigId = newConfig?.id || plugin.preset.id;
-      }
-
-      if (plugin.authFields.length > 0 && targetConfigId) {
-        const secretsToSave: Record<string, string> = {};
-        for (const field of plugin.authFields) {
-          const val = formValues[field.key];
-          if (val !== undefined) {
-            secretsToSave[field.key] = val.trim();
-          }
+      const secretsToSave: Record<string, string> = {};
+      for (const field of plugin.authFields) {
+        const val = formValues[field.key];
+        if (val !== undefined) {
+          secretsToSave[field.key] = val.trim();
         }
-        setEnvSecrets(targetConfigId, secretsToSave);
       }
 
-      if (targetConfigId) {
-        await toggleServerEnabled(targetConfigId, true);
-      }
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secretsToSave);
 
-      addToast(
-        installedInfo ? `Updated authorization for ${plugin.name}` : `Successfully authorized ${plugin.name}`,
-        "success",
-      );
-      handleCloseModal();
+      if (success) {
+        addToast(installedInfo ? `Updated authorization for ${plugin.name}` : `Connected ${plugin.name}`, "success");
+        handleCloseModal();
+      }
     } catch {
       addToast(`Failed to authorize ${activeModalPlugin.name}`, "error");
     } finally {
@@ -339,13 +650,10 @@ export function PluginsSection() {
     }
 
     try {
-      addMcpConfigFromPreset(plugin.preset);
-      const latestConfigs = useMcpStore.getState().mcpConfigs;
-      const newConfig = latestConfigs.find((c) => c.name === plugin.preset.name || c.id === plugin.preset.id);
-      const targetId = newConfig?.id || plugin.preset.id;
-
-      await toggleServerEnabled(targetId, true);
-      addToast(`Authorized ${plugin.name}`, "success");
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {});
+      if (success) {
+        addToast(`Connected ${plugin.name}`, "success");
+      }
     } catch {
       addToast(`Failed to authorize ${plugin.name}`, "error");
     }
@@ -395,22 +703,37 @@ export function PluginsSection() {
               const isConnected = info?.isConnected;
 
               return (
-                <button
+                <div
                   key={plugin.id}
-                  onClick={() => handleOpenModal(plugin)}
-                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-border/80 bg-hover/40 hover:bg-hover hover:border-accent/40 text-xs font-medium text-text-primary transition-all group"
-                  title={`Configure ${plugin.name}`}
+                  className="flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-xl border border-border/80 bg-hover/40 hover:bg-hover hover:border-accent/40 text-xs font-medium text-text-primary transition-all group"
                 >
-                  <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0">
-                    <BrandIcon name={plugin.id} size={18} />
-                  </div>
-                  <span>{plugin.name}</span>
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isConnected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-text-muted/40"
-                    }`}
-                  />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenModal(plugin)}
+                    className="flex items-center gap-2 text-text-primary hover:text-accent transition-colors focus:outline-none"
+                    title={`Configure ${plugin.name}`}
+                  >
+                    <div className="w-5 h-5 rounded-md flex items-center justify-center shrink-0">
+                      <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={18} />
+                    </div>
+                    <span>{plugin.name}</span>
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        isConnected ? "bg-emerald-500 shadow-sm shadow-emerald-500/50" : "bg-text-muted/40"
+                      }`}
+                    />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleDisconnectPlugin(plugin, e)}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-500/15 transition-all focus:outline-none"
+                    title={`Revoke access for ${plugin.name}`}
+                    aria-label={`Revoke access for ${plugin.name}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -445,17 +768,17 @@ export function PluginsSection() {
         </div>
 
         {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setSelectedCategory("all")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+            title={`All (${PLUGINS_CATALOG.length})`}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               selectedCategory === "all"
                 ? "bg-accent text-accent-foreground shadow-sm"
                 : "bg-surface border border-border text-text-muted hover:text-text-primary hover:bg-hover"
             }`}
           >
-            {t("settings.plugins.categoryAll", { count: String(PLUGINS_CATALOG.length) }) ||
-              `All (${PLUGINS_CATALOG.length})`}
+            {t("settings.plugins.categoryAll") || "All"}
           </button>
           {PLUGIN_CATEGORIES.map((cat) => {
             const count = PLUGINS_CATALOG.filter((p) => p.category === cat.id).length;
@@ -464,13 +787,14 @@ export function PluginsSection() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                title={`${t(cat.labelKey) || cat.id} (${count})`}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   isSelected
                     ? "bg-accent text-accent-foreground shadow-sm"
                     : "bg-surface border border-border text-text-muted hover:text-text-primary hover:bg-hover"
                 }`}
               >
-                {t(cat.labelKey) || cat.id} ({count})
+                {t(cat.labelKey) || cat.id}
               </button>
             );
           })}
@@ -512,18 +836,18 @@ export function PluginsSection() {
                           handleOpenModal(plugin);
                         }
                       }}
-                      className="px-3 py-2.5 rounded-xl transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 group hover:bg-white/[0.05] active:bg-white/[0.08]"
+                      className="px-3 py-2.5 rounded-xl transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 group hover:bg-hover active:bg-active"
                     >
                       {/* Left: Brand Icon + Title & Subtitle */}
                       <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                        <div className="w-11 h-11 rounded-2xl bg-[#141415] border border-white/5 flex items-center justify-center shrink-0 shadow-sm relative p-2">
-                          <BrandIcon name={plugin.id} size={24} showSparkle={isGoogleApp} />
+                        <div className="w-11 h-11 rounded-2xl bg-[#141415] border border-black/5 dark:border-white/5 flex items-center justify-center shrink-0 shadow-sm relative p-2">
+                          <BrandIcon name={plugin.id} iconUrl={plugin.icon} size={24} showSparkle={isGoogleApp} />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold text-white truncate">{plugin.name}</span>
+                            <span className="text-sm font-semibold text-text-primary truncate">{plugin.name}</span>
                           </div>
-                          <p className="text-xs text-neutral-400 truncate mt-0.5">{plugin.description}</p>
+                          <p className="text-xs text-text-muted truncate mt-0.5">{plugin.description}</p>
                         </div>
                       </div>
 
@@ -533,7 +857,9 @@ export function PluginsSection() {
                           <div className="flex items-center gap-1.5">
                             <span
                               className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-medium ${
-                                isConnected ? "text-emerald-400" : "text-amber-400"
+                                isConnected
+                                  ? "text-emerald-500 dark:text-emerald-400"
+                                  : "text-amber-500 dark:text-amber-400"
                               }`}
                               title={isConnected ? "Active & Connected" : "Paused"}
                             >
@@ -543,7 +869,7 @@ export function PluginsSection() {
                         ) : (
                           <button
                             onClick={(e) => void handleQuickConnect(plugin, e)}
-                            className="w-7 h-7 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+                            className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-hover rounded-lg transition-colors"
                             title={`Connect ${plugin.name}`}
                           >
                             <Plus size={20} strokeWidth={2} />
@@ -580,264 +906,736 @@ export function PluginsSection() {
                 </button>
               </div>
 
-              {/* OAuth App Connection Visual (Sythoria <---> App) */}
-              <div className="px-6 pb-4 text-center">
-                <div className="flex items-center justify-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-1.5">
-                    <SythoriaMark size={36} />
-                  </div>
+              {installedPluginMap.has(activeModalPlugin.id) && !showReauthForm ? (
+                /* ========================================================= */
+                /* 1. ALREADY CONNECTED MANAGEMENT VIEW                      */
+                /* ========================================================= */
+                (() => {
+                  const info = installedPluginMap.get(activeModalPlugin.id)!;
+                  return (
+                    <div className="px-6 pb-6 pt-2 space-y-6 overflow-y-auto flex-1 text-sm">
+                      {/* Connection Visual Header */}
+                      <div className="text-center space-y-3">
+                        <div className="flex items-center justify-center gap-3 mb-3">
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-1.5">
+                            <SythoriaMark size={36} />
+                          </div>
 
-                  <div className="flex items-center gap-1 text-text-muted">
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center text-accent">
-                      <Shield size={13} />
-                    </div>
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                    <span className="w-2 h-0.5 bg-border rounded" />
-                  </div>
+                          <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                            <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/20">
+                              <Check size={14} strokeWidth={3} />
+                            </div>
+                            <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
+                          </div>
 
-                  <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-white/10 flex items-center justify-center shadow-md p-2 relative">
-                    <BrandIcon
-                      name={activeModalPlugin.id}
-                      size={28}
-                      showSparkle={
-                        activeModalPlugin.id === "google-drive" ||
-                        activeModalPlugin.id === "gmail" ||
-                        activeModalPlugin.id === "google-calendar"
-                      }
-                    />
-                  </div>
-                </div>
+                          <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                            <BrandIcon
+                              name={activeModalPlugin.id}
+                              iconUrl={activeModalPlugin.icon}
+                              size={28}
+                              showSparkle={
+                                activeModalPlugin.id === "google-drive" ||
+                                activeModalPlugin.id === "gmail" ||
+                                activeModalPlugin.id === "google-calendar"
+                              }
+                            />
+                            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-surface dark:border-[#141415] rounded-full shadow-xs" />
+                          </div>
+                        </div>
 
-                <h3 className="text-lg font-semibold text-text-primary">Sythoria Connector by Sythoria</h3>
-                <p className="text-xs text-text-muted mt-0.5">wants access to your {activeModalPlugin.name} account</p>
-              </div>
+                        <div>
+                          <div className="flex items-center justify-center gap-2">
+                            <h3 className="text-lg font-semibold text-text-primary">{activeModalPlugin.name}</h3>
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                              Connected
+                            </span>
+                          </div>
+                          <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
+                            Sythoria is authorized and ready to execute {activeModalPlugin.name} Model Context Protocol
+                            tools.
+                          </p>
+                        </div>
+                      </div>
 
-              {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
-              <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
-                <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
-                  <div className="text-xs font-semibold text-text-primary tracking-tight">
-                    Authorizing allows this app to:
-                  </div>
-
-                  <div className="space-y-2.5 text-xs text-text-secondary">
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>Verify your {activeModalPlugin.name} identity</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Check size={15} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <span>Act on your behalf via local Model Context Protocol tools</span>
-                    </div>
-                  </div>
-
-                  {/* Resource Scopes */}
-                  <div className="pt-3 border-t border-border/40">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
-                      Resources on your account
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
-                      <Sparkles size={14} className="text-accent shrink-0" />
-                      <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
-                      <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
-                        read & write
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Security & Privacy Guarantee */}
-                  <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
-                    <Lock size={13} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256 keychain.
-                      Data never touches third-party cloud servers.
-                    </span>
-                  </div>
-                </div>
-
-                {/* GitHub 1-Click OAuth Integration */}
-                {activeModalPlugin.id === "github" && (
-                  <div className="space-y-3 pt-1">
-                    {githubOAuth.isActive ? (
-                      <div className="p-4 rounded-xl border border-accent/40 bg-accent/10 space-y-3 text-center">
-                        <div className="text-xs font-semibold text-text-primary">Enter this code on GitHub:</div>
-                        <div className="flex items-center justify-center gap-3">
-                          <span className="text-2xl font-mono font-bold tracking-widest text-accent bg-surface px-4 py-2 rounded-xl border border-accent/30 shadow-inner select-all">
-                            {githubOAuth.userCode || "···· - ····"}
+                      {/* Active Connection Status & Privacy Info */}
+                      <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-text-muted font-medium">Integration Status</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            {info.isConnected ? "Active & Ready" : "Standby (Ready)"}
                           </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
+                          <span className="text-text-muted font-medium">Data Privacy & Security</span>
+                          <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
+                            <Lock size={12} className="text-emerald-600 dark:text-emerald-400" />
+                            AES-256 Keychain (Local)
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs pt-2.5 border-t border-border/40">
+                          <span className="text-text-muted font-medium">Scope</span>
+                          <span className="text-text-secondary font-medium">Full AI Toolset (Read & Write)</span>
+                        </div>
+                      </div>
+
+                      {/* Big Prominent Revoke Access Button */}
+                      <div className="space-y-3 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
+                          className="w-full py-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:text-rose-700 dark:hover:text-rose-200 font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer group"
+                        >
+                          <Trash2
+                            size={16}
+                            className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform"
+                          />
+                          <span>Revoke Access & Disconnect</span>
+                        </button>
+
+                        <div className="flex items-center justify-between pt-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              if (githubOAuth.userCode) {
-                                void navigator.clipboard.writeText(githubOAuth.userCode);
-                                addToast("Code copied to clipboard!", "info");
-                              }
-                            }}
-                            className="p-2.5 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary transition-colors cursor-pointer"
-                            title="Copy Code"
+                            onClick={() => setShowReauthForm(true)}
+                            className="text-xs text-text-muted hover:text-text-primary transition-colors underline"
                           >
-                            <Copy size={16} />
+                            Update credentials / Re-authenticate
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleCloseModal}
+                            className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+                          >
+                            Done
                           </button>
                         </div>
-                        <p className="text-xs text-text-muted leading-relaxed">
-                          Your browser has opened to GitHub. Paste the code above and click{" "}
-                          <strong>Authorize Sythoria</strong>.
-                        </p>
-                        {githubOAuth.isPolling ? (
-                          <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-medium pt-1">
-                            <RefreshCw size={13} className="animate-spin" />
-                            <span>Waiting for approval in browser...</span>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                /* ========================================================= */
+                /* 2. AUTHORIZATION / CONNECTION FLOW                         */
+                /* ========================================================= */
+                <>
+                  {/* OAuth App Connection Visual (Sythoria <---> App) */}
+                  <div className="px-6 pb-4 text-center">
+                    <div className="flex items-center justify-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-1.5">
+                        <SythoriaMark size={36} />
+                      </div>
+
+                      <div className="flex items-center gap-1 text-text-muted">
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <div className="w-6 h-6 rounded-full bg-accent/15 flex items-center justify-center text-accent">
+                          <Shield size={13} />
+                        </div>
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                        <span className="w-2 h-0.5 bg-border rounded" />
+                      </div>
+
+                      <div className="w-12 h-12 rounded-2xl bg-[#141415] border border-border dark:border-white/10 flex items-center justify-center shadow-md p-2 relative">
+                        <BrandIcon
+                          name={activeModalPlugin.id}
+                          iconUrl={activeModalPlugin.icon}
+                          size={28}
+                          showSparkle={
+                            activeModalPlugin.id === "google-drive" ||
+                            activeModalPlugin.id === "gmail" ||
+                            activeModalPlugin.id === "google-calendar"
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <h3 className="text-lg font-semibold text-text-primary">Sythoria Connector by Sythoria</h3>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      wants access to your {activeModalPlugin.name} account
+                    </p>
+                  </div>
+
+                  {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
+                  <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
+                    <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
+                      <div className="text-xs font-semibold text-text-primary tracking-tight">
+                        Authorizing allows this app to:
+                      </div>
+
+                      <div className="space-y-2.5 text-xs text-text-secondary">
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Verify your {activeModalPlugin.name} identity</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                          <span>{activeModalPlugin.longDescription || activeModalPlugin.description}</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Act on your behalf via local Model Context Protocol tools</span>
+                        </div>
+                      </div>
+
+                      {/* Resource Scopes */}
+                      <div className="pt-3 border-t border-border/40">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-2">
+                          Resources on your account
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-text-primary bg-hover/40 px-2.5 py-1.5 rounded-lg border border-border/40">
+                          <Sparkles size={14} className="text-accent shrink-0" />
+                          <span className="font-medium">{activeModalPlugin.name} API & Toolsets</span>
+                          <span className="text-[10px] text-text-muted ml-auto bg-surface px-1.5 py-0.5 rounded">
+                            read & write
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Security & Privacy Guarantee */}
+                      <div className="pt-2 flex items-start gap-2 text-[11px] text-text-muted leading-relaxed">
+                        <Lock size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <span>
+                          <strong>Local Privacy Guarantee:</strong> Tokens are encrypted locally in Rust AES-256
+                          keychain. Data never touches third-party cloud servers.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* GitHub 1-Click OAuth Integration */}
+                    {activeModalPlugin.id === "github" && (
+                      <div className="space-y-3 pt-1">
+                        {githubOAuth.isActive ? (
+                          <div className="p-4 rounded-xl border border-accent/40 bg-accent/10 space-y-3 text-center">
+                            <div className="text-xs font-semibold text-text-primary">Enter this code on GitHub:</div>
+                            <div className="flex items-center justify-center gap-3">
+                              <span className="text-2xl font-mono font-bold tracking-widest text-accent bg-surface px-4 py-2 rounded-xl border border-accent/30 shadow-inner select-all">
+                                {githubOAuth.userCode || "···· - ····"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (githubOAuth.userCode) {
+                                    void navigator.clipboard.writeText(githubOAuth.userCode);
+                                    addToast("Code copied to clipboard!", "info");
+                                  }
+                                }}
+                                className="p-2.5 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary transition-colors cursor-pointer"
+                                title="Copy Code"
+                              >
+                                <Copy size={16} />
+                              </button>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to GitHub. Paste the code above and click{" "}
+                              <strong>Authorize Sythoria</strong>.
+                            </p>
+                            {githubOAuth.isPolling ? (
+                              <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-1">
+                                <RefreshCw size={13} className="animate-spin" />
+                                <span>Waiting for approval in browser...</span>
+                              </div>
+                            ) : githubOAuth.error ? (
+                              <div className="space-y-2 pt-1">
+                                <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                                  {githubOAuth.error}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleStartGitHubOAuth()}
+                                  className="px-3 py-1 text-xs rounded-lg bg-accent text-accent-foreground font-medium hover:bg-accent/90 transition-colors"
+                                >
+                                  Try Again
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : githubOAuth.error ? (
-                          <div className="space-y-2 pt-1">
-                            <div className="text-xs text-rose-400 font-medium">{githubOAuth.error}</div>
+                        ) : (
+                          <div className="space-y-3">
                             <button
                               type="button"
                               onClick={() => void handleStartGitHubOAuth()}
-                              className="px-3 py-1 text-xs rounded-lg bg-accent text-accent-foreground font-medium hover:bg-accent/90 transition-colors"
+                              className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
-                              Try Again
+                              <BrandIcon name="github" size={18} />
+                              <span>1-Click Connect with GitHub</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <button
-                          type="button"
-                          onClick={() => void handleStartGitHubOAuth()}
-                          className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
-                        >
-                          <BrandIcon name="github" size={18} />
-                          <span>1-Click Connect with GitHub</span>
-                          <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-                        </button>
 
-                        <div className="text-center">
-                          <button
-                            type="button"
-                            onClick={() => setShowManualToken((prev) => !prev)}
-                            className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
-                          >
-                            {showManualToken
-                              ? "Switch back to 1-Click OAuth"
-                              : "Or enter a Personal Access Token manually"}
-                          </button>
-                        </div>
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter a Personal Access Token manually"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
 
-                {/* Input Fields (if service requires API token / OAuth Token and not in GitHub 1-Click mode) */}
-                {activeModalPlugin.authFields.length > 0 &&
-                  (activeModalPlugin.id !== "github" || (showManualToken && !githubOAuth.isActive)) && (
-                    <div className="space-y-3 pt-1">
-                      {activeModalPlugin.authFields.map((field) => {
-                        const isPassword = field.type === "password";
-                        const isVisible = showPasswordMap[field.key] || false;
-
-                        return (
-                          <div key={field.key} className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-medium text-text-primary">
-                                {field.label}
-                                {field.required && <span className="text-accent ml-1">*</span>}
-                              </label>
-                              {field.docUrl && (
-                                <a
-                                  href={field.docUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[11px] text-accent hover:underline flex items-center gap-1"
-                                >
-                                  <span>Get token in browser</span>
-                                  <ExternalLink size={10} />
-                                </a>
-                              )}
+                    {/* Linear 1-Click PKCE OAuth Integration */}
+                    {activeModalPlugin.id === "linear" && (
+                      <div className="space-y-3 pt-1">
+                        {linearOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-[#5E6AD2]/40 bg-[#5E6AD2]/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#5E6AD2] font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for authorization in browser...</span>
                             </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Linear. Click <strong>Authorize Sythoria</strong> to connect
+                              your workspace.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (linearAbortRef.current) {
+                                  linearAbortRef.current.abort();
+                                  linearAbortRef.current = null;
+                                }
+                                setLinearOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : linearOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                              {linearOAuth.error}
+                            </div>
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartLinearOAuth()}
+                                className="px-3 py-1 text-xs rounded-lg bg-[#5E6AD2] hover:bg-[#6D79E0] text-white font-medium transition-colors"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors"
+                              >
+                                Enter API Key manually
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartLinearOAuth()}
+                              className="w-full py-3 rounded-xl bg-[#5E6AD2] hover:bg-[#6D79E0] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                            >
+                              <BrandIcon name="linear" size={18} />
+                              <span>1-Click Connect with Linear</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                            </button>
 
-                            <div className="relative">
-                              <input
-                                type={isPassword && !isVisible ? "password" : "text"}
-                                value={formValues[field.key] || ""}
-                                onChange={(e) => setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                                placeholder={field.placeholder}
-                                className="w-full px-3 py-2 text-xs rounded-lg border border-input-border bg-input text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none pr-8 font-mono"
-                              />
-                              {isPassword && (
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter a Personal API Key manually"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Google 1-Click PKCE OAuth Integration (Google Drive, Google Calendar, Gmail) */}
+                    {(activeModalPlugin.id === "google-drive" ||
+                      activeModalPlugin.id === "google-calendar" ||
+                      activeModalPlugin.id === "gmail") && (
+                      <div className="space-y-3 pt-1">
+                        {googleOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-blue-500/30 dark:border-blue-500/40 bg-blue-500/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for Google Authorization in browser...</span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Google sign-in. Grant access to connect your account.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (googleAbortRef.current) {
+                                  googleAbortRef.current.abort();
+                                  googleAbortRef.current = null;
+                                }
+                                setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : googleOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium whitespace-pre-wrap text-left font-mono break-all max-h-32 overflow-y-auto">
+                              {googleOAuth.error}
+                            </div>
+                            <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                                className="px-3 py-1 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors cursor-pointer"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
+                                }}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Edit Credentials
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternalUrl("https://console.cloud.google.com/apis/credentials")
+                                }
+                                className="px-3 py-1 text-xs rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <ExternalLink size={11} />
+                                <span>Get Credentials</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Service Account
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {/* Step 1: Google OAuth Client Credentials Box */}
+                            <div className="p-3 rounded-xl bg-surface/50 border border-border/60 space-y-2 text-left">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold text-text-primary flex items-center gap-1.5">
+                                  <Lock size={12} className="text-emerald-500 shrink-0" />
+                                  <span>Google Client Secret</span>
+                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void openExternalUrl("https://console.cloud.google.com/apis/credentials")
+                                    }
+                                    className="text-[11px] text-blue-500 hover:text-blue-400 font-medium cursor-pointer inline-flex items-center gap-1"
+                                    title="Open Google Cloud Console Credentials in browser"
+                                  >
+                                    <ExternalLink size={11} />
+                                    <span>Get Credentials</span>
+                                  </button>
+                                  <span className="text-border text-xs select-none">|</span>
+                                  <label className="text-[11px] text-blue-500 hover:text-blue-400 font-medium cursor-pointer inline-flex items-center gap-1">
+                                    <Upload size={11} />
+                                    <span>Import JSON</span>
+                                    <input
+                                      type="file"
+                                      accept=".json,application/json"
+                                      className="hidden"
+                                      onChange={handleImportGoogleCredentials}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-text-muted leading-relaxed">
+                                Client Secret from your Google Cloud Console OAuth 2.0 client. Click{" "}
+                                <strong>Get Credentials</strong> to open Google Cloud Console, or{" "}
+                                <strong>Import JSON</strong> if you downloaded{" "}
+                                <code className="font-mono text-text-primary text-[9px] bg-hover/40 px-1 py-0.5 rounded">
+                                  client_secret_xxx.json
+                                </code>
+                                . Stored in local AES-256-GCM encrypted storage.
+                              </p>
+                              <div className="relative">
+                                <input
+                                  type={showPasswordMap["GOOGLE_CLIENT_SECRET"] ? "text" : "password"}
+                                  value={formValues["GOOGLE_CLIENT_SECRET"] || ""}
+                                  onChange={(e) =>
+                                    setFormValues((prev) => ({ ...prev, GOOGLE_CLIENT_SECRET: e.target.value }))
+                                  }
+                                  placeholder="GOCSPX-... (From Google Cloud Console > Clients)"
+                                  className="w-full px-3 py-1.5 text-xs rounded-lg bg-input border border-border focus:border-focus focus:outline-none pr-8 text-text-primary placeholder:text-text-muted/60 font-mono"
+                                />
                                 <button
                                   type="button"
                                   onClick={() =>
                                     setShowPasswordMap((prev) => ({
                                       ...prev,
-                                      [field.key]: !prev[field.key],
+                                      GOOGLE_CLIENT_SECRET: !prev["GOOGLE_CLIENT_SECRET"],
                                     }))
                                   }
-                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary cursor-pointer"
                                 >
-                                  {isVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                                  {showPasswordMap["GOOGLE_CLIENT_SECRET"] ? <EyeOff size={13} /> : <Eye size={13} />}
                                 </button>
-                              )}
+                              </div>
                             </div>
 
-                            {field.helpText && <p className="text-[11px] text-text-muted">{field.helpText}</p>}
+                            {/* Step 2: 1-Click Connect Button */}
+                            <button
+                              type="button"
+                              onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                              className="w-full py-3 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                            >
+                              <BrandIcon
+                                name={
+                                  activeModalPlugin.id === "gmail"
+                                    ? "Mail"
+                                    : activeModalPlugin.id === "google-calendar"
+                                      ? "Calendar"
+                                      : "googledrive"
+                                }
+                                size={18}
+                              />
+                              <span>1-Click Connect with Google</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or enter Service Account / credentials manually"}
+                              </button>
+                            </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-              </div>
-
-              {/* Modal Footer (ChatGPT Authorize Buttons) */}
-              <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
-                {/* Generic Authorize Button (shown if not in GitHub 1-click active state) */}
-                {!githubOAuth.isActive && (activeModalPlugin.id !== "github" || showManualToken) && (
-                  <button
-                    onClick={() => void handleConnectPlugin()}
-                    disabled={isSubmitting}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" />
-                        <span>Authorizing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Authorize {activeModalPlugin.name}</span>
-                        <ArrowRight size={14} />
-                      </>
+                        )}
+                      </div>
                     )}
-                  </button>
-                )}
 
-                <div className="flex items-center justify-between pt-1">
-                  {installedPluginMap.has(activeModalPlugin.id) ? (
-                    <button
-                      onClick={() => void handleDisconnectPlugin(activeModalPlugin)}
-                      className="px-2.5 py-1 text-xs text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1 font-medium"
-                    >
-                      <Trash2 size={13} />
-                      <span>Revoke Access</span>
-                    </button>
-                  ) : (
-                    <div />
-                  )}
+                    {/* Spotify 1-Click PKCE OAuth Integration */}
+                    {activeModalPlugin.id === "spotify" && (
+                      <div className="space-y-3 pt-1">
+                        {spotifyOAuth.isConnecting ? (
+                          <div className="p-4 rounded-xl border border-[#1DB954]/30 dark:border-[#1DB954]/40 bg-[#1DB954]/10 space-y-3 text-center">
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#1DB954] font-semibold pt-1">
+                              <RefreshCw size={15} className="animate-spin" />
+                              <span>Waiting for Spotify Authorization in browser...</span>
+                            </div>
+                            <p className="text-xs text-text-muted leading-relaxed">
+                              Your browser has opened to Spotify sign-in. Grant access to connect your account.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (spotifyAbortRef.current) {
+                                  spotifyAbortRef.current.abort();
+                                  spotifyAbortRef.current = null;
+                                }
+                                setSpotifyOAuth({ isActive: false, isConnecting: false, error: null });
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
+                            >
+                              Cancel connection
+                            </button>
+                          </div>
+                        ) : spotifyOAuth.error ? (
+                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
+                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                              {spotifyOAuth.error}
+                            </div>
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleStartSpotifyOAuth(activeModalPlugin)}
+                                className="px-3 py-1 text-xs rounded-lg bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold transition-colors cursor-pointer"
+                              >
+                                Try Again
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken(true)}
+                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                              >
+                                Enter Client ID manually
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartSpotifyOAuth(activeModalPlugin)}
+                              className="w-full py-3 rounded-xl bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
+                            >
+                              <BrandIcon name="spotify" size={18} />
+                              <span>1-Click Connect with Spotify</span>
+                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                            </button>
 
-                  <button
-                    onClick={handleCloseModal}
-                    className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+                            <div className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => setShowManualToken((prev) => !prev)}
+                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
+                              >
+                                {showManualToken
+                                  ? "Switch back to 1-Click OAuth"
+                                  : "Or specify a custom Spotify Client ID"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Input Fields (if service requires API token / OAuth Token and not in 1-Click mode) */}
+                    {activeModalPlugin.authFields.length > 0 &&
+                      ((activeModalPlugin.id !== "github" &&
+                        activeModalPlugin.id !== "linear" &&
+                        activeModalPlugin.id !== "google-drive" &&
+                        activeModalPlugin.id !== "google-calendar" &&
+                        activeModalPlugin.id !== "gmail" &&
+                        activeModalPlugin.id !== "spotify") ||
+                        (showManualToken &&
+                          !githubOAuth.isActive &&
+                          !linearOAuth.isConnecting &&
+                          !googleOAuth.isConnecting &&
+                          !spotifyOAuth.isConnecting)) && (
+                        <div className="space-y-3 pt-1">
+                          {activeModalPlugin.authFields.map((field) => {
+                            const isPassword = field.type === "password";
+                            const isVisible = showPasswordMap[field.key] || false;
+
+                            return (
+                              <div key={field.key} className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-medium text-text-primary">
+                                    {field.label}
+                                    {field.required && <span className="text-accent ml-1">*</span>}
+                                  </label>
+                                  {field.docUrl && (
+                                    <a
+                                      href={field.docUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[11px] text-accent hover:underline flex items-center gap-1"
+                                    >
+                                      <span>Get token in browser</span>
+                                      <ExternalLink size={10} />
+                                    </a>
+                                  )}
+                                </div>
+
+                                <div className="relative">
+                                  <input
+                                    type={isPassword && !isVisible ? "password" : "text"}
+                                    value={formValues[field.key] || ""}
+                                    onChange={(e) =>
+                                      setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                                    }
+                                    placeholder={field.placeholder}
+                                    className="w-full px-3 py-2 text-xs rounded-lg border border-input-border bg-input text-text-primary placeholder-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none pr-8 font-mono"
+                                  />
+                                  {isPassword && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setShowPasswordMap((prev) => ({
+                                          ...prev,
+                                          [field.key]: !prev[field.key],
+                                        }))
+                                      }
+                                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                                    >
+                                      {isVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {field.helpText && <p className="text-[11px] text-text-muted">{field.helpText}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                  </div>
+
+                  {/* Modal Footer (ChatGPT Authorize Buttons) */}
+                  <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
+                    {/* Generic Authorize Button (shown if not in 1-click active state) */}
+                    {!githubOAuth.isActive &&
+                      !linearOAuth.isConnecting &&
+                      !googleOAuth.isConnecting &&
+                      !spotifyOAuth.isConnecting &&
+                      ((activeModalPlugin.id !== "github" &&
+                        activeModalPlugin.id !== "linear" &&
+                        activeModalPlugin.id !== "google-drive" &&
+                        activeModalPlugin.id !== "google-calendar" &&
+                        activeModalPlugin.id !== "gmail" &&
+                        activeModalPlugin.id !== "spotify") ||
+                        showManualToken) && (
+                        <button
+                          onClick={() => void handleConnectPlugin()}
+                          disabled={isSubmitting}
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" />
+                              <span>Authorizing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Authorize {activeModalPlugin.name}</span>
+                              <ArrowRight size={14} />
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                    <div className="flex items-center justify-between pt-1">
+                      {installedPluginMap.has(activeModalPlugin.id) ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowReauthForm(false)}
+                          className="px-2.5 py-1 text-xs text-text-muted hover:text-text-primary transition-colors flex items-center gap-1 font-medium"
+                        >
+                          ← Back to Connected View
+                        </button>
+                      ) : (
+                        <div />
+                      )}
+
+                      <button
+                        onClick={handleCloseModal}
+                        className="px-4 py-1.5 rounded-lg text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}

@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { parseGoogleClientSecretsFile } from "./googleOAuth";
+
+describe("parseGoogleClientSecretsFile", () => {
+  it("parses Google Cloud installed (Desktop app) client credentials JSON", () => {
+    const json = JSON.stringify({
+      installed: {
+        client_id: "566025429774-test.apps.googleusercontent.com",
+        project_id: "sythoria-desktop",
+        auth_uri: "https://accounts.google.com/o/oauth2/auth",
+        token_uri: "https://oauth2.googleapis.com/token",
+        client_secret: "GOCSPX-installed-secret-12345",
+        redirect_uris: ["http://127.0.0.1:54321/oauth/callback", "http://localhost"],
+      },
+    });
+
+    const parsed = parseGoogleClientSecretsFile(json);
+    expect(parsed.clientId).toBe("566025429774-test.apps.googleusercontent.com");
+    expect(parsed.clientSecret).toBe("GOCSPX-installed-secret-12345");
+    expect(parsed.projectId).toBe("sythoria-desktop");
+  });
+
+  it("parses Google Cloud web application client credentials JSON", () => {
+    const json = JSON.stringify({
+      web: {
+        client_id: "566025429774-web.apps.googleusercontent.com",
+        project_id: "sythoria-web",
+        client_secret: "GOCSPX-web-secret-67890",
+        redirect_uris: ["http://127.0.0.1:54321/oauth/callback"],
+      },
+    });
+
+    const parsed = parseGoogleClientSecretsFile(json);
+    expect(parsed.clientId).toBe("566025429774-web.apps.googleusercontent.com");
+    expect(parsed.clientSecret).toBe("GOCSPX-web-secret-67890");
+    expect(parsed.projectId).toBe("sythoria-web");
+  });
+
+  it("handles malformed or invalid JSON gracefully", () => {
+    expect(parseGoogleClientSecretsFile("not valid json")).toEqual({});
+    expect(parseGoogleClientSecretsFile("{}")).toEqual({
+      clientId: undefined,
+      clientSecret: undefined,
+      projectId: undefined,
+    });
+  });
+});

@@ -80,9 +80,7 @@ pub async fn generate_embeddings(
             let key = api_key.as_deref().unwrap_or_default();
             embed_openai(client, endpoint, key, model, texts).await
         }
-        EmbeddingProvider::LexicalOnly => {
-            Ok(texts.iter().map(|_| Vec::new()).collect())
-        }
+        EmbeddingProvider::LexicalOnly => Ok(texts.iter().map(|_| Vec::new()).collect()),
     }
 }
 
@@ -100,12 +98,10 @@ async fn embed_ollama(
         "input": texts,
     });
 
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::RequestFailed(format!("Ollama embed connection error: {}", e)))?;
+    let resp =
+        client.post(&url).json(&body).send().await.map_err(|e| {
+            AppError::RequestFailed(format!("Ollama embed connection error: {}", e))
+        })?;
 
     if !resp.status().is_success() {
         let err_text = resp.text().await.unwrap_or_default();
@@ -219,12 +215,10 @@ async fn embed_gemini(
         "requests": requests,
     });
 
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::RequestFailed(format!("Gemini embed connection error: {}", e)))?;
+    let resp =
+        client.post(&url).json(&body).send().await.map_err(|e| {
+            AppError::RequestFailed(format!("Gemini embed connection error: {}", e))
+        })?;
 
     if !resp.status().is_success() {
         let err_text = resp.text().await.unwrap_or_default();
