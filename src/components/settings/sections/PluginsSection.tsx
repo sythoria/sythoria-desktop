@@ -496,25 +496,30 @@ export function PluginsSection() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      const content = event.target?.result;
-      if (typeof content === "string") {
-        const parsed = parseGoogleClientSecretsFile(content);
-        if (parsed.clientId && parsed.clientSecret) {
-          setFormValues((prev) => ({
-            ...prev,
-            ...(parsed.clientId ? { GOOGLE_CLIENT_ID: parsed.clientId } : {}),
-            ...(parsed.clientSecret ? { GOOGLE_CLIENT_SECRET: parsed.clientSecret } : {}),
-          }));
-          addToast("Imported Google credentials file", "success");
-        } else {
-          addToast(
-            "Import the JSON for a Google Desktop app OAuth client, including its client ID and secret.",
-            "error",
-          );
-        }
+      const parsed = parseGoogleClientSecretsFile(String(event.target?.result ?? ""));
+      if (parsed.clientId && parsed.clientSecret) {
+        setFormValues((prev) => ({
+          ...prev,
+          GOOGLE_CLIENT_ID: parsed.clientId!,
+          GOOGLE_CLIENT_SECRET: parsed.clientSecret!,
+        }));
+        setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
+      } else {
+        setGoogleOAuth({
+          isActive: false,
+          isConnecting: false,
+          error: "Import the JSON for a Google Desktop app OAuth client, including its client ID and secret.",
+        });
       }
     };
+    reader.onerror = () =>
+      setGoogleOAuth({
+        isActive: false,
+        isConnecting: false,
+        error: "Could not read the credentials file. Try importing it again.",
+      });
     reader.readAsText(file);
+    e.target.value = "";
   };
 
   // 1-Click Google PKCE OAuth
@@ -577,7 +582,7 @@ export function PluginsSection() {
             }),
       };
 
-      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets, { notify: false });
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
@@ -598,7 +603,6 @@ export function PluginsSection() {
         isConnecting: false,
         error: errorMsg,
       });
-      addToast(errorMsg, "error");
     }
   };
 
@@ -1329,47 +1333,6 @@ export function PluginsSection() {
                               Cancel connection
                             </button>
                           </div>
-                        ) : googleOAuth.error ? (
-                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium whitespace-pre-wrap text-left font-mono break-all max-h-32 overflow-y-auto">
-                              {googleOAuth.error}
-                            </div>
-                            <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
-                              <button
-                                type="button"
-                                onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
-                                className="px-3 py-1 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors cursor-pointer"
-                              >
-                                Try Again
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setGoogleOAuth({ isActive: false, isConnecting: false, error: null });
-                                }}
-                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                              >
-                                Edit Credentials
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void openExternalUrl("https://console.cloud.google.com/apis/credentials")
-                                }
-                                className="px-3 py-1 text-xs rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors cursor-pointer inline-flex items-center gap-1"
-                              >
-                                <ExternalLink size={11} />
-                                <span>Get Credentials</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setShowManualToken(true)}
-                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                              >
-                                Service Account
-                              </button>
-                            </div>
-                          </div>
                         ) : (
                           <div className="space-y-3">
                             {/* Step 1: Google OAuth Client Credentials Box */}
@@ -1456,6 +1419,11 @@ export function PluginsSection() {
                                 </button>
                               </div>
                             </div>
+                            {googleOAuth.error && (
+                              <p role="alert" className="text-xs text-rose-600 dark:text-rose-400 leading-relaxed">
+                                {googleOAuth.error}
+                              </p>
+                            )}
 
                             <div className="block text-xs text-text-primary">
                               Access
@@ -1493,18 +1461,6 @@ export function PluginsSection() {
                               <span>1-Click Connect with Google</span>
                               <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
-
-                            <div className="text-center">
-                              <button
-                                type="button"
-                                onClick={() => setShowManualToken((prev) => !prev)}
-                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
-                              >
-                                {showManualToken
-                                  ? "Switch back to 1-Click OAuth"
-                                  : "Or enter Service Account / credentials manually"}
-                              </button>
-                            </div>
                           </div>
                         )}
                       </div>

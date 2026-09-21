@@ -82,10 +82,14 @@ interface McpState {
 
   addMcpConfig: () => void;
   addMcpConfigFromPreset: (preset: McpServerPreset) => void;
-  addMcpConfigWithSecrets: (preset: McpServerPreset, secrets: Record<string, string>) => Promise<boolean>;
+  addMcpConfigWithSecrets: (
+    preset: McpServerPreset,
+    secrets: Record<string, string>,
+    options?: { notify?: boolean },
+  ) => Promise<boolean>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
-  connectServer: (id: string) => Promise<void>;
+  connectServer: (id: string, options?: { notify?: boolean }) => Promise<void>;
   disconnectServer: (id: string) => Promise<void>;
   connectAllEnabled: () => Promise<void>;
   callTool: (
@@ -199,7 +203,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       );
   },
 
-  addMcpConfigWithSecrets: async (preset, secrets) => {
+  addMcpConfigWithSecrets: async (preset, secrets, options) => {
     const { mcpConfigs, envSecrets, connectServer } = get();
     const existing = mcpConfigs.find((c) => c.name === preset.name);
     const targetId = existing?.id || generateId();
@@ -250,7 +254,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       saveEnabledMcpServers(Array.from(nextEnabled)),
     ]);
 
-    await connectServer(targetId);
+    await connectServer(targetId, options);
 
     // If initial connection failed, remove from enabledServerIds so it doesn't fail on every app restart
     if (get().serverStatuses[targetId] === "error") {
@@ -367,7 +371,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     useUIStore.getState().addToast("MCP server deleted", "info");
   },
 
-  connectServer: async (id) => {
+  connectServer: async (id, options) => {
     const { mcpConfigs } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     if (!config || !config.enabled) return;
@@ -425,7 +429,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       logInfo("mcp", `Connected to MCP server: "${config.name}"`, {
         details: `${mcpTools.length} tool(s) available: ${mcpTools.map((t) => t.name).join(", ") || "(none)"}`,
       });
-      useUIStore.getState().addToast(`Connected to ${config.name} (${mcpTools.length} tools)`, "success");
+      if (options?.notify !== false)
+        useUIStore.getState().addToast(`Connected to ${config.name} (${mcpTools.length} tools)`, "success");
     } catch (err) {
       if (get().connectionGenerations[id] !== connectionGeneration || !get().mcpConfigs.some((c) => c.id === id)) {
         return;
@@ -440,7 +445,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         serverStatuses: { ...get().serverStatuses, [id]: "error" },
         serverErrors: { ...get().serverErrors, [id]: friendlyEndpointError(err, config.transport === "stdio") },
       });
-      useUIStore.getState().addToast(parsed.message, "error");
+      if (options?.notify !== false) useUIStore.getState().addToast(parsed.message, "error");
     }
   },
 

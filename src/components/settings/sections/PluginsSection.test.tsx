@@ -92,7 +92,7 @@ describe("PluginsSection", () => {
     expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
   });
 
-  it("opens modal for Google Drive and displays 1-Click OAuth with manual fallback", async () => {
+  it("keeps Google credentials editable and shows one inline validation error", async () => {
     render(<PluginsSection />);
 
     const gdriveCard = screen.getByTestId("plugin-card-google-drive");
@@ -103,7 +103,6 @@ describe("PluginsSection", () => {
     expect(screen.getAllByText(/Import JSON/i)[0]).toBeInTheDocument();
     expect(screen.getAllByText(/Get Credentials/i)[0]).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toBeInTheDocument();
-    expect(screen.getByText(/Or enter Service Account \/ credentials manually/i)).toBeInTheDocument();
 
     // Click Get Credentials
     const getCredsBtn = screen.getByRole("button", { name: /Get Credentials/i });
@@ -116,15 +115,12 @@ describe("PluginsSection", () => {
     fireEvent.click(connectBtn);
     expect(await screen.findByText(/Import a Google Desktop app credentials file/i)).toBeInTheDocument();
 
-    // Click Edit Credentials to dismiss error
-    fireEvent.click(screen.getByRole("button", { name: /Edit Credentials/i }));
-
-    // Click manual token toggle
-    fireEvent.click(screen.getByText(/Or enter Service Account \/ credentials manually/i));
-
-    expect(screen.getByText(/Google Service Account Credentials/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("/path/to/credentials.json")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authorize Google Drive/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Google Client ID")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Try Again|Edit Credentials|Service Account/i }),
+    ).not.toBeInTheDocument();
+    expect(useUIStore.getState().toasts).toHaveLength(0);
   });
 
   it("reuses the saved Google client without loading masked plugin secrets", async () => {

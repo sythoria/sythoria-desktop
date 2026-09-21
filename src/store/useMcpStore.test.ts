@@ -18,6 +18,7 @@ vi.mock("../utils/storage", () => ({
 
 import type { McpServerConfig, McpTool } from "../types";
 import { useMcpStore } from "./useMcpStore";
+import { useUIStore } from "./useUIStore";
 
 const config: McpServerConfig = {
   id: "server-1",
@@ -281,6 +282,14 @@ describe("useMcpStore capability revocation", () => {
 
     await expect(toolCall).resolves.toMatchObject({ isError: true });
     expect(mocks.invoke).toHaveBeenCalledWith("mcp_cancel_tool_call", { requestId: trackedRequestId });
+  });
+
+  it("lets a connection form own error presentation without a duplicate toast", async () => {
+    useUIStore.setState({ toasts: [] });
+    mocks.invoke.mockRejectedValue(new Error("Connection failed"));
+    await useMcpStore.getState().connectServer(config.id, { notify: false });
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("error");
+    expect(useUIStore.getState().toasts).toHaveLength(0);
   });
 
   it("interpolates argument placeholders and un-enables failed server on error", async () => {
