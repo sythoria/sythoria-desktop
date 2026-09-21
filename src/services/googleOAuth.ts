@@ -79,71 +79,66 @@ export function parseGoogleClientSecretsFile(jsonString: string): ParsedGoogleCl
 export async function startGoogleOAuthFlow(
   clientId: string = DEFAULT_GOOGLE_CLIENT_ID,
   scope: string = DEFAULT_GOOGLE_SCOPES,
-  redirectUri: string = DEFAULT_GOOGLE_REDIRECT_URI,
-  port: number = DEFAULT_GOOGLE_PORT,
   signal?: AbortSignal,
   clientSecret?: string,
 ): Promise<GoogleOAuthResult> {
-  const codeVerifier = generateRandomString(64);
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const state = generateRandomString(32);
-
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-    clientId,
-  )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
-    scope,
-  )}&access_type=offline&prompt=consent&state=${encodeURIComponent(
-    state,
-  )}&code_challenge=${encodeURIComponent(codeChallenge)}&code_challenge_method=S256`;
-
-  // Start background loopback listener
-  const listenerPromise = invoke<{ code: string; state?: string }>("listen_oauth_callback", {
-    port,
-    expectedState: state,
-  });
-
-  // Open user's default browser to Google
-  await openExternalUrl(authUrl);
-
-  // Wait for callback or abort signal
-  const callbackResult = await Promise.race([
-    listenerPromise,
-    new Promise<{ code: string; state?: string }>((_, reject) => {
-      if (signal) {
-        signal.addEventListener("abort", () => reject(new Error("Google authorization was cancelled.")), {
-          once: true,
-        });
-      }
-    }),
-  ]);
-
-  if (!callbackResult.code) {
-    throw new Error("No authorization code received from Google callback.");
-  }
-
-  // Exchange code + codeVerifier for access_token (and pass clientSecret if configured)
-  const tokenResult = await invoke<GoogleTokenResult>("google_exchange_token", {
-    clientId,
-    clientSecret: clientSecret?.trim() || undefined,
-    code: callbackResult.code,
-    codeVerifier,
-    redirectUri,
-  });
-
-  if (tokenResult.error) {
-    throw new Error(tokenResult.error_description || tokenResult.error || "Failed to exchange token with Google.");
-  }
-
-  if (!tokenResult.access_token) {
-    throw new Error("No access token returned from Google OAuth exchange.");
-  }
-
-  return {
-    accessToken: tokenResult.access_token,
-    refreshToken: tokenResult.refresh_token,
-    expiresIn: tokenResult.expires_in,
-    scope: tokenResult.scope,
+  const sessionId = crypto.randomUUID();
+  const checkCancelled = () => {
+    if (signal?.aborted) throw new Error("Google authorization was cancelled.");
   };
+  const cancel = () => {
+    void invoke("cancel_google_oauth_listener", { sessionId }).catch(() => {});
+  };
+  checkCancelled();
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    const codeVerifier = generateRandomString(64);
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    const state = generateRandomString(32);
+    checkCancelled();
+    // Bind before opening the browser; each attempt owns its loopback port.
+    const listenerPort = await invoke<number>("start_google_oauth_listener", { sessionId });
+    checkCancelled();
+    const callbackUri = `http://127.0.0.1:${listenerPort}/oauth/callback`;
+    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authUrl.search = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUri,
+      response_type: "code",
+      scope,
+      access_type: "offline",
+      prompt: "consent",
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+    }).toString();
+    if (!(await openExternalUrl(authUrl.toString()))) {
+      throw new Error("Could not open your browser. Check your default browser and try again.");
+    }
+    checkCancelled();
+    const callback = await invoke<{ code: string }>("wait_google_oauth_callback", { sessionId, expectedState: state });
+    checkCancelled();
+    if (!callback.code) throw new Error("No authorization code received from Google.");
+    const tokenResult = await invoke<GoogleTokenResult>("google_exchange_token", {
+      clientId,
+      clientSecret: clientSecret?.trim() || undefined,
+      code: callback.code,
+      codeVerifier,
+      redirectUri: callbackUri,
+    });
+    checkCancelled();
+    if (tokenResult.error) throw new Error(tokenResult.error_description || tokenResult.error);
+    if (!tokenResult.access_token) throw new Error("No access token returned from Google.");
+    return {
+      accessToken: tokenResult.access_token,
+      refreshToken: tokenResult.refresh_token,
+      expiresIn: tokenResult.expires_in,
+      scope: tokenResult.scope,
+    };
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    await invoke("cancel_google_oauth_listener", { sessionId });
+  }
 }
 
 export interface GoogleMcpTokenPaths {

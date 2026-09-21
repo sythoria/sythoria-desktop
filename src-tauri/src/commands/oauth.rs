@@ -180,6 +180,86 @@ fn parse_oauth_callback(
     Ok(OAuthCallbackResponse { code, state })
 }
 
+struct GoogleListener {
+    listener: Option<tokio::net::TcpListener>,
+    cancellation: tokio_util::sync::CancellationToken,
+}
+
+static GOOGLE_LISTENERS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, GoogleListener>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+#[tauri::command]
+pub async fn start_google_oauth_listener(session_id: String) -> Result<u16, AppError> {
+    if uuid::Uuid::parse_str(&session_id).is_err() {
+        return Err(AppError::RequestFailed(
+            "Invalid Google authorization session".into(),
+        ));
+    }
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|e| {
+            AppError::RequestFailed(format!("Could not start Google authorization: {e}"))
+        })?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| AppError::RequestFailed(e.to_string()))?
+        .port();
+    let mut sessions = GOOGLE_LISTENERS
+        .lock()
+        .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+    if sessions.len() >= 8 || sessions.contains_key(&session_id) {
+        return Err(AppError::RequestFailed(
+            "Google authorization already in progress".into(),
+        ));
+    }
+    sessions.insert(
+        session_id,
+        GoogleListener {
+            listener: Some(listener),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        },
+    );
+    Ok(port)
+}
+
+#[tauri::command]
+pub async fn wait_google_oauth_callback(
+    session_id: String,
+    expected_state: String,
+) -> Result<OAuthCallbackResponse, AppError> {
+    let (listener, cancellation) = {
+        let mut sessions = GOOGLE_LISTENERS
+            .lock()
+            .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or_else(|| AppError::RequestFailed("Google authorization was cancelled".into()))?;
+        let listener = session.listener.take().ok_or_else(|| {
+            AppError::RequestFailed("Google authorization already waiting".into())
+        })?;
+        (listener, session.cancellation.clone())
+    };
+    let result = tokio::select! {
+        _ = cancellation.cancelled() => Err(AppError::RequestFailed("Google authorization was cancelled".into())),
+        result = receive_oauth_callback(listener, Some(expected_state)) => result,
+    };
+    if let Ok(mut sessions) = GOOGLE_LISTENERS.lock() {
+        sessions.remove(&session_id);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn cancel_google_oauth_listener(session_id: String) -> Result<(), AppError> {
+    let mut sessions = GOOGLE_LISTENERS
+        .lock()
+        .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+    if let Some(session) = sessions.remove(&session_id) {
+        session.cancellation.cancel();
+    }
+    Ok(())
+}
+
 /// Starts a temporary local loopback HTTP listener to catch the OAuth authorization callback redirect.
 #[tauri::command]
 pub async fn listen_oauth_callback(
@@ -194,6 +274,13 @@ pub async fn listen_oauth_callback(
             ))
         })?;
 
+    receive_oauth_callback(listener, expected_state).await
+}
+
+async fn receive_oauth_callback(
+    listener: tokio::net::TcpListener,
+    expected_state: Option<String>,
+) -> Result<OAuthCallbackResponse, AppError> {
     // 120-second timeout for user to approve in browser
     let accept_future = async {
         let (mut stream, _) = listener.accept().await?;
@@ -656,6 +743,29 @@ pub async fn save_spotify_mcp_tokens(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn google_listener_cancellation_releases_port() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let port = start_google_oauth_listener(id.clone()).await.unwrap();
+        cancel_google_oauth_listener(id).unwrap();
+        assert!(tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .is_ok());
+        let id = uuid::Uuid::new_v4().to_string();
+        let port = start_google_oauth_listener(id.clone()).await.unwrap();
+        let waiting_id = id.clone();
+        let task =
+            tokio::spawn(
+                async move { wait_google_oauth_callback(waiting_id, "state".into()).await },
+            );
+        tokio::task::yield_now().await;
+        cancel_google_oauth_listener(id).unwrap();
+        assert!(task.await.unwrap().is_err());
+        assert!(tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .is_ok());
+    }
+
     #[test]
     fn oauth_callback_decodes_code_and_checks_state() {
         let result = super::parse_oauth_callback(

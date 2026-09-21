@@ -510,11 +510,11 @@ export function PluginsSection() {
       const tokens = await startGoogleOAuthFlow(
         effectiveClientId,
         DEFAULT_GOOGLE_SCOPES,
-        undefined,
-        undefined,
         abortController.signal,
         customClientSecret,
       );
+
+      if (abortController.signal.aborted) return;
 
       // Save token files atomically for MCP servers
       const paths = await saveGoogleMcpTokens(
@@ -525,6 +525,8 @@ export function PluginsSection() {
         tokens.scope,
         customClientSecret,
       );
+
+      if (abortController.signal.aborted) return;
 
       // Build secrets map
       const secrets: Record<string, string> = {
@@ -546,7 +548,14 @@ export function PluginsSection() {
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
-        handleCloseModal();
+        if (!abortController.signal.aborted) handleCloseModal();
+      } else if (!abortController.signal.aborted) {
+        setGoogleOAuth({
+          isActive: true,
+          isConnecting: false,
+          error:
+            "Google authorization completed, but the plugin could not start. Check its connection settings and try again.",
+        });
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;

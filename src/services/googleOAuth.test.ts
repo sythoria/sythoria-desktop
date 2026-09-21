@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseGoogleClientSecretsFile } from "./googleOAuth";
 
 describe("parseGoogleClientSecretsFile", () => {
@@ -43,5 +43,57 @@ describe("parseGoogleClientSecretsFile", () => {
       clientSecret: undefined,
       projectId: undefined,
     });
+  });
+});
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("../utils/externalUrl", () => ({ openExternalUrl: vi.fn() }));
+
+import { invoke } from "@tauri-apps/api/core";
+import { openExternalUrl } from "../utils/externalUrl";
+import { startGoogleOAuthFlow } from "./googleOAuth";
+
+describe("Google OAuth lifecycle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "start_google_oauth_listener") return 49152;
+      if (command === "wait_google_oauth_callback") return { code: "code" };
+      if (command === "google_exchange_token") return { access_token: "token" };
+      return undefined;
+    });
+    vi.mocked(openExternalUrl).mockResolvedValue(true);
+  });
+
+  it("binds a listener before opening the browser and uses its port for exchange", async () => {
+    await startGoogleOAuthFlow("client", "scope");
+    const url = new URL(vi.mocked(openExternalUrl).mock.calls[0][0]);
+    expect(url.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:49152/oauth/callback");
+    expect(invoke).toHaveBeenCalledWith(
+      "google_exchange_token",
+      expect.objectContaining({ redirectUri: url.searchParams.get("redirect_uri") }),
+    );
+    expect(invoke).toHaveBeenLastCalledWith("cancel_google_oauth_listener", expect.any(Object));
+  });
+
+  it("releases the listener when the browser fails to open", async () => {
+    vi.mocked(openExternalUrl).mockResolvedValue(false);
+    await expect(startGoogleOAuthFlow("client", "scope")).rejects.toThrow("Could not open your browser");
+    expect(invoke).not.toHaveBeenCalledWith("google_exchange_token", expect.anything());
+    expect(invoke).toHaveBeenLastCalledWith("cancel_google_oauth_listener", expect.any(Object));
+  });
+
+  it("does not publish tokens if cancelled during exchange", async () => {
+    const controller = new AbortController();
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "start_google_oauth_listener") return 49152;
+      if (command === "wait_google_oauth_callback") return { code: "code" };
+      if (command === "google_exchange_token") {
+        controller.abort();
+        return { access_token: "token" };
+      }
+      return undefined;
+    });
+    await expect(startGoogleOAuthFlow("client", "scope", controller.signal)).rejects.toThrow("cancelled");
   });
 });
