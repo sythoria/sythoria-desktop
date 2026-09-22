@@ -862,9 +862,11 @@ export function buildProjectToolDefinitions(project: Project | null, supportsIma
           properties: {
             command: { type: "string", description: "The complete raw shell command string sequence to be executed." },
             timeout: {
-              type: "number",
+              type: "integer",
+              minimum: 1000,
+              maximum: 600000,
               description:
-                "Optional. Maximum duration allowed for the command to execute before throwing a termination error, specified in milliseconds. Maximum cap is 600000 (10 minutes).",
+                "Optional command timeout in milliseconds. Omit to use the default of 120000 (2 minutes). Set between 1000 (1 second) and 600000 (10 minutes) when the command needs a different limit.",
             },
           },
           required: ["command"],
@@ -1129,6 +1131,8 @@ function validateJsonSchemaValue(value: unknown, schema: unknown, path: string):
     required?: unknown;
     items?: unknown;
     additionalProperties?: unknown;
+    minimum?: unknown;
+    maximum?: unknown;
   };
   const allowedTypes =
     typeof definition.type === "string"
@@ -1144,6 +1148,14 @@ function validateJsonSchemaValue(value: unknown, schema: unknown, path: string):
   }
 
   const errors: string[] = [];
+  if (typeof value === "number") {
+    if (typeof definition.minimum === "number" && value < definition.minimum) {
+      errors.push(`${path} must be at least ${definition.minimum}`);
+    }
+    if (typeof definition.maximum === "number" && value > definition.maximum) {
+      errors.push(`${path} must be at most ${definition.maximum}`);
+    }
+  }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const objectValue = value as Record<string, unknown>;
     const properties =
@@ -2424,7 +2436,7 @@ async function runWithToolLoop(
                     runToken: projectRun!.capabilityToken,
                     command: fnArgs.command,
                     cwd: project.path,
-                    timeout: fnArgs.timeout ? Number(fnArgs.timeout) : null,
+                    timeout: fnArgs.timeout ?? null,
                     runInBackground: fnArgs.run_in_background === true,
                     worktreePath: null,
                     confirmationAcknowledged: commandConfirmationAcknowledged,

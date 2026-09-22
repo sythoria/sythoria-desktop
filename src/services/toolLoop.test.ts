@@ -206,6 +206,42 @@ describe("TOOL_DEFINITIONS", () => {
       expect.arrayContaining(["list_skill_resources", "read_skill_resource"]),
     );
   });
+
+  it("offers an optional command timeout with the native bounds and default", () => {
+    const project = { id: "project-full", name: "Project", path: "/workspace", permissions: "full" as const };
+    const bash = buildProjectToolDefinitions(project, false).find((tool) => tool.function.name === "project_bash")!;
+
+    expect(bash.function.parameters.required).toEqual(["command"]);
+    expect(bash.function.parameters.properties.timeout).toMatchObject({
+      type: "integer",
+      minimum: 1000,
+      maximum: 600000,
+    });
+    expect(JSON.stringify(bash.function.parameters.properties.timeout)).toContain("120000");
+    expect(
+      parseToolArguments(
+        { id: "bash-timeout", function: { name: "project_bash", arguments: '{"command":"sleep 1","timeout":30000}' } },
+        [bash],
+      ).timeout,
+    ).toBe(30000);
+    expect(() =>
+      parseToolArguments(
+        { id: "bash-fraction", function: { name: "project_bash", arguments: '{"command":"sleep 1","timeout":1.5}' } },
+        [bash],
+      ),
+    ).toThrow("schema validation");
+    for (const timeout of [999, 600001]) {
+      expect(() =>
+        parseToolArguments(
+          {
+            id: "bash-out-of-range",
+            function: { name: "project_bash", arguments: JSON.stringify({ command: "sleep 1", timeout }) },
+          },
+          [bash],
+        ),
+      ).toThrow("schema validation");
+    }
+  });
 });
 
 describe("buildConversationContextMessages", () => {
@@ -756,6 +792,13 @@ describe("sendWithToolLoop", () => {
                         arguments: JSON.stringify({ command: "test -f src/direct.ts && echo src/direct.ts" }),
                       },
                     },
+                    {
+                      id: "bash-custom-timeout",
+                      function: {
+                        name: "project_bash",
+                        arguments: JSON.stringify({ command: "echo timed", timeout: 30000 }),
+                      },
+                    },
                   ],
                 },
               },
@@ -828,6 +871,16 @@ describe("sendWithToolLoop", () => {
       command: "test -f src/direct.ts && echo src/direct.ts",
       cwd: project.path,
       timeout: null,
+      runInBackground: false,
+      worktreePath: null,
+      confirmationAcknowledged: false,
+    });
+    expect(invokeMock).toHaveBeenCalledWith("project_bash", {
+      projectId: project.id,
+      runToken: "run-token",
+      command: "echo timed",
+      cwd: project.path,
+      timeout: 30000,
       runInBackground: false,
       worktreePath: null,
       confirmationAcknowledged: false,
