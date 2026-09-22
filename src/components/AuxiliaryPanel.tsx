@@ -17,7 +17,6 @@ import {
   ChevronRight,
   ClipboardCheck,
   File,
-  FileCode2,
   FileText,
   Folder,
   FolderOpen,
@@ -53,6 +52,7 @@ import { formatShortcut } from "../utils/shortcutDisplay";
 import ChatArea from "./ChatArea";
 import InputBar from "./InputBar";
 import { ReviewDiffView } from "./ReviewDiffView";
+import { ReviewWorkspaceTree } from "./ReviewWorkspaceTree";
 import { AuxiliaryKnowledgeTab } from "./AuxiliaryKnowledgeTab";
 import { DiffFile, fileNameFromPath, joinProjectPath, languageFromPath, parseGitDiff } from "./auxiliaryPanelUtils";
 
@@ -118,19 +118,19 @@ function ReviewFilePreview({
   conversationId,
   path,
   worktreePath,
+  worktreeBranch,
 }: {
   projectId: string;
   conversationId: string | null;
   path: string;
   worktreePath?: string;
+  worktreeBranch?: string;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     const scope = conversationId || `review:${projectId}`;
-    const branch = useChatStore.getState().conversations.find((conversation) => conversation.id === conversationId)
-      ?.pendingWorktree?.branch;
     void (async () => {
       let token: string | undefined;
       try {
@@ -138,7 +138,7 @@ function ReviewFilePreview({
           projectId,
           conversationId: scope,
           worktreePath: worktreePath || null,
-          branch: worktreePath ? branch || null : null,
+          branch: worktreePath ? worktreeBranch || null : null,
         });
         if (cancelled) return;
         const text = await invoke<string>("project_read", {
@@ -159,7 +159,7 @@ function ReviewFilePreview({
     return () => {
       cancelled = true;
     };
-  }, [projectId, conversationId, path, worktreePath]);
+  }, [projectId, conversationId, path, worktreePath, worktreeBranch]);
   return (
     <section className="min-h-0 flex-1 overflow-auto p-4" aria-label={`Review ${path}`}>
       <h3 className="mb-3 break-all font-mono text-xs">{path}</h3>
@@ -182,10 +182,12 @@ function ReviewFilePreview({
 function ReviewPane({
   projectId,
   worktreePath,
+  worktreeBranch,
   conversationId,
 }: {
   projectId: string | null;
   worktreePath?: string;
+  worktreeBranch?: string;
   conversationId: string | null;
 }) {
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -335,55 +337,39 @@ function ReviewPane({
           ))}
       </div>
 
-      {selectedPath && !selectedFile ? (
-        <ReviewFilePreview
-          key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
+          {selectedPath && !selectedFile ? (
+            <ReviewFilePreview
+              key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
+              projectId={projectId}
+              conversationId={conversationId}
+              path={selectedPath}
+              worktreePath={worktreePath}
+              worktreeBranch={worktreeBranch}
+            />
+          ) : error ? (
+            <EmptyState icon={AlertCircle} title="Couldn’t load changes" detail={error} />
+          ) : selectedFile ? (
+            <ReviewDiffView key={selectedFile.path} file={selectedFile} />
+          ) : (
+            <EmptyState
+              icon={ShieldCheck}
+              title="Workspace is clean"
+              detail="There are no staged or unstaged changes to review."
+            />
+          )}
+        </div>
+        <ReviewWorkspaceTree
           projectId={projectId}
           conversationId={conversationId}
-          path={selectedPath}
           worktreePath={worktreePath}
+          worktreeBranch={worktreeBranch}
+          changedFiles={files}
+          selectedPath={selectedPath}
+          onSelect={setSelectedPath}
         />
-      ) : error ? (
-        <EmptyState icon={AlertCircle} title="Couldn’t load changes" detail={error} />
-      ) : files.length === 0 ? (
-        <EmptyState
-          icon={ShieldCheck}
-          title="Workspace is clean"
-          detail="There are no staged or unstaged changes to review."
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
-            {selectedFile && <ReviewDiffView key={selectedFile.path} file={selectedFile} />}
-          </div>
-          <div className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0">
-            <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-              Changed files
-            </div>
-            {files.map((file) => (
-              <button
-                key={file.path}
-                onClick={() => setSelectedPath(file.path)}
-                aria-current={selectedFile?.path === file.path ? "true" : undefined}
-                title={file.path}
-                className={`flex w-full items-start gap-2 border-b border-border/25 px-3 py-2.5 text-left transition-colors ${selectedFile?.path === file.path ? "bg-accent/10" : "hover:bg-hover/60"}`}
-              >
-                <FileCode2
-                  size={13}
-                  className={`mt-0.5 shrink-0 ${file.status === "added" ? "text-emerald-500" : file.status === "deleted" ? "text-red-400" : "text-text-muted"}`}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-[11px] text-text-primary">{file.path}</p>
-                  <p className="mt-1 text-[10px] text-text-muted">
-                    <span className="text-emerald-500">+{file.additions}</span>
-                    <span className="ml-1.5 text-red-400">−{file.deletions}</span>
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -1452,7 +1438,12 @@ export function AuxiliaryPanel() {
             >
               <div className="relative min-h-0 flex-1 overflow-hidden">
                 {activeTab === "review" && (
-                  <ReviewPane projectId={projectId} worktreePath={worktreePath} conversationId={activeId} />
+                  <ReviewPane
+                    projectId={projectId}
+                    worktreePath={worktreePath}
+                    worktreeBranch={worktreeBranch}
+                    conversationId={activeId}
+                  />
                 )}
                 {activeTab === "files" && (
                   <FilesPane

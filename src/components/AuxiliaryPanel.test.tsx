@@ -208,13 +208,53 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     fireEvent.click(screen.getByRole("button", { name: /Review/ }));
 
     expect(await screen.findByText("2 files changed")).toBeInTheDocument();
-    expect(screen.getByText("src/older-change.ts")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "File src/older-change.ts" })).toBeInTheDocument();
     expect(invokeMock).toHaveBeenCalledWith("git_diff_changes", {
       projectId: "project-1",
       worktreePath: null,
       files: null,
       runToken: null,
     });
+  });
+
+  it("browses unchanged workspace files in a collapsible tree", async () => {
+    invokeMock.mockImplementation(async (command, args) => {
+      if (command === "project_browse_begin") return "browser-run-token" as never;
+      if (command === "project_list_dir")
+        return (
+          (args as { path?: string } | undefined)?.path === "." ? ["src/", "README.md"] : ["App.tsx", "helper.ts"]
+        ) as never;
+      if (command === "project_read") return "export const helper = true;" as never;
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/App.tsx"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return "diff --git a/src/App.tsx b/src/App.tsx\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -1 +1 @@\n-old\n+new" as never;
+      }
+      return [] as never;
+    });
+
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    const folder = await screen.findByRole("button", { name: "Folder src" });
+    expect(folder).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("button", { name: "File src/helper.ts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "File README.md" })).toBeInTheDocument();
+    fireEvent.click(folder);
+    expect(folder).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "File src/helper.ts" })).not.toBeInTheDocument();
+    fireEvent.click(folder);
+    fireEvent.click(await screen.findByRole("button", { name: "File src/helper.ts" }));
+    expect(await screen.findByText("export const helper = true;")).toBeInTheDocument();
   });
 
   it("opens Review with the file selected from the changed-files summary", async () => {
@@ -289,7 +329,7 @@ new file mode 100644
     fireEvent.click(screen.getByRole("button", { name: /Review/ }));
 
     expect(await screen.findByText("1 file changed")).toBeInTheDocument();
-    expect(screen.getByText(".claude/settings.json")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "File .claude/settings.json" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: ".claude/" })).not.toBeInTheDocument();
   });
 
