@@ -6,7 +6,7 @@ import { highlightCode } from "../utils/highlighter";
 import { languageForFilename } from "../utils/lineDiff";
 import { fileNameFromPath } from "./auxiliaryPanelUtils";
 
-type ReviewRow = { kind: "gap"; count: number } | { kind: "line"; line: DiffLine };
+type ReviewRow = { kind: "gap"; count: number; oldStart: number; newStart: number } | { kind: "line"; line: DiffLine };
 const PAGE_SIZE = 500;
 
 export function ReviewDiffView({ file }: { file: DiffFile }) {
@@ -22,7 +22,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
     let newEnd = 1;
     for (const hunk of parseDiffHunks(file.lines)) {
       const omitted = Math.min(hunk.oldStart - oldEnd, hunk.newStart - newEnd);
-      if (omitted > 0) result.push({ kind: "gap", count: omitted });
+      if (omitted > 0) result.push({ kind: "gap", count: omitted, oldStart: oldEnd, newStart: newEnd });
       for (const line of hunk.lines) result.push({ kind: "line", line });
       oldEnd = hunk.oldStart + hunk.oldLines;
       newEnd = hunk.newStart + hunk.newLines;
@@ -118,10 +118,29 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
                 return (
                   <div
                     key={index}
-                    className="my-1 flex h-8 items-center gap-3 border-y border-border/30 bg-hover/70 px-4 font-sans text-xs text-text-muted"
+                    className="my-1 flex min-h-9 items-center gap-3 border-y border-border/40 bg-hover/70 px-3 font-sans text-xs text-text-muted"
                   >
-                    <UnfoldVertical size={13} aria-hidden="true" />
-                    {row.count} unmodified {row.count === 1 ? "line" : "lines"}
+                    <span
+                      className="flex shrink-0 gap-2 font-mono text-[10px] tabular-nums text-text-muted"
+                      aria-hidden="true"
+                    >
+                      <span className="w-11 text-right">
+                        {row.oldStart}–{row.oldStart + row.count - 1}
+                      </span>
+                      <span className="w-11 text-right">
+                        {row.newStart}–{row.newStart + row.count - 1}
+                      </span>
+                    </span>
+                    <span className="sr-only">
+                      Old lines {row.oldStart} to {row.oldStart + row.count - 1}; new lines {row.newStart} to{" "}
+                      {row.newStart + row.count - 1}.
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <UnfoldVertical size={13} aria-hidden="true" />
+                      <span>
+                        {row.count} unmodified {row.count === 1 ? "line" : "lines"}
+                      </span>
+                    </span>
                   </div>
                 );
               const { line } = row;
