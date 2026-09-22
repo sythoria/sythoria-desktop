@@ -16,7 +16,7 @@ index 123..456 100644
     const { container } = render(<ReviewDiffView file={file} />);
     expect(screen.getByRole("region", { name: "Diff for src/test.ts" })).toBeInTheDocument();
     expect(screen.getByText("70 unmodified lines")).toBeInTheDocument();
-    expect(screen.getAllByText("1–70")).toHaveLength(2);
+    expect(screen.getAllByText("1–70")).toHaveLength(1);
     expect(container).not.toHaveTextContent("diff --git");
     expect(container).not.toHaveTextContent("@@");
     expect(container).not.toHaveTextContent("index 123");
@@ -60,6 +60,6 @@ ${Array.from({ length: 501 }, (_, index) => `+source line ${index + 1}`).join("\
 +newer`);
     render(<ReviewDiffView file={file} />);
     expect(screen.getByText("4 unmodified lines")).toBeInTheDocument();
-    expect(screen.getAllByText("2–5")).toHaveLength(2);
+    expect(screen.getAllByText("2–5")).toHaveLength(1);
   });
 });

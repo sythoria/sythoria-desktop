@@ -851,6 +851,50 @@ pre,
   background: var(--theme-text-muted);
 }
 
+.review-diff-gutter {
+  padding-left: 3px;
+  background-color: var(--color-chat);
+}
+
+.review-diff-gutter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+
+.review-diff-code {
+  border-left: 2px solid var(--color-chat);
+}
+
+.review-diff-line[data-change="add"] {
+  --review-diff-tint: var(--theme-diff-add-bg);
+}
+
+.review-diff-line[data-change="del"] {
+  --review-diff-tint: var(--theme-diff-delete-bg);
+}
+
+.review-diff-line[data-change="add"] .review-diff-gutter,
+.review-diff-line[data-change="del"] .review-diff-gutter {
+  background-color: color-mix(in srgb, var(--color-chat) 70%, var(--review-diff-tint));
+}
+
+.review-diff-line[data-change="add"] .review-diff-code,
+.review-diff-line[data-change="del"] .review-diff-code {
+  background-color: color-mix(in srgb, var(--color-chat) 45%, var(--review-diff-tint));
+}
+
+.review-diff-line[data-change="add"] .review-diff-gutter::before {
+  background-color: #22c55e;
+}
+
+.review-diff-line[data-change="del"] .review-diff-gutter::before {
+  background: repeating-linear-gradient(to bottom, #ef4444 0 1px, transparent 1px 2px);
+}
+
 /* Performance Mode: Disable all transitions and keyframe animations globally */
 .animations-disabled *,
 .animations-disabled *::before,

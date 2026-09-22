@@ -29,6 +29,13 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
     }
     return result;
   }, [file.lines]);
+  const lineNumberWidth = useMemo(() => {
+    const lastLine = rows.reduce((largest, row) => {
+      if (row.kind === "gap") return largest;
+      return Math.max(largest, row.line.oldNumber ?? 0, row.line.newNumber ?? 0);
+    }, 0);
+    return `${Math.max(5, String(lastLine).length + 1)}ch`;
+  }, [rows]);
   const visibleRows = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount]);
   const highlighted = highlightResult?.rows === visibleRows ? highlightResult.html : null;
 
@@ -112,24 +119,20 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
                       : "No text diff available for this file."}
           </p>
         ) : (
-          <div className="min-w-max py-1 font-mono text-xs leading-6" style={{ tabSize: 4 }}>
+          <div className="min-w-max font-mono text-xs leading-6" style={{ tabSize: 4 }}>
             {visibleRows.map((row, index) => {
               if (row.kind === "gap")
                 return (
                   <div
                     key={index}
-                    className="my-1 flex min-h-9 items-center gap-3 bg-hover/50 px-3 font-sans text-xs text-text-muted"
+                    className="flex min-h-6 items-center gap-2 bg-hover/50 pr-3 pl-[3px] font-sans text-xs text-text-muted"
                   >
                     <span
-                      className="flex shrink-0 gap-2 font-mono text-[10px] tabular-nums text-text-muted"
+                      className="shrink-0 pr-2 text-right font-mono text-[10px] tabular-nums text-text-muted"
+                      style={{ minWidth: lineNumberWidth }}
                       aria-hidden="true"
                     >
-                      <span className="w-11 text-right">
-                        {row.oldStart}–{row.oldStart + row.count - 1}
-                      </span>
-                      <span className="w-11 text-right">
-                        {row.newStart}–{row.newStart + row.count - 1}
-                      </span>
+                      {row.newStart}–{row.newStart + row.count - 1}
                     </span>
                     <span className="sr-only">
                       Old lines {row.oldStart} to {row.oldStart + row.count - 1}; new lines {row.newStart} to{" "}
@@ -150,32 +153,29 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
               return (
                 <div
                   key={index}
-                  className={`flex min-h-6 border-l-2 text-text-primary ${
-                    added
-                      ? "border-emerald-500 bg-emerald-500/[0.14]"
-                      : deleted
-                        ? "border-rose-500 bg-rose-500/[0.14]"
-                        : "border-transparent"
-                  }`}
+                  className="review-diff-line flex min-h-6 text-text-primary"
+                  data-change={line.type}
                 >
                   <span
                     aria-hidden="true"
-                    className={`sticky left-0 flex shrink-0 select-none bg-chat ${added ? "text-emerald-700 dark:text-emerald-400" : deleted ? "text-rose-600 dark:text-rose-400" : "text-text-muted"}`}
+                    className={`review-diff-gutter sticky left-0 flex shrink-0 select-none ${added ? "text-emerald-700 dark:text-emerald-400" : deleted ? "text-rose-600 dark:text-rose-400" : "text-text-muted"}`}
                   >
-                    <span className="w-11 pr-2 text-right tabular-nums">{line.oldNumber ?? ""}</span>
-                    <span className="w-11 pr-2 text-right tabular-nums">{line.newNumber ?? ""}</span>
-                    <span className="w-5 text-center">{added ? "+" : deleted ? "−" : ""}</span>
+                    <span className="pr-2 text-right tabular-nums" style={{ width: lineNumberWidth }}>
+                      {deleted ? line.oldNumber : line.newNumber}
+                    </span>
                   </span>
                   <span className="sr-only">
                     {added ? "Added" : deleted ? "Deleted" : "Unchanged"} line {line.newNumber ?? line.oldNumber}:{" "}
                   </span>
                   {html ? (
                     <code
-                      className="block flex-1 whitespace-pre pr-5 pl-2"
+                      className="review-diff-code block flex-1 whitespace-pre pr-3 pl-2"
                       dangerouslySetInnerHTML={{ __html: html }}
                     />
                   ) : (
-                    <code className="block flex-1 whitespace-pre pr-5 pl-2">{line.content || " "}</code>
+                    <code className="review-diff-code block flex-1 whitespace-pre pr-3 pl-2">
+                      {line.content || " "}
+                    </code>
                   )}
                 </div>
               );

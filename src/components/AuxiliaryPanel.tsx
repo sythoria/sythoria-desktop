@@ -426,8 +426,8 @@ function ReviewPane({
           tabIndex={fileListVisible ? 0 : -1}
           onPointerDown={fileListVisible ? startFileListResize : undefined}
           onKeyDown={fileListVisible ? resizeFileListWithKeyboard : undefined}
-          className={`relative hidden shrink-0 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-border/35 after:transition-[opacity,background-color] hover:after:bg-accent/55 focus-visible:after:bg-accent/70 md:block ${
-            fileListVisible ? "w-2 after:opacity-100" : "w-0 pointer-events-none after:opacity-0"
+          className={`relative hidden shrink-0 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus before:absolute before:inset-y-0 before:-left-1 before:w-3 after:absolute after:inset-y-0 after:left-0 after:w-px after:bg-border/35 after:transition-[opacity,background-color] hover:after:bg-accent/55 focus-visible:after:bg-accent/70 md:block ${
+            fileListVisible ? "w-px after:opacity-100" : "w-0 pointer-events-none after:opacity-0"
           }`}
           style={{ transition: `width ${motionTokens.duration.hover}s` }}
         />
@@ -1409,9 +1409,9 @@ export function AuxiliaryPanel() {
   return (
     <section className="flex h-full min-h-0 flex-col bg-chat" aria-label="Workspace panel">
       {displayedTabs.length > 0 && (
-        <header className="flex h-11 shrink-0 items-center border-b border-border/40 px-2">
+        <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border/40 px-2">
           <div
-            className="flex h-full min-w-0 flex-1 items-center overflow-x-auto"
+            className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto"
             role="tablist"
             aria-label="Workspace tabs"
           >
@@ -1423,8 +1423,8 @@ export function AuxiliaryPanel() {
               return (
                 <div
                   key={tab}
-                  className={`relative flex h-full shrink-0 items-center border-r border-border/30 px-1 ${
-                    isActive ? "after:absolute after:inset-x-1 after:bottom-0 after:h-px after:bg-accent/80" : ""
+                  className={`flex h-7 shrink-0 items-center rounded-xl pl-0.5 pr-1 transition-colors ${
+                    isActive ? "bg-hover/80" : "hover:bg-hover/40"
                   }`}
                 >
                   <button
@@ -1432,8 +1432,8 @@ export function AuxiliaryPanel() {
                     role="tab"
                     aria-selected={isActive}
                     onClick={() => setActiveTab(tab)}
-                    className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${
-                      isActive ? "text-text-primary" : "text-text-muted hover:bg-hover hover:text-text-secondary"
+                    className={`flex h-full items-center gap-1.5 rounded-lg px-1.5 text-[11px] font-normal transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${
+                      isActive ? "text-text-primary" : "text-text-muted hover:text-text-secondary"
                     }`}
                   >
                     <PanelIcon size={13} className="shrink-0" />
@@ -1442,7 +1442,7 @@ export function AuxiliaryPanel() {
                   <button
                     type="button"
                     onClick={() => closeTab(tab)}
-                    className="shrink-0 rounded-md p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+                    className="shrink-0 rounded-lg p-1 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
                     aria-label={`Close ${panel.label}`}
                     title={`Close ${panel.label}`}
                   >
@@ -1452,11 +1452,10 @@ export function AuxiliaryPanel() {
               );
             })}
           </div>
-          <div className="mx-1 h-4 w-px shrink-0 bg-border/50" aria-hidden="true" />
           <button
             type="button"
             onClick={() => setActiveTab(null)}
-            className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
+            className="shrink-0 rounded-lg p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus"
             aria-label="Add workspace tab"
             title="Add workspace tab"
           >

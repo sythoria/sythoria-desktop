@@ -181,6 +181,7 @@ Model, web search, URL fetch, and MCP cards show accessible inline URL validatio
 - **`use-safe-motion.ts`**: Provides `useSafeMotion`, `useSafeScale`, `useSafeSlideX` hooks that respect reduced-motion preferences.
 - **MotionButton**: Reusable `motion.button` with scale tap/hover effects.
 - Review and Files folder trees animate chevron rotation and subtree height/opacity with `motionTransitions.hover`, which respects reduced or disabled motion. The Review file list animates show/hide without losing tree or search state; its width transition is disabled during pointer resizing. Review pane surfaces use subtle straight dividers; rounding is reserved for controls and selected rows.
+- Workspace panel tabs use compact rounded pills. Review diff rows sit flush beneath their file header and show one file-sized line-number gutter: old numbers for deletions, new numbers for additions and context. Colored gutters, tinted code rows, and solid green or striped red edge markers convey change type without inline +/- signs.
 
 ## Data Flow
 
