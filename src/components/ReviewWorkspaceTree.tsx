@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { DiffFile } from "../utils/gitDiff";
 
@@ -171,11 +171,22 @@ export function ReviewWorkspaceTree({
   const [names, setNames] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [searchPaths, setSearchPaths] = useState<string[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const isSearching = !!query.trim();
   const scope = conversationId || `review-tree:${projectId}`;
 
   useEffect(() => {
     let cancelled = false;
     let acquiredToken: string | null = null;
+    queueMicrotask(() => {
+      setRunToken(null);
+      setNames([]);
+      setSearchPaths(null);
+      setError(null);
+      setSearchError(null);
+    });
     void invoke<string>("project_browse_begin", {
       projectId,
       conversationId: scope,
@@ -206,12 +217,41 @@ export function ReviewWorkspaceTree({
   }, [projectId, scope, worktreeBranch, worktreePath]);
 
   useEffect(() => {
+    if (!runToken || !isSearching || searchPaths || searchError) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const paths = await invoke<string[]>("project_glob", {
+          projectId,
+          runToken,
+          path: ".",
+          pattern: "**/*",
+          worktreePath: worktreePath || null,
+        });
+        if (!cancelled) setSearchPaths(paths || []);
+      } catch (reason) {
+        if (!cancelled) setSearchError(reason instanceof Error ? reason.message : String(reason));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSearching, projectId, runToken, searchError, searchPaths, worktreePath]);
+
+  useEffect(() => {
     if (!selectedPath) return;
     const paths = ancestors(selectedPath);
     queueMicrotask(() => setExpanded((current) => new Set([...current, ...paths])));
   }, [selectedPath]);
 
   const entries = useMemo(() => entriesForDirectory("", names, changedFiles), [names, changedFiles]);
+  const searchMatches = useMemo(() => {
+    if (!query.trim()) return [];
+    const lower = query.trim().toLowerCase();
+    return [...new Set([...(searchPaths || []), ...changedFiles.map((file) => file.path)])]
+      .filter((path) => path.toLowerCase().includes(lower))
+      .sort((left, right) => left.localeCompare(right));
+  }, [changedFiles, query, searchPaths]);
   const toggle = (path: string) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -225,8 +265,29 @@ export function ReviewWorkspaceTree({
       className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0"
       aria-label="Workspace files"
     >
-      <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-        Workspace files
+      <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Workspace files</p>
+        <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-input/40 px-2 py-1.5 focus-within:border-accent/60">
+          <Search size={12} className="shrink-0 text-text-muted" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search workspace files"
+            placeholder="Filter files…"
+            className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear file search"
+              className="text-text-muted hover:text-text-primary"
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
       {error && (
         <p className="px-3 py-2 text-xs text-rose-500" role="alert">
@@ -234,7 +295,38 @@ export function ReviewWorkspaceTree({
         </p>
       )}
       {!runToken && !error && <p className="px-3 py-2 text-xs text-text-muted">Loading files…</p>}
-      {(runToken || changedFiles.length > 0) &&
+      {query.trim() && searchError && (
+        <p className="px-3 py-2 text-xs text-rose-500" role="alert">
+          Search failed: {searchError}
+        </p>
+      )}
+      {query.trim() && runToken && !searchPaths && !searchError && (
+        <p className="px-3 py-2 text-xs text-text-muted">Searching files…</p>
+      )}
+      {query.trim() && searchPaths && !searchError && (
+        <>
+          <p className="px-3 py-1 text-[10px] text-text-muted">
+            {searchMatches.length} {searchMatches.length === 1 ? "match" : "matches"}
+            {searchMatches.length > 200 ? " · first 200 shown" : ""}
+          </p>
+          {searchMatches.slice(0, 200).map((path) => (
+            <button
+              key={path}
+              type="button"
+              onClick={() => onSelect(path)}
+              aria-label={`File ${path}`}
+              aria-current={selectedPath === path ? "true" : undefined}
+              title={path}
+              className={`flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-xs hover:bg-hover/70 ${selectedPath === path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+            >
+              <File size={13} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">{path}</span>
+            </button>
+          ))}
+        </>
+      )}
+      {!query.trim() &&
+        (runToken || changedFiles.length > 0) &&
         entries.map((entry) => (
           <TreeRow
             key={entry.path}

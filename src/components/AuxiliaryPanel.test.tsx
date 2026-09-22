@@ -257,6 +257,50 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     expect(await screen.findByText("export const helper = true;")).toBeInTheDocument();
   });
 
+  it("finds files in folders that have not been opened", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "project_browse_begin") return "browser-run-token" as never;
+      if (command === "project_list_dir") return ["src/", "docs/"] as never;
+      if (command === "project_glob") return ["docs/review-guide.md", "src/App.tsx"] as never;
+      if (command === "project_read") return "Review guide text" as never;
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/App.tsx"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return "diff --git a/src/App.tsx b/src/App.tsx\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -1 +1 @@\n-old\n+new" as never;
+      }
+      return [] as never;
+    });
+
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search workspace files" }), {
+      target: { value: "review-guide" },
+    });
+    expect(await screen.findByRole("button", { name: "File docs/review-guide.md" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "File src/App.tsx" })).not.toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith("project_glob", {
+      projectId: "project-1",
+      runToken: "browser-run-token",
+      path: ".",
+      pattern: "**/*",
+      worktreePath: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "File docs/review-guide.md" }));
+    expect(await screen.findByText("Review guide text")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear file search" }));
+    expect(screen.getByRole("button", { name: "Folder docs" })).toBeInTheDocument();
+  });
+
   it("opens Review with the file selected from the changed-files summary", async () => {
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_get_status") {
