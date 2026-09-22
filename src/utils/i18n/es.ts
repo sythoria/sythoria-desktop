@@ -648,6 +648,8 @@ export const es = {
     '¿Confiar en "{name}"? Sus herramientas pueden ejecutarse automáticamente con argumentos generados por IA y acceder a archivos, ejecutar comandos o realizar solicitudes de red. Continúa solo si controlas y confías en este servidor.',
   "settings.mcp.trustedWarning":
     "Servidor de confianza: todas sus herramientas pueden ejecutarse automáticamente hasta que desactives esta opción.",
+  "settings.mcp.verifiedPlugin":
+    "Plugin de Sythoria verificado — las aprobaciones de herramientas se gestionan automáticamente.",
   "settings.mcp.deleteTitle": "Eliminar Servidor MCP",
   "settings.mcp.deleteConfirm":
     '¿Estás seguro de que deseas eliminar el servidor MCP "{name}"? Esta acción no se puede deshacer.',

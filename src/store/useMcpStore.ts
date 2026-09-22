@@ -9,6 +9,7 @@ import { summarizeToolArguments } from "../utils/redaction";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
+import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
 
@@ -85,7 +86,7 @@ interface McpState {
   addMcpConfigWithSecrets: (
     preset: McpServerPreset,
     secrets: Record<string, string>,
-    options?: { notify?: boolean },
+    options?: { notify?: boolean; catalogPluginId?: string },
   ) => Promise<boolean>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
@@ -221,7 +222,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       return resolved;
     });
 
-    const newConfig: McpServerConfig = {
+    const candidateConfig: McpServerConfig = {
       id: targetId,
       name: preset.name,
       transport: "stdio",
@@ -229,7 +230,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
       args: interpolatedArgs,
       enabled: true,
       trustLevel: "untrusted",
+      ...(options?.catalogPluginId ? { catalogPluginId: options.catalogPluginId } : {}),
     };
+    const verifiedPlugin = verifiedCatalogPluginForConfig(candidateConfig);
+    let newConfig: McpServerConfig;
+    if (verifiedPlugin && verifiedPlugin.id === options?.catalogPluginId) {
+      newConfig = { ...candidateConfig, catalogPluginId: verifiedPlugin.id, trustLevel: "trusted" };
+    } else {
+      const { catalogPluginId: _catalogPluginId, ...customConfig } = candidateConfig;
+      newConfig = customConfig;
+    }
 
     const updatedConfigs = existing
       ? mcpConfigs.map((c) => (c.id === targetId ? newConfig : c))
@@ -276,9 +286,19 @@ export const useMcpStore = create<McpState>((set, get) => ({
         : {}),
     });
     const previousConfig = mcpConfigs.find((config) => config.id === id);
-    const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    const updatedConfigs = mcpConfigs.map((config) => {
+      if (config.id !== id) return config;
+      const candidate = { ...config, ...updates };
+      const explicitlyRevoked = updates.trustLevel === "untrusted";
+      const remainsVerified = candidate.catalogPluginId && verifiedCatalogPluginForConfig(candidate);
+      if (!config.catalogPluginId || (!explicitlyRevoked && remainsVerified)) return candidate;
+
+      const { catalogPluginId: _catalogPluginId, ...customConfig } = candidate;
+      return { ...customConfig, trustLevel: "untrusted" as const };
+    });
     const isBeingDisabled = updates.enabled === false;
-    const trustChanged = updates.trustLevel !== undefined && previousConfig?.trustLevel !== updates.trustLevel;
+    const updatedConfig = updatedConfigs.find((config) => config.id === id);
+    const trustChanged = previousConfig?.trustLevel !== updatedConfig?.trustLevel;
 
     if (isBeingDisabled) {
       const nextEnabled = new Set(get().enabledServerIds);
@@ -309,7 +329,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       debouncedSaveMcpApiKeys(newKeys);
     }
 
-    if (updates.trustLevel !== undefined) {
+    if (trustChanged) {
       // Trust revocation is a security boundary: persist it immediately so a
       // quick shutdown cannot restore the previous trusted state on restart.
       debouncedSaveMcpConfigs.cancel();
@@ -320,7 +340,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
     } else if (!isBeingDisabled) {
       debouncedSaveMcpConfigs(updatedConfigs);
     }
-    const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
       debouncedLogConfigUpdate(updatedConfig.name, Object.keys(updates));
     }

@@ -1,3 +1,4 @@
+import type { McpServerConfig } from "../types";
 import type { McpServerPreset } from "./mcpPresets";
 
 export type PluginCategory = "featured" | "developer" | "productivity" | "communication" | "search" | "media";
@@ -1515,3 +1516,50 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     keywords: ["zapier", "make", "webhooks", "automation", "integrations", "workflows"],
   },
 ];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesPresetArgument(template: string, value: string): boolean {
+  const placeholderPattern = /<[^>]+>/g;
+  if (!placeholderPattern.test(template)) return template === value;
+
+  placeholderPattern.lastIndex = 0;
+  let pattern = "^";
+  let cursor = 0;
+  for (const match of template.matchAll(placeholderPattern)) {
+    pattern += escapeRegExp(template.slice(cursor, match.index));
+    pattern += "[\\s\\S]*";
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+  pattern += `${escapeRegExp(template.slice(cursor))}$`;
+  return new RegExp(pattern).test(value);
+}
+
+/**
+ * Returns the bundled plugin represented by a config only when its executable
+ * identity still matches the catalog preset. This lets legacy catalog installs
+ * become verified without trusting a custom server that merely reuses a name.
+ */
+export function verifiedCatalogPluginForConfig(config: McpServerConfig): PluginItem | undefined {
+  const candidates = config.catalogPluginId
+    ? PLUGINS_CATALOG.filter((plugin) => plugin.id === config.catalogPluginId)
+    : PLUGINS_CATALOG.filter(
+        (plugin) =>
+          plugin.name.toLowerCase() === config.name.toLowerCase() ||
+          plugin.preset.name.toLowerCase() === config.name.toLowerCase(),
+      );
+
+  return candidates.find((plugin) => {
+    const preset = plugin.preset;
+    const args = config.args ?? [];
+    return (
+      config.transport === "stdio" &&
+      config.name.toLowerCase() === preset.name.toLowerCase() &&
+      config.command === preset.command &&
+      args.length === preset.args.length &&
+      preset.args.every((argument, index) => matchesPresetArgument(argument, args[index] ?? ""))
+    );
+  });
+}

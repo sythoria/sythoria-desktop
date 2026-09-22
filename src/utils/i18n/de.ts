@@ -652,6 +652,8 @@ export const de = {
     "„{name}“ vertrauen? Seine Tools können automatisch mit KI-generierten Argumenten ausgeführt werden und auf Dateien zugreifen, Befehle ausführen oder Netzwerkanfragen senden. Fahre nur fort, wenn du diesen Server kontrollierst und ihm vertraust.",
   "settings.mcp.trustedWarning":
     "Vertrauenswürdig: Alle Tools dieses Servers können automatisch ausgeführt werden, bis du diese Option deaktivierst.",
+  "settings.mcp.verifiedPlugin":
+    "Verifiziertes Sythoria-Plugin – Tool-Genehmigungen werden automatisch verwaltet.",
   "settings.mcp.deleteTitle": "MCP-Server löschen",
   "settings.mcp.deleteConfirm":
     'Bist du sicher, dass du den MCP-Server "{name}" löschen möchtest? Diese Aktion kann nicht rückgängig gemacht werden.',

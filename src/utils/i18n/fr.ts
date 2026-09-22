@@ -637,6 +637,8 @@ export const fr = {
     "Faire confiance à « {name} » ? Ses outils pourront s’exécuter automatiquement avec des arguments générés par l’IA et accéder à des fichiers, lancer des commandes ou effectuer des requêtes réseau. Continuez uniquement si vous contrôlez ce serveur et lui faites confiance.",
   "settings.mcp.trustedWarning":
     "Serveur approuvé : tous ses outils peuvent s’exécuter automatiquement jusqu’à la désactivation de cette option.",
+  "settings.mcp.verifiedPlugin":
+    "Plugin Sythoria vérifié — les autorisations d’outils sont gérées automatiquement.",
   "settings.mcp.deleteTitle": "Supprimer le serveur MCP",
   "settings.mcp.deleteConfirm": 'Supprimer le serveur MCP "{name}" ?',
   "settings.mcp.template": "Modèle",

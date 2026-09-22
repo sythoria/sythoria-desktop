@@ -638,6 +638,8 @@ export const ja = {
     "「{name}」を信頼しますか？ツールは AI が生成した引数で自動実行され、ファイルへのアクセス、コマンドの実行、ネットワークリクエストを行う可能性があります。このサーバーを管理し、信頼している場合のみ続行してください。",
   "settings.mcp.trustedWarning":
     "信頼済み：この設定をオフにするまで、このサーバーのすべてのツールが自動実行される可能性があります。",
+  "settings.mcp.verifiedPlugin":
+    "検証済みの Sythoria プラグイン — ツールの承認は自動的に処理されます。",
   "settings.mcp.deleteTitle": "MCPサーバー設定 of 削除",
   "settings.mcp.deleteConfirm": '本当にMCPサーバー "{name}" を削除しますか？この操作は元に戻せません。',
   "settings.mcp.template": "テンプレート",

@@ -124,12 +124,14 @@ export function PluginsSection() {
   const installedPluginMap = useMemo(() => {
     const map = new Map<string, { configId: string; isConnected: boolean; isEnabled: boolean }>();
     for (const config of mcpConfigs) {
-      const matched = PLUGINS_CATALOG.find(
-        (p) =>
-          p.id === config.id ||
-          p.name.toLowerCase() === config.name.toLowerCase() ||
-          p.preset.name.toLowerCase() === config.name.toLowerCase(),
-      );
+      const matched = config.catalogPluginId
+        ? PLUGINS_CATALOG.find((plugin) => plugin.id === config.catalogPluginId)
+        : PLUGINS_CATALOG.find(
+            (plugin) =>
+              plugin.id === config.id ||
+              plugin.name.toLowerCase() === config.name.toLowerCase() ||
+              plugin.preset.name.toLowerCase() === config.name.toLowerCase(),
+          );
       if (matched) {
         const isConnected = serverStatuses[config.id] === "connected";
         const isEnabled = enabledServerIds.has(config.id);
@@ -421,9 +423,13 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "github");
       if (plugin) {
-        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
-          GITHUB_PERSONAL_ACCESS_TOKEN: token,
-        });
+        const success = await useMcpStore
+          .getState()
+          .addMcpConfigWithSecrets(
+            plugin.preset,
+            { GITHUB_PERSONAL_ACCESS_TOKEN: token },
+            { catalogPluginId: plugin.id },
+          );
 
         if (success) {
           addToast(`Connected ${plugin.name}`, "success");
@@ -468,10 +474,13 @@ export function PluginsSection() {
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "linear");
       if (plugin) {
-        const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {
-          LINEAR_API_KEY: token,
-          LINEAR_ACCESS_TOKEN: token,
-        });
+        const success = await useMcpStore
+          .getState()
+          .addMcpConfigWithSecrets(
+            plugin.preset,
+            { LINEAR_API_KEY: token, LINEAR_ACCESS_TOKEN: token },
+            { catalogPluginId: plugin.id },
+          );
 
         if (success) {
           addToast(`Connected ${plugin.name}`, "success");
@@ -582,7 +591,9 @@ export function PluginsSection() {
             }),
       };
 
-      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets, { notify: false });
+      const success = await useMcpStore
+        .getState()
+        .addMcpConfigWithSecrets(plugin.preset, secrets, { notify: false, catalogPluginId: plugin.id });
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
@@ -639,7 +650,9 @@ export function PluginsSection() {
         SPOTIFY_ACCESS_TOKEN: tokens.accessToken,
       };
 
-      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets);
+      const success = await useMcpStore
+        .getState()
+        .addMcpConfigWithSecrets(plugin.preset, secrets, { catalogPluginId: plugin.id });
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
@@ -674,7 +687,9 @@ export function PluginsSection() {
         }
       }
 
-      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secretsToSave);
+      const success = await useMcpStore
+        .getState()
+        .addMcpConfigWithSecrets(plugin.preset, secretsToSave, { catalogPluginId: plugin.id });
 
       if (success) {
         addToast(installedInfo ? `Updated authorization for ${plugin.name}` : `Connected ${plugin.name}`, "success");
@@ -696,7 +711,9 @@ export function PluginsSection() {
     }
 
     try {
-      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, {});
+      const success = await useMcpStore
+        .getState()
+        .addMcpConfigWithSecrets(plugin.preset, {}, { catalogPluginId: plugin.id });
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
       }

@@ -5,6 +5,7 @@ import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
 import { logError, logInfo, logWarn } from "./logger";
 import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
 import { DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
+import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -1289,6 +1290,7 @@ export const McpServerConfigSchema = z
     apiKey: z.string().optional(),
     enabled: z.boolean(),
     trustLevel: z.enum(["trusted", "untrusted"]).default("untrusted"),
+    catalogPluginId: z.string().optional(),
   })
   .passthrough();
 
@@ -1305,7 +1307,7 @@ let mcpConfigWritesBlockedBySecretMigration = false;
  * unchanged. Only stdio configs with a multi-token `command` are rewritten.
  */
 export function migrateMcpConfigs(configs: import("../types").McpServerConfig[]): import("../types").McpServerConfig[] {
-  return configs.map((c) => {
+  const commandMigrated = configs.map((c) => {
     if (c.transport !== "stdio") return c;
     const raw = (c.command ?? "").trim();
     if (!raw) return c;
@@ -1322,6 +1324,20 @@ export function migrateMcpConfigs(configs: import("../types").McpServerConfig[])
     const dedupedYes = dedupAutoYes(merged);
 
     return { ...c, command: program, args: dedupedYes };
+  });
+
+  return commandMigrated.map((config) => {
+    const verifiedPlugin = verifiedCatalogPluginForConfig(config);
+    if (verifiedPlugin) {
+      return {
+        ...config,
+        catalogPluginId: verifiedPlugin.id,
+        trustLevel: "trusted" as const,
+      };
+    }
+    if (!config.catalogPluginId) return config;
+    const { catalogPluginId: _catalogPluginId, ...customConfig } = config;
+    return { ...customConfig, trustLevel: "untrusted" as const };
   });
 }
 
@@ -1376,7 +1392,7 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
           await store.set(MCP_CONFIGS_KEY, stripped);
           await store.save();
           migrated = stripped;
-          logInfo("storage", "Migrated MCP configs to program + args format", {
+          logInfo("storage", "Migrated MCP config format and catalog verification", {
             details: `${migrated.length} server(s) processed`,
           });
         }

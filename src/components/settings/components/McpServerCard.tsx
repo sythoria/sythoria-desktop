@@ -122,6 +122,7 @@ export const McpServerCard = memo(function McpServerCard({
 
   const commandHasSpace = commandValue.trim().includes(" ");
   const isTrusted = config.trustLevel === "trusted";
+  const isVerifiedPlugin = Boolean(config.catalogPluginId);
 
   const handleTrustChange = (trusted: boolean) => {
     if (!trusted) {
@@ -182,28 +183,38 @@ export const McpServerCard = memo(function McpServerCard({
         </div>
       )}
 
-      <div
-        className={`rounded-lg border p-3 ${
-          isTrusted ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-input/40"
-        }`}
-      >
-        <Switch
-          checked={isTrusted}
-          onChange={handleTrustChange}
-          label={t("settings.mcp.trust")}
-          description={t("settings.mcp.trustDesc")}
-          ariaLabel={`Trust MCP server ${config.name}`}
-        />
-        {isTrusted && (
-          <div
-            className="mt-3 pt-3 border-t border-amber-500/20 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300"
-            role="status"
-          >
-            <ShieldAlert size={15} className="shrink-0 mt-0.5" aria-hidden="true" />
-            <span>{t("settings.mcp.trustedWarning")}</span>
-          </div>
-        )}
-      </div>
+      {isVerifiedPlugin ? (
+        <div
+          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300"
+          role="status"
+        >
+          <CheckCircle2 size={15} className="shrink-0" aria-hidden="true" />
+          <span>{t("settings.mcp.verifiedPlugin")}</span>
+        </div>
+      ) : (
+        <div
+          className={`rounded-lg border p-3 ${
+            isTrusted ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-input/40"
+          }`}
+        >
+          <Switch
+            checked={isTrusted}
+            onChange={handleTrustChange}
+            label={t("settings.mcp.trust")}
+            description={t("settings.mcp.trustDesc")}
+            ariaLabel={`Trust MCP server ${config.name}`}
+          />
+          {isTrusted && (
+            <div
+              className="mt-3 pt-3 border-t border-amber-500/20 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300"
+              role="status"
+            >
+              <ShieldAlert size={15} className="shrink-0 mt-0.5" aria-hidden="true" />
+              <span>{t("settings.mcp.trustedWarning")}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-3">
         {config.transport === "stdio" && (
