@@ -316,6 +316,32 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     expect(screen.getByRole("searchbox", { name: "Search workspace files" })).toHaveValue("App");
   });
 
+  it("resizes the file list with pointer and keyboard input", async () => {
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    const separator = await screen.findByRole("separator", { name: "Resize file list" });
+    const content = separator.parentElement!;
+    vi.spyOn(content, "getBoundingClientRect").mockReturnValue({
+      x: 300,
+      y: 0,
+      width: 700,
+      height: 600,
+      top: 0,
+      right: 1000,
+      bottom: 600,
+      left: 300,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(separator, { button: 0, clientX: 720 });
+    fireEvent.pointerMove(window, { clientX: 650 });
+    expect(separator).toHaveAttribute("aria-valuenow", "350");
+    fireEvent.pointerUp(window);
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(separator).toHaveAttribute("aria-valuenow", "370");
+    fireEvent.keyDown(separator, { key: "End" });
+    expect(separator).toHaveAttribute("aria-valuenow", "480");
+  });
+
   it("opens Review with the file selected from the changed-files summary", async () => {
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_get_status") {

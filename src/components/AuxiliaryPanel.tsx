@@ -200,6 +200,9 @@ function ReviewPane({
   const [actionLoading, setActionLoading] = useState<"publish" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileListVisible, setFileListVisible] = useState(true);
+  const [fileListWidth, setFileListWidth] = useState(280);
+  const reviewContentRef = useRef<HTMLDivElement>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const publishPendingWorktree = useChatStore((s) => s.publishPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const isConversationWorking = useChatStore((state) => {
@@ -258,6 +261,40 @@ function ReviewPane({
   const selectedFile = selectedPath ? files.find((file) => file.path === selectedPath) : files[0];
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
+  const clampFileListWidth = useCallback((width: number) => {
+    const containerWidth = reviewContentRef.current?.getBoundingClientRect().width || 900;
+    return Math.max(180, Math.min(width, Math.min(560, containerWidth - 220)));
+  }, []);
+
+  useEffect(() => () => resizeCleanupRef.current?.(), []);
+
+  const startFileListResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    resizeCleanupRef.current?.();
+    const onMove = (moveEvent: PointerEvent) => {
+      const right = reviewContentRef.current?.getBoundingClientRect().right;
+      if (right !== undefined) setFileListWidth(clampFileListWidth(right - moveEvent.clientX));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      resizeCleanupRef.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    resizeCleanupRef.current = stop;
+  };
+
+  const resizeFileListWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    if (event.key === "Home") setFileListWidth(clampFileListWidth(180));
+    else if (event.key === "End") setFileListWidth(clampFileListWidth(560));
+    else setFileListWidth((current) => clampFileListWidth(current + (event.key === "ArrowLeft" ? 20 : -20)));
+  };
 
   const resolveWorktree = async (action: "publish" | "discard") => {
     if (!conversationId) return;
@@ -351,7 +388,7 @@ function ReviewPane({
           ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div ref={reviewContentRef} className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
           {selectedPath && !selectedFile ? (
             <ReviewFilePreview
@@ -374,6 +411,22 @@ function ReviewPane({
             />
           )}
         </div>
+        {fileListVisible && (
+          // The keyboard focusable separator follows the ARIA window splitter pattern.
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+          <div
+            role="separator"
+            aria-label="Resize file list"
+            aria-orientation="vertical"
+            aria-valuemin={180}
+            aria-valuemax={560}
+            aria-valuenow={fileListWidth}
+            tabIndex={0}
+            onPointerDown={startFileListResize}
+            onKeyDown={resizeFileListWithKeyboard}
+            className="hidden w-1 shrink-0 cursor-col-resize bg-border/30 transition-colors hover:bg-accent/50 focus-visible:bg-accent/70 focus-visible:outline-none md:block"
+          />
+        )}
         <ReviewWorkspaceTree
           projectId={projectId}
           conversationId={conversationId}
@@ -383,6 +436,7 @@ function ReviewPane({
           selectedPath={selectedPath}
           onSelect={setSelectedPath}
           visible={fileListVisible}
+          width={fileListWidth}
         />
       </div>
     </div>
