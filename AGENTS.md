@@ -88,11 +88,13 @@ src/
     FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
     ReviewDiffView.tsx   # Graphical workspace review: file headers, syntax-highlighted numbered hunks, omitted-context separators, and progressive large-diff rendering
     InputBar.tsx        # Composer orchestration, live changed-files indicator, model selector, tools, attachments, send/stop
+    AttachmentCard.tsx  # Shared rounded file/image tiles; seamless composer row, small hover/focus circular draft removal, sent-message cards
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
     settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)
     StartScreen.tsx     # Onboarding with motion entrance animations
     ScrollToBottomButton.tsx
+    # ImagePreviewModal portals to document.body above app chrome to escape composer/message stacking contexts.
     ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
 docs/
   updater-releases.md   # Updater signing, local-build, release, and test guide

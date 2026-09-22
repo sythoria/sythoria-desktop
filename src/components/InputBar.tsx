@@ -10,8 +10,6 @@ import {
   Loader2,
   Cpu,
   X,
-  Image as ImageIcon,
-  FileText as FileTextIcon,
   ArrowUp,
   Folder,
   FolderPlus,
@@ -31,7 +29,7 @@ import { ModelConfig, McpServerConfig, McpServerStatus, Attachment, ProjectPermi
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT, PASTED_TEXT_FILE_THRESHOLD } from "../config/constants";
 
-import { formatFileSize } from "../utils/attachments";
+import { AttachmentCard } from "./AttachmentCard";
 import { motionTokens, motionTransitions } from "../lib/motion-tokens";
 import { useAttachments } from "../hooks/useAttachments";
 import { useUIStore } from "../store/useUIStore";
@@ -1040,84 +1038,29 @@ export default memo(function InputBar({
                       transition={motionTransitions.content}
                       className="w-full overflow-hidden"
                     >
-                      <div className="flex flex-wrap gap-3 w-full pb-3 border-b border-border/40">
-                        {attachments.map((a) => {
-                          const isImg = a.kind === "image" && a.dataUrl;
-                          if (isImg) {
-                            return (
-                              <motion.div
-                                layout
-                                key={a.id}
-                                initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                                transition={motionTransitions.content}
-                                className="relative group w-20 h-20 rounded-xl overflow-hidden border border-border bg-surface shadow-sm select-none shrink-0"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-                                    if (imgIdx !== -1) setPreviewImageIndex(imgIdx);
-                                  }}
-                                  className="h-full w-full cursor-pointer rounded-xl"
-                                  aria-label={`Preview ${a.name}`}
-                                >
-                                  <img
-                                    src={a.dataUrl}
-                                    alt=""
-                                    className="w-full h-full object-cover select-none transition-transform duration-[var(--motion-duration-content)] group-hover:scale-[1.035] group-focus-within:scale-[1.035]"
-                                  />
-                                  <div className="pointer-events-none absolute inset-0 bg-black/10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                                  }}
-                                  className="absolute top-1.5 right-1.5 p-1 rounded-full bg-surface border border-border shadow-sm text-text-muted hover:text-text-primary hover:bg-input transition-[color,background-color,border-color,opacity,transform] image-close-btn z-10"
-                                  title={t("chat.removeAttachment") || "Remove attachment"}
-                                  aria-label={`${t("chat.removeAttachment") || "Remove attachment"}: ${a.name}`}
-                                >
-                                  <X size={12} />
-                                </button>
-                              </motion.div>
-                            );
-                          }
-
-                          return (
-                            <motion.div
-                              layout
-                              key={a.id}
-                              initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
-                              transition={motionTransitions.content}
-                              className="relative group flex items-center gap-1.5 rounded-lg border border-border bg-surface pl-2 pr-7 py-1 text-xs text-text-secondary select-none"
-                            >
-                              {a.kind === "image" ? (
-                                <ImageIcon size={13} className="text-text-muted shrink-0" />
-                              ) : (
-                                <FileTextIcon size={13} className="text-text-muted shrink-0" />
-                              )}
-                              <span className="max-w-[120px] truncate font-medium" title={a.name}>
-                                {a.name}
-                              </span>
-                              <span className="text-[10px] text-text-muted shrink-0">({formatFileSize(a.size)})</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setAttachments((prev) => prev.filter((item) => item.id !== a.id));
-                                }}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-text-muted hover:text-text-primary hover:bg-hover transition-[color,background-color,opacity,transform] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-                                title={t("chat.removeAttachment") || "Remove attachment"}
-                                aria-label={`${t("chat.removeAttachment") || "Remove attachment"}: ${a.name}`}
-                              >
-                                <X size={12} />
-                              </button>
-                            </motion.div>
-                          );
-                        })}
+                      <div className="flex w-full flex-wrap gap-3 pt-2 pb-2 pr-2">
+                        {attachments.map((attachment) => (
+                          <motion.div
+                            layout
+                            key={attachment.id}
+                            initial={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: motionTokens.scale.subtle }}
+                            transition={motionTransitions.content}
+                            className="max-w-full"
+                          >
+                            <AttachmentCard
+                              attachment={attachment}
+                              onPreview={() => {
+                                const index = imageAttachments.findIndex((image) => image.id === attachment.id);
+                                if (index !== -1) setPreviewImageIndex(index);
+                              }}
+                              onRemove={() =>
+                                setAttachments((current) => current.filter((item) => item.id !== attachment.id))
+                              }
+                            />
+                          </motion.div>
+                        ))}
                       </div>
                     </motion.div>
                   )}

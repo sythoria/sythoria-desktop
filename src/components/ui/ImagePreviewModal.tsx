@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ZoomIn, ZoomOut, Download, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useKeybindStore, matchKeybind } from "../../store/useKeybindStore";
@@ -172,11 +173,11 @@ export function ImagePreviewModal({
     document.body.removeChild(link);
   };
 
-  return (
+  return createPortal(
     <AnimatePresence>
       <motion.div
         ref={dialogRef}
-        className="fixed inset-0 z-50 flex flex-col backdrop-blur-md select-none overflow-hidden"
+        className="fixed inset-0 z-[1000] flex flex-col backdrop-blur-md select-none overflow-hidden"
         style={{ backgroundColor: "var(--theme-overlay)" }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -318,6 +319,7 @@ export function ImagePreviewModal({
           </div>
         </div>
       </motion.div>
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

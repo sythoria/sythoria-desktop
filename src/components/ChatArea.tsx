@@ -1,3 +1,4 @@
+import { AttachmentCard } from "./AttachmentCard";
 import {
   useState,
   useEffect,
@@ -1439,34 +1440,17 @@ function AttachmentList({
   const imageAttachments = attachments.filter((a) => a.kind === "image" && a.dataUrl);
 
   return (
-    <div className="flex flex-wrap gap-2 mb-2 justify-end">
-      {attachments.map((a) => {
-        if (a.kind === "image" && a.dataUrl) {
-          const imgIdx = imageAttachments.findIndex((img) => img.id === a.id);
-          return (
-            <button
-              type="button"
-              key={a.id}
-              onClick={() => onImageClick(imgIdx)}
-              className="relative w-16 h-16 rounded-lg overflow-hidden border border-border bg-surface cursor-pointer hover:border-active transition-colors shrink-0"
-              title={`View ${a.name}`}
-            >
-              <img src={a.dataUrl} alt={a.name} className="w-full h-full object-cover select-none" />
-            </button>
-          );
-        } else {
-          return (
-            <div
-              key={a.id}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-surface text-text-secondary text-xs shrink-0 max-w-[200px]"
-              title={`${a.name} (${formatFileSize(a.size)})`}
-            >
-              <FileTextIcon size={14} className="text-text-muted shrink-0" />
-              <span className="truncate select-none font-medium">{a.name}</span>
-            </div>
-          );
-        }
-      })}
+    <div className="mb-3 flex max-w-full flex-wrap justify-end gap-3">
+      {attachments.map((attachment) => (
+        <AttachmentCard
+          key={attachment.id}
+          attachment={attachment}
+          onPreview={() => {
+            const index = imageAttachments.findIndex((image) => image.id === attachment.id);
+            if (index !== -1) onImageClick(index);
+          }}
+        />
+      ))}
     </div>
   );
 }

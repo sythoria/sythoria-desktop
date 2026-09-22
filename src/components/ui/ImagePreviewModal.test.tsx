@@ -10,6 +10,23 @@ const image = {
 };
 
 describe("ImagePreviewModal", () => {
+  it("escapes clipped app containers and restores the background when closed", () => {
+    const { container, unmount } = render(
+      <div style={{ transform: "translateZ(0)", overflow: "hidden" }}>
+        <ImagePreviewModal isOpen onClose={vi.fn()} images={[image]} activeIndex={0} onChangeActiveIndex={vi.fn()} />
+      </div>,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.parentElement).toBe(document.body);
+    expect(container).not.toContainElement(dialog);
+    expect(container).toHaveAttribute("aria-hidden", "true");
+
+    unmount();
+    expect(document.body).not.toContainElement(dialog);
+    expect(container).not.toHaveAttribute("aria-hidden");
+  });
+
   it("applies zoom button changes to the rendered image", async () => {
     const user = userEvent.setup();
 
