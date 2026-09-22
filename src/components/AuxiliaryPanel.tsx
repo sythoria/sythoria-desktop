@@ -13,7 +13,6 @@ import {
   Bot,
   Check,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   File,
@@ -39,7 +38,7 @@ import {
   Database,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motionTransitions } from "../lib/motion-tokens";
+import { motionTokens, motionTransitions } from "../lib/motion-tokens";
 import { useChatStore } from "../store/useChatStore";
 import { GitStatus } from "../store/useGitStore";
 import { useMcpStore } from "../store/useMcpStore";
@@ -201,6 +200,7 @@ function ReviewPane({
   const [error, setError] = useState<string | null>(null);
   const [fileListVisible, setFileListVisible] = useState(true);
   const [fileListWidth, setFileListWidth] = useState(280);
+  const [fileListResizing, setFileListResizing] = useState(false);
   const reviewContentRef = useRef<HTMLDivElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   const publishPendingWorktree = useChatStore((s) => s.publishPendingWorktree);
@@ -272,6 +272,7 @@ function ReviewPane({
     if (event.button !== 0) return;
     event.preventDefault();
     resizeCleanupRef.current?.();
+    setFileListResizing(true);
     const onMove = (moveEvent: PointerEvent) => {
       const right = reviewContentRef.current?.getBoundingClientRect().right;
       if (right !== undefined) setFileListWidth(clampFileListWidth(right - moveEvent.clientX));
@@ -281,6 +282,7 @@ function ReviewPane({
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
       resizeCleanupRef.current = null;
+      setFileListResizing(false);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", stop);
@@ -322,7 +324,7 @@ function ReviewPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="mx-2 mt-2 shrink-0 rounded-xl border border-border/50 bg-surface/45 px-4 py-3">
+      <div className="shrink-0 border-b border-border/30 bg-surface/20 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
@@ -388,8 +390,8 @@ function ReviewPane({
           ))}
       </div>
 
-      <div ref={reviewContentRef} className="flex min-h-0 flex-1 flex-col gap-2 p-2 md:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/50 bg-chat/45">
+      <div ref={reviewContentRef} className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
           {selectedPath && !selectedFile ? (
             <ReviewFilePreview
               key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
@@ -411,22 +413,24 @@ function ReviewPane({
             />
           )}
         </div>
-        {fileListVisible && (
-          // The keyboard focusable separator follows the ARIA window splitter pattern.
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-          <div
-            role="separator"
-            aria-label="Resize file list"
-            aria-orientation="vertical"
-            aria-valuemin={180}
-            aria-valuemax={560}
-            aria-valuenow={fileListWidth}
-            tabIndex={0}
-            onPointerDown={startFileListResize}
-            onKeyDown={resizeFileListWithKeyboard}
-            className="hidden w-1 shrink-0 cursor-col-resize rounded-full bg-border/50 transition-colors hover:bg-accent/50 focus-visible:bg-accent/70 focus-visible:outline-none md:block"
-          />
-        )}
+        {/* The keyboard focusable separator follows the ARIA window splitter pattern. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+        <div
+          role="separator"
+          aria-label="Resize file list"
+          aria-orientation="vertical"
+          aria-valuemin={180}
+          aria-valuemax={560}
+          aria-valuenow={fileListWidth}
+          aria-hidden={!fileListVisible}
+          tabIndex={fileListVisible ? 0 : -1}
+          onPointerDown={fileListVisible ? startFileListResize : undefined}
+          onKeyDown={fileListVisible ? resizeFileListWithKeyboard : undefined}
+          className={`relative hidden shrink-0 cursor-col-resize focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-border/35 after:transition-[opacity,background-color] hover:after:bg-accent/55 focus-visible:after:bg-accent/70 md:block ${
+            fileListVisible ? "w-2 after:opacity-100" : "w-0 pointer-events-none after:opacity-0"
+          }`}
+          style={{ transition: `width ${motionTokens.duration.hover}s` }}
+        />
         <ReviewWorkspaceTree
           projectId={projectId}
           conversationId={conversationId}
@@ -437,6 +441,7 @@ function ReviewPane({
           onSelect={setSelectedPath}
           visible={fileListVisible}
           width={fileListWidth}
+          resizing={fileListResizing}
         />
       </div>
     </div>
@@ -498,10 +503,14 @@ function FileTreeRow({
         {entry.isDirectory ? (
           loading ? (
             <Loader2 size={12} className="animate-spin" />
-          ) : isOpen ? (
-            <ChevronDown size={12} />
           ) : (
-            <ChevronRight size={12} />
+            <motion.span
+              className="flex shrink-0"
+              animate={{ rotate: isOpen ? 90 : 0 }}
+              transition={motionTransitions.hover}
+            >
+              <ChevronRight size={12} />
+            </motion.span>
           )
         ) : (
           <span className="w-3" />
@@ -517,22 +526,33 @@ function FileTreeRow({
         )}
         <span className="truncate">{entry.name}</span>
       </button>
-      {entry.isDirectory &&
-        isOpen &&
-        children?.map((child) => (
-          <FileTreeRow
-            key={child.path}
-            entry={child}
-            depth={depth + 1}
-            projectId={projectId}
-            runToken={runToken}
-            worktreePath={worktreePath}
-            expanded={expanded}
-            onToggle={onToggle}
-            onSelect={onSelect}
-            selectedPath={selectedPath}
-          />
-        ))}
+      <AnimatePresence initial={false}>
+        {entry.isDirectory && isOpen && (
+          <motion.div
+            key="children"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={motionTransitions.hover}
+            className="overflow-hidden"
+          >
+            {children?.map((child) => (
+              <FileTreeRow
+                key={child.path}
+                entry={child}
+                depth={depth + 1}
+                projectId={projectId}
+                runToken={runToken}
+                worktreePath={worktreePath}
+                expanded={expanded}
+                onToggle={onToggle}
+                onSelect={onSelect}
+                selectedPath={selectedPath}
+              />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

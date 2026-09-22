@@ -251,7 +251,7 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     expect(screen.getByRole("button", { name: "File README.md" })).toBeInTheDocument();
     fireEvent.click(folder);
     expect(folder).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("button", { name: "File src/helper.ts" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "File src/helper.ts" })).not.toBeInTheDocument());
     fireEvent.click(folder);
     fireEvent.click(await screen.findByRole("button", { name: "File src/helper.ts" }));
     expect(await screen.findByText("export const helper = true;")).toBeInTheDocument();
@@ -309,10 +309,10 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     fireEvent.change(search, { target: { value: "App" } });
     expect(await screen.findByText("1 match")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Hide file list" }));
-    expect(container.querySelector('aside[aria-label="Workspace files"]')).toHaveStyle({ display: "none" });
+    expect(container.querySelector('aside[aria-label="Workspace files"]')).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("region", { name: "Diff for src/App.tsx" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show file list" }));
-    expect(container.querySelector('aside[aria-label="Workspace files"]')).not.toHaveStyle({ display: "none" });
+    expect(container.querySelector('aside[aria-label="Workspace files"]')).toHaveAttribute("aria-hidden", "false");
     expect(screen.getByRole("searchbox", { name: "Search workspace files" })).toHaveValue("App");
   });
 

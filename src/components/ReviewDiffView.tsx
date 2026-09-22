@@ -75,7 +75,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
           <span className="text-emerald-700 dark:text-emerald-400">+{file.additions}</span>{" "}
           <span className="text-rose-600 dark:text-rose-400">−{file.deletions}</span>
         </span>
-        <span className="shrink-0 rounded-md border border-border/50 bg-hover/30 px-1.5 py-0.5 text-[10px] capitalize text-text-muted">
+        <span className="shrink-0 rounded-sm border border-border/35 bg-hover/20 px-1.5 py-0.5 text-[10px] capitalize text-text-muted">
           {file.status}
         </span>
       </div>
@@ -118,7 +118,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
                 return (
                   <div
                     key={index}
-                    className="mx-2 my-1 flex min-h-9 items-center gap-3 rounded-lg border border-border/40 bg-hover/70 px-3 font-sans text-xs text-text-muted"
+                    className="my-1 flex min-h-9 items-center gap-3 bg-hover/50 px-3 font-sans text-xs text-text-muted"
                   >
                     <span
                       className="flex shrink-0 gap-2 font-mono text-[10px] tabular-nums text-text-muted"

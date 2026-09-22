@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
+import { ChevronRight, File, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
+import { motionTokens, motionTransitions } from "../lib/motion-tokens";
 import type { DiffFile } from "../utils/gitDiff";
 
 interface TreeEntry {
@@ -125,16 +127,20 @@ function TreeRow({
         aria-current={!entry.isDirectory && selectedPath === entry.path ? "true" : undefined}
         aria-describedby={status || hasChangedFiles ? descriptionId : undefined}
         title={`${entry.path}${status ? ` · ${statusStyles[status].label}` : hasChangedFiles ? " · Contains changed files" : ""}`}
-        className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-xs transition-colors hover:bg-hover/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === entry.path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+        className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors hover:bg-hover/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === entry.path ? "bg-hover/70 text-text-primary" : "text-text-secondary"}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         {entry.isDirectory ? (
           isOpen && names === null && !error ? (
             <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden="true" />
-          ) : isOpen ? (
-            <ChevronDown size={12} className="shrink-0" aria-hidden="true" />
           ) : (
-            <ChevronRight size={12} className="shrink-0" aria-hidden="true" />
+            <motion.span
+              className="flex shrink-0"
+              animate={{ rotate: isOpen ? 90 : 0 }}
+              transition={motionTransitions.hover}
+            >
+              <ChevronRight size={12} aria-hidden="true" />
+            </motion.span>
           )
         ) : (
           <span className="w-3 shrink-0" />
@@ -159,32 +165,41 @@ function TreeRow({
         )}
         {!entry.isDirectory && status && <ChangeBadge status={status} />}
       </button>
-      {isOpen && (
-        <>
-          {error && children.length === 0 && (
-            <p className="px-3 py-1 text-xs text-rose-500" role="alert">
-              Couldn’t load {entry.path}
-            </p>
-          )}
-          {children.map((child) => (
-            <TreeRow
-              key={child.path}
-              entry={child}
-              depth={depth + 1}
-              projectId={projectId}
-              runToken={runToken}
-              worktreePath={worktreePath}
-              changedFiles={changedFiles}
-              statusByPath={statusByPath}
-              changedDirectories={changedDirectories}
-              selectedPath={selectedPath}
-              expanded={expanded}
-              onToggle={onToggle}
-              onSelect={onSelect}
-            />
-          ))}
-        </>
-      )}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="children"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={motionTransitions.hover}
+            className="overflow-hidden"
+          >
+            {error && children.length === 0 && (
+              <p className="px-3 py-1 text-xs text-rose-500" role="alert">
+                Couldn’t load {entry.path}
+              </p>
+            )}
+            {children.map((child) => (
+              <TreeRow
+                key={child.path}
+                entry={child}
+                depth={depth + 1}
+                projectId={projectId}
+                runToken={runToken}
+                worktreePath={worktreePath}
+                changedFiles={changedFiles}
+                statusByPath={statusByPath}
+                changedDirectories={changedDirectories}
+                selectedPath={selectedPath}
+                expanded={expanded}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
@@ -199,6 +214,7 @@ export function ReviewWorkspaceTree({
   onSelect,
   visible,
   width,
+  resizing = false,
 }: {
   projectId: string;
   conversationId: string | null;
@@ -209,6 +225,7 @@ export function ReviewWorkspaceTree({
   onSelect: (path: string) => void;
   visible: boolean;
   width: number;
+  resizing?: boolean;
 }) {
   const [runToken, setRunToken] = useState<string | null>(null);
   const [names, setNames] = useState<string[]>([]);
@@ -315,11 +332,22 @@ export function ReviewWorkspaceTree({
 
   return (
     <aside
-      className="max-h-44 w-full shrink-0 overflow-y-auto rounded-xl border border-border/50 bg-surface/35 md:max-h-none md:w-[var(--review-file-list-width)]"
+      className={`w-full shrink-0 overflow-y-auto bg-chat/20 transition-[max-height,width,opacity] md:max-h-none ${
+        visible
+          ? "max-h-44 border-t border-border/30 opacity-100 md:w-[var(--review-file-list-width)] md:border-t-0"
+          : "max-h-0 opacity-0 md:w-0"
+      }`}
       aria-label="Workspace files"
-      style={{ display: visible ? undefined : "none", "--review-file-list-width": `${width}px` } as CSSProperties}
+      aria-hidden={!visible}
+      inert={!visible}
+      style={
+        {
+          "--review-file-list-width": `${width}px`,
+          transitionDuration: resizing ? "0s" : `${motionTokens.duration.hover}s`,
+        } as CSSProperties
+      }
     >
-      <div className="sticky top-0 z-10 border-b border-border/40 bg-surface px-3 py-2">
+      <div className="sticky top-0 z-10 border-b border-border/30 bg-chat px-3 py-2">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Workspace files</p>
         <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-input/40 px-2 py-1.5 focus-within:border-accent/60">
           <Search size={12} className="shrink-0 text-text-muted" aria-hidden="true" />
@@ -372,7 +400,7 @@ export function ReviewWorkspaceTree({
               aria-current={selectedPath === path ? "true" : undefined}
               aria-describedby={statusByPath.has(path) ? `${searchDescriptionId}-${index}` : undefined}
               title={`${path}${statusByPath.has(path) ? ` · ${statusStyles[statusByPath.get(path)!].label}` : ""}`}
-              className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-xs hover:bg-hover/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+              className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors hover:bg-hover/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === path ? "bg-hover/70 text-text-primary" : "text-text-secondary"}`}
             >
               <File size={13} className="shrink-0" aria-hidden="true" />
               <span className="truncate">{path}</span>

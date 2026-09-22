@@ -86,8 +86,8 @@ src/
     Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
     ChatArea.tsx        # Messages, markdown, streaming, native skill/tool disclosures, completed edit summaries, comparison columns, and inline tool diffs
     FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
-    ReviewDiffView.tsx   # Graphical workspace review: file headers, syntax-highlighted numbered hunks, omitted-context ranges, and progressive large-diff rendering
-    ReviewWorkspaceTree.tsx # Read-only workspace tree, file search, change markers, and file-list surface
+    ReviewDiffView.tsx   # Graphical workspace review: file headers, syntax-highlighted numbered hunks, subtle omitted-context rows, and progressive large-diff rendering
+    ReviewWorkspaceTree.tsx # Read-only workspace tree, file search, change markers, and animated folder expansion
     InputBar.tsx        # Composer orchestration, live changed-files indicator, model selector, tools, attachments, send/stop
     PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
     Settings.tsx        # Entry component displaying sidebar settings sections
@@ -180,6 +180,7 @@ Model, web search, URL fetch, and MCP cards show accessible inline URL validatio
 - **`motionConfig`**: Detects `prefers-reduced-motion` and low-end hardware (hardwareConcurrency <= 4) to disable non-essential animations.
 - **`use-safe-motion.ts`**: Provides `useSafeMotion`, `useSafeScale`, `useSafeSlideX` hooks that respect reduced-motion preferences.
 - **MotionButton**: Reusable `motion.button` with scale tap/hover effects.
+- Review and Files folder trees animate chevron rotation and subtree height/opacity with `motionTransitions.hover`, which respects reduced or disabled motion. The Review file list animates show/hide without losing tree or search state; its width transition is disabled during pointer resizing. Review pane surfaces use subtle straight dividers; rounding is reserved for controls and selected rows.
 
 ## Data Flow
 
