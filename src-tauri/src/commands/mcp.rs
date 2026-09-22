@@ -186,7 +186,8 @@ pub async fn mcp_start_server(
             server_config.apiKey = Some(key);
         }
     }
-    let env_map = load_mcp_env_secrets_for_server(&app, &server_config.id)?;
+    let mut env_map = load_mcp_env_secrets_for_server(&app, &server_config.id)?;
+    crate::commands::oauth::prepare_google_mcp_environment(&app, &mut env_map)?;
 
     let tools = mcp::client::connect_server(&server_config, env_map).await;
     if let Some(api_key) = server_config.apiKey.as_mut() {

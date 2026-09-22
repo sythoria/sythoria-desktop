@@ -142,10 +142,8 @@ export async function startGoogleOAuthFlow(
   }
 }
 
-export interface GoogleMcpTokenPaths {
-  oauthKeysPath: string;
-  tokenPath: string;
-  credentialsPath: string;
+export interface GoogleMcpGrantReference {
+  grantId: string;
 }
 
 export async function saveGoogleMcpTokens(
@@ -154,8 +152,8 @@ export async function saveGoogleMcpTokens(
   refreshToken?: string,
   expiresIn?: number,
   scope?: string,
-): Promise<GoogleMcpTokenPaths> {
-  return invoke<GoogleMcpTokenPaths>("save_google_mcp_tokens", {
+): Promise<GoogleMcpGrantReference> {
+  return invoke<GoogleMcpGrantReference>("save_google_mcp_tokens", {
     clientId,
     accessToken,
     refreshToken,
@@ -164,12 +162,14 @@ export async function saveGoogleMcpTokens(
   });
 }
 
-export function buildGoogleMcpEnvironment(pluginId: string, paths: GoogleMcpTokenPaths): Record<string, string> {
-  if (pluginId === "gmail") {
-    return { GMAIL_OAUTH_PATH: paths.oauthKeysPath, GMAIL_CREDENTIALS_PATH: paths.credentialsPath };
-  }
+export function buildGoogleMcpEnvironment(
+  pluginId: string,
+  reference: GoogleMcpGrantReference,
+): Record<string, string> {
+  if (pluginId === "gmail")
+    return { SYTHORIA_GOOGLE_OAUTH_GRANT: reference.grantId, SYTHORIA_GOOGLE_OAUTH_KIND: "gmail" };
   if (pluginId === "google-drive" || pluginId === "google-calendar") {
-    return { GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath, GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath };
+    return { SYTHORIA_GOOGLE_OAUTH_GRANT: reference.grantId, SYTHORIA_GOOGLE_OAUTH_KIND: "workspace" };
   }
   throw new Error("Unsupported Google plugin");
 }

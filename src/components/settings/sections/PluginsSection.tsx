@@ -560,8 +560,8 @@ export function PluginsSection() {
 
       if (abortController.signal.aborted) return;
 
-      // Save token files atomically for MCP servers
-      const paths = await saveGoogleMcpTokens(
+      // Keep the reusable grant in native encrypted storage; plugins receive it only at runtime.
+      const grantReference = await saveGoogleMcpTokens(
         effectiveClientId,
         tokens.accessToken,
         tokens.refreshToken,
@@ -572,7 +572,7 @@ export function PluginsSection() {
       if (abortController.signal.aborted) return;
 
       const secrets: Record<string, string> = {
-        ...buildGoogleMcpEnvironment(plugin.id, paths),
+        ...buildGoogleMcpEnvironment(plugin.id, grantReference),
         SYTHORIA_ALLOWED_TOOLS: JSON.stringify(permissions.tools),
         ...(plugin.id === "gmail"
           ? {}
@@ -1032,7 +1032,7 @@ export function PluginsSection() {
                           <span className="text-text-muted font-medium">Data Privacy & Security</span>
                           <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
                             <Lock size={12} className="text-emerald-600 dark:text-emerald-400" />
-                            {isGoogleConnection ? "Local credential files" : "Local credential storage"}
+                            {isGoogleConnection ? "Encrypted credential storage" : "Local credential storage"}
                           </span>
                         </div>
 
@@ -1420,8 +1420,8 @@ export function PluginsSection() {
                               </label>
                               {savedGoogleClientId && (
                                 <p className="text-xs text-text-muted">
-                                  Saved Google credentials are shared across Google plugins. Leave the secret blank to
-                                  reuse them.
+                                  Your Google OAuth client is encrypted and shared across Google plugins. Leave the
+                                  secret blank to reuse it.
                                 </p>
                               )}
                               <div className="relative">
@@ -1474,31 +1474,6 @@ export function PluginsSection() {
                             </div>
                             <p className="text-xs text-text-muted">
                               {googlePermissions(activeModalPlugin.id, googleAccess).description}
-                            </p>
-                            {/* Step 2: 1-Click Connect Button */}
-                            <button
-                              type="button"
-                              onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
-                              disabled={googleClientLoading}
-                              className="w-full py-3 rounded-xl bg-surface border border-border hover:bg-hover text-text-primary font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
-                            >
-                              <BrandIcon
-                                name={
-                                  activeModalPlugin.id === "gmail"
-                                    ? "Mail"
-                                    : activeModalPlugin.id === "google-calendar"
-                                      ? "Calendar"
-                                      : "googledrive"
-                                }
-                                size={18}
-                              />
-                              <span>Continue with Google</span>
-                              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-                            </button>
-                            <p className="text-xs text-text-muted leading-relaxed">
-                              Your shared client settings are encrypted in Sythoria. The local plugin uses unencrypted
-                              credential files protected by file permissions. Google receives API requests, and tool
-                              results may be sent to your selected AI provider.
                             </p>
                           </div>
                         )}
@@ -1655,6 +1630,17 @@ export function PluginsSection() {
 
                   {/* Modal Footer (ChatGPT Authorize Buttons) */}
                   <div className="p-5 border-t border-border/60 bg-hover/10 space-y-2">
+                    {isGoogleConnection && !googleOAuth.isConnecting && (
+                      <button
+                        type="button"
+                        onClick={() => void handleStartGoogleOAuth(activeModalPlugin)}
+                        disabled={googleClientLoading}
+                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer group"
+                      >
+                        <span>Continue with Google</span>
+                        <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+                    )}
                     {/* Generic Authorize Button (shown if not in 1-click active state) */}
                     {!githubOAuth.isActive &&
                       !linearOAuth.isConnecting &&

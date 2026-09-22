@@ -131,7 +131,7 @@ describe("PluginsSection", () => {
       expect(screen.getByLabelText("Google Client ID")).toHaveValue("shared.apps.googleusercontent.com"),
     );
     expect(screen.getByPlaceholderText(/GOCSPX-.../i)).toHaveValue("");
-    expect(screen.getByText(/Saved Google credentials are shared/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google OAuth client is encrypted and shared/i)).toBeInTheDocument();
   });
 
   it("opens modal for Spotify and displays 1-Click OAuth with manual fallback", () => {

@@ -1,6 +1,7 @@
 use crate::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Ov23liEBjp5NydEwaPFX";
@@ -515,13 +516,11 @@ pub async fn google_exchange_token(
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct GoogleMcpTokenPaths {
-    pub oauth_keys_path: String,
-    pub token_path: String,
-    pub credentials_path: String,
+pub struct GoogleMcpGrantReference {
+    pub grant_id: String,
 }
 
-/// Saves Google OAuth tokens into structured credential files for MCP servers.
+/// Saves a Google OAuth grant in Sythoria's authenticated encrypted secret store.
 #[tauri::command]
 pub async fn save_google_mcp_tokens(
     app: tauri::AppHandle,
@@ -530,106 +529,195 @@ pub async fn save_google_mcp_tokens(
     refresh_token: Option<String>,
     expires_in: Option<u64>,
     scope: Option<String>,
-) -> Result<GoogleMcpTokenPaths, AppError> {
-    use tauri::Manager;
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| AppError::AppPath(format!("Failed to get app data directory: {e}")))?;
-
+) -> Result<GoogleMcpGrantReference, AppError> {
     let credentials = resolve_google_client(&app, &client_id)?;
-    write_google_mcp_tokens(
-        &app_dir,
-        Some(client_id),
-        Some(credentials.client_secret.clone()),
-        access_token,
-        refresh_token,
-        expires_in,
-        scope,
-    )
-}
-
-fn write_google_mcp_tokens(
-    app_dir: &std::path::Path,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: Option<u64>,
-    scope: Option<String>,
-) -> Result<GoogleMcpTokenPaths, AppError> {
-    // Every grant owns a fresh directory, including reauthorization of the same plugin.
-    // Never replace files an already-running MCP server or another client may be using.
-    let google_dir = app_dir
-        .join("google-oauth")
-        .join(uuid::Uuid::new_v4().to_string());
-
-    std::fs::create_dir_all(&google_dir)
-        .map_err(|e| AppError::AppPath(format!("Failed to create google-oauth directory: {e}")))?;
-
-    let cid =
-        client_id.ok_or_else(|| AppError::RequestFailed("Google client ID is required".into()))?;
-
-    // 1. gcp-oauth.keys.json
-    let mut installed_obj = serde_json::json!({
-        "client_id": cid,
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "redirect_uris": ["http://127.0.0.1:54321/oauth/callback", "http://localhost"]
-    });
-    if let Some(ref sec) = client_secret.as_ref().filter(|s| !s.trim().is_empty()) {
-        installed_obj["client_secret"] = serde_json::Value::String(sec.to_string());
-    }
-    let oauth_keys = serde_json::json!({
-        "installed": installed_obj
-    });
-    let oauth_keys_path = google_dir.join("gcp-oauth.keys.json");
-    crate::atomic_file::write_atomic(
-        &oauth_keys_path,
-        serde_json::to_string_pretty(&oauth_keys)
-            .unwrap_or_default()
-            .as_bytes(),
-    )
-    .map_err(|e| AppError::AppPath(format!("Failed to write gcp-oauth.keys.json: {e}")))?;
-
-    // 2. tokens.json
     let expiry_date =
         chrono::Utc::now().timestamp_millis() + (expires_in.unwrap_or(3600) as i64 * 1000);
-    let mut token_obj = serde_json::json!({
-        "access_token": access_token,
-        "token_type": "Bearer",
-        "expiry_date": expiry_date,
-        "scope": scope.clone().unwrap_or_default()
-    });
-    if let Some(ref rt) = refresh_token {
-        token_obj["refresh_token"] = serde_json::Value::String(rt.clone());
+    let grant_id = crate::secret_storage::save_google_oauth_grant(
+        &app,
+        crate::secret_storage::GoogleOAuthGrant {
+            client_id,
+            client_secret: credentials.client_secret.clone(),
+            access_token,
+            refresh_token,
+            expiry_date: Some(expiry_date),
+            scope,
+        },
+    )?;
+    Ok(GoogleMcpGrantReference { grant_id })
+}
+
+const GMAIL_VIRTUAL_FILES_PRELOAD: &str = r#"
+'use strict';
+const fs = require('node:fs');
+const oauthPath = process.env.GMAIL_OAUTH_PATH;
+const credentialsPath = process.env.GMAIL_CREDENTIALS_PATH;
+const oauthJson = process.env.SYTHORIA_GMAIL_OAUTH_JSON;
+const credentialsJson = process.env.SYTHORIA_GMAIL_CREDENTIALS_JSON;
+
+const virtualValue = (candidate) => {
+  const value = String(candidate);
+  if (oauthPath && value === oauthPath) return oauthJson;
+  if (credentialsPath && value === credentialsPath) return credentialsJson;
+  return undefined;
+};
+const encoded = (value, options) => {
+  const buffer = Buffer.from(value, 'utf8');
+  const encoding = typeof options === 'string' ? options : options && options.encoding;
+  return encoding ? buffer.toString(encoding) : buffer;
+};
+const isVirtual = (candidate) => virtualValue(candidate) !== undefined;
+
+const existsSync = fs.existsSync.bind(fs);
+const readFileSync = fs.readFileSync.bind(fs);
+const writeFileSync = fs.writeFileSync.bind(fs);
+const copyFileSync = fs.copyFileSync.bind(fs);
+fs.existsSync = (candidate) => isVirtual(candidate) || existsSync(candidate);
+fs.readFileSync = (candidate, options) => {
+  const value = virtualValue(candidate);
+  return value === undefined ? readFileSync(candidate, options) : encoded(value, options);
+};
+fs.writeFileSync = (candidate, ...args) => isVirtual(candidate) ? undefined : writeFileSync(candidate, ...args);
+fs.copyFileSync = (source, destination, ...args) => isVirtual(destination) ? undefined : copyFileSync(source, destination, ...args);
+
+if (fs.promises) {
+  const readFile = fs.promises.readFile.bind(fs.promises);
+  const writeFile = fs.promises.writeFile.bind(fs.promises);
+  const copyFile = fs.promises.copyFile.bind(fs.promises);
+  fs.promises.readFile = async (candidate, options) => {
+    const value = virtualValue(candidate);
+    return value === undefined ? readFile(candidate, options) : encoded(value, options);
+  };
+  fs.promises.writeFile = async (candidate, ...args) => isVirtual(candidate) ? undefined : writeFile(candidate, ...args);
+  fs.promises.copyFile = async (source, destination, ...args) => isVirtual(destination) ? undefined : copyFile(source, destination, ...args);
+}
+"#;
+
+fn ensure_gmail_virtual_files_preload(
+    app: &tauri::AppHandle,
+) -> Result<std::path::PathBuf, AppError> {
+    let runtime_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::AppPath(format!("Failed to get app data directory: {error}")))?
+        .join("google-oauth-runtime");
+    std::fs::create_dir_all(&runtime_dir).map_err(|error| {
+        AppError::AppPath(format!(
+            "Failed to create Google OAuth runtime directory: {error}"
+        ))
+    })?;
+    let preload_path = runtime_dir.join("virtual-google-credentials.cjs");
+    crate::atomic_file::write_atomic(&preload_path, GMAIL_VIRTUAL_FILES_PRELOAD.as_bytes())
+        .map_err(|error| {
+            AppError::AppPath(format!("Failed to prepare Google OAuth runtime: {error}"))
+        })?;
+    Ok(preload_path)
+}
+
+fn append_node_require(existing: Option<&String>, preload_path: &std::path::Path) -> String {
+    let escaped = preload_path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let require = format!("--require=\"{escaped}\"");
+    match existing
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        Some(existing) => format!("{existing} {require}"),
+        None => require,
     }
-    let token_path = google_dir.join("tokens.json");
-    crate::atomic_file::write_atomic(
-        &token_path,
-        serde_json::to_string_pretty(&token_obj)
-            .unwrap_or_default()
-            .as_bytes(),
-    )
-    .map_err(|e| AppError::AppPath(format!("Failed to write tokens.json: {e}")))?;
+}
 
-    // Gmail's Node OAuth2Client expects the same access_token/expiry_date shape.
-    // Its OAuth client keys are supplied separately through GMAIL_OAUTH_PATH.
-    let creds_obj = token_obj.clone();
-    let credentials_path = google_dir.join("credentials.json");
-    crate::atomic_file::write_atomic(
-        &credentials_path,
-        serde_json::to_string_pretty(&creds_obj)
-            .unwrap_or_default()
-            .as_bytes(),
-    )
-    .map_err(|e| AppError::AppPath(format!("Failed to write credentials.json: {e}")))?;
+pub(crate) fn prepare_google_mcp_environment(
+    app: &tauri::AppHandle,
+    env: &mut HashMap<String, String>,
+) -> Result<(), AppError> {
+    let Some(grant_id) = env
+        .remove(crate::secret_storage::GOOGLE_OAUTH_GRANT_ENV)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let kind = env
+        .remove(crate::secret_storage::GOOGLE_OAUTH_KIND_ENV)
+        .ok_or_else(|| AppError::ConfigIo("Google plugin credential type is missing".into()))?;
+    let grant =
+        crate::secret_storage::get_google_oauth_grant(app, &grant_id)?.ok_or_else(|| {
+            AppError::ConfigIo("Google authorization is missing. Connect the plugin again.".into())
+        })?;
 
-    Ok(GoogleMcpTokenPaths {
-        oauth_keys_path: oauth_keys_path.to_string_lossy().to_string(),
-        token_path: token_path.to_string_lossy().to_string(),
-        credentials_path: credentials_path.to_string_lossy().to_string(),
-    })
+    env.remove("GMAIL_OAUTH_PATH");
+    env.remove("GMAIL_CREDENTIALS_PATH");
+    env.remove("GOOGLE_DRIVE_OAUTH_CREDENTIALS");
+    env.remove("GOOGLE_DRIVE_MCP_TOKEN_PATH");
+    env.remove("GOOGLE_CLIENT_SECRET");
+
+    if kind == "workspace" {
+        env.insert("GOOGLE_DRIVE_MCP_CLIENT_ID".into(), grant.client_id.clone());
+        env.insert(
+            "GOOGLE_DRIVE_MCP_CLIENT_SECRET".into(),
+            grant.client_secret.clone(),
+        );
+        env.insert(
+            "GOOGLE_DRIVE_MCP_ACCESS_TOKEN".into(),
+            grant.access_token.clone(),
+        );
+        if let Some(refresh_token) = grant.refresh_token.clone() {
+            env.insert("GOOGLE_DRIVE_MCP_REFRESH_TOKEN".into(), refresh_token);
+        }
+        return Ok(());
+    }
+    if kind != "gmail" {
+        return Err(AppError::ConfigIo(
+            "Google plugin credential type is invalid".into(),
+        ));
+    }
+
+    let runtime_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::AppPath(format!("Failed to get app data directory: {error}")))?
+        .join("google-oauth-runtime")
+        .join(&grant_id);
+    let oauth_path = runtime_dir.join("gcp-oauth.keys.json");
+    let credentials_path = runtime_dir.join("credentials.json");
+    let oauth_json = serde_json::to_string(&serde_json::json!({
+        "installed": {
+            "client_id": grant.client_id,
+            "client_secret": grant.client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://localhost:3000/oauth2callback"]
+        }
+    }))
+    .map_err(|error| {
+        AppError::ParseError(format!("Failed to prepare Google OAuth client: {error}"))
+    })?;
+    let credentials_json = serde_json::to_string(&serde_json::json!({
+        "access_token": grant.access_token,
+        "refresh_token": grant.refresh_token,
+        "expiry_date": grant.expiry_date,
+        "scope": grant.scope,
+        "token_type": "Bearer"
+    }))
+    .map_err(|error| {
+        AppError::ParseError(format!("Failed to prepare Google OAuth grant: {error}"))
+    })?;
+    let preload_path = ensure_gmail_virtual_files_preload(app)?;
+    let node_options = append_node_require(env.get("NODE_OPTIONS"), &preload_path);
+    env.insert("NODE_OPTIONS".into(), node_options);
+    env.insert(
+        "GMAIL_OAUTH_PATH".into(),
+        oauth_path.to_string_lossy().to_string(),
+    );
+    env.insert(
+        "GMAIL_CREDENTIALS_PATH".into(),
+        credentials_path.to_string_lossy().to_string(),
+    );
+    env.insert("SYTHORIA_GMAIL_OAUTH_JSON".into(), oauth_json);
+    env.insert("SYTHORIA_GMAIL_CREDENTIALS_JSON".into(), credentials_json);
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -750,45 +838,11 @@ pub async fn save_spotify_mcp_tokens(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn google_grants_have_isolated_node_credentials() {
-        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
-        let write = |token: &str| {
-            write_google_mcp_tokens(
-                &root,
-                Some("client".into()),
-                Some("secret".into()),
-                token.into(),
-                Some("refresh".into()),
-                Some(3600),
-                Some("scope".into()),
-            )
-            .unwrap()
-        };
-        let first = write("first");
-        let second = write("second");
-        assert_ne!(first.token_path, second.token_path);
-        let credentials: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&first.credentials_path).unwrap()).unwrap();
-        assert_eq!(credentials["access_token"], "first");
-        assert_eq!(credentials["refresh_token"], "refresh");
-        assert!(credentials["expiry_date"].is_number());
-        assert!(credentials.get("token").is_none());
-        let keys: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&first.oauth_keys_path).unwrap()).unwrap();
-        assert_eq!(keys["installed"]["client_id"], "client");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(&first.credentials_path)
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
-        }
-        std::fs::remove_dir_all(root).unwrap();
+    fn gmail_runtime_uses_virtual_credential_files() {
+        assert!(GMAIL_VIRTUAL_FILES_PRELOAD.contains("SYTHORIA_GMAIL_OAUTH_JSON"));
+        assert!(GMAIL_VIRTUAL_FILES_PRELOAD.contains("fs.readFileSync"));
+        assert!(GMAIL_VIRTUAL_FILES_PRELOAD.contains("fs.writeFileSync"));
+        assert!(!GMAIL_VIRTUAL_FILES_PRELOAD.contains("client_secret\":"));
     }
 
     #[tokio::test]

@@ -3,8 +3,10 @@ use crate::secure_storage::{self, StorageDomain};
 use crate::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
+use tauri::Manager;
 use zeroize::Zeroize;
 
 pub(crate) const STORED_SECRET_PLACEHOLDER: &str = "••••••••••••";
@@ -17,6 +19,8 @@ const CLOUD_STT_NAMESPACE: &str = "whisper";
 const CLOUD_STT_KEY_ID: &str = "cloud-stt";
 const NETWORK_POLICY_NAMESPACE: &str = "storage-state";
 const NETWORK_POLICY_KEY_ID: &str = "network-policy-v1";
+pub(crate) const GOOGLE_OAUTH_GRANT_ENV: &str = "SYTHORIA_GOOGLE_OAUTH_GRANT";
+pub(crate) const GOOGLE_OAUTH_KIND_ENV: &str = "SYTHORIA_GOOGLE_OAUTH_KIND";
 const MAX_SECRET_MAP_ENTRIES: usize = 4096;
 const MAX_SECRET_ID_BYTES: usize = 512;
 const MAX_SECRET_VALUE_BYTES: usize = 1024 * 1024;
@@ -49,6 +53,26 @@ pub(crate) struct GoogleOAuthClient {
 impl Drop for GoogleOAuthClient {
     fn drop(&mut self) {
         self.client_secret.zeroize();
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct GoogleOAuthGrant {
+    pub client_id: String,
+    pub client_secret: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expiry_date: Option<i64>,
+    pub scope: Option<String>,
+}
+
+impl Drop for GoogleOAuthGrant {
+    fn drop(&mut self) {
+        self.client_secret.zeroize();
+        self.access_token.zeroize();
+        if let Some(refresh_token) = self.refresh_token.as_mut() {
+            refresh_token.zeroize();
+        }
     }
 }
 
@@ -108,6 +132,48 @@ pub(crate) fn save_google_oauth_client(
     secure_storage::save_json(app, StorageDomain::Secrets, &secrets)
 }
 
+pub(crate) fn save_google_oauth_grant(
+    app: &tauri::AppHandle,
+    grant: GoogleOAuthGrant,
+) -> Result<String, AppError> {
+    if !grant.client_id.ends_with(".apps.googleusercontent.com")
+        || grant.client_secret.trim().is_empty()
+        || grant.access_token.trim().is_empty()
+        || grant.client_id.len() > 512
+        || grant.client_secret.len() > 4096
+        || grant.access_token.len() > MAX_SECRET_VALUE_BYTES
+        || grant
+            .refresh_token
+            .as_ref()
+            .is_some_and(|token| token.len() > MAX_SECRET_VALUE_BYTES)
+    {
+        return Err(AppError::RequestFailed(
+            "Google returned an invalid OAuth grant. Authorize the plugin again.".into(),
+        ));
+    }
+
+    let _guard = lock_store()?;
+    let mut secrets = load_locked(app)?;
+    if secrets.google_oauth_grants.len() >= MAX_SECRET_MAP_ENTRIES {
+        return Err(AppError::ConfigIo(
+            "Too many saved Google authorization grants".into(),
+        ));
+    }
+    let grant_id = uuid::Uuid::new_v4().to_string();
+    secrets.google_oauth_grants.insert(grant_id.clone(), grant);
+    secure_storage::save_json(app, StorageDomain::Secrets, &secrets)?;
+    Ok(grant_id)
+}
+
+pub(crate) fn get_google_oauth_grant(
+    app: &tauri::AppHandle,
+    grant_id: &str,
+) -> Result<Option<GoogleOAuthGrant>, AppError> {
+    let _guard = lock_store()?;
+    let secrets = load_locked(app)?;
+    Ok(secrets.google_oauth_grants.get(grant_id).cloned())
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativeSecrets {
@@ -123,6 +189,8 @@ struct NativeSecrets {
     cloud_stt_api_key: Option<String>,
     #[serde(default)]
     google_oauth_client: Option<GoogleOAuthClient>,
+    #[serde(default)]
+    google_oauth_grants: HashMap<String, GoogleOAuthGrant>,
     #[serde(default)]
     network_policy_initialized: bool,
     #[serde(default)]
@@ -323,8 +391,175 @@ fn load_locked(app: &tauri::AppHandle) -> Result<NativeSecrets, AppError> {
             secrets
         }
     };
+    migrate_legacy_google_grants(app, &mut secrets)?;
     try_cleanup_legacy(app, &mut secrets);
     Ok(secrets)
+}
+
+fn google_grant_from_files(
+    oauth_path: &str,
+    token_path: &str,
+    legacy_root: &std::path::Path,
+) -> Option<(GoogleOAuthGrant, PathBuf)> {
+    let canonical_root = std::fs::canonicalize(legacy_root).ok()?;
+    let canonical_oauth = std::fs::canonicalize(oauth_path).ok()?;
+    let canonical_token = std::fs::canonicalize(token_path).ok()?;
+    let grant_dir = canonical_oauth.parent()?.to_path_buf();
+    if canonical_token.parent()? != grant_dir || grant_dir.parent()? != canonical_root {
+        return None;
+    }
+
+    let oauth: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(canonical_oauth).ok()?).ok()?;
+    let client = oauth.get("installed").or_else(|| oauth.get("web"))?;
+    let token: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(canonical_token).ok()?).ok()?;
+    let client_id = client.get("client_id")?.as_str()?.trim().to_string();
+    let client_secret = client.get("client_secret")?.as_str()?.trim().to_string();
+    let access_token = token.get("access_token")?.as_str()?.trim().to_string();
+    if client_id.is_empty() || client_secret.is_empty() || access_token.is_empty() {
+        return None;
+    }
+
+    Some((
+        GoogleOAuthGrant {
+            client_id,
+            client_secret,
+            access_token,
+            refresh_token: token
+                .get("refresh_token")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string),
+            expiry_date: token.get("expiry_date").and_then(serde_json::Value::as_i64),
+            scope: token
+                .get("scope")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string),
+        },
+        grant_dir,
+    ))
+}
+
+fn cleanup_unreferenced_legacy_google_dirs(legacy_root: &std::path::Path, secrets: &NativeSecrets) {
+    let Ok(canonical_root) = std::fs::canonicalize(legacy_root) else {
+        return;
+    };
+    let referenced: HashSet<PathBuf> = secrets
+        .mcp_env
+        .values()
+        .flat_map(|env| {
+            [
+                env.get("GMAIL_OAUTH_PATH"),
+                env.get("GMAIL_CREDENTIALS_PATH"),
+                env.get("GOOGLE_DRIVE_OAUTH_CREDENTIALS"),
+                env.get("GOOGLE_DRIVE_MCP_TOKEN_PATH"),
+            ]
+            .into_iter()
+            .flatten()
+        })
+        .filter_map(|path| std::fs::canonicalize(path).ok())
+        .filter_map(|path| path.parent().map(std::path::Path::to_path_buf))
+        .filter(|directory| directory.parent() == Some(canonical_root.as_path()))
+        .collect();
+
+    let Ok(entries) = std::fs::read_dir(&canonical_root) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let Ok(path) = std::fs::canonicalize(entry.path()) else {
+            continue;
+        };
+        if path.is_dir()
+            && path.parent() == Some(canonical_root.as_path())
+            && !referenced.contains(&path)
+        {
+            if let Err(error) = std::fs::remove_dir_all(&path) {
+                log::warn!(
+                    "Could not remove unreferenced legacy Google credentials at {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+    if std::fs::read_dir(&canonical_root)
+        .ok()
+        .is_some_and(|mut entries| entries.next().is_none())
+    {
+        let _ = std::fs::remove_dir(&canonical_root);
+    }
+}
+
+fn migrate_legacy_google_grants(
+    app: &tauri::AppHandle,
+    secrets: &mut NativeSecrets,
+) -> Result<(), AppError> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::AppPath(format!("Failed to get app data directory: {error}")))?;
+    let legacy_root = app_dir.join("google-oauth");
+    if !legacy_root.exists() {
+        return Ok(());
+    }
+
+    let mut migrations = Vec::new();
+    for (server_id, env) in &secrets.mcp_env {
+        if env.contains_key(GOOGLE_OAUTH_GRANT_ENV) {
+            continue;
+        }
+        let legacy = if let (Some(oauth), Some(credentials)) = (
+            env.get("GMAIL_OAUTH_PATH"),
+            env.get("GMAIL_CREDENTIALS_PATH"),
+        ) {
+            Some((oauth.as_str(), credentials.as_str(), "gmail"))
+        } else if let (Some(oauth), Some(tokens)) = (
+            env.get("GOOGLE_DRIVE_OAUTH_CREDENTIALS"),
+            env.get("GOOGLE_DRIVE_MCP_TOKEN_PATH"),
+        ) {
+            Some((oauth.as_str(), tokens.as_str(), "workspace"))
+        } else {
+            None
+        };
+        let Some((oauth_path, token_path, kind)) = legacy else {
+            continue;
+        };
+        let Some((grant, _grant_dir)) =
+            google_grant_from_files(oauth_path, token_path, &legacy_root)
+        else {
+            continue;
+        };
+        migrations.push((
+            server_id.clone(),
+            uuid::Uuid::new_v4().to_string(),
+            kind.to_string(),
+            grant,
+        ));
+    }
+
+    if migrations.is_empty() {
+        cleanup_unreferenced_legacy_google_dirs(&legacy_root, secrets);
+        return Ok(());
+    }
+
+    for (server_id, grant_id, kind, grant) in &migrations {
+        secrets
+            .google_oauth_grants
+            .insert(grant_id.clone(), grant.clone());
+        if let Some(env) = secrets.mcp_env.get_mut(server_id) {
+            env.remove("GMAIL_OAUTH_PATH");
+            env.remove("GMAIL_CREDENTIALS_PATH");
+            env.remove("GOOGLE_DRIVE_OAUTH_CREDENTIALS");
+            env.remove("GOOGLE_DRIVE_MCP_TOKEN_PATH");
+            env.remove("GOOGLE_CLIENT_SECRET");
+            env.insert(GOOGLE_OAUTH_GRANT_ENV.to_string(), grant_id.clone());
+            env.insert(GOOGLE_OAUTH_KIND_ENV.to_string(), kind.clone());
+        }
+    }
+
+    // Persist the encrypted replacement before removing any legacy cleartext file.
+    secure_storage::save_json(app, StorageDomain::Secrets, secrets)?;
+    cleanup_unreferenced_legacy_google_dirs(&legacy_root, secrets);
+    Ok(())
 }
 
 fn lock_store() -> Result<std::sync::MutexGuard<'static, ()>, AppError> {
@@ -540,6 +775,14 @@ pub(crate) fn save_mcp_env(
         zeroize_map(env);
     }
     secrets.mcp_env = replacement;
+    let referenced_google_grants: HashSet<String> = secrets
+        .mcp_env
+        .values()
+        .filter_map(|env| env.get(GOOGLE_OAUTH_GRANT_ENV).cloned())
+        .collect();
+    secrets
+        .google_oauth_grants
+        .retain(|grant_id, _| referenced_google_grants.contains(grant_id));
     secure_storage::save_json(app, StorageDomain::Secrets, &secrets)
 }
 

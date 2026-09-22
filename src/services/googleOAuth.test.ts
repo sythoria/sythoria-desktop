@@ -86,24 +86,17 @@ describe("Google OAuth lifecycle", () => {
 });
 
 describe("Google server credential contracts", () => {
-  const paths = {
-    oauthKeysPath: "/grant/keys.json",
-    tokenPath: "/grant/tokens.json",
-    credentialsPath: "/grant/credentials.json",
-  };
-  it("configures Gmail with separate client keys and Node credentials", () => {
-    expect(buildGoogleMcpEnvironment("gmail", paths)).toEqual({
-      GMAIL_OAUTH_PATH: paths.oauthKeysPath,
-      GMAIL_CREDENTIALS_PATH: paths.credentialsPath,
+  const reference = { grantId: "encrypted-grant" };
+  it("configures Gmail with an opaque encrypted-grant reference", () => {
+    expect(buildGoogleMcpEnvironment("gmail", reference)).toEqual({
+      SYTHORIA_GOOGLE_OAUTH_GRANT: reference.grantId,
+      SYTHORIA_GOOGLE_OAUTH_KIND: "gmail",
     });
   });
-  it.each(["google-drive", "google-calendar"])(
-    "uses local OAuth without activating service-account mode for %s",
-    (id) => {
-      expect(buildGoogleMcpEnvironment(id, paths)).toEqual({
-        GOOGLE_DRIVE_OAUTH_CREDENTIALS: paths.oauthKeysPath,
-        GOOGLE_DRIVE_MCP_TOKEN_PATH: paths.tokenPath,
-      });
-    },
-  );
+  it.each(["google-drive", "google-calendar"])("uses an opaque encrypted-grant reference for %s", (id) => {
+    expect(buildGoogleMcpEnvironment(id, reference)).toEqual({
+      SYTHORIA_GOOGLE_OAUTH_GRANT: reference.grantId,
+      SYTHORIA_GOOGLE_OAUTH_KIND: "workspace",
+    });
+  });
 });
