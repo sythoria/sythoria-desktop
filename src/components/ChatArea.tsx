@@ -37,11 +37,14 @@ import {
   Terminal,
   FileText as FileTextIcon,
   Image as ImageIcon,
-  File,
   FileCode,
-  FileJson,
-  Atom,
-  Palette,
+  FilePenLine,
+  Files,
+  FolderOpen,
+  GitBranch,
+  GitCompareArrows,
+  GitCommitHorizontal,
+  Save,
   Eye,
   Ghost,
   ArrowRight,
@@ -571,57 +574,29 @@ function getNativeToolDisplayInfo(
   const cleanName = isNativeProjectTool ? name.replace("project_", "") : name.split("__").at(-1) || name;
   const lowerName = cleanName.toLowerCase();
 
-  // Helper to determine icon & color
-  const getFileIcon = (filename: string) => {
-    const ext = filename.split(".").pop()?.toLowerCase();
-    let IconComponent = File;
-    let colorClass = "text-text-muted";
-    if (ext === "tsx" || ext === "jsx") {
-      IconComponent = Atom;
-      colorClass = "text-cyan-500 dark:text-cyan-400";
-    } else if (ext === "ts") {
-      IconComponent = FileCode;
-      colorClass = "text-blue-500 dark:text-blue-400";
-    } else if (ext === "js") {
-      IconComponent = FileCode;
-      colorClass = "text-amber-500 dark:text-amber-400";
-    } else if (ext === "css") {
-      IconComponent = Palette;
-      colorClass = "text-pink-500 dark:text-pink-400";
-    } else if (ext === "json") {
-      IconComponent = FileJson;
-      colorClass = "text-amber-500 dark:text-amber-400";
-    } else if (ext === "md" || ext === "txt") {
-      IconComponent = FileTextIcon;
-      colorClass = "text-emerald-500 dark:text-emerald-400";
-    } else if (ext === "rs") {
-      IconComponent = FileCode;
-      colorClass = "text-orange-600 dark:text-orange-500";
-    } else if (ext === "py") {
-      IconComponent = FileCode;
-      colorClass = "text-green-600 dark:text-green-500";
-    } else if (ext === "html") {
-      IconComponent = FileCode;
-      colorClass = "text-orange-500 dark:text-orange-400";
-    }
-    return { IconComponent, colorClass };
-  };
-
-  // 1. Bash / Commands
+  // Project tools use operation icons and one neutral color, regardless of file type.
   if (lowerName === "bash" || lowerName === "git_status" || lowerName === "git_diff" || lowerName === "git_commit") {
     let commandStr = getShellCommand(name, args);
     if (commandStr && commandStr.length > 40) commandStr = commandStr.substring(0, 40) + "...";
     return {
       type: "bash",
-      IconComponent: Terminal,
+      IconComponent:
+        lowerName === "git_status"
+          ? GitBranch
+          : lowerName === "git_diff"
+            ? GitCompareArrows
+            : lowerName === "git_commit"
+              ? GitCommitHorizontal
+              : Terminal,
       colorClass: "text-text-muted",
       label: isCompleted
         ? t("chat.tools.ranCommand", { command: commandStr })
         : t("chat.tools.runningCommand", { command: commandStr }),
+      detail: lowerName === "git_commit" ? args.message : undefined,
     };
   }
 
-  // 2. Read / Explore (grep, glob, read, list_dir)
+  // Read / Explore (grep, glob, read, list_dir)
   if (lowerName === "read_image") {
     const target = args.file_path || "image";
     const filename = target.split(/[/\\\\]/).pop() || target;
@@ -642,8 +617,8 @@ function getNativeToolDisplayInfo(
 
   if (isRead || isGrep || isGlob || isList) {
     const target = args.file_path || args.pattern || args.dir_path || args.path || "files";
-    const filename = target.split(/[/\\]/).pop() || target;
-    const { IconComponent, colorClass } = getFileIcon(filename);
+    const filename = isRead ? target.split(/[/\\]/).pop() || target : target;
+    const IconComponent = isRead ? FileTextIcon : isGrep ? Search : isGlob ? Files : FolderOpen;
 
     let extraInfo = "";
     if (isRead && args.offset) {
@@ -681,13 +656,13 @@ function getNativeToolDisplayInfo(
       type: "explore",
       filename,
       IconComponent,
-      colorClass,
+      colorClass: "text-text-muted",
       label,
       extraInfo,
     };
   }
 
-  // 3. Write / Edit
+  // Write / Edit
   const isWriteName = lowerName === "write" || lowerName === "edit" || isMcpFileChange;
 
   if (isWriteName) {
@@ -696,7 +671,6 @@ function getNativeToolDisplayInfo(
       if (typeof args[key] === "string") {
         const fullPath = args[key];
         const filename = result?.diffSummary?.filename || fullPath.split(/[/\\]/).pop() || fullPath;
-        const { IconComponent, colorClass } = getFileIcon(filename);
 
         const isTodo = filename.toLowerCase().includes("todo");
         const isNew = result?.diffSummary?.isNew === true;
@@ -705,24 +679,36 @@ function getNativeToolDisplayInfo(
         return {
           type: isTodo ? "todo" : "edit",
           filename,
-          IconComponent,
-          colorClass,
-          label: isCompleted
-            ? failed
-              ? isNew
-                ? t("chat.tools.createFailed")
-                : t("chat.tools.editFailed")
-              : isNew
-                ? t("chat.tools.created")
-                : t("chat.tools.edited")
-            : t("chat.tools.editing"),
+          IconComponent: (isNativeProjectTool && lowerName === "write") || isNew ? Save : FilePenLine,
+          colorClass: "text-text-muted",
+          label: isTodo
+            ? isCompleted
+              ? t("chat.tools.updatedTodo")
+              : t("chat.tools.updatingTodo")
+            : isCompleted
+              ? failed
+                ? isNew
+                  ? t("chat.tools.createFailed")
+                  : t("chat.tools.editFailed")
+                : isNew
+                  ? t("chat.tools.created")
+                  : t("chat.tools.edited")
+              : t("chat.tools.editing"),
           isTodo,
         };
       }
     }
   }
 
-  return null;
+  return isNativeProjectTool
+    ? {
+        type: "explore",
+        filename: "",
+        IconComponent: Wrench,
+        colorClass: "text-text-muted",
+        label: formatToolName(name),
+      }
+    : null;
 }
 
 interface SkillResourceContent {
@@ -1080,9 +1066,7 @@ function ToolCallDisplay({ message }: { message: Message }) {
 
           {nativeInfo ? (
             <span className="text-sm flex items-center gap-1.5">
-              {nativeInfo.type === "todo" ? (
-                <span>{isCompleted ? t("chat.tools.updatedTodo") : t("chat.tools.updatingTodo")}</span>
-              ) : nativeInfo.type === "image" ? (
+              {nativeInfo.type === "image" ? (
                 <>
                   <nativeInfo.IconComponent
                     size={14}
@@ -1100,6 +1084,9 @@ function ToolCallDisplay({ message }: { message: Message }) {
                     aria-hidden="true"
                   />
                   <span>{nativeInfo.label}</span>
+                  {nativeInfo.detail && (
+                    <span className="max-w-[18rem] truncate font-medium text-text-primary">{nativeInfo.detail}</span>
+                  )}
                 </>
               ) : nativeInfo.type === "skill" ? (
                 <>
@@ -1116,18 +1103,20 @@ function ToolCallDisplay({ message }: { message: Message }) {
                 </>
               ) : (
                 <>
-                  <span>{nativeInfo.label}</span>
                   <nativeInfo.IconComponent
                     size={14}
                     className={`${nativeInfo.colorClass} shrink-0`}
                     aria-hidden="true"
                   />
-                  <span className="font-medium text-text-primary">
-                    {message.toolResult?.diffSummary?.filename || nativeInfo.filename}
-                    {nativeInfo.extraInfo && (
-                      <span className="text-text-muted font-normal">{nativeInfo.extraInfo}</span>
-                    )}
-                  </span>
+                  <span>{nativeInfo.label}</span>
+                  {(message.toolResult?.diffSummary?.filename || nativeInfo.filename) && (
+                    <span className="max-w-[18rem] truncate font-medium text-text-primary">
+                      {message.toolResult?.diffSummary?.filename || nativeInfo.filename}
+                      {nativeInfo.extraInfo && (
+                        <span className="text-text-muted font-normal">{nativeInfo.extraInfo}</span>
+                      )}
+                    </span>
+                  )}
                 </>
               )}
 
@@ -1136,7 +1125,11 @@ function ToolCallDisplay({ message }: { message: Message }) {
               {isCompleted && message.toolResult?.diffSummary && nativeInfo.type === "edit" && (
                 <span className="flex items-center gap-1.5 ml-1 font-mono text-xs select-none">
                   {message.toolResult.diffSummary.error ? (
-                    <AlertTriangle size={13} className="text-amber-500" aria-label="Write failed" />
+                    <AlertTriangle
+                      size={13}
+                      className={isProject ? "text-text-muted" : "text-amber-500"}
+                      aria-label="Write failed"
+                    />
                   ) : (
                     <>
                       <span className="text-emerald-600 dark:text-emerald-500 font-medium">
