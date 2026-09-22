@@ -342,6 +342,59 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     expect(separator).toHaveAttribute("aria-valuenow", "480");
   });
 
+  it("marks changed files and their parent folders with distinct statuses", async () => {
+    invokeMock.mockImplementation(async (command) => {
+      if (command === "project_browse_begin") return "browser-run-token" as never;
+      if (command === "project_list_dir") return ["src/"] as never;
+      if (command === "git_get_status") {
+        return {
+          isRepo: true,
+          path: "C:\\workspace",
+          branch: "main",
+          isDirty: true,
+          stagedFiles: [],
+          unstagedFiles: ["src/added.ts", "src/modified.ts", "src/deleted.ts", "src/new.ts"],
+          ahead: 0,
+          behind: 0,
+        } as never;
+      }
+      if (command === "git_diff_changes") {
+        return `diff --git a/src/added.ts b/src/added.ts
+new file mode 100644
+--- /dev/null
++++ b/src/added.ts
+@@ -0,0 +1 @@
++new
+diff --git a/src/modified.ts b/src/modified.ts
+--- a/src/modified.ts
++++ b/src/modified.ts
+@@ -1 +1 @@
+-old
++new
+diff --git a/src/deleted.ts b/src/deleted.ts
+deleted file mode 100644
+--- a/src/deleted.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-old
+diff --git a/src/old.ts b/src/new.ts
+rename from src/old.ts
+rename to src/new.ts` as never;
+      }
+      return [] as never;
+    });
+
+    render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    expect(await screen.findByRole("button", { name: "Folder src" })).toHaveAccessibleDescription(
+      "Contains changed files",
+    );
+    expect(await screen.findByRole("button", { name: "File src/added.ts" })).toHaveAccessibleDescription("Added file");
+    expect(screen.getByRole("button", { name: "File src/modified.ts" })).toHaveAccessibleDescription("Modified file");
+    expect(screen.getByRole("button", { name: "File src/deleted.ts" })).toHaveAccessibleDescription("Deleted file");
+    expect(screen.getByRole("button", { name: "File src/new.ts" })).toHaveAccessibleDescription("Renamed file");
+  });
+
   it("opens Review with the file selected from the changed-files summary", async () => {
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_get_status") {

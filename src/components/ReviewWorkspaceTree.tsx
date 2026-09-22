@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import type { DiffFile } from "../utils/gitDiff";
 
 interface TreeEntry {
@@ -32,6 +32,26 @@ function ancestors(path: string): string[] {
   return pieces.slice(1).map((_, index) => pieces.slice(0, index + 1).join("/"));
 }
 
+const statusStyles: Record<DiffFile["status"], { label: string; className: string; short: string }> = {
+  added: { label: "Added", className: "border-emerald-500/70 text-emerald-600 dark:text-emerald-400", short: "+" },
+  modified: { label: "Modified", className: "border-amber-500/70 text-amber-600 dark:text-amber-400", short: "M" },
+  deleted: { label: "Deleted", className: "border-rose-500/70 text-rose-600 dark:text-rose-400", short: "−" },
+  renamed: { label: "Renamed", className: "border-sky-500/70 text-sky-600 dark:text-sky-400", short: "R" },
+};
+
+function ChangeBadge({ status }: { status: DiffFile["status"] }) {
+  const style = statusStyles[status];
+  return (
+    <span
+      aria-hidden="true"
+      title={style.label}
+      className={`ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded border font-mono text-[10px] font-semibold leading-none ${style.className}`}
+    >
+      {style.short}
+    </span>
+  );
+}
+
 function TreeRow({
   entry,
   depth,
@@ -39,6 +59,8 @@ function TreeRow({
   runToken,
   worktreePath,
   changedFiles,
+  statusByPath,
+  changedDirectories,
   selectedPath,
   expanded,
   onToggle,
@@ -50,6 +72,8 @@ function TreeRow({
   runToken: string;
   worktreePath?: string;
   changedFiles: DiffFile[];
+  statusByPath: Map<string, DiffFile["status"]>;
+  changedDirectories: Set<string>;
   selectedPath: string | null;
   expanded: Set<string>;
   onToggle: (path: string) => void;
@@ -57,7 +81,10 @@ function TreeRow({
 }) {
   const [names, setNames] = useState<string[] | null>(null);
   const [error, setError] = useState(false);
+  const descriptionId = useId();
   const isOpen = entry.isDirectory && expanded.has(entry.path);
+  const status = statusByPath.get(entry.path);
+  const hasChangedFiles = entry.isDirectory && changedDirectories.has(entry.path);
 
   useEffect(() => {
     if (!isOpen || !runToken || names || error) return;
@@ -96,7 +123,8 @@ function TreeRow({
         aria-label={`${entry.isDirectory ? "Folder" : "File"} ${entry.path}`}
         aria-expanded={entry.isDirectory ? isOpen : undefined}
         aria-current={!entry.isDirectory && selectedPath === entry.path ? "true" : undefined}
-        title={entry.path}
+        aria-describedby={status || hasChangedFiles ? descriptionId : undefined}
+        title={`${entry.path}${status ? ` · ${statusStyles[status].label}` : hasChangedFiles ? " · Contains changed files" : ""}`}
         className={`flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-xs transition-colors hover:bg-hover/70 ${selectedPath === entry.path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
@@ -121,6 +149,15 @@ function TreeRow({
           <File size={13} className="shrink-0" />
         )}
         <span className="truncate">{entry.name}</span>
+        {(status || hasChangedFiles) && (
+          <span id={descriptionId} className="sr-only">
+            {status ? `${statusStyles[status].label} file` : "Contains changed files"}
+          </span>
+        )}
+        {hasChangedFiles && (
+          <span aria-hidden="true" className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" />
+        )}
+        {!entry.isDirectory && status && <ChangeBadge status={status} />}
       </button>
       {isOpen && (
         <>
@@ -138,6 +175,8 @@ function TreeRow({
               runToken={runToken}
               worktreePath={worktreePath}
               changedFiles={changedFiles}
+              statusByPath={statusByPath}
+              changedDirectories={changedDirectories}
               selectedPath={selectedPath}
               expanded={expanded}
               onToggle={onToggle}
@@ -178,6 +217,7 @@ export function ReviewWorkspaceTree({
   const [query, setQuery] = useState("");
   const [searchPaths, setSearchPaths] = useState<string[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const searchDescriptionId = useId();
   const isSearching = !!query.trim();
   const scope = conversationId || `review-tree:${projectId}`;
 
@@ -249,6 +289,15 @@ export function ReviewWorkspaceTree({
   }, [selectedPath]);
 
   const entries = useMemo(() => entriesForDirectory("", names, changedFiles), [names, changedFiles]);
+  const { statusByPath, changedDirectories } = useMemo(() => {
+    const statusByPath = new Map<string, DiffFile["status"]>();
+    const changedDirectories = new Set<string>();
+    for (const file of changedFiles) {
+      statusByPath.set(file.path, file.status);
+      for (const directory of ancestors(file.path)) changedDirectories.add(directory);
+    }
+    return { statusByPath, changedDirectories };
+  }, [changedFiles]);
   const searchMatches = useMemo(() => {
     if (!query.trim()) return [];
     const lower = query.trim().toLowerCase();
@@ -314,18 +363,25 @@ export function ReviewWorkspaceTree({
             {searchMatches.length} {searchMatches.length === 1 ? "match" : "matches"}
             {searchMatches.length > 200 ? " · first 200 shown" : ""}
           </p>
-          {searchMatches.slice(0, 200).map((path) => (
+          {searchMatches.slice(0, 200).map((path, index) => (
             <button
               key={path}
               type="button"
               onClick={() => onSelect(path)}
               aria-label={`File ${path}`}
               aria-current={selectedPath === path ? "true" : undefined}
-              title={path}
+              aria-describedby={statusByPath.has(path) ? `${searchDescriptionId}-${index}` : undefined}
+              title={`${path}${statusByPath.has(path) ? ` · ${statusStyles[statusByPath.get(path)!].label}` : ""}`}
               className={`flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-xs hover:bg-hover/70 ${selectedPath === path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
             >
               <File size={13} className="shrink-0" aria-hidden="true" />
               <span className="truncate">{path}</span>
+              {statusByPath.has(path) && (
+                <span id={`${searchDescriptionId}-${index}`} className="sr-only">
+                  {statusStyles[statusByPath.get(path)!].label} file
+                </span>
+              )}
+              {statusByPath.has(path) && <ChangeBadge status={statusByPath.get(path)!} />}
             </button>
           ))}
         </>
@@ -341,6 +397,8 @@ export function ReviewWorkspaceTree({
             runToken={runToken || ""}
             worktreePath={worktreePath}
             changedFiles={changedFiles}
+            statusByPath={statusByPath}
+            changedDirectories={changedDirectories}
             selectedPath={selectedPath}
             expanded={expanded}
             onToggle={toggle}
