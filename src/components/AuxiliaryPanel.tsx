@@ -322,7 +322,7 @@ function ReviewPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border/40 px-4 py-3">
+      <div className="mx-2 mt-2 shrink-0 rounded-xl border border-border/50 bg-surface/45 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
@@ -346,14 +346,14 @@ function ReviewPane({
               onClick={() => setFileListVisible((current) => !current)}
               aria-label={fileListVisible ? "Hide file list" : "Show file list"}
               title={fileListVisible ? "Hide file list" : "Show file list"}
-              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus"
             >
               {fileListVisible ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
             </button>
             <button
               onClick={() => void refresh()}
               disabled={loading}
-              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus"
               title="Refresh changes"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
@@ -388,8 +388,8 @@ function ReviewPane({
           ))}
       </div>
 
-      <div ref={reviewContentRef} className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-chat/45">
+      <div ref={reviewContentRef} className="flex min-h-0 flex-1 flex-col gap-2 p-2 md:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/50 bg-chat/45">
           {selectedPath && !selectedFile ? (
             <ReviewFilePreview
               key={`${projectId}:${selectedPath}:${worktreePath || ""}`}
@@ -424,7 +424,7 @@ function ReviewPane({
             tabIndex={0}
             onPointerDown={startFileListResize}
             onKeyDown={resizeFileListWithKeyboard}
-            className="hidden w-1 shrink-0 cursor-col-resize bg-border/30 transition-colors hover:bg-accent/50 focus-visible:bg-accent/70 focus-visible:outline-none md:block"
+            className="hidden w-1 shrink-0 cursor-col-resize rounded-full bg-border/50 transition-colors hover:bg-accent/50 focus-visible:bg-accent/70 focus-visible:outline-none md:block"
           />
         )}
         <ReviewWorkspaceTree

@@ -65,7 +65,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label={`Diff for ${file.path}`}>
-      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-chat px-3 py-2 text-xs">
+      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border/50 bg-surface/55 px-3 py-2 text-xs">
         <FileCode2 size={14} className="shrink-0 text-accent" aria-hidden="true" />
         <div className="min-w-0 flex-1 truncate" title={file.path}>
           <span className="text-text-muted">{directory}</span>
@@ -75,7 +75,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
           <span className="text-emerald-700 dark:text-emerald-400">+{file.additions}</span>{" "}
           <span className="text-rose-600 dark:text-rose-400">−{file.deletions}</span>
         </span>
-        <span className="shrink-0 rounded border border-border/50 px-1.5 py-0.5 text-[10px] capitalize text-text-muted">
+        <span className="shrink-0 rounded-md border border-border/50 bg-hover/30 px-1.5 py-0.5 text-[10px] capitalize text-text-muted">
           {file.status}
         </span>
       </div>
@@ -118,7 +118,7 @@ export function ReviewDiffView({ file }: { file: DiffFile }) {
                 return (
                   <div
                     key={index}
-                    className="my-1 flex min-h-9 items-center gap-3 border-y border-border/40 bg-hover/70 px-3 font-sans text-xs text-text-muted"
+                    className="mx-2 my-1 flex min-h-9 items-center gap-3 rounded-lg border border-border/40 bg-hover/70 px-3 font-sans text-xs text-text-muted"
                   >
                     <span
                       className="flex shrink-0 gap-2 font-mono text-[10px] tabular-nums text-text-muted"

@@ -125,7 +125,7 @@ function TreeRow({
         aria-current={!entry.isDirectory && selectedPath === entry.path ? "true" : undefined}
         aria-describedby={status || hasChangedFiles ? descriptionId : undefined}
         title={`${entry.path}${status ? ` · ${statusStyles[status].label}` : hasChangedFiles ? " · Contains changed files" : ""}`}
-        className={`flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-xs transition-colors hover:bg-hover/70 ${selectedPath === entry.path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+        className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-xs transition-colors hover:bg-hover/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === entry.path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         {entry.isDirectory ? (
@@ -315,11 +315,11 @@ export function ReviewWorkspaceTree({
 
   return (
     <aside
-      className="max-h-44 w-full shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[var(--review-file-list-width)] md:border-l md:border-t-0"
+      className="max-h-44 w-full shrink-0 overflow-y-auto rounded-xl border border-border/50 bg-surface/35 md:max-h-none md:w-[var(--review-file-list-width)]"
       aria-label="Workspace files"
       style={{ display: visible ? undefined : "none", "--review-file-list-width": `${width}px` } as CSSProperties}
     >
-      <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2">
+      <div className="sticky top-0 z-10 border-b border-border/40 bg-surface px-3 py-2">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Workspace files</p>
         <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-input/40 px-2 py-1.5 focus-within:border-accent/60">
           <Search size={12} className="shrink-0 text-text-muted" aria-hidden="true" />
@@ -372,7 +372,7 @@ export function ReviewWorkspaceTree({
               aria-current={selectedPath === path ? "true" : undefined}
               aria-describedby={statusByPath.has(path) ? `${searchDescriptionId}-${index}` : undefined}
               title={`${path}${statusByPath.has(path) ? ` · ${statusStyles[statusByPath.get(path)!].label}` : ""}`}
-              className={`flex min-h-8 w-full items-center gap-1.5 px-2 text-left text-xs hover:bg-hover/70 ${selectedPath === path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
+              className={`mx-1 flex min-h-8 w-[calc(100%_-_0.5rem)] items-center gap-1.5 rounded-lg px-2 text-left text-xs hover:bg-hover/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus ${selectedPath === path ? "bg-accent/10 text-text-primary" : "text-text-secondary"}`}
             >
               <File size={13} className="shrink-0" aria-hidden="true" />
               <span className="truncate">{path}</span>
