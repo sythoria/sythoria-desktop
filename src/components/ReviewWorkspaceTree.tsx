@@ -158,6 +158,7 @@ export function ReviewWorkspaceTree({
   changedFiles,
   selectedPath,
   onSelect,
+  visible,
 }: {
   projectId: string;
   conversationId: string | null;
@@ -166,6 +167,7 @@ export function ReviewWorkspaceTree({
   changedFiles: DiffFile[];
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  visible: boolean;
 }) {
   const [runToken, setRunToken] = useState<string | null>(null);
   const [names, setNames] = useState<string[]>([]);
@@ -264,6 +266,7 @@ export function ReviewWorkspaceTree({
     <aside
       className="max-h-44 shrink-0 overflow-y-auto border-t border-border/40 md:max-h-none md:w-[30%] md:min-w-[210px] md:border-l md:border-t-0"
       aria-label="Workspace files"
+      style={{ display: visible ? undefined : "none" }}
     >
       <div className="sticky top-0 z-10 border-b border-border/40 bg-chat px-3 py-2">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Workspace files</p>

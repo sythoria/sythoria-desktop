@@ -301,6 +301,21 @@ diff --git a/src/older-change.ts b/src/older-change.ts
     expect(screen.getByRole("button", { name: "Folder docs" })).toBeInTheDocument();
   });
 
+  it("hides and restores the file list without resetting the review", async () => {
+    const { container } = render(<AuxiliaryPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /Review/ }));
+    expect(await screen.findByRole("region", { name: "Diff for src/App.tsx" })).toBeInTheDocument();
+    const search = screen.getByRole("searchbox", { name: "Search workspace files" });
+    fireEvent.change(search, { target: { value: "App" } });
+    expect(await screen.findByText("1 match")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide file list" }));
+    expect(container.querySelector('aside[aria-label="Workspace files"]')).toHaveStyle({ display: "none" });
+    expect(screen.getByRole("region", { name: "Diff for src/App.tsx" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show file list" }));
+    expect(container.querySelector('aside[aria-label="Workspace files"]')).not.toHaveStyle({ display: "none" });
+    expect(screen.getByRole("searchbox", { name: "Search workspace files" })).toHaveValue("App");
+  });
+
   it("opens Review with the file selected from the changed-files summary", async () => {
     invokeMock.mockImplementation(async (command) => {
       if (command === "git_get_status") {

@@ -25,6 +25,8 @@ import {
   ExternalLink,
   Loader2,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Search,
@@ -197,6 +199,7 @@ function ReviewPane({
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<"publish" | "discard" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileListVisible, setFileListVisible] = useState(true);
   const publishPendingWorktree = useChatStore((s) => s.publishPendingWorktree);
   const discardPendingWorktree = useChatStore((s) => s.discardPendingWorktree);
   const isConversationWorking = useChatStore((state) => {
@@ -300,14 +303,25 @@ function ReviewPane({
               <span className="ml-1.5 text-red-400">−{deletions}</span>
             </p>
           </div>
-          <button
-            onClick={() => void refresh()}
-            disabled={loading}
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
-            title="Refresh changes"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setFileListVisible((current) => !current)}
+              aria-label={fileListVisible ? "Hide file list" : "Show file list"}
+              title={fileListVisible ? "Hide file list" : "Show file list"}
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+            >
+              {fileListVisible ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+            </button>
+            <button
+              onClick={() => void refresh()}
+              disabled={loading}
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-hover hover:text-text-primary"
+              title="Refresh changes"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </button>
+          </div>
         </div>
         {worktreePath &&
           conversationId &&
@@ -368,6 +382,7 @@ function ReviewPane({
           changedFiles={files}
           selectedPath={selectedPath}
           onSelect={setSelectedPath}
+          visible={fileListVisible}
         />
       </div>
     </div>
