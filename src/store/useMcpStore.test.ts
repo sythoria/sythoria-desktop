@@ -17,7 +17,9 @@ vi.mock("../utils/storage", () => ({
 }));
 
 import type { McpServerConfig, McpTool } from "../types";
+import { PLUGINS_CATALOG } from "../config/pluginsCatalog";
 import { useMcpStore } from "./useMcpStore";
+import { useUIStore } from "./useUIStore";
 
 const config: McpServerConfig = {
   id: "server-1",
@@ -255,6 +257,49 @@ describe("useMcpStore capability revocation", () => {
     expect(useMcpStore.getState().serverStatuses[config.id]).toBe("disconnected");
   });
 
+  it("installs bundled catalog plugins as verified and trusted", async () => {
+    const memory = PLUGINS_CATALOG.find((plugin) => plugin.id === "memory")!;
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_start_server") return Promise.resolve("[]");
+      return Promise.resolve(undefined);
+    });
+
+    await expect(
+      useMcpStore.getState().addMcpConfigWithSecrets(memory.preset, {}, { catalogPluginId: memory.id }),
+    ).resolves.toBe(true);
+
+    expect(useMcpStore.getState().mcpConfigs.find((candidate) => candidate.name === memory.name)).toMatchObject({
+      catalogPluginId: memory.id,
+      trustLevel: "trusted",
+    });
+  });
+
+  it("returns a verified plugin to untrusted MCP protections when its package is edited", async () => {
+    const verifiedConfig: McpServerConfig = {
+      id: "verified-memory",
+      name: "Memory Knowledge Graph",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-memory"],
+      enabled: true,
+      trustLevel: "trusted",
+      catalogPluginId: "memory",
+    };
+    useMcpStore.setState({
+      mcpConfigs: [verifiedConfig],
+      serverStatuses: { [verifiedConfig.id]: "connected" },
+      enabledServerIds: new Set([verifiedConfig.id]),
+    });
+
+    await useMcpStore.getState().updateMcpConfig(verifiedConfig.id, {
+      args: ["-y", "unverified-memory-server"],
+    });
+
+    expect(useMcpStore.getState().mcpConfigs[0]).toMatchObject({ trustLevel: "untrusted" });
+    expect(useMcpStore.getState().mcpConfigs[0].catalogPluginId).toBeUndefined();
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_stop_server", { serverId: verifiedConfig.id });
+  });
+
   it("cancels only tool calls tracked for the deleted conversation", async () => {
     let rejectToolCall: ((reason: Error) => void) | undefined;
     let trackedRequestId = "";
@@ -281,5 +326,45 @@ describe("useMcpStore capability revocation", () => {
 
     await expect(toolCall).resolves.toMatchObject({ isError: true });
     expect(mocks.invoke).toHaveBeenCalledWith("mcp_cancel_tool_call", { requestId: trackedRequestId });
+  });
+
+  it("lets a connection form own error presentation without a duplicate toast", async () => {
+    useUIStore.setState({ toasts: [] });
+    mocks.invoke.mockRejectedValue(new Error("Connection failed"));
+    await useMcpStore.getState().connectServer(config.id, { notify: false });
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("error");
+    expect(useUIStore.getState().toasts).toHaveLength(0);
+  });
+
+  it("interpolates argument placeholders and un-enables failed server on error", async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "mcp_start_server") {
+        return Promise.reject(new Error("Handshake failed: process exited"));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const preset = {
+      id: "postgres-preset",
+      name: "PostgreSQL Database",
+      description: "Postgres database",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-postgres", "<DATABASE_URL>"],
+      envKeys: ["DATABASE_URL"],
+    };
+
+    const result = await useMcpStore.getState().addMcpConfigWithSecrets(preset, {
+      DATABASE_URL: "postgresql://localhost:5432/mydb",
+    });
+
+    expect(result).toBe(false);
+    const created = useMcpStore.getState().mcpConfigs.find((c) => c.name === preset.name);
+    expect(created).toBeDefined();
+    expect(created?.args).toEqual(["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost:5432/mydb"]);
+    expect(created).toMatchObject({ trustLevel: "untrusted" });
+    expect(created?.catalogPluginId).toBeUndefined();
+    // Since connection failed, server should NOT remain in enabledServerIds
+    expect(useMcpStore.getState().enabledServerIds.has(created!.id)).toBe(false);
+    expect(useMcpStore.getState().serverStatuses[created!.id]).toBe("error");
   });
 });

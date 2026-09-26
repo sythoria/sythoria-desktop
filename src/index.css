@@ -1056,3 +1056,11 @@ pre,
 .inline-text-reference > span {
   display: inline;
 }
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -15,6 +15,7 @@ export const ja = {
   "section.configuration": "チャット設定",
   "section.personalization": "システムプロンプト",
   "section.whisper": "音声入力",
+  "section.plugins": "プラグインとアプリ",
   "section.mcp": "MCP サーバー",
   "section.browser": "ウェブ検索",
   "section.appshots": "画面キャプチャ",
@@ -220,6 +221,36 @@ export const ja = {
   // Settings: Voice Input (Whisper)
   "settings.voice.title": "音声入力",
   "settings.voice.subtitle": "録音設定とローカル文字起こしモデルの設定",
+
+  // Settings: Plugins & Apps
+  "settings.plugins.title": "プラグインとアプリ",
+  "settings.plugins.subtitle": "Sythoria をお気に入りのツール、サービス、ローカルデータと接続",
+  "settings.plugins.searchPlaceholder": "50件以上のプラグインを検索（例: GitHub、Notion、Slack、Postgres）...",
+  "settings.plugins.installedCount": "インストール済みプラグイン ({count})",
+  "settings.plugins.noInstalled":
+    "インストールされたプラグインはまだありません。下のプラグインの「+ 接続」をクリックして開始してください。",
+  "settings.plugins.connect": "接続",
+  "settings.plugins.connected": "接続済み",
+  "settings.plugins.configure": "設定",
+  "settings.plugins.disconnect": "切断",
+  "settings.plugins.reconnect": "再接続",
+  "settings.plugins.connecting": "接続中...",
+  "settings.plugins.badgePopular": "人気",
+  "settings.plugins.badgeOfficial": "公式",
+  "settings.plugins.badgeEssential": "必須",
+  "settings.plugins.badgeNew": "新着",
+  "settings.plugins.categoryAll": "すべて",
+  "settings.plugins.categoryFeatured": "おすすめ",
+  "settings.plugins.categoryDeveloper": "開発・データ",
+  "settings.plugins.categoryProductivity": "業務効率化",
+  "settings.plugins.categoryCommunication": "コミュニケーション",
+  "settings.plugins.categorySearch": "検索",
+  "settings.plugins.categoryMedia": "メディア",
+  "settings.plugins.modalTitle": "{name} を接続",
+  "settings.plugins.modalSubtitle": "認証情報を設定して、Sythoria で {name} のツールを有効化します。",
+  "settings.plugins.saveAndConnect": "接続して有効化",
+  "settings.plugins.helpLink": "トークンの取得方法",
+  "settings.plugins.nodeRequired": "npx / Node.js 経由でローカルに安全実行されます。",
 
   // Settings: MCP Servers
   "settings.mcp.title": "MCP サーバー",
@@ -607,6 +638,7 @@ export const ja = {
     "「{name}」を信頼しますか？ツールは AI が生成した引数で自動実行され、ファイルへのアクセス、コマンドの実行、ネットワークリクエストを行う可能性があります。このサーバーを管理し、信頼している場合のみ続行してください。",
   "settings.mcp.trustedWarning":
     "信頼済み：この設定をオフにするまで、このサーバーのすべてのツールが自動実行される可能性があります。",
+  "settings.mcp.verifiedPlugin": "検証済みの Sythoria プラグイン — ツールの承認は自動的に処理されます。",
   "settings.mcp.deleteTitle": "MCPサーバー設定 of 削除",
   "settings.mcp.deleteConfirm": '本当にMCPサーバー "{name}" を削除しますか？この操作は元に戻せません。',
   "settings.mcp.template": "テンプレート",

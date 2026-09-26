@@ -15,6 +15,7 @@ export const es = {
   "section.configuration": "Configuración de Chat",
   "section.personalization": "Prompts del Sistema",
   "section.whisper": "Entrada de Voz",
+  "section.plugins": "Plugins y Apps",
   "section.mcp": "Servidores MCP",
   "section.browser": "Búsqueda Web",
   "section.appshots": "Capturas de Pantalla",
@@ -224,6 +225,36 @@ export const es = {
   // Settings: Voice Input (Whisper)
   "settings.voice.title": "Entrada de Voz",
   "settings.voice.subtitle": "Configura los modelos de grabación de voz y transcripción local",
+
+  // Settings: Plugins & Apps
+  "settings.plugins.title": "Plugins y Apps",
+  "settings.plugins.subtitle": "Conecta Sythoria con tus herramientas, servicios y datos locales favoritos",
+  "settings.plugins.searchPlaceholder": "Buscar más de 50 plugins (ej. GitHub, Notion, Slack, Postgres)...",
+  "settings.plugins.installedCount": "Plugins Instalados ({count})",
+  "settings.plugins.noInstalled":
+    "No hay plugins instalados aún. Haz clic en '+ Conectar' en cualquier plugin para comenzar.",
+  "settings.plugins.connect": "Conectar",
+  "settings.plugins.connected": "Conectado",
+  "settings.plugins.configure": "Configurar",
+  "settings.plugins.disconnect": "Desconectar",
+  "settings.plugins.reconnect": "Reconectar",
+  "settings.plugins.connecting": "Conectando...",
+  "settings.plugins.badgePopular": "Popular",
+  "settings.plugins.badgeOfficial": "Oficial",
+  "settings.plugins.badgeEssential": "Esencial",
+  "settings.plugins.badgeNew": "Nuevo",
+  "settings.plugins.categoryAll": "Todos",
+  "settings.plugins.categoryFeatured": "Destacados",
+  "settings.plugins.categoryDeveloper": "Desarrollador",
+  "settings.plugins.categoryProductivity": "Productividad",
+  "settings.plugins.categoryCommunication": "Comunicación",
+  "settings.plugins.categorySearch": "Búsqueda",
+  "settings.plugins.categoryMedia": "Medios",
+  "settings.plugins.modalTitle": "Conectar {name}",
+  "settings.plugins.modalSubtitle": "Configura tus credenciales para habilitar las herramientas de {name} en Sythoria.",
+  "settings.plugins.saveAndConnect": "Conectar y Habilitar",
+  "settings.plugins.helpLink": "Cómo obtener este token",
+  "settings.plugins.nodeRequired": "Se ejecuta localmente vía npx / Node.js.",
 
   // Settings: MCP Servers
   "settings.mcp.title": "Servidores MCP",
@@ -617,6 +648,8 @@ export const es = {
     '¿Confiar en "{name}"? Sus herramientas pueden ejecutarse automáticamente con argumentos generados por IA y acceder a archivos, ejecutar comandos o realizar solicitudes de red. Continúa solo si controlas y confías en este servidor.',
   "settings.mcp.trustedWarning":
     "Servidor de confianza: todas sus herramientas pueden ejecutarse automáticamente hasta que desactives esta opción.",
+  "settings.mcp.verifiedPlugin":
+    "Plugin de Sythoria verificado — las aprobaciones de herramientas se gestionan automáticamente.",
   "settings.mcp.deleteTitle": "Eliminar Servidor MCP",
   "settings.mcp.deleteConfirm":
     '¿Estás seguro de que deseas eliminar el servidor MCP "{name}"? Esta acción no se puede deshacer.',

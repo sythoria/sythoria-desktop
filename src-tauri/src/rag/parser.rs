@@ -130,7 +130,11 @@ fn parse_delimited(
     mut metadata: HashMap<String, String>,
 ) -> Result<ParsedDocument, AppError> {
     let content = fs::read_to_string(path).map_err(|e| {
-        AppError::AppPath(format!("Failed to read delimited file {}: {}", path.display(), e))
+        AppError::AppPath(format!(
+            "Failed to read delimited file {}: {}",
+            path.display(),
+            e
+        ))
     })?;
 
     metadata.insert("format".to_string(), ext.to_string());
@@ -159,9 +163,8 @@ fn parse_text_file(
     ext: &str,
     mut metadata: HashMap<String, String>,
 ) -> Result<ParsedDocument, AppError> {
-    let bytes = fs::read(path).map_err(|e| {
-        AppError::AppPath(format!("Failed to read file {}: {}", path.display(), e))
-    })?;
+    let bytes = fs::read(path)
+        .map_err(|e| AppError::AppPath(format!("Failed to read file {}: {}", path.display(), e)))?;
 
     let content = String::from_utf8(bytes.clone())
         .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());

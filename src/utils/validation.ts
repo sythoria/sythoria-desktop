@@ -82,6 +82,7 @@ const McpServerConfigSchema = z.object({
   apiKey: z.string().optional(),
   enabled: z.boolean(),
   trustLevel: z.enum(["trusted", "untrusted"]).optional(),
+  catalogPluginId: z.string().optional(),
 });
 
 export function validateModelConfig(config: unknown) {

@@ -29,6 +29,45 @@ describe("migrateMcpConfigs", () => {
     expect(result.trustLevel).toBe("trusted");
   });
 
+  it("upgrades an existing bundled catalog plugin to verified trust", () => {
+    const result = migrateMcpConfigs([
+      {
+        ...stdio("memory-server", "npx", ["-y", "@modelcontextprotocol/server-memory"]),
+        name: "Memory Knowledge Graph",
+        trustLevel: "untrusted",
+      },
+    ]);
+
+    expect(result[0]).toMatchObject({ catalogPluginId: "memory", trustLevel: "trusted" });
+  });
+
+  it("does not trust a similarly named server with a modified package", () => {
+    const result = migrateMcpConfigs([
+      {
+        ...stdio("memory-server", "npx", ["-y", "unverified-memory-server"]),
+        name: "Memory Knowledge Graph",
+        trustLevel: "untrusted",
+      },
+    ]);
+
+    expect(result[0].catalogPluginId).toBeUndefined();
+    expect(result[0].trustLevel).toBe("untrusted");
+  });
+
+  it("revokes stale catalog verification when the executable identity changed", () => {
+    const result = migrateMcpConfigs([
+      {
+        ...stdio("memory-server", "npx", ["-y", "unverified-memory-server"]),
+        name: "Memory Knowledge Graph",
+        trustLevel: "trusted",
+        catalogPluginId: "memory",
+      },
+    ]);
+
+    expect(result[0].catalogPluginId).toBeUndefined();
+    expect(result[0].trustLevel).toBe("untrusted");
+  });
+
   it("splits a legacy full command line into program + args", () => {
     const result = migrateMcpConfigs([
       stdio("1", "npx -y @modelcontextprotocol/server-filesystem", ["/Users/me/project"]),

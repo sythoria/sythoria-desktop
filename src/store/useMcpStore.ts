@@ -9,6 +9,7 @@ import { summarizeToolArguments } from "../utils/redaction";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
+import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
 
@@ -82,9 +83,14 @@ interface McpState {
 
   addMcpConfig: () => void;
   addMcpConfigFromPreset: (preset: McpServerPreset) => void;
+  addMcpConfigWithSecrets: (
+    preset: McpServerPreset,
+    secrets: Record<string, string>,
+    options?: { notify?: boolean; catalogPluginId?: string },
+  ) => Promise<boolean>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
-  connectServer: (id: string) => Promise<void>;
+  connectServer: (id: string, options?: { notify?: boolean }) => Promise<void>;
   disconnectServer: (id: string) => Promise<void>;
   connectAllEnabled: () => Promise<void>;
   callTool: (
@@ -198,6 +204,80 @@ export const useMcpStore = create<McpState>((set, get) => ({
       );
   },
 
+  addMcpConfigWithSecrets: async (preset, secrets, options) => {
+    const { mcpConfigs, envSecrets, connectServer } = get();
+    const existing = mcpConfigs.find((c) => c.name === preset.name);
+    const targetId = existing?.id || generateId();
+
+    // Interpolate any `<KEY>` placeholders in args with values from secrets
+    const interpolatedArgs = (preset.args || []).map((arg) => {
+      let resolved = arg;
+      for (const [key, value] of Object.entries(secrets)) {
+        if (!value) continue;
+        const placeholder = `<${key}>`;
+        if (resolved.includes(placeholder)) {
+          resolved = resolved.replaceAll(placeholder, value);
+        }
+      }
+      return resolved;
+    });
+
+    const candidateConfig: McpServerConfig = {
+      id: targetId,
+      name: preset.name,
+      transport: "stdio",
+      command: preset.command,
+      args: interpolatedArgs,
+      enabled: true,
+      trustLevel: "untrusted",
+      ...(options?.catalogPluginId ? { catalogPluginId: options.catalogPluginId } : {}),
+    };
+    const verifiedPlugin = verifiedCatalogPluginForConfig(candidateConfig);
+    let newConfig: McpServerConfig;
+    if (verifiedPlugin && verifiedPlugin.id === options?.catalogPluginId) {
+      newConfig = { ...candidateConfig, catalogPluginId: verifiedPlugin.id, trustLevel: "trusted" };
+    } else {
+      const customConfig = { ...candidateConfig };
+      delete customConfig.catalogPluginId;
+      newConfig = customConfig;
+    }
+
+    const updatedConfigs = existing
+      ? mcpConfigs.map((c) => (c.id === targetId ? newConfig : c))
+      : [...mcpConfigs, newConfig];
+
+    const updatedEnvSecrets = { ...envSecrets, [targetId]: secrets };
+    const nextEnabled = new Set(get().enabledServerIds);
+    nextEnabled.add(targetId);
+
+    set({
+      mcpConfigs: updatedConfigs,
+      envSecrets: updatedEnvSecrets,
+      enabledServerIds: nextEnabled,
+      serverStatuses: { ...get().serverStatuses, [targetId]: "connecting" },
+    });
+
+    debouncedSaveMcpConfigs.cancel();
+    debouncedSaveMcpEnvSecrets.cancel();
+    await Promise.all([
+      saveMcpConfigs(updatedConfigs),
+      saveMcpEnvSecrets(updatedEnvSecrets),
+      saveEnabledMcpServers(Array.from(nextEnabled)),
+    ]);
+
+    await connectServer(targetId, options);
+
+    // If initial connection failed, remove from enabledServerIds so it doesn't fail on every app restart
+    if (get().serverStatuses[targetId] === "error") {
+      const rollbackEnabled = new Set(get().enabledServerIds);
+      rollbackEnabled.delete(targetId);
+      set({ enabledServerIds: rollbackEnabled });
+      await saveEnabledMcpServers(Array.from(rollbackEnabled));
+      return false;
+    }
+    return true;
+  },
+
   updateMcpConfig: async (id, updates) => {
     const { mcpConfigs, mcpApiKeys } = get();
     set({
@@ -207,9 +287,20 @@ export const useMcpStore = create<McpState>((set, get) => ({
         : {}),
     });
     const previousConfig = mcpConfigs.find((config) => config.id === id);
-    const updatedConfigs = mcpConfigs.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    const updatedConfigs = mcpConfigs.map((config) => {
+      if (config.id !== id) return config;
+      const candidate = { ...config, ...updates };
+      const explicitlyRevoked = updates.trustLevel === "untrusted";
+      const remainsVerified = candidate.catalogPluginId && verifiedCatalogPluginForConfig(candidate);
+      if (!config.catalogPluginId || (!explicitlyRevoked && remainsVerified)) return candidate;
+
+      const customConfig = { ...candidate };
+      delete customConfig.catalogPluginId;
+      return { ...customConfig, trustLevel: "untrusted" as const };
+    });
     const isBeingDisabled = updates.enabled === false;
-    const trustChanged = updates.trustLevel !== undefined && previousConfig?.trustLevel !== updates.trustLevel;
+    const updatedConfig = updatedConfigs.find((config) => config.id === id);
+    const trustChanged = previousConfig?.trustLevel !== updatedConfig?.trustLevel;
 
     if (isBeingDisabled) {
       const nextEnabled = new Set(get().enabledServerIds);
@@ -240,7 +331,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       debouncedSaveMcpApiKeys(newKeys);
     }
 
-    if (updates.trustLevel !== undefined) {
+    if (trustChanged) {
       // Trust revocation is a security boundary: persist it immediately so a
       // quick shutdown cannot restore the previous trusted state on restart.
       debouncedSaveMcpConfigs.cancel();
@@ -251,7 +342,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
     } else if (!isBeingDisabled) {
       debouncedSaveMcpConfigs(updatedConfigs);
     }
-    const updatedConfig = updatedConfigs.find((c) => c.id === id);
     if (updatedConfig && Object.keys(updates).length > 0) {
       debouncedLogConfigUpdate(updatedConfig.name, Object.keys(updates));
     }
@@ -302,7 +392,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     useUIStore.getState().addToast("MCP server deleted", "info");
   },
 
-  connectServer: async (id) => {
+  connectServer: async (id, options) => {
     const { mcpConfigs } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     if (!config || !config.enabled) return;
@@ -360,7 +450,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
       logInfo("mcp", `Connected to MCP server: "${config.name}"`, {
         details: `${mcpTools.length} tool(s) available: ${mcpTools.map((t) => t.name).join(", ") || "(none)"}`,
       });
-      useUIStore.getState().addToast(`Connected to ${config.name} (${mcpTools.length} tools)`, "success");
+      if (options?.notify !== false)
+        useUIStore.getState().addToast(`Connected to ${config.name} (${mcpTools.length} tools)`, "success");
     } catch (err) {
       if (get().connectionGenerations[id] !== connectionGeneration || !get().mcpConfigs.some((c) => c.id === id)) {
         return;
@@ -375,7 +466,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         serverStatuses: { ...get().serverStatuses, [id]: "error" },
         serverErrors: { ...get().serverErrors, [id]: friendlyEndpointError(err, config.transport === "stdio") },
       });
-      useUIStore.getState().addToast(parsed.message, "error");
+      if (options?.notify !== false) useUIStore.getState().addToast(parsed.message, "error");
     }
   },
 

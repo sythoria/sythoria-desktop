@@ -238,6 +238,8 @@ export interface McpServerConfig {
   apiKey?: string;
   enabled: boolean;
   trustLevel?: "trusted" | "untrusted";
+  /** Bundled catalog plugin identity. Only configs matching the bundled preset keep this marker. */
+  catalogPluginId?: string;
 }
 
 /** Result of probing whether a stdio command resolves to an executable. */

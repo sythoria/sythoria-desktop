@@ -76,7 +76,11 @@ pub fn hybrid_search(
         .collect();
 
     // Sort by RRF score descending
-    fused.sort_by(|a, b| b.rrf_score.partial_cmp(&a.rrf_score).unwrap_or(std::cmp::Ordering::Equal));
+    fused.sort_by(|a, b| {
+        b.rrf_score
+            .partial_cmp(&a.rrf_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     fused.truncate(limit);
 
     Ok(fused)

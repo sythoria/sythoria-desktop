@@ -15,6 +15,7 @@ export const en = {
   "section.configuration": "Chat Settings",
   "section.personalization": "System Prompts",
   "section.whisper": "Voice Input",
+  "section.plugins": "Plugins & Apps",
   "section.mcp": "MCP Servers",
   "section.browser": "Web Search",
   "section.appshots": "Appshots",
@@ -221,6 +222,35 @@ export const en = {
   // Settings: Voice Input (Whisper)
   "settings.voice.title": "Voice Input",
   "settings.voice.subtitle": "Configure voice recording and local transcription models",
+
+  // Settings: Plugins & Apps
+  "settings.plugins.title": "Plugins & Apps",
+  "settings.plugins.subtitle": "Connect Sythoria with your favorite tools, services, and local data",
+  "settings.plugins.searchPlaceholder": "Search 50+ plugins (e.g., GitHub, Notion, Slack, Postgres)...",
+  "settings.plugins.installedCount": "Installed Plugins ({count})",
+  "settings.plugins.noInstalled": "No plugins installed yet. Click '+ Connect' on any plugin below to get started.",
+  "settings.plugins.connect": "Connect",
+  "settings.plugins.connected": "Connected",
+  "settings.plugins.configure": "Configure",
+  "settings.plugins.disconnect": "Disconnect",
+  "settings.plugins.reconnect": "Reconnect",
+  "settings.plugins.connecting": "Connecting...",
+  "settings.plugins.badgePopular": "Popular",
+  "settings.plugins.badgeOfficial": "Official",
+  "settings.plugins.badgeEssential": "Essential",
+  "settings.plugins.badgeNew": "New",
+  "settings.plugins.categoryAll": "All",
+  "settings.plugins.categoryFeatured": "Featured",
+  "settings.plugins.categoryDeveloper": "Developer",
+  "settings.plugins.categoryProductivity": "Productivity",
+  "settings.plugins.categoryCommunication": "Communication",
+  "settings.plugins.categorySearch": "Search",
+  "settings.plugins.categoryMedia": "Media",
+  "settings.plugins.modalTitle": "Connect {name}",
+  "settings.plugins.modalSubtitle": "Configure your credentials to enable {name} tools in Sythoria.",
+  "settings.plugins.saveAndConnect": "Connect & Enable",
+  "settings.plugins.helpLink": "How to get this token",
+  "settings.plugins.nodeRequired": "Runs locally via npx / Node.js.",
 
   // Settings: MCP Servers
   "settings.mcp.title": "MCP Servers",
@@ -600,6 +630,7 @@ export const en = {
   "settings.mcp.trustConfirm":
     'Trust "{name}"? Its tools can execute automatically with AI-generated arguments and may access files, run commands, or make network requests. Only continue if you control and trust this server.',
   "settings.mcp.trustedWarning": "Trusted: all tools from this server may run automatically until you turn this off.",
+  "settings.mcp.verifiedPlugin": "Verified Sythoria plugin — tool approvals are handled automatically.",
   "settings.mcp.deleteTitle": "Delete MCP Server",
   "settings.mcp.deleteConfirm":
     'Are you sure you want to delete the MCP server "{name}"? This action cannot be undone.',

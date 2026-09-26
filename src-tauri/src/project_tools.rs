@@ -801,7 +801,7 @@ fn glob_project_files(
                 .path()
                 .strip_prefix(&access.path)
                 .unwrap_or(entry.path());
-            results.push(relative_path.to_string_lossy().into_owned());
+            results.push(relative_path.to_string_lossy().replace('\\', "/"));
         }
     }
     Ok(results)
