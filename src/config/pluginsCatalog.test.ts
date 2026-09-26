@@ -19,8 +19,12 @@ describe("pluginsCatalog", () => {
       expect(plugin.name.trim().length).toBeGreaterThan(0);
       expect(plugin.description.trim().length).toBeGreaterThan(0);
       expect(plugin.preset).toBeDefined();
-      expect(plugin.preset.command.trim().length).toBeGreaterThan(0);
-      expect(plugin.preset.args.length).toBeGreaterThan(0);
+      if (plugin.preset.transport === "streamable-http") {
+        expect(new URL(plugin.preset.baseUrl!).protocol).toBe("https:");
+      } else {
+        expect(plugin.preset.command.trim().length).toBeGreaterThan(0);
+        expect(plugin.preset.args.length).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -40,7 +44,11 @@ describe("pluginsCatalog", () => {
     for (const plugin of PLUGINS_CATALOG) {
       const source = getPluginMcpSource(plugin);
       expect(source, plugin.id).not.toBeNull();
-      expect(plugin.preset.args).toContain(source!.packageSpec);
+      if (source!.kind === "remote") {
+        expect(source!.packageSpec.startsWith("https://")).toBe(true);
+      } else {
+        expect(plugin.preset.args).toContain(source!.packageSpec);
+      }
       expect(new URL(source!.url).protocol).toBe("https:");
     }
 

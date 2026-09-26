@@ -4,7 +4,6 @@
   "category": "productivity",
   "description": "Search enterprise wikis, update Jira tickets, and log bug status.",
   "icon": "./icon.svg",
-  "badge": "Official",
   "authType": "api_key",
   "authFields": [
     {
@@ -34,9 +33,17 @@
     "id": "jira-confluence",
     "name": "Atlassian Jira & Confluence",
     "description": "Manage Jira issues and search Confluence documentation.",
-    "command": "npx",
-    "args": ["-y", "mcp-server-atlassian"],
-    "envKeys": ["ATLASSIAN_API_TOKEN", "ATLASSIAN_EMAIL", "ATLASSIAN_DOMAIN"]
+    "command": "uvx",
+    "args": ["mcp-atlassian"],
+    "envKeys": [
+      "JIRA_URL",
+      "JIRA_USERNAME",
+      "JIRA_API_TOKEN",
+      "CONFLUENCE_URL",
+      "CONFLUENCE_USERNAME",
+      "CONFLUENCE_API_TOKEN"
+    ],
+    "homepageUrl": "https://github.com/sooperset/mcp-atlassian"
   },
   "keywords": ["jira", "confluence", "atlassian", "tickets", "wiki", "sprints", "backlog"]
 }

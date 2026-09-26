@@ -274,6 +274,60 @@ describe("useMcpStore capability revocation", () => {
     });
   });
 
+  it("saves the Fireflies bearer key before starting its native HTTP connection", async () => {
+    const fireflies = PLUGINS_CATALOG.find((plugin) => plugin.id === "fireflies")!;
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "mcp_start_server" ? "[]" : undefined),
+    );
+
+    await expect(
+      useMcpStore
+        .getState()
+        .addMcpConfigWithSecrets(
+          fireflies.preset,
+          { FIREFLIES_API_KEY: "test-key" },
+          { catalogPluginId: fireflies.id },
+        ),
+    ).resolves.toBe(true);
+
+    const created = useMcpStore.getState().mcpConfigs.find((candidate) => candidate.catalogPluginId === "fireflies")!;
+    expect(created).toMatchObject({
+      transport: "streamable-http",
+      baseUrl: "https://api.fireflies.ai/mcp",
+      trustLevel: "trusted",
+    });
+    expect(mocks.saveMcpApiKeys).toHaveBeenCalledWith(expect.objectContaining({ [created.id]: "test-key" }));
+    const start = mocks.invoke.mock.calls.find(([command]) => command === "mcp_start_server")!;
+    expect(JSON.parse(start[1].config)).not.toHaveProperty("apiKey", "test-key");
+  });
+
+  it("maps the Atlassian form credentials to the local Jira and Confluence server", async () => {
+    const atlassian = PLUGINS_CATALOG.find((plugin) => plugin.id === "jira-confluence")!;
+    mocks.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === "mcp_start_server" ? "[]" : undefined),
+    );
+
+    await useMcpStore.getState().addMcpConfigWithSecrets(
+      atlassian.preset,
+      {
+        ATLASSIAN_DOMAIN: "example.atlassian.net",
+        ATLASSIAN_EMAIL: "user@example.com",
+        ATLASSIAN_API_TOKEN: "test-token",
+      },
+      { catalogPluginId: atlassian.id },
+    );
+
+    const created = useMcpStore.getState().mcpConfigs.find((candidate) => candidate.catalogPluginId === atlassian.id)!;
+    expect(useMcpStore.getState().envSecrets[created.id]).toMatchObject({
+      JIRA_URL: "https://example.atlassian.net",
+      CONFLUENCE_URL: "https://example.atlassian.net/wiki",
+      JIRA_USERNAME: "user@example.com",
+      CONFLUENCE_USERNAME: "user@example.com",
+      JIRA_API_TOKEN: "test-token",
+      CONFLUENCE_API_TOKEN: "test-token",
+    });
+  });
+
   it("returns a verified plugin to untrusted MCP protections when its package is edited", async () => {
     const verifiedConfig: McpServerConfig = {
       id: "verified-memory",

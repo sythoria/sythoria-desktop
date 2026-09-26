@@ -2,16 +2,17 @@
   "id": "ms-teams",
   "name": "Microsoft Teams",
   "category": "communication",
-  "description": "Read team channel chats, view activity feeds, and send bot messages.",
+  "description": "Read Teams chats and channels through Microsoft Graph.",
   "icon": "./icon.svg",
   "authType": "api_key",
   "authFields": [
     {
-      "key": "TEAMS_BOT_TOKEN",
-      "label": "Microsoft Teams Bot Token",
+      "key": "MS365_ACCESS_TOKEN",
+      "label": "Microsoft Graph Access Token",
       "placeholder": "Token...",
       "type": "password",
-      "required": true
+      "required": true,
+      "helpText": "Requires delegated Teams Graph permissions. Access tokens expire and must be refreshed."
     }
   ],
   "preset": {
@@ -19,8 +20,14 @@
     "name": "Microsoft Teams",
     "description": "Connect to Microsoft Teams channels and conversations.",
     "command": "npx",
-    "args": ["-y", "mcp-server-teams"],
-    "envKeys": ["TEAMS_BOT_TOKEN"]
+    "args": ["-y", "microsoft365-mcp-server"],
+    "envKeys": ["MS365_ACCESS_TOKEN"],
+    "homepageUrl": "https://github.com/sapientsai/microsoft365-mcp-server",
+    "fixedEnv": {
+      "MS365_AUTH_MODE": "client-token",
+      "MS365_PRESETS": "collaboration",
+      "MS365_ORG_MODE": "true"
+    }
   },
   "keywords": ["teams", "microsoft", "chat", "enterprise", "channels", "calls"]
 }

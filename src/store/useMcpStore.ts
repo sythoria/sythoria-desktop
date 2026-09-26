@@ -205,9 +205,28 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   addMcpConfigWithSecrets: async (preset, secrets, options) => {
-    const { mcpConfigs, envSecrets, connectServer } = get();
-    const existing = mcpConfigs.find((c) => c.name === preset.name);
+    const { mcpConfigs, envSecrets, mcpApiKeys, connectServer } = get();
+    const existing = mcpConfigs.find(
+      (c) =>
+        c.catalogPluginId === preset.id ||
+        c.name === preset.name ||
+        (preset.id === "twilio" && c.name === "Twilio SMS & WhatsApp"),
+    );
     const targetId = existing?.id || generateId();
+    const resolvedSecrets = { ...secrets, ...preset.fixedEnv };
+    if (preset.id === "jira-confluence") {
+      const domain = secrets.ATLASSIAN_DOMAIN?.trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "");
+      if (domain) {
+        resolvedSecrets.JIRA_URL = `https://${domain}`;
+        resolvedSecrets.CONFLUENCE_URL = `https://${domain}/wiki`;
+      }
+      resolvedSecrets.JIRA_USERNAME = secrets.ATLASSIAN_EMAIL || "";
+      resolvedSecrets.CONFLUENCE_USERNAME = secrets.ATLASSIAN_EMAIL || "";
+      resolvedSecrets.JIRA_API_TOKEN = secrets.ATLASSIAN_API_TOKEN || "";
+      resolvedSecrets.CONFLUENCE_API_TOKEN = secrets.ATLASSIAN_API_TOKEN || "";
+    }
 
     // Interpolate any `<KEY>` placeholders in args with values from secrets
     const interpolatedArgs = (preset.args || []).map((arg) => {
@@ -225,9 +244,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const candidateConfig: McpServerConfig = {
       id: targetId,
       name: preset.name,
-      transport: "stdio",
-      command: preset.command,
-      args: interpolatedArgs,
+      transport: preset.transport ?? "stdio",
+      ...(preset.transport === "streamable-http"
+        ? { baseUrl: preset.baseUrl }
+        : { command: preset.command, args: interpolatedArgs }),
       enabled: true,
       trustLevel: "untrusted",
       ...(options?.catalogPluginId ? { catalogPluginId: options.catalogPluginId } : {}),
@@ -246,13 +266,17 @@ export const useMcpStore = create<McpState>((set, get) => ({
       ? mcpConfigs.map((c) => (c.id === targetId ? newConfig : c))
       : [...mcpConfigs, newConfig];
 
-    const updatedEnvSecrets = { ...envSecrets, [targetId]: secrets };
+    const updatedEnvSecrets = { ...envSecrets, [targetId]: resolvedSecrets };
+    const updatedApiKeys = preset.apiKeySecretKey
+      ? { ...mcpApiKeys, [targetId]: secrets[preset.apiKeySecretKey] || "" }
+      : mcpApiKeys;
     const nextEnabled = new Set(get().enabledServerIds);
     nextEnabled.add(targetId);
 
     set({
       mcpConfigs: updatedConfigs,
       envSecrets: updatedEnvSecrets,
+      mcpApiKeys: updatedApiKeys,
       enabledServerIds: nextEnabled,
       serverStatuses: { ...get().serverStatuses, [targetId]: "connecting" },
     });
@@ -262,6 +286,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
     await Promise.all([
       saveMcpConfigs(updatedConfigs),
       saveMcpEnvSecrets(updatedEnvSecrets),
+      ...(preset.apiKeySecretKey ? [saveMcpApiKeys(updatedApiKeys)] : []),
       saveEnabledMcpServers(Array.from(nextEnabled)),
     ]);
 

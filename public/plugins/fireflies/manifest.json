@@ -1,6 +1,6 @@
 {
   "id": "fireflies",
-  "name": "Fireflies & Granola Meetings",
+  "name": "Fireflies Meetings",
   "category": "media",
   "description": "Search meeting transcripts, AI summaries, and action item logs.",
   "icon": "./icon.svg",
@@ -19,9 +19,12 @@
     "id": "fireflies",
     "name": "Fireflies Meeting Transcripts",
     "description": "Search meeting recordings and action items from Fireflies.ai.",
-    "command": "npx",
-    "args": ["-y", "fireflies-mcp"],
-    "envKeys": ["FIREFLIES_API_KEY"]
+    "command": "",
+    "args": [],
+    "homepageUrl": "https://guide.fireflies.ai/articles/8272956938-learn-about-the-fireflies-mcp-server-model-context-protocol",
+    "transport": "streamable-http",
+    "baseUrl": "https://api.fireflies.ai/mcp",
+    "apiKeySecretKey": "FIREFLIES_API_KEY"
   },
-  "keywords": ["fireflies", "granola", "meetings", "transcripts", "zoom", "meet", "audio"]
+  "keywords": ["fireflies", "meetings", "transcripts", "zoom", "meet", "audio"]
 }

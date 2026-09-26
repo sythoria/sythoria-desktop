@@ -20,8 +20,9 @@
     "name": "Apify Scrapers",
     "description": "Execute web actors and scrapers via the Apify platform.",
     "command": "npx",
-    "args": ["-y", "apify-mcp-server"],
-    "envKeys": ["APIFY_TOKEN"]
+    "args": ["-y", "@apify/actors-mcp-server"],
+    "envKeys": ["APIFY_TOKEN"],
+    "homepageUrl": "https://github.com/apify/apify-mcp-server"
   },
   "keywords": ["apify", "scraper", "crawling", "ecommerce", "actors", "data extraction"]
 }

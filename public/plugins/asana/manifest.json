@@ -20,8 +20,9 @@
     "name": "Asana",
     "description": "Manage project tasks and milestones on Asana.",
     "command": "npx",
-    "args": ["-y", "mcp-server-asana"],
-    "envKeys": ["ASANA_ACCESS_TOKEN"]
+    "args": ["-y", "@roychri/mcp-server-asana"],
+    "envKeys": ["ASANA_ACCESS_TOKEN"],
+    "homepageUrl": "https://github.com/roychri/mcp-server-asana"
   },
   "keywords": ["asana", "tasks", "projects", "milestones", "team", "tracking"]
 }

@@ -24,7 +24,7 @@
     "description": "AI-native web search engine delivering synthesized context and citations.",
     "homepageUrl": "https://github.com/tavily-ai/tavily-mcp",
     "command": "npx",
-    "args": ["-y", "@tavily/mcp-server"],
+    "args": ["-y", "tavily-mcp"],
     "envKeys": ["TAVILY_API_KEY"]
   },
   "keywords": ["tavily", "search", "web", "research", "realtime", "citations", "google"]

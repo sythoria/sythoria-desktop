@@ -37,6 +37,13 @@ export interface McpServerPreset {
   command: string;
   /** Full ordered argument list. May contain `<TOKEN>` placeholders. */
   args: string[];
+  /** Remote catalog servers use the native Streamable HTTP client. */
+  transport?: "streamable-http";
+  baseUrl?: string;
+  /** Which submitted secret should be stored as the remote bearer token. */
+  apiKeySecretKey?: string;
+  /** Non-user configuration passed to a local server at launch. */
+  fixedEnv?: Record<string, string>;
   /** Environment variable keys this server expects (values left blank). */
   envKeys?: string[];
 }

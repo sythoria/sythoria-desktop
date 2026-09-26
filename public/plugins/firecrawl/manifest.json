@@ -22,9 +22,9 @@
     "id": "firecrawl",
     "name": "Firecrawl Web Scraper",
     "description": "Extract clean markdown and structure from any webpage or domain.",
-    "homepageUrl": "https://github.com/mendableai/firecrawl-mcp-server",
+    "homepageUrl": "https://github.com/firecrawl/firecrawl-mcp-server",
     "command": "npx",
-    "args": ["-y", "@mendable/firecrawl-mcp-server"],
+    "args": ["-y", "firecrawl-mcp"],
     "envKeys": ["FIRECRAWL_API_KEY"]
   },
   "keywords": ["firecrawl", "scraper", "markdown", "crawl", "extract", "web", "html", "reader"]

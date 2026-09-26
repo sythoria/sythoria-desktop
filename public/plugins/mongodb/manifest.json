@@ -7,7 +7,7 @@
   "authType": "connection_string",
   "authFields": [
     {
-      "key": "MONGODB_URI",
+      "key": "MDB_MCP_CONNECTION_STRING",
       "label": "MongoDB Connection URI",
       "placeholder": "mongodb://localhost:27017/my_database",
       "type": "password",
@@ -19,8 +19,8 @@
     "name": "MongoDB",
     "description": "Search and query collections in MongoDB databases.",
     "command": "npx",
-    "args": ["-y", "mcp-server-mongodb"],
-    "envKeys": ["MONGODB_URI"]
+    "args": ["-y", "mongodb-mcp-server", "--readOnly"],
+    "envKeys": ["MDB_MCP_CONNECTION_STRING"]
   },
   "keywords": ["mongodb", "nosql", "documents", "json", "mongo", "database"]
 }

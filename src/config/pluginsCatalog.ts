@@ -32,11 +32,22 @@ export interface PluginItem {
 export function getPluginMcpSource(
   plugin: PluginItem,
   installedConfig?: McpServerConfig,
-): { packageSpec: string; url: string } | null {
+): { packageSpec: string; url: string; kind?: "remote" } | null {
+  if (
+    installedConfig?.transport === "streamable-http" ||
+    (!installedConfig && plugin.preset.transport === "streamable-http")
+  ) {
+    const endpoint = installedConfig?.baseUrl ?? plugin.preset.baseUrl;
+    return endpoint ? { packageSpec: endpoint, url: plugin.preset.homepageUrl ?? endpoint, kind: "remote" } : null;
+  }
   if (installedConfig && installedConfig.transport !== "stdio") return null;
   const command = installedConfig ? installedConfig.command : plugin.preset.command;
   const args = installedConfig ? installedConfig.args : plugin.preset.args;
   if (command !== "npx" && command !== "uvx") return null;
+
+  if (args?.[1]?.startsWith("mcp-remote") && args[2]?.startsWith("https://")) {
+    return { packageSpec: args[2], url: plugin.preset.homepageUrl ?? args[2], kind: "remote" };
+  }
 
   const packageSpec = args?.find((arg) => !arg.startsWith("-") && !arg.startsWith("<"));
   if (!packageSpec) return null;
@@ -131,9 +142,9 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authType: "api_key",
     authFields: [
       {
-        key: "NOTION_API_KEY",
+        key: "NOTION_TOKEN",
         label: "Notion Integration Secret Token",
-        placeholder: "secret_...",
+        placeholder: "ntn_...",
         type: "password",
         required: true,
         helpText: "Create an Internal Integration in Notion and share your target pages with it.",
@@ -144,10 +155,10 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "notion",
       name: "Notion",
       description: "Search, query, and edit Notion workspace pages and databases.",
-      homepageUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/notion",
+      homepageUrl: "https://github.com/makenotion/notion-mcp-server",
       command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-notion"],
-      envKeys: ["NOTION_API_KEY"],
+      args: ["-y", "@notionhq/notion-mcp-server"],
+      envKeys: ["NOTION_TOKEN"],
     },
     keywords: ["notion", "docs", "notes", "wiki", "specs", "database", "knowledge"],
   },
@@ -340,7 +351,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       description: "AI-native web search engine delivering synthesized context and citations.",
       homepageUrl: "https://github.com/tavily-ai/tavily-mcp",
       command: "npx",
-      args: ["-y", "@tavily/mcp-server"],
+      args: ["-y", "tavily-mcp"],
       envKeys: ["TAVILY_API_KEY"],
     },
     keywords: ["tavily", "search", "web", "research", "realtime", "citations", "google"],
@@ -371,9 +382,9 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "firecrawl",
       name: "Firecrawl Web Scraper",
       description: "Extract clean markdown and structure from any webpage or domain.",
-      homepageUrl: "https://github.com/mendableai/firecrawl-mcp-server",
+      homepageUrl: "https://github.com/firecrawl/firecrawl-mcp-server",
       command: "npx",
-      args: ["-y", "@mendable/firecrawl-mcp-server"],
+      args: ["-y", "firecrawl-mcp"],
       envKeys: ["FIRECRAWL_API_KEY"],
     },
     keywords: ["firecrawl", "scraper", "markdown", "crawl", "extract", "web", "html", "reader"],
@@ -456,12 +467,12 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authType: "api_key",
     authFields: [
       {
-        key: "SENTRY_AUTH_TOKEN",
+        key: "SENTRY_ACCESS_TOKEN",
         label: "Sentry User Auth Token",
         placeholder: "sntrys_...",
         type: "password",
         required: true,
-        helpText: "Requires project:read and issue:read scopes.",
+        helpText: "Read access requires org:read, project:read, team:read, and event:read scopes.",
         docUrl: "https://sentry.io/settings/account/api/auth-tokens/",
       },
     ],
@@ -469,10 +480,10 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "sentry",
       name: "Sentry",
       description: "Analyze error logs, trace exceptions, and debug crashes with Sentry.",
-      homepageUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sentry",
+      homepageUrl: "https://github.com/getsentry/sentry-mcp",
       command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-sentry"],
-      envKeys: ["SENTRY_AUTH_TOKEN"],
+      args: ["-y", "@sentry/mcp-server"],
+      envKeys: ["SENTRY_ACCESS_TOKEN"],
     },
     keywords: ["sentry", "errors", "exceptions", "stacktrace", "bugs", "monitoring", "crash"],
   },
@@ -545,7 +556,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authType: "connection_string",
     authFields: [
       {
-        key: "MONGODB_URI",
+        key: "MDB_MCP_CONNECTION_STRING",
         label: "MongoDB Connection URI",
         placeholder: "mongodb://localhost:27017/my_database",
         type: "password",
@@ -557,8 +568,8 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "MongoDB",
       description: "Search and query collections in MongoDB databases.",
       command: "npx",
-      args: ["-y", "mcp-server-mongodb"],
-      envKeys: ["MONGODB_URI"],
+      args: ["-y", "mongodb-mcp-server", "--readOnly"],
+      envKeys: ["MDB_MCP_CONNECTION_STRING"],
     },
     keywords: ["mongodb", "nosql", "documents", "json", "mongo", "database"],
   },
@@ -688,7 +699,6 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     name: "Jira & Confluence (Atlassian)",
     icon: "/plugins/jira-confluence/icon.svg",
     category: "productivity",
-    badge: "Official",
     description: "Search enterprise wikis, update Jira tickets, and log bug status.",
     iconName: "Trello",
     authType: "api_key",
@@ -720,9 +730,17 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "jira-confluence",
       name: "Atlassian Jira & Confluence",
       description: "Manage Jira issues and search Confluence documentation.",
-      command: "npx",
-      args: ["-y", "mcp-server-atlassian"],
-      envKeys: ["ATLASSIAN_API_TOKEN", "ATLASSIAN_EMAIL", "ATLASSIAN_DOMAIN"],
+      homepageUrl: "https://github.com/sooperset/mcp-atlassian",
+      command: "uvx",
+      args: ["mcp-atlassian"],
+      envKeys: [
+        "JIRA_URL",
+        "JIRA_USERNAME",
+        "JIRA_API_TOKEN",
+        "CONFLUENCE_URL",
+        "CONFLUENCE_USERNAME",
+        "CONFLUENCE_API_TOKEN",
+      ],
     },
     keywords: ["jira", "confluence", "atlassian", "tickets", "wiki", "sprints", "backlog"],
   },
@@ -763,7 +781,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authType: "api_key",
     authFields: [
       {
-        key: "TODOIST_API_TOKEN",
+        key: "TODOIST_API_KEY",
         label: "Todoist API Token",
         placeholder: "Token...",
         type: "password",
@@ -775,9 +793,10 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "todoist",
       name: "Todoist",
       description: "Task and project management with Todoist.",
+      homepageUrl: "https://github.com/Doist/todoist-mcp",
       command: "npx",
-      args: ["-y", "mcp-server-todoist"],
-      envKeys: ["TODOIST_API_TOKEN"],
+      args: ["-y", "@doist/todoist-mcp"],
+      envKeys: ["TODOIST_API_KEY"],
     },
     keywords: ["todoist", "tasks", "todo", "deadlines", "reminders", "projects"],
   },
@@ -838,8 +857,9 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "asana",
       name: "Asana",
       description: "Manage project tasks and milestones on Asana.",
+      homepageUrl: "https://github.com/roychri/mcp-server-asana",
       command: "npx",
-      args: ["-y", "mcp-server-asana"],
+      args: ["-y", "@roychri/mcp-server-asana"],
       envKeys: ["ASANA_ACCESS_TOKEN"],
     },
     keywords: ["asana", "tasks", "projects", "milestones", "team", "tracking"],
@@ -1030,11 +1050,12 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authType: "api_key",
     authFields: [
       {
-        key: "MS_GRAPH_TOKEN",
+        key: "MS365_ACCESS_TOKEN",
         label: "Microsoft Graph Access Token",
         placeholder: "EwB...",
         type: "password",
         required: true,
+        helpText: "Delegated Graph access tokens expire. Reconnect with a fresh token when access expires.",
         docUrl: "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps",
       },
     ],
@@ -1042,9 +1063,11 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "outlook",
       name: "Microsoft Outlook",
       description: "Read emails and manage calendar appointments on Microsoft 365.",
+      homepageUrl: "https://github.com/sapientsai/microsoft365-mcp-server",
       command: "npx",
-      args: ["-y", "mcp-server-outlook"],
-      envKeys: ["MS_GRAPH_TOKEN"],
+      args: ["-y", "microsoft365-mcp-server"],
+      envKeys: ["MS365_ACCESS_TOKEN"],
+      fixedEnv: { MS365_AUTH_MODE: "client-token", MS365_PRESETS: "productivity" },
     },
     keywords: ["outlook", "microsoft", "office365", "email", "calendar", "exchange"],
   },
@@ -1109,59 +1132,70 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     name: "Microsoft Teams",
     icon: "/plugins/ms-teams/icon.svg",
     category: "communication",
-    description: "Read team channel chats, view activity feeds, and send bot messages.",
+    description: "Read Teams chats and channels through Microsoft Graph.",
     iconName: "Users",
     authType: "api_key",
     authFields: [
       {
-        key: "TEAMS_BOT_TOKEN",
-        label: "Microsoft Teams Bot Token",
+        key: "MS365_ACCESS_TOKEN",
+        label: "Microsoft Graph Access Token",
         placeholder: "Token...",
         type: "password",
         required: true,
+        helpText: "Requires delegated Teams Graph permissions. Access tokens expire and must be refreshed.",
       },
     ],
     preset: {
       id: "ms-teams",
       name: "Microsoft Teams",
       description: "Connect to Microsoft Teams channels and conversations.",
+      homepageUrl: "https://github.com/sapientsai/microsoft365-mcp-server",
       command: "npx",
-      args: ["-y", "mcp-server-teams"],
-      envKeys: ["TEAMS_BOT_TOKEN"],
+      args: ["-y", "microsoft365-mcp-server"],
+      envKeys: ["MS365_ACCESS_TOKEN"],
+      fixedEnv: { MS365_AUTH_MODE: "client-token", MS365_PRESETS: "collaboration", MS365_ORG_MODE: "true" },
     },
     keywords: ["teams", "microsoft", "chat", "enterprise", "channels", "calls"],
   },
   {
     id: "twilio",
-    name: "Twilio SMS & WhatsApp",
+    name: "Twilio SMS",
     icon: "/plugins/twilio/icon.svg",
     category: "communication",
-    description: "Send SMS notifications and WhatsApp messages programmatically.",
+    description: "Send SMS notifications with a Twilio phone number.",
     iconName: "Phone",
     authType: "api_key",
     authFields: [
       {
-        key: "TWILIO_ACCOUNT_SID",
+        key: "ACCOUNT_SID",
         label: "Twilio Account SID",
         placeholder: "AC...",
         type: "password",
         required: true,
       },
       {
-        key: "TWILIO_AUTH_TOKEN",
+        key: "AUTH_TOKEN",
         label: "Twilio Auth Token",
         placeholder: "Token...",
         type: "password",
         required: true,
       },
+      {
+        key: "FROM_NUMBER",
+        label: "Twilio Phone Number",
+        placeholder: "+15551234567",
+        type: "text",
+        required: true,
+      },
     ],
     preset: {
       id: "twilio",
-      name: "Twilio SMS & WhatsApp",
-      description: "Send SMS alerts and messaging via Twilio API.",
+      name: "Twilio SMS",
+      description: "Send SMS alerts via Twilio API.",
+      homepageUrl: "https://github.com/yiyangli/sms-mcp-server",
       command: "npx",
-      args: ["-y", "mcp-server-twilio"],
-      envKeys: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"],
+      args: ["-y", "@yiyang.1i/sms-mcp-server"],
+      envKeys: ["ACCOUNT_SID", "AUTH_TOKEN", "FROM_NUMBER"],
     },
     keywords: ["twilio", "sms", "whatsapp", "text", "phone", "messages", "notifications"],
   },
@@ -1271,8 +1305,9 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "arxiv",
       name: "ArXiv Scientific Papers",
       description: "Search and read academic research papers from ArXiv.",
-      command: "npx",
-      args: ["-y", "mcp-server-arxiv"],
+      homepageUrl: "https://pypi.org/project/arxiv-mcp-server/",
+      command: "uvx",
+      args: ["arxiv-mcp-server"],
     },
     keywords: ["arxiv", "papers", "science", "academic", "research", "ai", "physics", "math"],
   },
@@ -1316,8 +1351,9 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "apify",
       name: "Apify Scrapers",
       description: "Execute web actors and scrapers via the Apify platform.",
+      homepageUrl: "https://github.com/apify/apify-mcp-server",
       command: "npx",
-      args: ["-y", "apify-mcp-server"],
+      args: ["-y", "@apify/actors-mcp-server"],
       envKeys: ["APIFY_TOKEN"],
     },
     keywords: ["apify", "scraper", "crawling", "ecommerce", "actors", "data extraction"],
@@ -1459,30 +1495,21 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     category: "media",
     description: "Browse social media templates, create design assets, and export graphics.",
     iconName: "Image",
-    authType: "api_key",
-    authFields: [
-      {
-        key: "CANVA_API_KEY",
-        label: "Canva API Key",
-        placeholder: "Token...",
-        type: "password",
-        required: true,
-        docUrl: "https://www.canva.com/developers/",
-      },
-    ],
+    authType: "oauth",
+    authFields: [],
     preset: {
       id: "canva",
       name: "Canva",
       description: "Access Canva templates and design assets.",
+      homepageUrl: "https://www.canva.dev/docs/apps/quickstart/",
       command: "npx",
-      args: ["-y", "canva-mcp"],
-      envKeys: ["CANVA_API_KEY"],
+      args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"],
     },
     keywords: ["canva", "design", "templates", "graphics", "social media", "banners"],
   },
   {
     id: "fireflies",
-    name: "Fireflies & Granola Meetings",
+    name: "Fireflies Meetings",
     icon: "/plugins/fireflies/icon.svg",
     category: "media",
     description: "Search meeting transcripts, AI summaries, and action item logs.",
@@ -1502,11 +1529,15 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       id: "fireflies",
       name: "Fireflies Meeting Transcripts",
       description: "Search meeting recordings and action items from Fireflies.ai.",
-      command: "npx",
-      args: ["-y", "fireflies-mcp"],
-      envKeys: ["FIREFLIES_API_KEY"],
+      homepageUrl:
+        "https://guide.fireflies.ai/articles/8272956938-learn-about-the-fireflies-mcp-server-model-context-protocol",
+      command: "",
+      args: [],
+      transport: "streamable-http",
+      baseUrl: "https://api.fireflies.ai/mcp",
+      apiKeySecretKey: "FIREFLIES_API_KEY",
     },
-    keywords: ["fireflies", "granola", "meetings", "transcripts", "zoom", "meet", "audio"],
+    keywords: ["fireflies", "meetings", "transcripts", "zoom", "meet", "audio"],
   },
   {
     id: "zapier",
@@ -1576,6 +1607,13 @@ export function verifiedCatalogPluginForConfig(config: McpServerConfig): PluginI
   return candidates.find((plugin) => {
     const preset = plugin.preset;
     const args = config.args ?? [];
+    if (preset.transport === "streamable-http") {
+      return (
+        config.transport === "streamable-http" &&
+        config.name.toLowerCase() === preset.name.toLowerCase() &&
+        config.baseUrl === preset.baseUrl
+      );
+    }
     return (
       config.transport === "stdio" &&
       config.name.toLowerCase() === preset.name.toLowerCase() &&

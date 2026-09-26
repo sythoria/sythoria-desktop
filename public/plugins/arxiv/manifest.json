@@ -10,8 +10,9 @@
     "id": "arxiv",
     "name": "ArXiv Scientific Papers",
     "description": "Search and read academic research papers from ArXiv.",
-    "command": "npx",
-    "args": ["-y", "mcp-server-arxiv"]
+    "command": "uvx",
+    "args": ["arxiv-mcp-server"],
+    "homepageUrl": "https://pypi.org/project/arxiv-mcp-server/"
   },
   "keywords": ["arxiv", "papers", "science", "academic", "research", "ai", "physics", "math"]
 }

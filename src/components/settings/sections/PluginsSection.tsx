@@ -126,11 +126,17 @@ function PluginMcpSource({
         void openExternalUrl(source.url);
       }}
       onKeyDown={(event) => event.stopPropagation()}
-      aria-label={`View MCP package for ${plugin.name}`}
+      aria-label={`View MCP ${source.kind === "remote" ? "server" : "package"} for ${plugin.name}`}
       title={source.url}
       className="inline-flex max-w-full items-center gap-1 text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
-      {compact ? "MCP package" : <span className="truncate">MCP package: {source.packageSpec}</span>}
+      {compact ? (
+        `MCP ${source.kind === "remote" ? "server" : "package"}`
+      ) : (
+        <span className="truncate">
+          MCP {source.kind === "remote" ? "server" : "package"}: {source.packageSpec}
+        </span>
+      )}
       <ExternalLink size={11} className="shrink-0" />
     </button>
   );
@@ -166,6 +172,7 @@ export function PluginsSection() {
         : PLUGINS_CATALOG.find(
             (plugin) =>
               plugin.id === config.id ||
+              (plugin.id === "twilio" && config.name === "Twilio SMS & WhatsApp") ||
               plugin.name.toLowerCase() === config.name.toLowerCase() ||
               plugin.preset.name.toLowerCase() === config.name.toLowerCase(),
           );
@@ -350,8 +357,17 @@ export function PluginsSection() {
 
       if (installedInfo) {
         const existingSecrets = envSecrets[installedInfo.configId] || {};
+        const legacyKeys: Record<string, string> = {
+          NOTION_TOKEN: "NOTION_API_KEY",
+          SENTRY_ACCESS_TOKEN: "SENTRY_AUTH_TOKEN",
+          MDB_MCP_CONNECTION_STRING: "MONGODB_URI",
+          TODOIST_API_KEY: "TODOIST_API_TOKEN",
+          MS365_ACCESS_TOKEN: "MS_GRAPH_TOKEN",
+          ACCOUNT_SID: "TWILIO_ACCOUNT_SID",
+          AUTH_TOKEN: "TWILIO_AUTH_TOKEN",
+        };
         for (const field of plugin.authFields) {
-          initialForm[field.key] = existingSecrets[field.key] || "";
+          initialForm[field.key] = existingSecrets[field.key] || existingSecrets[legacyKeys[field.key]] || "";
         }
       } else {
         for (const field of plugin.authFields) {
