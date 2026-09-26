@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
+import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import type { McpServerConfig } from "../types";
 import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
 
@@ -448,7 +449,17 @@ export const PromptEditor = memo(function PromptEditor({
       const label = document.createElement("span");
       label.textContent = server.name;
       label.className = "truncate";
-      mention.append(createMcpIconElement(), label);
+      const plugin = verifiedCatalogPluginForConfig(server);
+      if (plugin) {
+        const icon = document.createElement("img");
+        icon.src = plugin.icon;
+        icon.alt = "";
+        icon.className = "inline-block size-[1em] shrink-0 mr-[0.3em] align-[-0.125em]";
+        icon.onerror = () => icon.replaceWith(createMcpIconElement());
+        mention.append(icon, label);
+      } else {
+        mention.append(createMcpIconElement(), label);
+      }
 
       const spacer = document.createTextNode(EDITOR_SPACER);
       const selection = window.getSelection();

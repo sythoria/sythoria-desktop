@@ -27,6 +27,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useWhisperStore } from "../store/useWhisperStore";
 import { WHISPER_PRESETS } from "../config/whisperPresets";
+import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import { ModelConfig, McpServerConfig, McpServerStatus, Attachment, ProjectPermission } from "../types";
 import type { ModelStatuses } from "../types";
 import { MAX_INPUT_LENGTH, MAX_TEXTAREA_HEIGHT, PASTED_TEXT_FILE_THRESHOLD } from "../config/constants";
@@ -1197,6 +1198,7 @@ export default memo(function InputBar({
                             <>
                               <div className="border-t border-border my-1 -mx-1" />
                               {connectedMcpServers.map((server) => {
+                                const plugin = verifiedCatalogPluginForConfig(server);
                                 return (
                                   <button
                                     key={server.id}
@@ -1207,7 +1209,11 @@ export default memo(function InputBar({
                                     className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
                                     role="menuitem"
                                   >
-                                    <Cpu size={15} className="text-text-muted" />
+                                    {plugin ? (
+                                      <img src={plugin.icon} alt="" className="size-[15px] shrink-0" />
+                                    ) : (
+                                      <Cpu size={15} className="text-text-muted shrink-0" />
+                                    )}
                                     <span className="truncate flex-1 text-left">{server.name}</span>
                                     <Plus size={13} className="text-text-muted ml-1 shrink-0" aria-hidden="true" />
                                   </button>
