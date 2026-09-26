@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PLUGINS_CATALOG, PLUGIN_CATEGORIES } from "./pluginsCatalog";
+import { PLUGINS_CATALOG, PLUGIN_CATEGORIES, getPluginMcpSource } from "./pluginsCatalog";
 
 describe("pluginsCatalog", () => {
   it("should contain exactly 50 plugins in the catalog", () => {
@@ -34,5 +34,37 @@ describe("pluginsCatalog", () => {
         }
       }
     }
+  });
+
+  it("links every plugin to the MCP package named in its launch command", () => {
+    for (const plugin of PLUGINS_CATALOG) {
+      const source = getPluginMcpSource(plugin);
+      expect(source, plugin.id).not.toBeNull();
+      expect(plugin.preset.args).toContain(source!.packageSpec);
+      expect(new URL(source!.url).protocol).toBe("https:");
+    }
+
+    const drive = PLUGINS_CATALOG.find((plugin) => plugin.id === "google-drive")!;
+    expect(getPluginMcpSource(drive)).toEqual({
+      packageSpec: "@piotr-agier/google-drive-mcp@2.11.0",
+      url: "https://www.npmjs.com/package/%40piotr-agier/google-drive-mcp",
+    });
+
+    const fetch = PLUGINS_CATALOG.find((plugin) => plugin.id === "fetch")!;
+    expect(getPluginMcpSource(fetch)).toEqual({
+      packageSpec: "mcp-server-fetch",
+      url: "https://pypi.org/project/mcp-server-fetch/",
+    });
+
+    expect(
+      getPluginMcpSource(drive, {
+        id: "custom-drive",
+        name: "Google Drive",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "my-drive-mcp"],
+        enabled: true,
+      }),
+    ).toEqual({ packageSpec: "my-drive-mcp", url: "https://www.npmjs.com/package/my-drive-mcp" });
   });
 });

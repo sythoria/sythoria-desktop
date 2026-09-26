@@ -28,6 +28,28 @@ export interface PluginItem {
   keywords: string[];
 }
 
+/** Link to the exact package named by the MCP launch command. */
+export function getPluginMcpSource(
+  plugin: PluginItem,
+  installedConfig?: McpServerConfig,
+): { packageSpec: string; url: string } | null {
+  if (installedConfig && installedConfig.transport !== "stdio") return null;
+  const command = installedConfig ? installedConfig.command : plugin.preset.command;
+  const args = installedConfig ? installedConfig.args : plugin.preset.args;
+  if (command !== "npx" && command !== "uvx") return null;
+
+  const packageSpec = args?.find((arg) => !arg.startsWith("-") && !arg.startsWith("<"));
+  if (!packageSpec) return null;
+
+  const versionStart = packageSpec.lastIndexOf("@");
+  const packageName = versionStart > 0 ? packageSpec.slice(0, versionStart) : packageSpec;
+  const encodedName = packageName.split("/").map(encodeURIComponent).join("/");
+  const url =
+    command === "npx" ? `https://www.npmjs.com/package/${encodedName}` : `https://pypi.org/project/${encodedName}/`;
+
+  return { packageSpec, url };
+}
+
 export const PLUGIN_CATEGORIES: { id: PluginCategory; labelKey: string; icon: string }[] = [
   { id: "featured", labelKey: "settings.plugins.categoryFeatured", icon: "Sparkles" },
   { id: "developer", labelKey: "settings.plugins.categoryDeveloper", icon: "Code" },

@@ -23,7 +23,13 @@ import {
 import { useTranslation } from "../../../utils/i18n";
 import { useMcpStore } from "../../../store/useMcpStore";
 import { useUIStore } from "../../../store/useUIStore";
-import { PLUGINS_CATALOG, PLUGIN_CATEGORIES, PluginItem, PluginCategory } from "../../../config/pluginsCatalog";
+import {
+  PLUGINS_CATALOG,
+  PLUGIN_CATEGORIES,
+  getPluginMcpSource,
+  PluginItem,
+  PluginCategory,
+} from "../../../config/pluginsCatalog";
 import { motionTransitions } from "../../../lib/motion-tokens";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { BrandIcon } from "../../ui/BrandIcons";
@@ -44,6 +50,7 @@ import {
   DEFAULT_SPOTIFY_SCOPES,
 } from "../../../services/spotifyOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
+import type { McpServerConfig } from "../../../types";
 
 function formatOAuthError(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
@@ -98,6 +105,36 @@ const SythoriaMark: React.FC<{ size?: number; className?: string }> = ({ size = 
     <path d="M55 31L69 58.5L55 86L41 58.5L55 31Z" fill="#8D7DE0" />
   </svg>
 );
+
+function PluginMcpSource({
+  plugin,
+  compact = false,
+  installedConfig,
+}: {
+  plugin: PluginItem;
+  compact?: boolean;
+  installedConfig?: McpServerConfig;
+}) {
+  const source = getPluginMcpSource(plugin, installedConfig);
+  if (!source) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        void openExternalUrl(source.url);
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      aria-label={`View MCP package for ${plugin.name}`}
+      title={source.url}
+      className="inline-flex max-w-full items-center gap-1 text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      {compact ? "MCP package" : <span className="truncate">MCP package: {source.packageSpec}</span>}
+      <ExternalLink size={11} className="shrink-0" />
+    </button>
+  );
+}
 
 export function PluginsSection() {
   const { t } = useTranslation();
@@ -919,6 +956,9 @@ export function PluginsSection() {
                             <span className="text-sm font-semibold text-text-primary truncate">{plugin.name}</span>
                           </div>
                           <p className="text-xs text-text-muted truncate mt-0.5">{plugin.description}</p>
+                          <div className="text-[11px] mt-1">
+                            <PluginMcpSource plugin={plugin} compact />
+                          </div>
                         </div>
                       </div>
 
@@ -975,6 +1015,15 @@ export function PluginsSection() {
                 >
                   <X size={18} />
                 </button>
+              </div>
+
+              <div className="px-6 pb-2 text-xs text-text-muted">
+                <PluginMcpSource
+                  plugin={activeModalPlugin}
+                  installedConfig={mcpConfigs.find(
+                    (config) => config.id === installedPluginMap.get(activeModalPlugin.id)?.configId,
+                  )}
+                />
               </div>
 
               {installedPluginMap.has(activeModalPlugin.id) && !showReauthForm ? (

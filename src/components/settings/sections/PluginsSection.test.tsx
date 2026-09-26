@@ -48,6 +48,19 @@ describe("PluginsSection", () => {
     expect(screen.getByTestId("plugin-card-linear")).toBeInTheDocument();
   });
 
+  it("opens the MCP package link without opening setup and shows it in setup", () => {
+    render(<PluginsSection />);
+
+    const sourceLink = screen.getByRole("button", { name: "View MCP package for GitHub" });
+    fireEvent.click(sourceLink);
+    expect(openExternalUrl).toHaveBeenCalledWith("https://www.npmjs.com/package/%40modelcontextprotocol/server-github");
+    expect(screen.queryByText(/1-Click Connect with GitHub/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("plugin-card-github"));
+    expect(screen.getAllByRole("button", { name: "View MCP package for GitHub" })).toHaveLength(2);
+    expect(screen.getByText("MCP package: @modelcontextprotocol/server-github")).toBeInTheDocument();
+  });
+
   it("filters plugins when typing in the search bar", () => {
     render(<PluginsSection />);
 
