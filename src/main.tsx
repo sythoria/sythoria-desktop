@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { AppMotionConfig } from "./components/AppMotionConfig";
+import { AppMotionConfig } from "./components/layout/AppMotionConfig";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
