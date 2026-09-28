@@ -1,5 +1,5 @@
-import { useSearchStore } from "../../../store/useSearchStore";
-import { endpointFieldError } from "../../../utils/endpointError";
+import { useSearchStore } from "../../../store/providers/useSearchStore";
+import { endpointFieldError } from "../../../utils/network/endpointError";
 import { EndpointError } from "./EndpointError";
 import { memo, useState } from "react";
 import { motion } from "motion/react";
@@ -7,7 +7,7 @@ import { Trash2, AlertCircle } from "lucide-react";
 import { ConnectionStatus, FetchApiConfig, FetchProvider } from "../../../types";
 import { FETCH_PROVIDER_PRESETS } from "../../../config/fetchPresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
-import { validateFetchApiKey } from "../../../utils/validation";
+import { validateFetchApiKey } from "../../../utils/security/validation";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
