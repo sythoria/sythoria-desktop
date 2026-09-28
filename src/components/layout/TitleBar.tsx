@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X } from "lucide-react";
-import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
-import { useUIStore } from "../store/useUIStore";
-import { useAppVersion } from "../hooks/useAppVersion";
-import { executeCommand } from "../services/commandDispatcher";
-import { formatShortcut } from "../utils/shortcutDisplay";
+import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../../store/ui/useKeybindStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useAppVersion } from "../../hooks/useAppVersion";
+import { executeCommand } from "../../services/commandDispatcher";
+import { formatShortcut } from "../../utils/formatting/shortcutDisplay";
 
 type MenuId = "sythoria" | "file" | "view" | "window";
 type MenuType = MenuId | null;

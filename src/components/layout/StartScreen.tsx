@@ -12,18 +12,18 @@ import {
   Sun,
 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
-import { PROVIDER_PRESETS } from "../config/providerPresets";
-import type { ThemeConfig } from "../config/themePresets";
-import { useDialogFocus } from "../hooks/useDialogFocus";
-import { getMotionMode, motionTransitions, springs, motionTokens } from "../lib/motion-tokens";
-import { useModelStore } from "../store/useModelStore";
-import { useUIStore } from "../store/useUIStore";
-import type { ModelConfig } from "../types";
-import { generateId } from "../utils/generateId";
-import { formatModelName } from "../utils/formatModelName";
-import { SUPPORTED_LANGUAGES, type SupportedLanguageCode, useTranslation } from "../utils/i18n";
-import { isApiKeyOptionalForProvider, validateApiKey, validateApiUrl } from "../utils/validation";
-import { Select } from "./ui/Select";
+import { PROVIDER_PRESETS } from "../../config/providerPresets";
+import type { ThemeConfig } from "../../config/themePresets";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
+import { getMotionMode, motionTransitions, springs, motionTokens } from "../../lib/motion-tokens";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import type { ModelConfig } from "../../types";
+import { generateId } from "../../utils/system/generateId";
+import { formatModelName } from "../../utils/formatting/formatModelName";
+import { SUPPORTED_LANGUAGES, type SupportedLanguageCode, useTranslation } from "../../utils/i18n";
+import { isApiKeyOptionalForProvider, validateApiKey, validateApiUrl } from "../../utils/security/validation";
+import { Select } from "../ui/Select";
 
 interface StartScreenProps {
   onStart: () => void;

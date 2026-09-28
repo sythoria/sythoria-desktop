@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from "react";
 import { MotionConfig } from "motion/react";
-import { useUIStore } from "../store/useUIStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 
 export function AppMotionConfig({ children }: PropsWithChildren) {
   const animationsDisabled = useUIStore((state) => state.animationsDisabled);

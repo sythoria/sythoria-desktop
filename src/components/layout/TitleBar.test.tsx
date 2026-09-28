@@ -24,8 +24,8 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
-vi.mock("../store/useKeybindStore", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../store/useKeybindStore")>();
+vi.mock("../../store/ui/useKeybindStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../store/ui/useKeybindStore")>();
   return {
     ...actual,
     useKeybindStore: () => ({
@@ -36,13 +36,13 @@ vi.mock("../store/useKeybindStore", async (importOriginal) => {
   };
 });
 
-vi.mock("../store/useChatStore", () => ({
+vi.mock("../../store/chat/useChatStore", () => ({
   useChatStore: {
     getState: () => ({ newChat: mocks.newChat }),
   },
 }));
 
-vi.mock("../store/useUIStore", () => ({
+vi.mock("../../store/ui/useUIStore", () => ({
   useUIStore: {
     getState: () => ({
       checkForUpdates: mocks.checkForUpdates,

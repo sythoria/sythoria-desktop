@@ -1,9 +1,9 @@
 import React, { useCallback, useId, useState, useRef } from "react";
 import { Search, Command, Settings } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { motionTransitions } from "../lib/motion-tokens";
-import { useUIStore } from "../store/useUIStore";
-import { useDialogFocus } from "../hooks/useDialogFocus";
+import { motionTransitions } from "../../lib/motion-tokens";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { useShallow } from "zustand/react/shallow";
 
 interface SettingItem {

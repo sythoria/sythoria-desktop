@@ -18,19 +18,19 @@ import {
 import { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect, useId, memo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
-import type { Conversation } from "../types";
-import { STATUS_COLORS } from "../types";
-import type { ModelStatuses, ConnectionStatus } from "../types";
-import { ConfirmModal } from "./ui/Modal";
-import { useDebounce } from "../hooks/useDebounce";
-import { COLLAPSED_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "../config/constants";
-import { useUIStore } from "../store/useUIStore";
-import { useKeybindStore } from "../store/useKeybindStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } from "./settings/types";
-import { motionTransitions, springs } from "../lib/motion-tokens";
-import { useTranslation } from "../utils/i18n";
-import { useDialogFocus } from "../hooks/useDialogFocus";
+import type { Conversation } from "../../types";
+import { STATUS_COLORS } from "../../types";
+import type { ModelStatuses, ConnectionStatus } from "../../types";
+import { ConfirmModal } from "../ui/Modal";
+import { useDebounce } from "../../hooks/useDebounce";
+import { COLLAPSED_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH } from "../../config/constants";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useKeybindStore } from "../../store/ui/useKeybindStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { SECTION_GROUPS, SectionId, SEARCHABLE_SETTINGS, SearchableSetting } from "../settings/types";
+import { motionTransitions, springs } from "../../lib/motion-tokens";
+import { useTranslation } from "../../utils/i18n";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { useShallow } from "zustand/react/shallow";
 
 const categoryKeys: Record<string, string> = {

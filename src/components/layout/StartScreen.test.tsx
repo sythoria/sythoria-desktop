@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { MotionConfig } from "motion/react";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
-import { useModelStore } from "../store/useModelStore";
-import { useUIStore } from "../store/useUIStore";
-import type { ModelConfig } from "../types";
+import { DEFAULT_THEME_CONFIG } from "../../config/themePresets";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import type { ModelConfig } from "../../types";
 import StartScreen from "./StartScreen";
 
 const originalSetLanguage = useUIStore.getState().setLanguage;
