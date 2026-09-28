@@ -22,16 +22,10 @@
 </p>
 
 <a href="https://github.com/sythoria/sythoria-desktop">
-  <picture>
-    <source
-      media="(prefers-color-scheme: dark)"
-      srcset="https://www.shieldcn.dev/github/stars/sythoria/sythoria-desktop.svg?variant=outline&size=sm&mode=dark&font=geist&logo=github&label=Star"
-    />
-    <img
-      alt="Star Sythoria on GitHub"
-      src="https://www.shieldcn.dev/github/stars/sythoria/sythoria-desktop.svg?variant=outline&size=sm&mode=light&font=geist&logo=github&label=Star"
-    />
-  </picture>
+  <img
+    src="https://img.shields.io/github/stars/sythoria/sythoria-desktop?style=for-the-badge&logo=github&label=Star"
+    alt="Star Sythoria"
+  />
 </a>
 
 <p><strong>The private desktop interface for local and hosted AI models.</strong></p>
