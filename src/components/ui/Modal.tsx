@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { X, ArrowUpCircle, Download, LoaderCircle } from "lucide-react";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
-import { ToolConfirmation } from "../../store/useUIStore";
+import { ToolConfirmation } from "../../store/ui/useUIStore";
 import { useTranslation } from "../../utils/i18n";
 
 interface ModalProps {
