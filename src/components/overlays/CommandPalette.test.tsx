@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   zoomReset: vi.fn(),
 }));
 
-vi.mock("../store/useUIStore", () => {
+vi.mock("../../store/ui/useUIStore", () => {
   const storeState = {
     showCommandPalette: true,
     setShowCommandPalette: mocks.setShowCommandPalette,
@@ -26,14 +26,14 @@ vi.mock("../store/useUIStore", () => {
   return { useUIStore };
 });
 
-vi.mock("../store/useChatStore", () => ({
+vi.mock("../../store/chat/useChatStore", () => ({
   useChatStore: {
     getState: () => ({ newChat: mocks.newChat }),
   },
 }));
 
-vi.mock("../store/useKeybindStore", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../store/useKeybindStore")>();
+vi.mock("../../store/ui/useKeybindStore", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../store/ui/useKeybindStore")>();
   return {
     ...actual,
     useKeybindStore: () => ({

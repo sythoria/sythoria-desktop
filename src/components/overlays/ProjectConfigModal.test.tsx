@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
-vi.mock("../store/useProjectStore", () => ({
+vi.mock("../../store/workspace/useProjectStore", () => ({
   useProjectStore: (selector: (state: unknown) => unknown) =>
     selector({
       projects: [],
@@ -25,7 +25,7 @@ vi.mock("../store/useProjectStore", () => ({
     }),
 }));
 
-vi.mock("../store/useUIStore", () => ({
+vi.mock("../../store/ui/useUIStore", () => ({
   useUIStore: (selector: (state: unknown) => unknown) =>
     selector({
       addToast: mocks.addToast,
@@ -37,11 +37,11 @@ vi.mock("../store/useUIStore", () => ({
     }),
 }));
 
-vi.mock("../store/useGitStore", () => ({
+vi.mock("../../store/workspace/useGitStore", () => ({
   useGitStore: (selector: (state: unknown) => unknown) => selector({ config: { isAutoCommitEnabled: false } }),
 }));
 
-vi.mock("./ui/Modal", () => ({
+vi.mock("../ui/Modal", () => ({
   Modal: ({ children, isOpen, title }: { children: React.ReactNode; isOpen: boolean; title: string }) =>
     isOpen ? (
       <div role="dialog" aria-label={title}>

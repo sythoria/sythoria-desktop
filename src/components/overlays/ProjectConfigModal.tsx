@@ -2,13 +2,13 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { Folder, FolderPlus, ShieldAlert, Info, Sliders, Terminal, GitBranch } from "lucide-react";
-import { useProjectStore } from "../store/useProjectStore";
-import { useUIStore } from "../store/useUIStore";
-import { useGitStore } from "../store/useGitStore";
-import { Modal } from "./ui/Modal";
-import { Switch } from "./ui/Switch";
-import type { ProjectPermission } from "../types";
-import { useTranslation } from "../utils/i18n";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useGitStore } from "../../store/workspace/useGitStore";
+import { Modal } from "../ui/Modal";
+import { Switch } from "../ui/Switch";
+import type { ProjectPermission } from "../../types";
+import { useTranslation } from "../../utils/i18n";
 import { useShallow } from "zustand/react/shallow";
 
 interface FormProps {

@@ -1,10 +1,10 @@
 import React, { useCallback, useState, useEffect, useId, useRef } from "react";
 import { Search } from "lucide-react";
-import { useUIStore } from "../store/useUIStore";
-import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../store/useKeybindStore";
-import { useDialogFocus } from "../hooks/useDialogFocus";
-import { executeCommand } from "../services/commandDispatcher";
-import { formatShortcut } from "../utils/shortcutDisplay";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { COMMAND_REGISTRY, type CommandId, useKeybindStore } from "../../store/ui/useKeybindStore";
+import { useDialogFocus } from "../../hooks/useDialogFocus";
+import { executeCommand } from "../../services/commandDispatcher";
+import { formatShortcut } from "../../utils/formatting/shortcutDisplay";
 import { useShallow } from "zustand/react/shallow";
 
 interface CommandItem {

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Modal } from "./ui/Modal";
-import { useUIStore } from "../store/useUIStore";
+import { Modal } from "../ui/Modal";
+import { useUIStore } from "../../store/ui/useUIStore";
 import { ExternalLink, AlertTriangle } from "lucide-react";
-import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
+import { normalizeExternalUrl, openExternalUrl } from "../../utils/network/externalUrl";
 
 export function LinkWarningModal() {
   const isOpen = useUIStore((s) => s.showLinkWarningModal);
