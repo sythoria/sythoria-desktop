@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "./useChatStore";
-import { useModelStore } from "./useModelStore";
-import { useProjectStore } from "./useProjectStore";
-import { useSearchStore } from "./useSearchStore";
-import { useSkillStore } from "./useSkillStore";
-import { useMcpStore } from "./useMcpStore";
+import { useModelStore } from "../providers/useModelStore";
+import { useProjectStore } from "../workspace/useProjectStore";
+import { useSearchStore } from "../providers/useSearchStore";
+import { useSkillStore } from "../platform/useSkillStore";
+import { useMcpStore } from "../providers/useMcpStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 

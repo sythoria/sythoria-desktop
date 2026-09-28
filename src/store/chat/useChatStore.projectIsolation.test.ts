@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildConversationRunContext, createToolStepBudget } from "../services/conversationRunContext";
-import type { Conversation, Project } from "../types";
+import { buildConversationRunContext, createToolStepBudget } from "../../services/conversationRunContext";
+import type { Conversation, Project } from "../../types";
 
 const mocks = vi.hoisted(() => ({
   sendWithToolLoop: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../services/toolLoop", () => ({ sendWithToolLoop: mocks.sendWithToolLoop }));
+vi.mock("../../services/toolLoop", () => ({ sendWithToolLoop: mocks.sendWithToolLoop }));
 
 import { useChatStore } from "./useChatStore";
-import { useModelStore } from "./useModelStore";
-import { useProjectStore } from "./useProjectStore";
+import { useModelStore } from "../providers/useModelStore";
+import { useProjectStore } from "../workspace/useProjectStore";
 
 describe("conversation project isolation", () => {
   const projects: Project[] = [

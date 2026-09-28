@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation } from "../types";
+import type { Conversation } from "../../types";
 import { useChatStore } from "./useChatStore";
-import { useGitStore } from "./useGitStore";
-import { useMcpStore } from "./useMcpStore";
-import { useModelStore } from "./useModelStore";
-import { useProjectStore } from "./useProjectStore";
-import { useUIStore } from "./useUIStore";
+import { useGitStore } from "../workspace/useGitStore";
+import { useMcpStore } from "../providers/useMcpStore";
+import { useModelStore } from "../providers/useModelStore";
+import { useProjectStore } from "../workspace/useProjectStore";
+import { useUIStore } from "../ui/useUIStore";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),

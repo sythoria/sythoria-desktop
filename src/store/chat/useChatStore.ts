@@ -1,7 +1,7 @@
 import React from "react";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { isResponsesEndpoint } from "../utils/responses";
+import { isResponsesEndpoint } from "../../utils/network/responses";
 import type {
   Conversation,
   Message,
@@ -12,8 +12,8 @@ import type {
   McpTool,
   McpToolResult,
   Attachment,
-} from "../types";
-import { isGenerationActive } from "../types";
+} from "../../types";
+import { isGenerationActive } from "../../types";
 import {
   loadModelConfigs,
   loadConversations,
@@ -53,36 +53,36 @@ import {
   loadUiLayoutSettings,
   suspendPersistenceForRecovery,
   verifyEncryptedPreferences,
-} from "../utils/storage";
-import { generateId } from "../utils/generateId";
-import { attachWorkspaceChangesToLatestAssistant, removeWorkspaceChangesByUndoToken } from "../utils/workspaceChanges";
-import { logError, logInfo, logWarn } from "../utils/logger";
+} from "../../utils/storage/storage";
+import { generateId } from "../../utils/system/generateId";
+import { attachWorkspaceChangesToLatestAssistant, removeWorkspaceChangesByUndoToken } from "../../utils/workspace/workspaceChanges";
+import { logError, logInfo, logWarn } from "../../utils/system/logger";
 import {
   DEFAULT_AUX_PANEL_WIDTH,
   MAX_AUX_PANEL_WIDTH,
   MIN_AUX_PANEL_WIDTH,
   DEFAULT_MAX_TOOL_STEPS,
   TITLE_MAX_LENGTH,
-} from "../config/constants";
-import { parseApiError } from "../utils/parseApiError";
-import { elapsedSeconds } from "../utils/duration";
+} from "../../config/constants";
+import { parseApiError } from "../../utils/network/parseApiError";
+import { elapsedSeconds } from "../../utils/formatting/duration";
 import {
   cancelConversationGenerationQueue,
   buildConversationContextMessages,
   enqueueConversationGeneration,
   sendWithToolLoop,
   waitForConversationToolLoops,
-} from "../services/toolLoop";
+} from "../../services/toolLoop";
 import {
   buildConversationRunContext,
   continueConversationRunContext,
   withToolStepBudget,
   type ConversationRunContext,
   type ToolStepBudget,
-} from "../services/conversationRunContext";
-import { useSkillStore } from "./useSkillStore";
-import { assembleContext, formatContextDisclosure } from "../services/contextAssembler";
-import { validateFile } from "../utils/attachments";
+} from "../../services/conversationRunContext";
+import { useSkillStore } from "../platform/useSkillStore";
+import { assembleContext, formatContextDisclosure } from "../../services/contextAssembler";
+import { validateFile } from "../../utils/attachments/attachments";
 import {
   uiToast,
   uiLoading,
@@ -106,16 +106,16 @@ import {
   searchStartConnectionChecks,
   searchStopConnectionChecks,
   mcpSetState,
-} from "./helpers";
-import { useModelStore } from "./useModelStore";
-import { useSearchStore } from "./useSearchStore";
-import { useMcpStore } from "./useMcpStore";
-import { useUIStore } from "./useUIStore";
-import { useProjectStore } from "./useProjectStore";
-import { useGitStore } from "./useGitStore";
-import { DEFAULT_THEME_CONFIG } from "../config/themePresets";
+} from "../shared/helpers";
+import { useModelStore } from "../providers/useModelStore";
+import { useSearchStore } from "../providers/useSearchStore";
+import { useMcpStore } from "../providers/useMcpStore";
+import { useUIStore } from "../ui/useUIStore";
+import { useProjectStore } from "../workspace/useProjectStore";
+import { useGitStore } from "../workspace/useGitStore";
+import { DEFAULT_THEME_CONFIG } from "../../config/themePresets";
 import { collectConversationTreeIds, reduceConversationDeletion } from "./conversationLifecycle";
-import { parseGitDiff } from "../utils/gitDiff";
+import { parseGitDiff } from "../../utils/workspace/gitDiff";
 
 const processingTokens = new Set<string>();
 const DELETION_SHUTDOWN_TIMEOUT_MS = 2_000;

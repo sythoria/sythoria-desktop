@@ -1,5 +1,5 @@
-import type { Conversation, GenerationState } from "../types";
-import { isGenerationActive } from "../types";
+import type { Conversation, GenerationState } from "../../types";
+import { isGenerationActive } from "../../types";
 
 type GenerationByConversation = Record<string, { state: GenerationState; label: string }>;
 

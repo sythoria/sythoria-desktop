@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Conversation } from "../types";
+import type { Conversation } from "../../types";
 import {
   collectConversationTreeIds,
   reduceConversationDeletion,
