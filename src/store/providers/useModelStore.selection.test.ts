@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelConfig } from "../types";
+import type { ModelConfig } from "../../types";
 
 const storageMocks = vi.hoisted(() => ({
   saveSelectedModel: vi.fn(),
@@ -7,7 +7,7 @@ const storageMocks = vi.hoisted(() => ({
   saveUnlimitedToolSteps: vi.fn(),
 }));
 
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   saveModelConfigs: vi.fn(),
   saveApiKeys: vi.fn(),
   saveTitleConfig: vi.fn(),

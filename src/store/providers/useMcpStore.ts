@@ -1,17 +1,17 @@
-import { friendlyEndpointError } from "../utils/endpointError";
+import { friendlyEndpointError } from "../../utils/network/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../types";
-import { generateId } from "../utils/generateId";
-import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers, saveMcpApiKeys } from "../utils/storage";
-import { logError, logWarn, logInfo } from "../utils/logger";
-import { summarizeToolArguments } from "../utils/redaction";
-import { parseApiError } from "../utils/parseApiError";
-import { validateMcpServerConfig } from "../utils/validation";
-import type { McpServerPreset } from "../config/mcpPresets";
-import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
-import { useUIStore } from "./useUIStore";
-import { debounce } from "../utils/debounce";
+import type { McpServerConfig, McpTool, McpToolResult, McpServerStatus, ExecutableCheck } from "../../types";
+import { generateId } from "../../utils/system/generateId";
+import { saveMcpConfigs, saveMcpEnvSecrets, saveEnabledMcpServers, saveMcpApiKeys } from "../../utils/storage/storage";
+import { logError, logWarn, logInfo } from "../../utils/system/logger";
+import { summarizeToolArguments } from "../../utils/security/redaction";
+import { parseApiError } from "../../utils/network/parseApiError";
+import { validateMcpServerConfig } from "../../utils/security/validation";
+import type { McpServerPreset } from "../../config/mcpPresets";
+import { verifiedCatalogPluginForConfig } from "../../config/pluginsCatalog";
+import { useUIStore } from "../ui/useUIStore";
+import { debounce } from "../../utils/system/debounce";
 
 const debouncedSaveMcpConfigs = debounce((configs: McpServerConfig[]) => {
   saveMcpConfigs(configs);

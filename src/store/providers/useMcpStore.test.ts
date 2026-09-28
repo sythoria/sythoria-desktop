@@ -9,17 +9,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   saveMcpConfigs: mocks.saveMcpConfigs,
   saveMcpEnvSecrets: mocks.saveMcpEnvSecrets,
   saveEnabledMcpServers: mocks.saveEnabledMcpServers,
   saveMcpApiKeys: mocks.saveMcpApiKeys,
 }));
 
-import type { McpServerConfig, McpTool } from "../types";
-import { PLUGINS_CATALOG } from "../config/pluginsCatalog";
+import type { McpServerConfig, McpTool } from "../../types";
+import { PLUGINS_CATALOG } from "../../config/pluginsCatalog";
 import { useMcpStore } from "./useMcpStore";
-import { useUIStore } from "./useUIStore";
+import { useUIStore } from "../ui/useUIStore";
 
 const config: McpServerConfig = {
   id: "server-1",

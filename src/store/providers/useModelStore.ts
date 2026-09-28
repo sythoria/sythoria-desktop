@@ -1,9 +1,9 @@
-import { friendlyEndpointError } from "../utils/endpointError";
+import { friendlyEndpointError } from "../../utils/network/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../types";
-import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
+import type { ModelConfig, ConnectionStatus, ModelStatuses, TitleGenerationConfig } from "../../types";
+import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../../types";
 import {
   saveModelConfigs,
   saveApiKeys,
@@ -13,14 +13,14 @@ import {
   saveMaxToolSteps,
   saveUnlimitedToolSteps,
   saveSelectedModel,
-} from "../utils/storage";
-import { logError, logWarn, logInfo } from "../utils/logger";
-import { parseApiError } from "../utils/parseApiError";
-import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
-import { validateModelConfig } from "../utils/validation";
-import { formatModelName } from "../utils/formatModelName";
-import { useUIStore } from "./useUIStore";
-import { debounce } from "../utils/debounce";
+} from "../../utils/storage/storage";
+import { logError, logWarn, logInfo } from "../../utils/system/logger";
+import { parseApiError } from "../../utils/network/parseApiError";
+import { DEFAULT_TEMPERATURE, DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../../config/constants";
+import { validateModelConfig } from "../../utils/security/validation";
+import { formatModelName } from "../../utils/formatting/formatModelName";
+import { useUIStore } from "../ui/useUIStore";
+import { debounce } from "../../utils/system/debounce";
 
 const debouncedSaveModelConfigs = debounce((configs: ModelConfig[]) => {
   saveModelConfigs(configs);

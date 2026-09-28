@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   saveSearchConfigs: mocks.saveSearchConfigs,
   saveFetchConfigs: mocks.saveFetchConfigs,
   saveSearchApiKeys: mocks.saveSearchApiKeys,
 }));
 
-import type { FetchApiConfig, SearchApiConfig } from "../types";
-import { useUIStore } from "./useUIStore";
+import type { FetchApiConfig, SearchApiConfig } from "../../types";
+import { useUIStore } from "../ui/useUIStore";
 import { useSearchStore } from "./useSearchStore";
 
 const search: SearchApiConfig = {

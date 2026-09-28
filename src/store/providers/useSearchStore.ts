@@ -1,13 +1,13 @@
-import { friendlyEndpointError } from "../utils/endpointError";
+import { friendlyEndpointError } from "../../utils/network/endpointError";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { ConnectionStatus, SearchApiConfig, FetchApiConfig, SearchResult, UrlContent } from "../types";
-import { saveSearchConfigs, saveFetchConfigs, saveSearchApiKeys } from "../utils/storage";
-import { logError, logWarn, logInfo } from "../utils/logger";
-import { parseApiError } from "../utils/parseApiError";
-import { validateSearchConfig, validateFetchConfig } from "../utils/validation";
-import { useUIStore } from "./useUIStore";
-import { debounce } from "../utils/debounce";
+import type { ConnectionStatus, SearchApiConfig, FetchApiConfig, SearchResult, UrlContent } from "../../types";
+import { saveSearchConfigs, saveFetchConfigs, saveSearchApiKeys } from "../../utils/storage/storage";
+import { logError, logWarn, logInfo } from "../../utils/system/logger";
+import { parseApiError } from "../../utils/network/parseApiError";
+import { validateSearchConfig, validateFetchConfig } from "../../utils/security/validation";
+import { useUIStore } from "../ui/useUIStore";
+import { debounce } from "../../utils/system/debounce";
 
 const debouncedSaveSearchConfigs = debounce((configs: SearchApiConfig[]) => {
   saveSearchConfigs(configs);
