@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { isResponsesEndpoint } from "../utils/responses";
+import { isResponsesEndpoint } from "../utils/network/responses";
 import type {
   Conversation,
   Message,
@@ -14,16 +14,16 @@ import type {
   SkillInfo,
 } from "../types";
 import { isGenerationActive } from "../types";
-import { generateId } from "../utils/generateId";
-import { logError, logInfo, logWarn } from "../utils/logger";
-import { parseApiError } from "../utils/parseApiError";
-import { elapsedSeconds } from "../utils/duration";
-import { useUIStore } from "../store/useUIStore";
-import { useModelStore } from "../store/useModelStore";
-import { buildUserApiContent } from "../utils/attachments";
-import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/lineDiff";
-import { parseGitDiff } from "../utils/gitDiff";
-import { attachWorkspaceChangesToLatestAssistant } from "../utils/workspaceChanges";
+import { generateId } from "../utils/system/generateId";
+import { logError, logInfo, logWarn } from "../utils/system/logger";
+import { parseApiError } from "../utils/network/parseApiError";
+import { elapsedSeconds } from "../utils/formatting/duration";
+import { useUIStore } from "../store/ui/useUIStore";
+import { useModelStore } from "../store/providers/useModelStore";
+import { buildUserApiContent } from "../utils/attachments/attachments";
+import { computeFileDiff, languageForFilename, simulateStringReplacement } from "../utils/workspace/lineDiff";
+import { parseGitDiff } from "../utils/workspace/gitDiff";
+import { attachWorkspaceChangesToLatestAssistant } from "../utils/workspace/workspaceChanges";
 import {
   continueConversationRunContext,
   createToolStepBudget,
@@ -2937,7 +2937,7 @@ async function runWithToolLoop(
       logInfo("git", "Captured changes made during the direct project run");
 
       if (!completedConversation?.isSubagent) {
-        const { useGitStore } = await import("../store/useGitStore");
+        const { useGitStore } = await import("../store/workspace/useGitStore");
         await useGitStore.getState().autoCommitIfNeeded({
           projectId: project.id,
           projectRoot: project.path,
