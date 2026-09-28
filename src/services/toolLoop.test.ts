@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { useProjectStore } from "../store/useProjectStore";
+import { useProjectStore } from "../store/workspace/useProjectStore";
 import {
   continueConversationRunContext,
   createToolStepBudget,
@@ -41,7 +41,7 @@ let mockStreamReasoning = "";
 let mockDuringListenerSetup: (() => void) | null = null;
 let mockStreamDone: (() => void) | null = null;
 
-vi.mock("../store/useUIStore", () => ({
+vi.mock("../store/ui/useUIStore", () => ({
   useUIStore: {
     getState: () => ({
       setLoading: vi.fn(),
@@ -52,7 +52,7 @@ vi.mock("../store/useUIStore", () => ({
   },
 }));
 
-vi.mock("../store/useModelStore", () => ({
+vi.mock("../store/providers/useModelStore", () => ({
   useModelStore: {
     getState: () => ({
       systemPrompt: "",
