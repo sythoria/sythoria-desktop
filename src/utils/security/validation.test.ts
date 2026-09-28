@@ -6,7 +6,7 @@ import {
   validateFetchApiKey,
   validateModelConfig,
   ModelConfigSchema,
-} from "../utils/validation";
+} from "./validation";
 
 describe("validateApiUrl", () => {
   it("accepts valid HTTPS URLs", () => {
