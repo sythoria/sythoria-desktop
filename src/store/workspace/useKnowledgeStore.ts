@@ -6,8 +6,8 @@ import type {
   KnowledgeSearchResultChunk,
   EmbeddingProviderConfig,
   RagStats,
-} from "../types";
-import { logError, logInfo } from "../utils/logger";
+} from "../../types";
+import { logError, logInfo } from "../../utils/system/logger";
 
 interface KnowledgeState {
   collections: KnowledgeCollection[];

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import type { Project, ProjectPermission } from "../types";
+import type { Project, ProjectPermission } from "../../types";
 import {
   loadProjects,
   saveProjects,
@@ -10,8 +10,8 @@ import {
   saveProjectsDefaultPermission,
   loadLegacyProjects,
   clearLegacyProjects,
-} from "../utils/storage";
-import { generateId } from "../utils/generateId";
+} from "../../utils/storage/storage";
+import { generateId } from "../../utils/system/generateId";
 
 interface ProjectState {
   projects: Project[];
@@ -112,7 +112,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         console.error("Failed to clear active project on delete:", e);
       });
     }
-    import("./useChatStore")
+    import("../chat/useChatStore")
       .then(({ useChatStore }) => {
         useChatStore.getState().deleteProjectChats(id);
       })

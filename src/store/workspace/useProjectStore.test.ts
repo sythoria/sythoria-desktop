@@ -7,8 +7,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("../utils/generateId", () => ({ generateId: () => "project-1" }));
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/system/generateId", () => ({ generateId: () => "project-1" }));
+vi.mock("../../utils/storage/storage", () => ({
   loadProjects: vi.fn().mockResolvedValue([]),
   saveProjects: mocks.saveProjects,
   loadProjectsEnabled: vi.fn().mockResolvedValue(true),
@@ -18,7 +18,7 @@ vi.mock("../utils/storage", () => ({
   loadLegacyProjects: vi.fn().mockResolvedValue([]),
   clearLegacyProjects: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("./useChatStore", () => ({
+vi.mock("../chat/useChatStore", () => ({
   useChatStore: { getState: () => ({ deleteProjectChats: mocks.deleteProjectChats }) },
 }));
 

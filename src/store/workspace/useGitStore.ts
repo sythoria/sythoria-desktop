@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { loadGitConfig, saveGitConfig, GitConfig } from "../utils/storage";
-import { logInfo, logError } from "../utils/logger";
+import { loadGitConfig, saveGitConfig, GitConfig } from "../../utils/storage/storage";
+import { logInfo, logError } from "../../utils/system/logger";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -236,7 +236,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
 
         let message = "Auto-commit by Sythoria AI";
         if (state.config.isAiCommitMsgEnabled) {
-          const { useModelStore } = await import("./useModelStore");
+          const { useModelStore } = await import("../providers/useModelStore");
           const modelConfig = useModelStore.getState().models.find((model) => model.id === scope.modelId);
           if (modelConfig) {
             const systemPrompt =
@@ -271,7 +271,7 @@ export const useGitStore = create<GitStore>((set, get) => ({
             worktreePath: null,
           });
           logInfo("git", `Auto-committed AI paths for project: ${scope.projectId}`, { details: files.join(", ") });
-          const { useUIStore } = await import("./useUIStore");
+          const { useUIStore } = await import("../ui/useUIStore");
           useUIStore.getState().addToast(`Auto-committed: ${message}`, "success");
         } catch (error) {
           logError("git", `Failed to auto-commit AI paths for project: ${scope.projectId}`, { error });
