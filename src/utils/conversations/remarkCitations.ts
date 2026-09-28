@@ -1,5 +1,5 @@
 import type { Root, RootContent, PhrasingContent } from "mdast";
-import { normalizeExternalUrl } from "./externalUrl";
+import { normalizeExternalUrl } from "../network/externalUrl";
 
 /** Resolve only explicit citation markers against this assistant message's sources. */
 export function remarkCitations(sources?: readonly { title: string; url: string }[]) {

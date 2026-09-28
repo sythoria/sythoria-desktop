@@ -1,4 +1,4 @@
-import type { ModelConfig, ThinkingLevel } from "../types";
+import type { ModelConfig, ThinkingLevel } from "../../types";
 
 export const THINKING_LEVELS: {
   value: ThinkingLevel;

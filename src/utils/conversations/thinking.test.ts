@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelConfig } from "../types";
+import type { ModelConfig } from "../../types";
 import { getThinkingLabel, supportsThinkingControl } from "./thinking";
 
 function model(provider: string, modelId: string): ModelConfig {
