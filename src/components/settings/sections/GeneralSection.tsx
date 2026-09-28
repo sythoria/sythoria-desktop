@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
-import { useUIStore } from "../../../store/useUIStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
 import { useAppVersion } from "../../../hooks/useAppVersion";
