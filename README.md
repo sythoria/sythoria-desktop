@@ -21,6 +21,19 @@
   <a href="#security-and-privacy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/badge/storage-encrypted_locally.svg?variant=outline&amp;size=sm&amp;mode=dark&amp;font=geist&amp;logo=ri:Lock2Line" /><img alt="Encrypted local storage" src="https://www.shieldcn.dev/badge/storage-encrypted_locally.svg?variant=outline&amp;size=sm&amp;mode=light&amp;font=geist&amp;logo=ri:Lock2Line" /></picture></a>
 </p>
 
+<a href="https://github.com/sythoria/sythoria-desktop">
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="https://www.shieldcn.dev/github/stars/sythoria/sythoria-desktop.svg?variant=outline&size=sm&mode=dark&font=geist&logo=github&label=Star"
+    />
+    <img
+      alt="Star Sythoria on GitHub"
+      src="https://www.shieldcn.dev/github/stars/sythoria/sythoria-desktop.svg?variant=outline&size=sm&mode=light&font=geist&logo=github&label=Star"
+    />
+  </picture>
+</a>
+
 <p><strong>The private desktop interface for local and hosted AI models.</strong></p>
 
 <p>
