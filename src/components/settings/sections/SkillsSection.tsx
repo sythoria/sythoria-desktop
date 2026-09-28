@@ -3,7 +3,7 @@ import { Plus, Trash2, Pencil, Save, X, LoaderCircle } from "lucide-react";
 import { Virtuoso } from "react-virtuoso";
 import { ConfirmModal } from "../../ui/Modal";
 import { SettingsEmptyState, SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";
-import { useSkillStore } from "../../../store/useSkillStore";
+import { useSkillStore } from "../../../store/platform/useSkillStore";
 import { SkillInfo } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
 import { motion } from "motion/react";
