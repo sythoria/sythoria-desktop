@@ -27,10 +27,10 @@ import {
   loadSkipExternalLinkWarning,
   saveSkipExternalLinkWarning,
   saveUiLayoutSettings,
-} from "../utils/storage";
+} from "../../utils/storage/storage";
 import React from "react";
-import type { Toast } from "../components/ui/Toast";
-import type { LogEntry, LogSource } from "../types/log";
+import type { Toast } from "../../components/ui/Toast";
+import type { LogEntry, LogSource } from "../../types/log";
 import {
   ThemeConfig,
   DEFAULT_THEME_CONFIG,
@@ -38,15 +38,15 @@ import {
   CustomThemeConfig,
   LIGHT_PRESETS,
   DARK_PRESETS,
-} from "../config/themePresets";
+} from "../../config/themePresets";
 import {
   DEFAULT_AUX_PANEL_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
   MAX_AUX_PANEL_WIDTH,
   MIN_AUX_PANEL_WIDTH,
-} from "../config/constants";
-import { useModelStore } from "./useModelStore";
-import { useProjectStore } from "./useProjectStore";
+} from "../../config/constants";
+import { useModelStore } from "../providers/useModelStore";
+import { useProjectStore } from "../workspace/useProjectStore";
 export type { ThemeConfig, CustomThemeConfig };
 
 export type LoadingKey = "init" | "sendMessage" | "checkConnection" | "saveConfig" | "toolExecution" | "mcpConnect";
@@ -564,7 +564,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
-      void import("./useSearchStore").then(({ useSearchStore }) => {
+      void import("../providers/useSearchStore").then(({ useSearchStore }) => {
         useSearchStore.getState().stopConnectionChecks();
         useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
       });
@@ -572,7 +572,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       useModelStore.getState().startHealthCheck();
       useModelStore.getState().checkModelConnections();
       if (!get().offlineMode) {
-        void import("./useSearchStore").then(({ useSearchStore }) => {
+        void import("../providers/useSearchStore").then(({ useSearchStore }) => {
           if (get().disableBgActivity || get().offlineMode) return;
           useSearchStore.getState().startConnectionChecks();
           void Promise.all([
@@ -610,11 +610,11 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (value) {
       useModelStore.getState().stopHealthCheck();
       useModelStore.setState({ modelStatuses: {} });
-      void import("./useSearchStore").then(({ useSearchStore }) => {
+      void import("../providers/useSearchStore").then(({ useSearchStore }) => {
         useSearchStore.getState().stopConnectionChecks();
         useSearchStore.setState({ searchStatuses: {}, fetchStatuses: {} });
       });
-      import("./useMcpStore")
+      import("../providers/useMcpStore")
         .then(async ({ useMcpStore }) => {
           const mcpState = useMcpStore.getState();
           const connectedIds = Object.entries(mcpState.serverStatuses)
@@ -626,7 +626,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     } else if (!useUIStore.getState().disableBgActivity) {
       useModelStore.getState().startHealthCheck();
       void useModelStore.getState().checkModelConnections();
-      void import("./useSearchStore").then(({ useSearchStore }) => {
+      void import("../providers/useSearchStore").then(({ useSearchStore }) => {
         if (get().disableBgActivity || get().offlineMode) return;
         useSearchStore.getState().startConnectionChecks();
         void Promise.all([
@@ -642,7 +642,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       if (!previous && !get().disableBgActivity) {
         useModelStore.getState().startHealthCheck();
         void useModelStore.getState().checkModelConnections();
-        void import("./useSearchStore").then(({ useSearchStore }) => {
+        void import("../providers/useSearchStore").then(({ useSearchStore }) => {
           if (get().disableBgActivity || get().offlineMode) return;
           useSearchStore.getState().startConnectionChecks();
           void Promise.all([

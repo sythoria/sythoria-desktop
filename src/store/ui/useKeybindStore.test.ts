@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useKeybindStore } from "./useKeybindStore";
 
-vi.mock("../utils/storage", () => {
+vi.mock("../../utils/storage/storage", () => {
   return {
     loadKeybinds: vi.fn(),
     saveKeybinds: vi.fn(),

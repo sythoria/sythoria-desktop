@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { loadKeybinds, saveKeybinds, loadZoomLevel, saveZoomLevel, applyZoom, KeybindsData } from "../utils/storage";
+import { loadKeybinds, saveKeybinds, loadZoomLevel, saveZoomLevel, applyZoom, KeybindsData } from "../../utils/storage/storage";
 
 export interface KeybindAction {
   id: string;

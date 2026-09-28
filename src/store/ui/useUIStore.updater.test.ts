@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({})) }));
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   loadHasStarted: vi.fn(),
   saveHasStarted: vi.fn(),
   saveTheme: vi.fn(),
@@ -33,13 +33,13 @@ vi.mock("../utils/storage", () => ({
   saveSkipExternalLinkWarning: vi.fn(),
   saveUiLayoutSettings: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("./useModelStore", () => ({
+vi.mock("../providers/useModelStore", () => ({
   useModelStore: {
     getState: () => ({ stopHealthCheck: vi.fn(), startHealthCheck: vi.fn(), checkModelConnections: vi.fn() }),
     setState: vi.fn(),
   },
 }));
-vi.mock("./useProjectStore", () => ({ useProjectStore: { getState: () => ({}) } }));
+vi.mock("../workspace/useProjectStore", () => ({ useProjectStore: { getState: () => ({}) } }));
 
 describe("useUIStore updater state machine", () => {
   beforeEach(() => {
