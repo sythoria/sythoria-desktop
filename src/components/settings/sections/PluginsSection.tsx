@@ -21,8 +21,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useTranslation } from "../../../utils/i18n";
-import { useMcpStore } from "../../../store/useMcpStore";
-import { useUIStore } from "../../../store/useUIStore";
+import { useMcpStore } from "../../../store/providers/useMcpStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { PLUGINS_CATALOG, PLUGIN_CATEGORIES, PluginItem, PluginCategory } from "../../../config/pluginsCatalog";
 import { motionTransitions } from "../../../lib/motion-tokens";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
@@ -43,7 +43,7 @@ import {
   DEFAULT_SPOTIFY_CLIENT_ID,
   DEFAULT_SPOTIFY_SCOPES,
 } from "../../../services/spotifyOAuth";
-import { openExternalUrl } from "../../../utils/externalUrl";
+import { openExternalUrl } from "../../../utils/network/externalUrl";
 
 function formatOAuthError(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
