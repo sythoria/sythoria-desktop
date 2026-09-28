@@ -7,8 +7,8 @@ import {
   formatFileSize,
   buildUserApiContent,
 } from "./attachments";
-import { MAX_FILE_SIZE_BYTES, MAX_ATTACHMENTS } from "../config/constants";
-import type { Attachment } from "../types";
+import { MAX_FILE_SIZE_BYTES, MAX_ATTACHMENTS } from "../../config/constants";
+import type { Attachment } from "../../types";
 
 describe("attachments utility helpers", () => {
   describe("isImageFile", () => {

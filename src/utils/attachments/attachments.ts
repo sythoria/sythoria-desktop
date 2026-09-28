@@ -1,6 +1,6 @@
-import type { Attachment, AttachmentKind } from "../types";
-import { MAX_ATTACHMENTS, MAX_FILE_SIZE_BYTES } from "../config/constants";
-import { generateId } from "./generateId";
+import type { Attachment, AttachmentKind } from "../../types";
+import { MAX_ATTACHMENTS, MAX_FILE_SIZE_BYTES } from "../../config/constants";
+import { generateId } from "../system/generateId";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]);
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
