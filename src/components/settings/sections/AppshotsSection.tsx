@@ -12,11 +12,11 @@ import {
 import { Select } from "../../ui/Select";
 import { Spinner } from "../../ui/Spinner";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
-import { useAppshotStore } from "../../../store/useAppshotStore";
-import { useKeybindStore } from "../../../store/useKeybindStore";
-import { useUIStore } from "../../../store/useUIStore";
+import { useAppshotStore } from "../../../store/platform/useAppshotStore";
+import { useKeybindStore } from "../../../store/ui/useKeybindStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
-import { getShortcutDisplayParts } from "../../../utils/shortcutDisplay";
+import { getShortcutDisplayParts } from "../../../utils/formatting/shortcutDisplay";
 import { useShallow } from "zustand/react/shallow";
 
 export function AppshotsSection() {
