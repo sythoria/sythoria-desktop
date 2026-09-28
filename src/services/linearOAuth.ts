@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 
 export const DEFAULT_LINEAR_CLIENT_ID = "4c8cf80a34931c6e5b6338c9df74f1f8";
 export const DEFAULT_LINEAR_SCOPES = "read,write,issues:create";
