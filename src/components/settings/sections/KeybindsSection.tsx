@@ -1,10 +1,10 @@
 import { useEffect } from "react";
-import { useKeybindStore, KeybindAction } from "../../../store/useKeybindStore";
+import { useKeybindStore, KeybindAction } from "../../../store/ui/useKeybindStore";
 import { RotateCcw, Keyboard, Edit3, X } from "lucide-react";
 import { motion } from "motion/react";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";
-import { getShortcutDisplayParts } from "../../../utils/shortcutDisplay";
+import { getShortcutDisplayParts } from "../../../utils/formatting/shortcutDisplay";
 
 export const KeybindsSection = () => {
   const { t } = useTranslation();
