@@ -1,10 +1,10 @@
-import { useUIStore } from "../store/useUIStore";
-import { en } from "./i18n/en";
-import { es } from "./i18n/es";
-import { fr } from "./i18n/fr";
-import { de } from "./i18n/de";
-import { zh } from "./i18n/zh";
-import { ja } from "./i18n/ja";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { en } from "./en";
+import { es } from "./es";
+import { fr } from "./fr";
+import { de } from "./de";
+import { zh } from "./zh";
+import { ja } from "./ja";
 
 export const SUPPORTED_LANGUAGES = [
   { code: "en", name: "English", nativeName: "English" },
