@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateId } from "../utils/generateId";
+import { generateId } from "./generateId";
 
 describe("generateId", () => {
   it("returns a string", () => {

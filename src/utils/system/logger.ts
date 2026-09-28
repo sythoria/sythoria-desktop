@@ -1,5 +1,5 @@
-import type { LogEntry, LogSource, LogLevel } from "../types/log";
-import { useUIStore } from "../store/useUIStore";
+import type { LogEntry, LogSource, LogLevel } from "../../types/log";
+import { useUIStore } from "../../store/ui/useUIStore";
 
 const MAX_LOGS = 500;
 let logBuffer: LogEntry[] = [];
