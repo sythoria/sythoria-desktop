@@ -1,4 +1,4 @@
-import { validateApiUrl } from "./validation";
+import { validateApiUrl } from "../security/validation";
 
 /** Deliberately never displays provider bodies, URLs with secrets, or process output. */
 export function friendlyEndpointError(error: unknown, command = false): string {
