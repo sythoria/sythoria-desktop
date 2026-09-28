@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
-import type { McpServerConfig } from "../types";
-import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
+import type { McpServerConfig } from "../../types";
+import { WEB_SEARCH_MENTION } from "../../utils/conversations/toolMentions";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const EDITOR_SPACER = "\u200b";

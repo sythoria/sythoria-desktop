@@ -12,14 +12,14 @@ import {
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
-import { resolveProjectFileLink } from "../utils/projectFileLinks";
-import { normalizeExternalUrl, openExternalUrl } from "../utils/externalUrl";
-import { useUIStore } from "../store/useUIStore";
-import { useChatStore } from "../store/useChatStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { useTranslation } from "../utils/i18n";
+import { resolveProjectFileLink } from "../../utils/workspace/projectFileLinks";
+import { normalizeExternalUrl, openExternalUrl } from "../../utils/network/externalUrl";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { useTranslation } from "../../utils/i18n";
 import remarkGfm from "remark-gfm";
-import { remarkCitations } from "../utils/remarkCitations";
+import { remarkCitations } from "../../utils/conversations/remarkCitations";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
@@ -56,17 +56,17 @@ import {
   BookOpen,
   PackageOpen,
 } from "lucide-react";
-import { QuestionCard } from "./ui/QuestionCard";
+import { QuestionCard } from "../ui/QuestionCard";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { isGenerationActive, type Message, type Attachment, type WorkspaceChangeSet } from "../types";
-import { highlightCode } from "../utils/highlighter";
-import { motionTokens, motionTransitions, springs } from "../lib/motion-tokens";
-import { formatFileSize } from "../utils/attachments";
-import { parseReasoning } from "../utils/messageParser";
-import { ImagePreviewModal } from "./ui/ImagePreviewModal";
+import { isGenerationActive, type Message, type Attachment, type WorkspaceChangeSet } from "../../types";
+import { highlightCode } from "../../utils/formatting/highlighter";
+import { motionTokens, motionTransitions, springs } from "../../lib/motion-tokens";
+import { formatFileSize } from "../../utils/attachments/attachments";
+import { parseReasoning } from "../../utils/conversations/messageParser";
+import { ImagePreviewModal } from "../ui/ImagePreviewModal";
 import { FileEditDiffCard } from "./FileEditDiffCard";
-import { WEB_SEARCH_MENTION } from "../utils/toolMentions";
-import { elapsedSeconds, formatElapsedDuration } from "../utils/duration";
+import { WEB_SEARCH_MENTION } from "../../utils/conversations/toolMentions";
+import { elapsedSeconds, formatElapsedDuration } from "../../utils/formatting/duration";
 
 const messageVariants = {
   hidden: { opacity: 0, y: motionTokens.distance.sm },

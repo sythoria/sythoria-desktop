@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Copy } from "lucide-react";
 import { motion } from "motion/react";
-import type { DiffHunk, DiffLine } from "../types";
-import { highlightCode } from "../utils/highlighter";
-import { motionTokens, springs } from "../lib/motion-tokens";
-import { formatDiffHunkHeader } from "../utils/lineDiff";
+import type { DiffHunk, DiffLine } from "../../types";
+import { highlightCode } from "../../utils/formatting/highlighter";
+import { motionTokens, springs } from "../../lib/motion-tokens";
+import { formatDiffHunkHeader } from "../../utils/workspace/lineDiff";
 
 const MAX_HIGHLIGHT_LINES = 1500;
 

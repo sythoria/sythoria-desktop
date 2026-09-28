@@ -3,10 +3,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import ChatArea from "./ChatArea";
-import type { Conversation, Message } from "../types";
-import { useChatStore } from "../store/useChatStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { useUIStore } from "../store/useUIStore";
+import type { Conversation, Message } from "../../types";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),

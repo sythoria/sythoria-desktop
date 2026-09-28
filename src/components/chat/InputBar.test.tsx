@@ -2,13 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import InputBar from "./InputBar";
-import type { ModelConfig, ModelStatuses, McpServerStatus } from "../types";
-import { useChatStore } from "../store/useChatStore";
-import { useModelStore } from "../store/useModelStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { executeCommand } from "../services/commandDispatcher";
+import type { ModelConfig, ModelStatuses, McpServerStatus } from "../../types";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { executeCommand } from "../../services/commandDispatcher";
 
-vi.mock("./WorkspaceChangeIndicator", () => ({
+vi.mock("../workspace/WorkspaceChangeIndicator", () => ({
   WorkspaceChangeIndicator: () => <button aria-label="Live workspace changes">1 file changed</button>,
 }));
 

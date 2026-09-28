@@ -2,11 +2,11 @@ import React, { useEffect } from "react";
 import { X } from "lucide-react";
 import ChatArea from "./ChatArea";
 import { ResponseSettingsSelector } from "./ResponseSettingsSelector";
-import { useScrollButton } from "../hooks/useScrollPosition";
-import { useScrollTracking } from "../hooks/useScrollTracking";
-import type { Conversation, ModelConfig } from "../types";
-import { useModelStore } from "../store/useModelStore";
-import { useTranslation } from "../utils/i18n";
+import { useScrollButton } from "../../hooks/useScrollPosition";
+import { useScrollTracking } from "../../hooks/useScrollTracking";
+import type { Conversation, ModelConfig } from "../../types";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useTranslation } from "../../utils/i18n";
 import type { VirtuosoHandle } from "react-virtuoso";
 
 interface ComparisonColumnProps {

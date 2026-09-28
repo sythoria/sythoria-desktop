@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { motion } from "motion/react";
 import { ArrowDown } from "lucide-react";
-import { springs, motionTokens } from "../lib/motion-tokens";
+import { springs, motionTokens } from "../../lib/motion-tokens";
 
 interface ScrollToBottomButtonProps {
   onClick: () => void;

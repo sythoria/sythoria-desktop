@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
-import type { ModelConfig, ModelStatuses } from "../types";
-import { STATUS_COLORS } from "../types";
-import { useModelStore } from "../store/useModelStore";
-import { useUIStore } from "../store/useUIStore";
-import { motionTokens, motionTransitions } from "../lib/motion-tokens";
-import { getThinkingLabel, getThinkingLevel, supportsThinkingControl, THINKING_LEVELS } from "../utils/thinking";
-import { useTranslation } from "../utils/i18n";
+import type { ModelConfig, ModelStatuses } from "../../types";
+import { STATUS_COLORS } from "../../types";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
+import { getThinkingLabel, getThinkingLevel, supportsThinkingControl, THINKING_LEVELS } from "../../utils/conversations/thinking";
+import { useTranslation } from "../../utils/i18n";
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: "Disconnected",
