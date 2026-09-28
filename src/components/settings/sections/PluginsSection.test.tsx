@@ -5,14 +5,14 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../../utils/externalUrl", () => ({
+vi.mock("../../../utils/network/externalUrl", () => ({
   openExternalUrl: vi.fn().mockResolvedValue(true),
 }));
 
 import { PluginsSection } from "./PluginsSection";
-import { useMcpStore } from "../../../store/useMcpStore";
-import { useUIStore } from "../../../store/useUIStore";
-import { openExternalUrl } from "../../../utils/externalUrl";
+import { useMcpStore } from "../../../store/providers/useMcpStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
+import { openExternalUrl } from "../../../utils/network/externalUrl";
 import { invoke } from "@tauri-apps/api/core";
 
 describe("PluginsSection", () => {
