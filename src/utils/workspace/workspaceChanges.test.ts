@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message, WorkspaceChangeSet } from "../types";
+import type { Message, WorkspaceChangeSet } from "../../types";
 import { attachWorkspaceChangesToLatestAssistant, removeWorkspaceChangesByUndoToken } from "./workspaceChanges";
 
 const changes: WorkspaceChangeSet = {

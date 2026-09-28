@@ -1,4 +1,4 @@
-import type { DiffHunk, DiffLine, DiffLineType } from "../types";
+import type { DiffHunk, DiffLine, DiffLineType } from "../../types";
 
 export type { DiffHunk, DiffLine, DiffLineType };
 

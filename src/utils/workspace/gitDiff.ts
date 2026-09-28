@@ -1,4 +1,4 @@
-import type { DiffHunk } from "../types";
+import type { DiffHunk } from "../../types";
 
 export interface DiffFile {
   path: string;

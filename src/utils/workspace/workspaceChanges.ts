@@ -1,4 +1,4 @@
-import type { Message, WorkspaceChangeSet } from "../types";
+import type { Message, WorkspaceChangeSet } from "../../types";
 
 /** Keep a captured change set with the visible assistant response for that run. */
 export function attachWorkspaceChangesToLatestAssistant(
