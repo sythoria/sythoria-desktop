@@ -1,6 +1,6 @@
 import { useState, useEffect, type ChangeEvent } from "react";
 import { Database, Plus, Trash2, FileText, HardDrive } from "lucide-react";
-import { useKnowledgeStore } from "../../../store/useKnowledgeStore";
+import { useKnowledgeStore } from "../../../store/workspace/useKnowledgeStore";
 import { SettingsPanel, SettingsSectionHeader, SettingsHeaderButton } from "../components/SettingsPrimitives";
 import { Select, type SelectOption } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
