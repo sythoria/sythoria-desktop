@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useWhisperStore } from "../../../store/useWhisperStore";
+import { useWhisperStore } from "../../../store/platform/useWhisperStore";
 import { WHISPER_PRESETS } from "../../../config/whisperPresets";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -24,7 +24,7 @@ import {
   SettingsToggle,
   SettingsTogglePanel,
 } from "../components/SettingsPrimitives";
-import { useModelStore } from "../../../store/useModelStore";
+import { useModelStore } from "../../../store/providers/useModelStore";
 import { useShallow } from "zustand/react/shallow";
 
 export function WhisperSection() {
