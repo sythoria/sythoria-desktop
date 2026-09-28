@@ -12,13 +12,13 @@ const mockUIState = {
   animationsDisabled: false,
 };
 
-vi.mock("../../../store/useUIStore", () => {
+vi.mock("../../../store/ui/useUIStore", () => {
   const useUIStoreMock = (selector: (state: typeof mockUIState) => unknown) => selector(mockUIState);
   useUIStoreMock.getState = () => mockUIState;
   return { useUIStore: useUIStoreMock };
 });
 
-vi.mock("../../../store/useChatStore", () => ({
+vi.mock("../../../store/chat/useChatStore", () => ({
   useChatStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       conversations: [
@@ -32,7 +32,7 @@ vi.mock("../../../store/useChatStore", () => ({
     }),
 }));
 
-vi.mock("../../../store/useModelStore", () => ({
+vi.mock("../../../store/providers/useModelStore", () => ({
   useModelStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       systemPrompt: "My custom instructions",
@@ -40,7 +40,7 @@ vi.mock("../../../store/useModelStore", () => ({
     }),
 }));
 
-vi.mock("../../../store/useKnowledgeStore", () => ({
+vi.mock("../../../store/workspace/useKnowledgeStore", () => ({
   useKnowledgeStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       createCollection: vi.fn(),
