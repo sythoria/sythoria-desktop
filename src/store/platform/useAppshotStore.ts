@@ -1,12 +1,12 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { AppshotConfig, DEFAULT_APPSHOT_CONFIG, loadAppshotConfig, saveAppshotConfig } from "../utils/storage";
-import { logInfo, logError } from "../utils/logger";
-import { useChatStore } from "./useChatStore";
-import { useModelStore } from "./useModelStore";
-import { useUIStore } from "./useUIStore";
-import { MAX_ATTACHMENTS, MAX_FILE_SIZE_BYTES } from "../config/constants";
-import { parseApiError } from "../utils/parseApiError";
+import { AppshotConfig, DEFAULT_APPSHOT_CONFIG, loadAppshotConfig, saveAppshotConfig } from "../../utils/storage/storage";
+import { logInfo, logError } from "../../utils/system/logger";
+import { useChatStore } from "../chat/useChatStore";
+import { useModelStore } from "../providers/useModelStore";
+import { useUIStore } from "../ui/useUIStore";
+import { MAX_ATTACHMENTS, MAX_FILE_SIZE_BYTES } from "../../config/constants";
+import { parseApiError } from "../../utils/network/parseApiError";
 
 export interface AppshotFile {
   path: string;

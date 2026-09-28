@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { SkillInfo } from "../types";
-import { logError } from "../utils/logger";
+import { SkillInfo } from "../../types";
+import { logError } from "../../utils/system/logger";
 
 const SKILLS_CACHE_TTL_MS = 60_000;
 

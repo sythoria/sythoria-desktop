@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   loadWhisperConfig: vi.fn().mockResolvedValue({ config: {}, legacyCloudApiKey: null }),
   removeLegacyWhisperConfig: vi.fn(),
   saveWhisperConfig: mocks.saveWhisperConfig,

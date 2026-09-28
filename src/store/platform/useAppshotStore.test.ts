@@ -33,18 +33,18 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
 }));
 
-vi.mock("../utils/storage", () => ({
+vi.mock("../../utils/storage/storage", () => ({
   DEFAULT_APPSHOT_CONFIG: mocks.defaultConfig,
   loadAppshotConfig: mocks.loadAppshotConfig,
   saveAppshotConfig: mocks.saveAppshotConfig,
 }));
 
-vi.mock("../utils/logger", () => ({
+vi.mock("../../utils/system/logger", () => ({
   logInfo: vi.fn(),
   logError: vi.fn(),
 }));
 
-vi.mock("./useChatStore", () => ({
+vi.mock("../chat/useChatStore", () => ({
   useChatStore: {
     getState: () => ({
       ...mocks.chatState,
@@ -53,13 +53,13 @@ vi.mock("./useChatStore", () => ({
   },
 }));
 
-vi.mock("./useModelStore", () => ({
+vi.mock("../providers/useModelStore", () => ({
   useModelStore: {
     getState: () => mocks.modelState,
   },
 }));
 
-vi.mock("./useUIStore", () => ({
+vi.mock("../ui/useUIStore", () => ({
   useUIStore: {
     getState: () => ({ addToast: mocks.addToast, setView: mocks.setView }),
   },

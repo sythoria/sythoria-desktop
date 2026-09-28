@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
 }));
 
-vi.mock("../utils/logger", () => ({
+vi.mock("../../utils/system/logger", () => ({
   logError: mocks.logError,
 }));
 

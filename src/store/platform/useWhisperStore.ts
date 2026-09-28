@@ -1,14 +1,14 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { WHISPER_PRESETS } from "../config/whisperPresets";
-import { logInfo, logError } from "../utils/logger";
+import { WHISPER_PRESETS } from "../../config/whisperPresets";
+import { logInfo, logError } from "../../utils/system/logger";
 import {
   loadWhisperConfig,
   removeLegacyWhisperConfig,
   saveWhisperConfig,
   type StoredWhisperConfig,
-} from "../utils/storage";
+} from "../../utils/storage/storage";
 
 interface WhisperConfig {
   isVoiceEnabled: boolean;
