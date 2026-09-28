@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "../types";
+import type { Message } from "../../types";
 import { estimateConversationTokens, estimateMessageTokens } from "./tokens";
 
 describe("reasoning token estimates", () => {

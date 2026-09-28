@@ -1,4 +1,4 @@
-import type { Message } from "../types";
+import type { Message } from "../../types";
 
 /**
  * Estimates the number of tokens in a single message.
