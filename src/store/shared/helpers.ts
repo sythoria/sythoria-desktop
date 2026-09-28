@@ -1,9 +1,9 @@
 import React from "react";
-import { useUIStore, ThemeConfig } from "./useUIStore";
-import { useModelStore } from "./useModelStore";
-import { useSearchStore } from "./useSearchStore";
-import { useMcpStore } from "./useMcpStore";
-import { applyTheme } from "../config/themePresets";
+import { useUIStore, ThemeConfig } from "../ui/useUIStore";
+import { useModelStore } from "../providers/useModelStore";
+import { useSearchStore } from "../providers/useSearchStore";
+import { useMcpStore } from "../providers/useMcpStore";
+import { applyTheme } from "../../config/themePresets";
 
 export function uiToast(message: React.ReactNode, variant: "info" | "success" | "error" = "info") {
   useUIStore.getState().addToast(message, variant);
