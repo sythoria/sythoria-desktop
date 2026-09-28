@@ -2,9 +2,9 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { useChatStore } from "../store/useChatStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 import { WorkspaceChangeIndicator } from "./WorkspaceChangeIndicator";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

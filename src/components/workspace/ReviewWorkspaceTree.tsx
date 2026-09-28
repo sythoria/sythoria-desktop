@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { ChevronRight, File, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
-import { motionTokens, motionTransitions } from "../lib/motion-tokens";
-import type { DiffFile } from "../utils/gitDiff";
+import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
+import type { DiffFile } from "../../utils/workspace/gitDiff";
 
 interface TreeEntry {
   name: string;

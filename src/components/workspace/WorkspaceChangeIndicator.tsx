@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion } from "motion/react";
 import { ChevronRight, FilePenLine } from "lucide-react";
-import { motionTransitions } from "../lib/motion-tokens";
-import { useChatStore } from "../store/useChatStore";
-import { useUIStore } from "../store/useUIStore";
-import { isGenerationActive, type WorkspaceChangeFile } from "../types";
-import { parseGitDiff } from "../utils/gitDiff";
+import { motionTransitions } from "../../lib/motion-tokens";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { isGenerationActive, type WorkspaceChangeFile } from "../../types";
+import { parseGitDiff } from "../../utils/workspace/gitDiff";
 
 function mergeWorkspaceFiles(diff: string, statusPaths: string[]): WorkspaceChangeFile[] {
   const files = new Map<string, WorkspaceChangeFile>();

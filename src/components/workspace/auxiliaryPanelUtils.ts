@@ -1,4 +1,4 @@
-export { parseGitDiff, type DiffFile } from "../utils/gitDiff";
+export { parseGitDiff, type DiffFile } from "../../utils/workspace/gitDiff";
 
 export function joinProjectPath(parent: string, child: string): string {
   return parent ? `${parent.replace(/\/$/, "")}/${child.replace(/^\//, "")}` : child.replace(/^\//, "");

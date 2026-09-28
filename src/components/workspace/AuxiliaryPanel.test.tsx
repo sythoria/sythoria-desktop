@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useChatStore } from "../store/useChatStore";
-import { useProjectStore } from "../store/useProjectStore";
-import { useUIStore } from "../store/useUIStore";
+import { useChatStore } from "../../store/chat/useChatStore";
+import { useProjectStore } from "../../store/workspace/useProjectStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 import { AuxiliaryPanel, TerminalPane } from "./AuxiliaryPanel";
 
 vi.mock("@tauri-apps/api/core", () => ({

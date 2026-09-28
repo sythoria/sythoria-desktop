@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileCode2, UnfoldVertical } from "lucide-react";
-import type { DiffLine } from "../types";
-import { parseDiffHunks, type DiffFile } from "../utils/gitDiff";
-import { highlightCode } from "../utils/highlighter";
-import { languageForFilename } from "../utils/lineDiff";
+import type { DiffLine } from "../../types";
+import { parseDiffHunks, type DiffFile } from "../../utils/workspace/gitDiff";
+import { highlightCode } from "../../utils/formatting/highlighter";
+import { languageForFilename } from "../../utils/workspace/lineDiff";
 import { fileNameFromPath } from "./auxiliaryPanelUtils";
 
 type ReviewRow = { kind: "gap"; count: number; oldStart: number; newStart: number } | { kind: "line"; line: DiffLine };

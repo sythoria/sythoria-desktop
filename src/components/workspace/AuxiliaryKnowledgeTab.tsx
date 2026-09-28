@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { Database, Plus, Trash2, FileText, Upload, Loader2, Sparkles, BookOpen, X } from "lucide-react";
-import { useKnowledgeStore } from "../store/useKnowledgeStore";
-import { Select, type SelectOption } from "./ui/Select";
-import type { KnowledgeSearchResultChunk } from "../types";
+import { useKnowledgeStore } from "../../store/workspace/useKnowledgeStore";
+import { Select, type SelectOption } from "../ui/Select";
+import type { KnowledgeSearchResultChunk } from "../../types";
 
 export function AuxiliaryKnowledgeTab() {
   const {

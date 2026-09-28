@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { parseGitDiff } from "../utils/gitDiff";
+import { parseGitDiff } from "../../utils/workspace/gitDiff";
 import { ReviewDiffView } from "./ReviewDiffView";
 
 describe("graphical review", () => {
