@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Download, Check, Palette, Trash2 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useUIStore } from "../../../store/useUIStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { MARKETPLACE_THEMES, MarketplaceTheme } from "../../../config/marketplaceThemes";
 import { getContrastColor } from "../../../config/themePresets";
 import { springs, motionTokens, motionTransitions } from "../../../lib/motion-tokens";
