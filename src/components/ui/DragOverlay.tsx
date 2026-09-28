@@ -2,8 +2,8 @@ import React from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { FileUp } from "lucide-react";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
-import { useModelStore } from "../../store/useModelStore";
-import { useUIStore } from "../../store/useUIStore";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 
 export const DragOverlay: React.FC = () => {
   const selectedModelId = useModelStore((s) => s.selectedModel);
