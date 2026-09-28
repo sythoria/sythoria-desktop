@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 
 export const DEFAULT_SPOTIFY_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd";
 export const DEFAULT_SPOTIFY_SCOPES =
