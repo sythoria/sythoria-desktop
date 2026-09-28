@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Project } from "../types";
+import type { Project } from "../../types";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 

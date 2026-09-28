@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { McpServerConfigSchema, migrateMcpConfigs } from "../utils/storage";
-import type { McpServerConfig } from "../types";
+import { McpServerConfigSchema, migrateMcpConfigs } from "./storage";
+import type { McpServerConfig } from "../../types";
 
 function stdio(id: string, command?: string, args?: string[]): McpServerConfig {
   return {

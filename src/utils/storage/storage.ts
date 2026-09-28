@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
-import type { Conversation, TitleGenerationConfig, ModelConfig, Project, ProjectPermission } from "../types";
-import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../types";
-import { logError, logInfo, logWarn } from "./logger";
-import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../config/themePresets";
-import { DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../config/constants";
-import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
+import type { Conversation, TitleGenerationConfig, ModelConfig, Project, ProjectPermission } from "../../types";
+import { DEFAULT_TITLE_SYSTEM_PROMPT } from "../../types";
+import { logError, logInfo, logWarn } from "../system/logger";
+import { ThemeConfig, DEFAULT_THEME_CONFIG } from "../../config/themePresets";
+import { DEFAULT_MAX_TOOL_STEPS, MAX_TOOL_STEPS_LIMIT, MIN_TOOL_STEPS } from "../../config/constants";
+import { verifiedCatalogPluginForConfig } from "../../config/pluginsCatalog";
 
 const ProjectSchema = z.object({
   id: z.string(),
@@ -985,13 +985,13 @@ export async function saveApiKeys(keys: Record<string, string>): Promise<boolean
   }
 }
 
-export async function loadSearchConfigs(): Promise<import("../types").SearchApiConfig[] | null> {
+export async function loadSearchConfigs(): Promise<import("../../types").SearchApiConfig[] | null> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(SEARCH_CONFIGS_KEY);
     if (raw) {
       const result = SearchConfigsArraySchema.safeParse(raw);
-      if (result.success) return result.data as import("../types").SearchApiConfig[];
+      if (result.success) return result.data as import("../../types").SearchApiConfig[];
       logWarn("storage", "Stored search configs failed validation", {
         details: result.error?.message,
         action: "Search provider configs were corrupted. Please re-configure them in Settings > Web Search.",
@@ -1006,7 +1006,7 @@ export async function loadSearchConfigs(): Promise<import("../types").SearchApiC
   return null;
 }
 
-export async function saveSearchConfigs(configs: import("../types").SearchApiConfig[]): Promise<void> {
+export async function saveSearchConfigs(configs: import("../../types").SearchApiConfig[]): Promise<void> {
   try {
     const store = await getStore();
     const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
@@ -1020,13 +1020,13 @@ export async function saveSearchConfigs(configs: import("../types").SearchApiCon
   }
 }
 
-export async function loadFetchConfigs(): Promise<import("../types").FetchApiConfig[] | null> {
+export async function loadFetchConfigs(): Promise<import("../../types").FetchApiConfig[] | null> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(FETCH_CONFIGS_KEY);
     if (raw) {
       const result = FetchConfigsArraySchema.safeParse(raw);
-      if (result.success) return result.data as import("../types").FetchApiConfig[];
+      if (result.success) return result.data as import("../../types").FetchApiConfig[];
       logWarn("storage", "Stored fetch configs failed validation", {
         details: result.error?.message,
         action: "Fetch provider configs were corrupted. Please re-configure them in Settings > Web Search.",
@@ -1041,7 +1041,7 @@ export async function loadFetchConfigs(): Promise<import("../types").FetchApiCon
   return null;
 }
 
-export async function saveFetchConfigs(configs: import("../types").FetchApiConfig[]): Promise<void> {
+export async function saveFetchConfigs(configs: import("../../types").FetchApiConfig[]): Promise<void> {
   try {
     const store = await getStore();
     const stripped = configs.map(({ apiKey: _apiKey, ...config }) => config);
@@ -1313,7 +1313,7 @@ let mcpConfigWritesBlockedBySecretMigration = false;
  * Idempotent: configs whose `command` is already a single token are returned
  * unchanged. Only stdio configs with a multi-token `command` are rewritten.
  */
-export function migrateMcpConfigs(configs: import("../types").McpServerConfig[]): import("../types").McpServerConfig[] {
+export function migrateMcpConfigs(configs: import("../../types").McpServerConfig[]): import("../../types").McpServerConfig[] {
   const commandMigrated = configs.map((c) => {
     if (c.transport !== "stdio") return c;
     const raw = (c.command ?? "").trim();
@@ -1361,14 +1361,14 @@ function dedupAutoYes(args: string[]): string[] {
   });
 }
 
-export async function loadMcpConfigs(): Promise<import("../types").McpServerConfig[] | null> {
+export async function loadMcpConfigs(): Promise<import("../../types").McpServerConfig[] | null> {
   try {
     const store = await getStore();
     const raw = await store.get<unknown>(MCP_CONFIGS_KEY);
     if (raw) {
       const result = McpConfigsArraySchema.safeParse(raw);
       if (result.success) {
-        let migrated = migrateMcpConfigs(result.data as import("../types").McpServerConfig[]);
+        let migrated = migrateMcpConfigs(result.data as import("../../types").McpServerConfig[]);
 
         // Migrate any plaintext apiKeys found in the config file to native encrypted storage.
         const configsWithApiKeys = migrated.filter((c) => c.apiKey && c.apiKey.trim() !== "");
@@ -1390,13 +1390,13 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
           mcpConfigWritesBlockedBySecretMigration = false;
 
           // Strip apiKey from the stored configs
-          migrated = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
+          migrated = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../../types").McpServerConfig);
           await store.set(MCP_CONFIGS_KEY, migrated);
           await store.save();
         } else if (JSON.stringify(migrated) !== JSON.stringify(result.data)) {
           // Persist the migrated form so subsequent loads are clean.
           // Strip API keys to be safe
-          const stripped = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
+          const stripped = migrated.map(({ apiKey: _apiKey, ...rest }) => rest as import("../../types").McpServerConfig);
           await store.set(MCP_CONFIGS_KEY, stripped);
           await store.save();
           migrated = stripped;
@@ -1420,7 +1420,7 @@ export async function loadMcpConfigs(): Promise<import("../types").McpServerConf
   return null;
 }
 
-export async function saveMcpConfigs(configs: import("../types").McpServerConfig[]): Promise<void> {
+export async function saveMcpConfigs(configs: import("../../types").McpServerConfig[]): Promise<void> {
   if (mcpConfigWritesBlockedBySecretMigration) {
     logWarn("storage", "MCP config save skipped because plaintext-key migration is incomplete", {
       action: "Restore OS credential-vault access and restart before changing MCP server settings.",
@@ -1430,7 +1430,7 @@ export async function saveMcpConfigs(configs: import("../types").McpServerConfig
   try {
     const store = await getStore();
     // Strip apiKey from all configs before saving to disk
-    const stripped = configs.map(({ apiKey: _apiKey, ...rest }) => rest as import("../types").McpServerConfig);
+    const stripped = configs.map(({ apiKey: _apiKey, ...rest }) => rest as import("../../types").McpServerConfig);
     await store.set(MCP_CONFIGS_KEY, stripped);
     await store.save();
   } catch (e) {
