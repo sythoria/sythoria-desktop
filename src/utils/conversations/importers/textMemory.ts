@@ -1,4 +1,4 @@
-import { generateId } from "../generateId";
+import { generateId } from "../../system/generateId";
 import type { ParsedImportResult, ParsedMemoryItem } from "./types";
 
 export function isTextMemory(content: string): boolean {

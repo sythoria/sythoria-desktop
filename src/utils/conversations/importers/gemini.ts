@@ -1,5 +1,5 @@
-import type { Conversation, Message } from "../../types";
-import { generateId } from "../generateId";
+import type { Conversation, Message } from "../../../types";
+import { generateId } from "../../system/generateId";
 import type { ParsedImportResult, ParsedMemoryItem } from "./types";
 
 interface GeminiTakeoutMessage {

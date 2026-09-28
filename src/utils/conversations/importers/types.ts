@@ -1,4 +1,4 @@
-import type { Conversation } from "../../types";
+import type { Conversation } from "../../../types";
 
 export type ImportSourceType = "chatgpt" | "claude" | "gemini" | "sythoria" | "text_memory" | "unknown";
 
