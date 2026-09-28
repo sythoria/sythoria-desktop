@@ -1,9 +1,9 @@
-import { useMcpStore } from "../../../store/useMcpStore";
-import { endpointFieldError } from "../../../utils/endpointError";
+import { useMcpStore } from "../../../store/providers/useMcpStore";
+import { endpointFieldError } from "../../../utils/network/endpointError";
 import { EndpointError } from "./EndpointError";
 import { memo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { useUIStore } from "../../../store/useUIStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
 import {
   Trash2,
