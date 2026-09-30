@@ -171,6 +171,9 @@ src-tauri/src/
 
 - Featured is a curated catalog category. Existing integrations remain in their functional categories when removed from Featured; retain their MCP presets and manifests.
 
+- Computer Use is the first curated Featured entry. Its pinned `open-computer-use@0.3.6` native MCP preset requires the guided setup in Plugins & Apps: Node 18+ / npm, supported OS/architecture, macOS 14+ and app-scoped Accessibility/Screen Recording grants, or Linux/Windows desktop dependencies. `computer_use.rs` checks readiness again before native connection. Use its upstream PNG icon for catalog cards and inline references. Keep its manifest, preset, and fixed preflight package version aligned; see `docs/computer-use-plugin.md`.
+- Computer Use connects only from an explicit action, remains alive while connected, and requires manual reconnect after startup or stale connections. Only its exact bundled command inherits Linux desktop session variables; never broaden the ambient environment for arbitrary MCP servers.
+
 ## Catalog OAuth connections
 
 - Account authorization must begin from an explicit plugin action. OAuth plugins always open setup, even when they have no credential fields; never infer zero-config installation from an empty `authFields` array. Keep setup visible while MCP initialization is pending or fails, show a single inline error, and call a connection connected only after tools load successfully.

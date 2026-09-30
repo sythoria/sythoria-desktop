@@ -1,3 +1,4 @@
+import { ComputerUseSetup, type ComputerUseSetupStatus } from "../components/ComputerUseSetup";
 import { Select } from "../../ui/Select";
 import { googlePermissions, type GoogleAccess } from "../../../services/googlePermissions";
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -158,6 +159,15 @@ export function PluginsSection() {
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
   const [showReauthForm, setShowReauthForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [computerUseStatus, setComputerUseStatus] = useState<ComputerUseSetupStatus>({ ready: false, busy: false });
+  const computerUseSessionRef = useRef(0);
+  const [computerUseSession, setComputerUseSession] = useState(0);
+  const handleComputerUseStatus = useCallback(
+    (status: ComputerUseSetupStatus) => {
+      if (computerUseSessionRef.current === computerUseSession) setComputerUseStatus(status);
+    },
+    [computerUseSession],
+  );
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const connectionAbortRef = useRef<AbortController | null>(null);
 
@@ -331,6 +341,9 @@ export function PluginsSection() {
       spotifyAbortRef.current?.abort();
       setIsSubmitting(false);
       setConnectionError(null);
+      computerUseSessionRef.current += 1;
+      setComputerUseSession(computerUseSessionRef.current);
+      setComputerUseStatus({ ready: false, busy: false });
       setActiveModalPlugin(plugin);
       setGoogleAccess("read");
       setGoogleClientLoading(["gmail", "google-drive", "google-calendar"].includes(plugin.id));
@@ -390,6 +403,7 @@ export function PluginsSection() {
   );
 
   const handleCloseModal = () => {
+    computerUseSessionRef.current += 1;
     connectionAbortRef.current?.abort();
     connectionAbortRef.current = null;
     if (githubAbortRef.current) {
@@ -757,6 +771,7 @@ export function PluginsSection() {
   const handleConnectPlugin = async () => {
     if (!activeModalPlugin || isSubmitting) return;
     const plugin = activeModalPlugin;
+    if (plugin.setupFlow === "computer-use" && !computerUseStatus.ready) return;
     const controller = new AbortController();
     connectionAbortRef.current = controller;
     setConnectionError(null);
@@ -799,7 +814,7 @@ export function PluginsSection() {
   // Fast one-click install for Zero-Config plugins
   const handleQuickConnect = async (plugin: PluginItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (plugin.authType !== "none" || plugin.authFields.length > 0) {
+    if (plugin.authType !== "none" || plugin.authFields.length > 0 || plugin.setupFlow) {
       handleOpenModal(plugin);
       return;
     }
@@ -1082,6 +1097,7 @@ export function PluginsSection() {
               <div className="pt-4 pr-4 flex justify-end">
                 <button
                   onClick={handleCloseModal}
+                  aria-label="Close plugin setup"
                   className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
                 >
                   <X size={18} />
@@ -1209,7 +1225,7 @@ export function PluginsSection() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (activeModalPlugin.authType === "oauth") {
+                            if (activeModalPlugin.authType === "oauth" || activeModalPlugin.setupFlow) {
                               setShowReauthForm(true);
                               return;
                             }
@@ -1309,13 +1325,22 @@ export function PluginsSection() {
                     <p className="text-xs text-text-muted mt-0.5">
                       {isGoogleConnection
                         ? "Choose access, then authorize in your browser."
-                        : `Authorize access to your ${activeModalPlugin.name} account.`}
+                        : activeModalPlugin.setupFlow === "computer-use"
+                          ? "Prepare desktop access before connecting."
+                          : `Authorize access to your ${activeModalPlugin.name} account.`}
                     </p>
                   </div>
 
                   {/* Modal Body: Authorizing Permissions Box (ChatGPT Style) */}
                   <div className="px-6 py-3 space-y-4 overflow-y-auto flex-1 text-sm">
-                    {!isGoogleConnection && (
+                    {activeModalPlugin.setupFlow === "computer-use" && (
+                      <ComputerUseSetup
+                        key={computerUseSession}
+                        onStatus={handleComputerUseStatus}
+                        disabled={isSubmitting}
+                      />
+                    )}
+                    {!isGoogleConnection && !activeModalPlugin.setupFlow && (
                       <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
                         <div className="text-xs font-semibold text-text-primary tracking-tight">
                           This plugin provides:
@@ -1876,7 +1901,11 @@ export function PluginsSection() {
                         (showManualToken && activeModalPlugin.id !== "spotify")) && (
                         <button
                           onClick={() => void handleConnectPlugin()}
-                          disabled={isSubmitting}
+                          disabled={
+                            isSubmitting ||
+                            (activeModalPlugin.setupFlow === "computer-use" &&
+                              (!computerUseStatus.ready || computerUseStatus.busy))
+                          }
                           className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                         >
                           {isSubmitting ? (

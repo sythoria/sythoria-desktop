@@ -214,6 +214,35 @@ describe("useMcpStore capability revocation", () => {
     );
   });
 
+  it("does not launch Computer Use during startup", async () => {
+    const preset = PLUGINS_CATALOG.find((plugin) => plugin.id === "computer-use")!.preset;
+    const desktop = {
+      ...config,
+      name: preset.name,
+      command: preset.command,
+      args: preset.args,
+      catalogPluginId: "computer-use",
+    };
+    useMcpStore.setState({ mcpConfigs: [desktop], serverStatuses: {} });
+    await useMcpStore.getState().connectAllEnabled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+  });
+
+  it("requires manual Computer Use reconnect when the native session is stale", async () => {
+    const preset = PLUGINS_CATALOG.find((plugin) => plugin.id === "computer-use")!.preset;
+    useMcpStore.setState({
+      mcpConfigs: [
+        { ...config, name: preset.name, command: preset.command, args: preset.args, catalogPluginId: "computer-use" },
+      ],
+    });
+    mocks.invoke.mockRejectedValueOnce(new Error("MCP server 'server-1' is not connected"));
+    const result = await useMcpStore.getState().callTool(config.id, "write", {}, "conversation-a");
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Reconnect this plugin");
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+    expect(useMcpStore.getState().availableTools).toEqual([]);
+  });
+
   it("does not launch browser OAuth bridges during startup", async () => {
     const bridge = { ...config, id: "canva", args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"] };
     useMcpStore.setState({ mcpConfigs: [bridge], enabledServerIds: new Set([bridge.id]) });

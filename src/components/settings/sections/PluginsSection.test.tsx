@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -263,5 +263,65 @@ describe("PluginsSection", () => {
         }),
       );
     });
+  });
+  it("opens guided Computer Use setup instead of quick-connecting and gates connection on readiness", async () => {
+    const addConfig = vi.spyOn(useMcpStore.getState(), "addMcpConfigWithSecrets").mockResolvedValue(false);
+    vi.mocked(invoke).mockResolvedValue({ platform: "macos", ready: false, checks: [] });
+    render(<PluginsSection />);
+    fireEvent.click(within(screen.getByTestId("plugin-card-computer-use")).getByRole("button", { name: /Connect/i }));
+    const connect = screen
+      .getAllByRole("button", { name: "Connect Computer Use" })
+      .find((button) => !button.hasAttribute("title"))!;
+    expect(connect).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up & check" })).toBeEnabled());
+    expect(addConfig).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledWith("computer_use_check_setup", { prepare: false });
+
+    vi.mocked(invoke).mockResolvedValue({
+      platform: "macos",
+      ready: false,
+      checks: [{ label: "macOS permissions", passed: false, message: "Allow Screen Recording" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Set up & check" }));
+    await screen.findByText("Allow Screen Recording");
+    expect(connect).toBeDisabled();
+    expect(addConfig).not.toHaveBeenCalled();
+
+    vi.mocked(invoke).mockResolvedValue({ platform: "macos", ready: true, checks: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Set up & check" }));
+    await waitFor(() => expect(connect).toBeEnabled());
+    fireEvent.click(connect);
+    await waitFor(() =>
+      expect(addConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ args: ["-y", "open-computer-use@0.3.6", "mcp"] }),
+        {},
+        expect.objectContaining({ catalogPluginId: "computer-use", notify: false }),
+      ),
+    );
+    addConfig.mockRestore();
+  });
+
+  it("discards late setup results after closing Computer Use setup", async () => {
+    let complete!: (value: unknown) => void;
+    vi.mocked(invoke).mockResolvedValue({ platform: "macos", ready: false, checks: [] });
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-computer-use"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up & check" })).toBeEnabled());
+    vi.mocked(invoke).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Set up & check" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close plugin setup" }));
+    fireEvent.click(screen.getByTestId("plugin-card-computer-use"));
+    await act(async () => {
+      complete({ platform: "macos", ready: true, checks: [] });
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up & check" })).toBeEnabled());
+    expect(
+      screen.getAllByRole("button", { name: "Connect Computer Use" }).find((button) => !button.hasAttribute("title")),
+    ).toBeDisabled();
   });
 });

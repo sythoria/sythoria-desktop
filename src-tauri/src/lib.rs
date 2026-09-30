@@ -2,6 +2,7 @@ mod anthropic;
 mod appshots;
 mod atomic_file;
 pub mod commands;
+mod computer_use;
 mod endpoint_security;
 mod git;
 mod keyring;
@@ -2742,6 +2743,7 @@ pub fn run() {
             commands::config::save_mcp_api_keys_cmd,
             commands::mcp::mcp_start_server,
             commands::mcp::mcp_check_command,
+            computer_use::computer_use_check_setup,
             commands::mcp::mcp_stop_server,
             commands::mcp::mcp_set_server_enabled,
             commands::mcp::mcp_list_tools,

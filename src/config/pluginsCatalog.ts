@@ -25,6 +25,7 @@ export interface PluginItem {
   authType: "none" | "api_key" | "oauth" | "connection_string";
   authFields: PluginAuthField[];
   oauthClientField?: PluginAuthField;
+  setupFlow?: "computer-use";
   preset: McpServerPreset;
   keywords: string[];
 }
@@ -34,6 +35,11 @@ export function isBrowserOAuthBridge(config: Pick<McpServerConfig, "transport" |
   return (
     config.transport === "stdio" && !!config.args?.some((arg) => arg === "mcp-remote" || arg.startsWith("mcp-remote@"))
   );
+}
+
+/** Desktop access needs explicit setup/reconnect, just like browser OAuth bridges. */
+export function requiresInteractivePluginSetup(config: McpServerConfig): boolean {
+  return isBrowserOAuthBridge(config) || verifiedCatalogPluginForConfig(config)?.setupFlow === "computer-use";
 }
 
 /** Link to the exact package named by the MCP launch command. */
@@ -80,7 +86,31 @@ export const PLUGIN_CATEGORIES: { id: PluginCategory; labelKey: string; icon: st
 
 export const PLUGINS_CATALOG: PluginItem[] = [
   // ==========================================
-  // Catalog integrations (featured is curated separately)
+  // Curated featured integrations
+  {
+    id: "computer-use",
+    name: "Computer Use",
+    category: "featured",
+    description: "Use your desktop apps through Open Computer Use, with guided setup and permission checks.",
+    longDescription:
+      "Read app interfaces, click controls, type, scroll, and capture screenshots in your signed-in desktop session. Screen content and tool results may be sent to your selected AI provider. Connect this plugin only for chats where you want desktop access.",
+    icon: "/plugins/computer-use/icon.png",
+    iconName: "Monitor",
+    badge: "New",
+    authType: "none",
+    authFields: [],
+    setupFlow: "computer-use",
+    preset: {
+      id: "computer-use",
+      name: "Computer Use",
+      description: "Desktop app automation using Open Computer Use.",
+      homepageUrl: "https://github.com/ifuryst/open-codex-computer-use",
+      command: "npx",
+      args: ["-y", "open-computer-use@0.3.6", "mcp"],
+    },
+    keywords: ["computer", "desktop", "automation", "accessibility", "screenshot", "open-computer-use"],
+  },
+  // Catalog integrations
   // ==========================================
   {
     id: "github",

@@ -284,7 +284,7 @@ async fn find_executable(name: &str) -> String {
     name.to_string()
 }
 
-fn create_shell_command(program: &str, args: &[String]) -> Command {
+pub(crate) fn create_shell_command(program: &str, args: &[String]) -> Command {
     let program_path = std::path::Path::new(program);
     let mut cmd = if cfg!(windows) {
         // On Windows, running `npx.cmd` directly through batch execution can fail if npm
@@ -779,7 +779,21 @@ pub async fn connect_server(
                 return Err("MCP connection cancelled".into());
             }
             let uses_browser_auth = is_browser_oauth_bridge(config);
+            let uses_computer_use = crate::computer_use::is_catalog_config(config);
+            if uses_computer_use {
+                let report = tokio::select! {
+                    _ = cancel_token.cancelled() => return Err("MCP connection cancelled".into()),
+                    report = crate::computer_use::check_setup(true) => report,
+                };
+                if !report.ready {
+                    return Err(report.failure_message());
+                }
+            }
+            let requires_interactive_setup = uses_browser_auth || uses_computer_use;
             let mut cmd = create_shell_command(&resolved_program, &resolved_args);
+            if uses_computer_use {
+                crate::computer_use::apply_desktop_environment(&mut cmd);
+            }
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null());
@@ -870,10 +884,13 @@ pub async fn connect_server(
                 .await
                 .map_err(|e| format!("Failed to list MCP tools: {}", e))?;
 
-            let tools = restrict_catalog_tools(
+            let mut tools = restrict_catalog_tools(
                 tools_result.tools.iter().map(convert_tool).collect(),
                 &env_secrets.0,
             )?;
+            if uses_computer_use {
+                crate::computer_use::prepare_tool_surface(&mut tools)?;
+            }
 
             let (request_tx, mut request_rx) = tokio::sync::mpsc::channel::<McpServerRequest>(64);
 
@@ -923,7 +940,7 @@ pub async fn connect_server(
                                 None => break,
                             }
                         }
-                        _ = &mut timeout_sleep, if !uses_browser_auth => {
+                        _ = &mut timeout_sleep, if !requires_interactive_setup => {
                             log::info!("MCP server '{}' idle timeout: terminating child process", server_id_clone);
                             if let Ok(mut manager) = MCP_SERVERS.lock() {
                                 manager.mark_idle(&server_id_clone, task_generation);

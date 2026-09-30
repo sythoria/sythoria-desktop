@@ -1,0 +1,21 @@
+{
+  "id": "computer-use",
+  "name": "Computer Use",
+  "category": "featured",
+  "description": "Use your desktop apps through Open Computer Use, with guided setup and permission checks.",
+  "longDescription": "Read app interfaces, click controls, type, scroll, and capture screenshots in your signed-in desktop session. Screen content and tool results may be sent to your selected AI provider. Connect this plugin only for chats where you want desktop access.",
+  "icon": "./icon.png",
+  "badge": "New",
+  "authType": "none",
+  "authFields": [],
+  "setupFlow": "computer-use",
+  "preset": {
+    "id": "computer-use",
+    "name": "Computer Use",
+    "description": "Desktop app automation using Open Computer Use.",
+    "homepageUrl": "https://github.com/ifuryst/open-codex-computer-use",
+    "command": "npx",
+    "args": ["-y", "open-computer-use@0.3.6", "mcp"]
+  },
+  "keywords": ["computer", "desktop", "automation", "accessibility", "screenshot", "open-computer-use"]
+}

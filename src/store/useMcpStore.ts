@@ -9,7 +9,7 @@ import { summarizeToolArguments } from "../utils/redaction";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
-import { isBrowserOAuthBridge, verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
+import { requiresInteractivePluginSetup, verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
 
@@ -537,7 +537,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   connectAllEnabled: async () => {
     const { mcpConfigs, enabledServerIds } = get();
     const enabledServers = mcpConfigs.filter(
-      (c) => c.enabled && enabledServerIds.has(c.id) && !isBrowserOAuthBridge(c),
+      (c) => c.enabled && enabledServerIds.has(c.id) && !requiresInteractivePluginSetup(c),
     );
     if (enabledServers.length > 0) {
       logInfo("mcp", `Auto-connecting ${enabledServers.length} enabled MCP server(s)`, {
@@ -586,16 +586,16 @@ export const useMcpStore = create<McpState>((set, get) => ({
         raw = await invokeTool();
       } catch (error) {
         if (!isStaleNativeConnectionError(error)) throw error;
-        if (isBrowserOAuthBridge(config)) {
+        if (requiresInteractivePluginSetup(config)) {
           set({
             serverStatuses: { ...get().serverStatuses, [serverId]: "disconnected" },
             serverErrors: {
               ...get().serverErrors,
-              [serverId]: "Reconnect in Plugins & Apps to authorize in your browser.",
+              [serverId]: "Reconnect in Plugins & Apps to complete setup.",
             },
             availableTools: get().availableTools.filter((tool) => tool.serverId !== serverId),
           });
-          throw new Error("Reconnect this plugin in Plugins & Apps to authorize in your browser.");
+          throw new Error("Reconnect this plugin in Plugins & Apps to complete setup.");
         }
 
         let recovery = staleConnectionRecoveryByServer.get(serverId);

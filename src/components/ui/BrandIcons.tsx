@@ -575,6 +575,9 @@ export const BrandIcon: React.FC<BrandIconProps> = ({ name, className = "", size
           </svg>
         );
 
+      case "computeruse":
+        return <img src="/plugins/computer-use/icon.png" alt="" width={size} height={size} className={className} />;
+
       default:
         return (
           <svg

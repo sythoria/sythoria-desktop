@@ -14,7 +14,7 @@ corresponding package source distributions.
 | Components                                                                                                                                                        | Declared license      |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | `@tauri-apps/api`, `@tauri-apps/plugin-dialog`, `@tauri-apps/plugin-log`, `@tauri-apps/plugin-opener`, `@tauri-apps/plugin-process`, `@tauri-apps/plugin-updater` | MIT OR Apache-2.0     |
-| `@xterm/xterm`, `@xterm/addon-fit`                                                                                                                               | MIT                   |
+| `@xterm/xterm`, `@xterm/addon-fit`                                                                                                                                | MIT                   |
 | `dompurify`                                                                                                                                                       | MPL-2.0 OR Apache-2.0 |
 | `highlight.js`                                                                                                                                                    | BSD-3-Clause          |
 | `lucide-react`                                                                                                                                                    | ISC                   |
@@ -31,11 +31,18 @@ corresponding package source distributions.
 | `ignore`                                                                                                                                                                                                                           | Unlicense OR MIT   |
 | `whisper-rs`                                                                                                                                                                                                                       | Unlicense          |
 
+## Bundled artwork
+
+The Computer Use plugin icon is the original `open-computer-use-1024.png` from
+[Open Computer Use](https://github.com/iFurySt/open-codex-computer-use/blob/main/assets/app-icons/open-computer-use-1024.png),
+Copyright (c) 2026 Leo, distributed under the MIT License. Its license text is included at
+`public/plugins/computer-use/LICENSE`.
+
 ## Bundled fonts
 
-| Component | Version | Declared license |
-| --------- | ------- | ---------------- |
-| Nerd Fonts Symbols Only Mono (`SymbolsNerdFontMono-Regular.ttf`) | 3.5.0 | MIT |
+| Component                                                        | Version | Declared license |
+| ---------------------------------------------------------------- | ------- | ---------------- |
+| Nerd Fonts Symbols Only Mono (`SymbolsNerdFontMono-Regular.ttf`) | 3.5.0   | MIT              |
 
 The Nerd Fonts license text is distributed with the font at
 `src/assets/fonts/NERD_FONTS_LICENSE.txt`.
