@@ -142,7 +142,8 @@ export function ComputerUseSetup({
         {busy ? "Checking setup…" : "Set up & check"}
       </button>
       <p className="text-text-muted">
-        Reconnect from Plugins &amp; Apps after restarting Sythoria. Each connection checks setup again.
+        Once connected, Computer Use reconnects automatically when Sythoria restarts. Each connection checks setup
+        again.
       </p>
       <button
         type="button"

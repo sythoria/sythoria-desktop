@@ -264,6 +264,37 @@ describe("PluginsSection", () => {
       );
     });
   });
+  it("reconnects an installed Computer Use plugin without re-adding it or reopening setup", async () => {
+    const preset = PLUGINS_CATALOG.find((plugin) => plugin.id === "computer-use")!.preset;
+    const saved = {
+      id: "saved-desktop",
+      name: preset.name,
+      transport: "stdio" as const,
+      command: preset.command,
+      args: preset.args,
+      enabled: true,
+      catalogPluginId: "computer-use",
+    };
+    useMcpStore.setState({
+      mcpConfigs: [saved],
+      serverStatuses: { [saved.id]: "disconnected" },
+      enabledServerIds: new Set([saved.id]),
+    });
+    const reconnect = vi.spyOn(useMcpStore.getState(), "toggleServerEnabled").mockResolvedValue(undefined);
+    const addConfig = vi.spyOn(useMcpStore.getState(), "addMcpConfigWithSecrets").mockResolvedValue(false);
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-computer-use"));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect plugin" }));
+    await waitFor(() => expect(reconnect).toHaveBeenCalledWith(saved.id, true));
+    expect(addConfig).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith("computer_use_check_setup", expect.anything());
+    expect(screen.queryByRole("button", { name: "Set up & check" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review setup" })).toBeInTheDocument();
+    expect(useMcpStore.getState().mcpConfigs).toEqual([saved]);
+    reconnect.mockRestore();
+    addConfig.mockRestore();
+  });
+
   it("opens guided Computer Use setup instead of quick-connecting and gates connection on readiness", async () => {
     const addConfig = vi.spyOn(useMcpStore.getState(), "addMcpConfigWithSecrets").mockResolvedValue(false);
     vi.mocked(invoke).mockResolvedValue({ platform: "macos", ready: false, checks: [] });

@@ -214,7 +214,7 @@ describe("useMcpStore capability revocation", () => {
     );
   });
 
-  it("does not launch Computer Use during startup", async () => {
+  it("reconnects enabled Computer Use on startup using the saved installation", async () => {
     const preset = PLUGINS_CATALOG.find((plugin) => plugin.id === "computer-use")!.preset;
     const desktop = {
       ...config,
@@ -223,9 +223,36 @@ describe("useMcpStore capability revocation", () => {
       args: preset.args,
       catalogPluginId: "computer-use",
     };
-    useMcpStore.setState({ mcpConfigs: [desktop], serverStatuses: {} });
+    useMcpStore.setState({ mcpConfigs: [desktop], serverStatuses: {}, availableTools: [] });
+    mocks.invoke.mockResolvedValueOnce(
+      JSON.stringify([{ name: "list_apps", description: "List apps", inputSchema: {}, readOnlyHint: true }]),
+    );
+    await useMcpStore.getState().connectAllEnabled();
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_start_server", {
+      config: JSON.stringify(desktop),
+      explicitlyEnabled: true,
+    });
+    expect(useMcpStore.getState().serverStatuses[desktop.id]).toBe("connected");
+    expect(useMcpStore.getState().availableTools).toEqual([
+      expect.objectContaining({ name: "list_apps", serverId: desktop.id }),
+    ]);
+    expect(useMcpStore.getState().mcpConfigs).toEqual([desktop]);
+    expect(mocks.saveMcpConfigs).not.toHaveBeenCalled();
+  });
+
+  it("keeps disabled Computer Use installations disconnected on startup", async () => {
+    const preset = PLUGINS_CATALOG.find((plugin) => plugin.id === "computer-use")!.preset;
+    useMcpStore.setState({
+      mcpConfigs: [
+        { ...config, name: preset.name, command: preset.command, args: preset.args, catalogPluginId: "computer-use" },
+      ],
+      enabledServerIds: new Set(),
+      serverStatuses: {},
+      availableTools: [],
+    });
     await useMcpStore.getState().connectAllEnabled();
     expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+    expect(useMcpStore.getState().availableTools).toEqual([]);
   });
 
   it("requires manual Computer Use reconnect when the native session is stale", async () => {

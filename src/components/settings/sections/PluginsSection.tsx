@@ -1225,7 +1225,7 @@ export function PluginsSection() {
                         <button
                           type="button"
                           onClick={async () => {
-                            if (activeModalPlugin.authType === "oauth" || activeModalPlugin.setupFlow) {
+                            if (activeModalPlugin.authType === "oauth") {
                               setShowReauthForm(true);
                               return;
                             }
@@ -1270,7 +1270,7 @@ export function PluginsSection() {
                             onClick={() => setShowReauthForm(true)}
                             className="text-xs text-text-muted hover:text-text-primary transition-colors underline"
                           >
-                            Update credentials / Re-authenticate
+                            {activeModalPlugin.setupFlow ? "Review setup" : "Update credentials / Re-authenticate"}
                           </button>
 
                           <button

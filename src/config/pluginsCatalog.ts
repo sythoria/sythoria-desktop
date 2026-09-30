@@ -37,8 +37,8 @@ export function isBrowserOAuthBridge(config: Pick<McpServerConfig, "transport" |
   );
 }
 
-/** Desktop access needs explicit setup/reconnect, just like browser OAuth bridges. */
-export function requiresInteractivePluginSetup(config: McpServerConfig): boolean {
+/** Stale desktop sessions lose element indices; recover them explicitly rather than replaying an action. */
+export function requiresManualMcpRecovery(config: McpServerConfig): boolean {
   return isBrowserOAuthBridge(config) || verifiedCatalogPluginForConfig(config)?.setupFlow === "computer-use";
 }
 
