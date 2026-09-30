@@ -1,7 +1,7 @@
 {
   "id": "playwright",
   "name": "Web Browser Automation",
-  "category": "featured",
+  "category": "developer",
   "description": "Headless browser automation to navigate, interact with web apps, and take screenshots.",
   "longDescription": "Automates a Chromium browser to browse live web pages, interact with JavaScript applications, fill out forms, and capture screenshots for UI analysis.",
   "icon": "./icon.svg",

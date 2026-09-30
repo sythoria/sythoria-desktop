@@ -2,7 +2,7 @@
   "id": "github",
   "name": "GitHub",
   "icon": "./icon.svg",
-  "category": "featured",
+  "category": "developer",
   "badge": "Official",
   "description": "Triage PRs, manage issues, search repositories, and inspect code.",
   "longDescription": "Gives your AI full access to read and inspect GitHub repositories, search code across files, create or update issues, review pull requests, and trigger CI workflows.",

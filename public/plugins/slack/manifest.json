@@ -1,7 +1,7 @@
 {
   "id": "slack",
   "name": "Slack",
-  "category": "featured",
+  "category": "communication",
   "description": "Read channel messages, summarize discussions, and post replies.",
   "longDescription": "Allows the AI to search conversation history in public and private channels, extract key takeaways from team threads, and compose draft messages.",
   "icon": "./icon.svg",

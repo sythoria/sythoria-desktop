@@ -1,7 +1,7 @@
 {
   "id": "notion",
   "name": "Notion",
-  "category": "featured",
+  "category": "productivity",
   "description": "Search workspace pages, read project specs, and create new notes.",
   "longDescription": "Connects to your Notion workspace to search across your databases, read specifications and design docs, and draft new pages or summaries.",
   "icon": "./icon.svg",

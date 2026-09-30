@@ -80,13 +80,13 @@ export const PLUGIN_CATEGORIES: { id: PluginCategory; labelKey: string; icon: st
 
 export const PLUGINS_CATALOG: PluginItem[] = [
   // ==========================================
-  // 1. FEATURED (Top 10 Daily Drivers)
+  // Catalog integrations (featured is curated separately)
   // ==========================================
   {
     id: "github",
     name: "GitHub",
     icon: "/plugins/github/icon.svg",
-    category: "featured",
+    category: "developer",
     badge: "Official",
     description: "Triage PRs, manage issues, search repositories, and inspect code.",
     longDescription:
@@ -127,7 +127,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "playwright",
     name: "Web Browser Automation",
     icon: "/plugins/playwright/icon.svg",
-    category: "featured",
+    category: "developer",
     badge: "Popular",
     description: "Headless browser automation to navigate, interact with web apps, and take screenshots.",
     longDescription:
@@ -149,7 +149,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "notion",
     name: "Notion",
     icon: "/plugins/notion/icon.svg",
-    category: "featured",
+    category: "productivity",
     badge: "Popular",
     description: "Search workspace pages, read project specs, and create new notes.",
     longDescription:
@@ -182,7 +182,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "slack",
     name: "Slack",
     icon: "/plugins/slack/icon.svg",
-    category: "featured",
+    category: "communication",
     badge: "Official",
     description: "Read channel messages, summarize discussions, and post replies.",
     longDescription:
@@ -223,7 +223,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "linear",
     name: "Linear",
     icon: "/plugins/linear/icon.svg",
-    category: "featured",
+    category: "productivity",
     badge: "Official",
     description: "Search issues, triage bug reports, create tickets, and manage sprints.",
     longDescription:
@@ -264,7 +264,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "google-drive",
     name: "Google Drive",
     icon: "/plugins/google-drive/icon.svg",
-    category: "featured",
+    category: "productivity",
     badge: "Popular",
     description: "Work across Drive, Docs, Sheets, and Slides",
     longDescription:
@@ -297,7 +297,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "postgres",
     name: "PostgreSQL & Supabase",
     icon: "/plugins/postgres/icon.svg",
-    category: "featured",
+    category: "developer",
     badge: "Popular",
     description: "Inspect schemas, explore tables, and execute analytical SQL queries.",
     longDescription:
@@ -329,7 +329,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "memory",
     name: "Memory Knowledge Graph",
     icon: "/plugins/memory/icon.svg",
-    category: "featured",
+    category: "developer",
     badge: "Essential",
     description: "Persistent cross-conversation memory graph storing entities and relations.",
     longDescription:
@@ -351,7 +351,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "tavily",
     name: "Tavily AI Search",
     icon: "/plugins/tavily/icon.svg",
-    category: "featured",
+    category: "search",
     badge: "Official",
     description: "Real-time AI-optimized web search tailored for LLM factual accuracy.",
     longDescription:
@@ -384,7 +384,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     id: "firecrawl",
     name: "Firecrawl Web Scraper",
     icon: "/plugins/firecrawl/icon.svg",
-    category: "featured",
+    category: "search",
     badge: "Official",
     description: "Crawl and convert any complex website into clean, LLM-ready Markdown.",
     longDescription:

@@ -1,7 +1,7 @@
 {
   "id": "tavily",
   "name": "Tavily AI Search",
-  "category": "featured",
+  "category": "search",
   "description": "Real-time AI-optimized web search tailored for LLM factual accuracy.",
   "longDescription": "Next-generation search engine optimized specifically for LLMs. Gathers comprehensive, real-time facts with full URL citations without ad clutter.",
   "icon": "./icon.svg",

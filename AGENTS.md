@@ -167,6 +167,10 @@ src-tauri/src/
 - **Project image reading**: Models configured with image-input support receive `project_read_image`, which returns PNG, JPEG, GIF, or WebP files (maximum 5 MiB) through the tool image pipeline so the model can inspect them. Text-only models do not receive this tool. It uses the same native run capability, read permission, path containment, and exclusion validation as `project_read`, detects format from file bytes, and bounds reads before base64 encoding. Chat renders it as a native image disclosure with Viewing/Viewed state, path and format metadata, an inline preview, and the full image preview modal.
 - **Direct Workspace Execution**: Project file tools, Git tools, the agent shell, the Files panel, and the terminal all use the registered project folder as the same authoritative filesystem. A file created with `project_write` is therefore immediately visible to `project_bash` and to the user. Git projects take an internal before/after snapshot without changing the user's index or branch; the resulting exact patch powers the final change summary and conflict-safe Undo. Non-Git projects can still use write/full permissions, but do not receive Git-based summaries or Undo.
 
+## Featured plugins
+
+- Featured is a curated catalog category. Existing integrations remain in their functional categories when removed from Featured; retain their MCP presets and manifests.
+
 ## Catalog OAuth connections
 
 - Account authorization must begin from an explicit plugin action. OAuth plugins always open setup, even when they have no credential fields; never infer zero-config installation from an empty `authFields` array. Keep setup visible while MCP initialization is pending or fails, show a single inline error, and call a connection connected only after tools load successfully.

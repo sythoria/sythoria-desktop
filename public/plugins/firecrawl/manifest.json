@@ -1,7 +1,7 @@
 {
   "id": "firecrawl",
   "name": "Firecrawl Web Scraper",
-  "category": "featured",
+  "category": "search",
   "description": "Crawl and convert any complex website into clean, LLM-ready Markdown.",
   "longDescription": "Extracts clean markdown from any URL, handling JavaScript rendering, anti-bot mechanisms, pagination, and multi-page sitemaps.",
   "icon": "./icon.svg",

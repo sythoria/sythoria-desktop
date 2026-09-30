@@ -1,7 +1,7 @@
 {
   "id": "postgres",
   "name": "PostgreSQL & Supabase",
-  "category": "featured",
+  "category": "developer",
   "description": "Inspect schemas, explore tables, and execute analytical SQL queries.",
   "longDescription": "Direct database bridge to inspect table structures, analyze indexes, and run safe read-only SQL queries against any PostgreSQL or Supabase instance.",
   "icon": "./icon.svg",

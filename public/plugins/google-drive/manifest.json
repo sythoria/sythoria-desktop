@@ -2,7 +2,7 @@
   "id": "google-drive",
   "name": "Google Drive",
   "icon": "./icon.svg",
-  "category": "featured",
+  "category": "productivity",
   "badge": "Popular",
   "description": "Work across Drive, Docs, Sheets, and Slides",
   "longDescription": "Searches your personal or workspace Google Drive to read document text, extract spreadsheet data, and reference presentation outlines.",

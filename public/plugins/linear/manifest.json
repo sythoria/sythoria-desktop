@@ -2,7 +2,7 @@
   "id": "linear",
   "name": "Linear",
   "icon": "./icon.svg",
-  "category": "featured",
+  "category": "productivity",
   "badge": "Official",
   "description": "Search issues, triage bug reports, create tickets, and manage sprints.",
   "longDescription": "Direct integration with Linear to plan projects, create bug reports, find issues by team or cycle, and update issue states automatically.",
@@ -21,7 +21,7 @@
       "placeholder": "lin_api_...",
       "type": "password",
       "required": true,
-      "helpText": "Generate an API Key under Linear Settings → Account → Security & API Keys.",
+      "helpText": "Generate an API Key under Linear Settings \u2192 Account \u2192 Security & API Keys.",
       "docUrl": "https://linear.app/settings/api"
     }
   ],

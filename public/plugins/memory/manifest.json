@@ -1,7 +1,7 @@
 {
   "id": "memory",
   "name": "Memory Knowledge Graph",
-  "category": "featured",
+  "category": "developer",
   "description": "Persistent cross-conversation memory graph storing entities and relations.",
   "longDescription": "Gives your AI long-term structured memory across all conversation sessions using an embedded SQLite knowledge graph.",
   "icon": "./icon.svg",
