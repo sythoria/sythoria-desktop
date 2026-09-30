@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, RefreshCw } from "lucide-react";
-import { openExternalUrl } from "../../../utils/externalUrl";
+import { openExternalUrl } from "../../../utils/network/externalUrl";
 
 export interface ComputerUseSetupStatus {
   ready: boolean;

@@ -1,7 +1,7 @@
 import { Select } from "../../ui/Select";
 import { useTranslation } from "../../../utils/i18n";
 import { DEFAULT_TITLE_SYSTEM_PROMPT, TitleGenerationConfig, ModelConfig } from "../../../types";
-import { useModelStore } from "../../../store/useModelStore";
+import { useModelStore } from "../../../store/providers/useModelStore";
 import { SettingsPanel, SettingsSectionHeader, SettingsTogglePanel } from "../components/SettingsPrimitives";
 
 interface PersonalizationSectionProps {

@@ -22,8 +22,8 @@ import {
   Upload,
 } from "lucide-react";
 import { useTranslation } from "../../../utils/i18n";
-import { useMcpStore } from "../../../store/useMcpStore";
-import { useUIStore } from "../../../store/useUIStore";
+import { useMcpStore } from "../../../store/providers/useMcpStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import {
   PLUGINS_CATALOG,
   PLUGIN_CATEGORIES,
@@ -45,7 +45,7 @@ import {
   saveGoogleOAuthClient,
 } from "../../../services/googleOAuth";
 import { startSpotifyOAuthFlow, saveSpotifyMcpTokens, DEFAULT_SPOTIFY_SCOPES } from "../../../services/spotifyOAuth";
-import { openExternalUrl } from "../../../utils/externalUrl";
+import { openExternalUrl } from "../../../utils/network/externalUrl";
 import type { McpServerConfig } from "../../../types";
 
 function formatOAuthError(err: unknown, fallback: string): string {

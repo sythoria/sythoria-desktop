@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 
 /** Bind before opening the browser, and release the native listener on every exit. */
 export async function authorizeInBrowser(

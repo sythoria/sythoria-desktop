@@ -9,11 +9,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
 }));
 
-vi.mock("../../../utils/logger", () => ({
+vi.mock("../../../utils/system/logger", () => ({
   logError: vi.fn(),
 }));
 
-import { useSkillStore } from "../../../store/useSkillStore";
+import { useSkillStore } from "../../../store/platform/useSkillStore";
 import { SkillsSection } from "./SkillsSection";
 
 describe("SkillsSection", () => {

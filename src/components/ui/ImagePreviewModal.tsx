@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ZoomIn, ZoomOut, Download, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { useKeybindStore, matchKeybind } from "../../store/useKeybindStore";
-import { formatFileSize } from "../../utils/attachments";
+import { useKeybindStore, matchKeybind } from "../../store/ui/useKeybindStore";
+import { formatFileSize } from "../../utils/attachments/attachments";
 import { motionTokens, motionTransitions } from "../../lib/motion-tokens";
 import { useDialogFocus } from "../../hooks/useDialogFocus";
 

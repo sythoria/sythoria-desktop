@@ -3,7 +3,7 @@ import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { ColorPickerInput } from "../components/ColorPickerInput";
 import { LIGHT_PRESETS, DARK_PRESETS, CustomThemeConfig, ThemeConfig } from "../../../config/themePresets";
-import { useUIStore } from "../../../store/useUIStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { useTranslation } from "../../../utils/i18n";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 

@@ -4,10 +4,10 @@ import { ShieldCheck, ShieldAlert, FileText, Trash2, Camera, Network } from "luc
 import { Switch } from "../../ui/Switch";
 import { Select } from "../../ui/Select";
 import { ConfirmModal } from "../../ui/Modal";
-import { useUIStore } from "../../../store/useUIStore";
-import { useAppshotStore } from "../../../store/useAppshotStore";
-import { useChatStore } from "../../../store/useChatStore";
-import { clearLogs } from "../../../utils/logger";
+import { useUIStore } from "../../../store/ui/useUIStore";
+import { useAppshotStore } from "../../../store/platform/useAppshotStore";
+import { useChatStore } from "../../../store/chat/useChatStore";
+import { clearLogs } from "../../../utils/system/logger";
 import {
   DEFAULT_BLOCKED_HOSTS,
   resumeConversationPersistenceAfterFailedWipe,
@@ -15,7 +15,7 @@ import {
   suspendPreferencePersistenceForWipe,
   resumePreferencePersistenceAfterFailedWipe,
   resetPreferenceCacheAfterWipe,
-} from "../../../utils/storage";
+} from "../../../utils/storage/storage";
 import { invoke } from "@tauri-apps/api/core";
 import { springs, motionTokens } from "../../../lib/motion-tokens";
 import { useTranslation } from "../../../utils/i18n";

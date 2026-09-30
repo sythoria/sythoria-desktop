@@ -1,6 +1,6 @@
 import { ShieldAlert } from "lucide-react";
-import { useProjectStore } from "../../../store/useProjectStore";
-import { useGitStore } from "../../../store/useGitStore";
+import { useProjectStore } from "../../../store/workspace/useProjectStore";
+import { useGitStore } from "../../../store/workspace/useGitStore";
 import type { ProjectPermission } from "../../../types";
 import { useTranslation } from "../../../utils/i18n";
 import { SettingsSectionHeader, SettingsTogglePanel } from "../components/SettingsPrimitives";

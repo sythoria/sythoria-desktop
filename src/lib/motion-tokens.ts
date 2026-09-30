@@ -1,4 +1,4 @@
-import { useUIStore } from "../store/useUIStore";
+import { useUIStore } from "../store/ui/useUIStore";
 
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 

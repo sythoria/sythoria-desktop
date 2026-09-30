@@ -30,35 +30,35 @@ import {
   RotateCcw,
   ShieldAlert,
 } from "lucide-react";
-import Sidebar from "./components/Sidebar";
+import Sidebar from "./components/layout/Sidebar";
 import { isGenerationActive, type Attachment, type Conversation } from "./types";
-import InputBar from "./components/InputBar";
-import ScrollToBottomButton from "./components/ScrollToBottomButton";
+import InputBar from "./components/chat/InputBar";
+import ScrollToBottomButton from "./components/chat/ScrollToBottomButton";
 import { RenameChatModal, ToolConfirmationModal, UpdateModal } from "./components/ui/Modal";
 import { Spinner } from "./components/ui/Spinner";
 import { ToastContainer } from "./components/ui/Toast";
-import { LinkWarningModal } from "./components/LinkWarningModal";
+import { LinkWarningModal } from "./components/overlays/LinkWarningModal";
 
-import StartScreen from "./components/StartScreen";
+import StartScreen from "./components/layout/StartScreen";
 import { DragOverlay } from "./components/ui/DragOverlay";
-import { TitleBar } from "./components/TitleBar";
-import { useChatStore } from "./store/useChatStore";
+import { TitleBar } from "./components/layout/TitleBar";
+import { useChatStore } from "./store/chat/useChatStore";
 
 const loadSettings = () => import("./components/settings");
 const Settings = lazy(loadSettings);
-const ChatArea = lazy(() => import("./components/ChatArea"));
+const ChatArea = lazy(() => import("./components/chat/ChatArea"));
 const ComparisonColumn = lazy(() =>
-  import("./components/ComparisonColumn").then((module) => ({ default: module.ComparisonColumn })),
+  import("./components/chat/ComparisonColumn").then((module) => ({ default: module.ComparisonColumn })),
 );
 const AuxiliaryPanel = lazy(() =>
-  import("./components/AuxiliaryPanel").then((module) => ({ default: module.AuxiliaryPanel })),
+  import("./components/workspace/AuxiliaryPanel").then((module) => ({ default: module.AuxiliaryPanel })),
 );
 const CommandPalette = lazy(() =>
-  import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })),
+  import("./components/overlays/CommandPalette").then((module) => ({ default: module.CommandPalette })),
 );
-const ProjectConfigModal = lazy(() => import("./components/ProjectConfigModal"));
+const ProjectConfigModal = lazy(() => import("./components/overlays/ProjectConfigModal"));
 const SpotlightArea = lazy(() =>
-  import("./components/SpotlightArea").then((module) => ({ default: module.SpotlightArea })),
+  import("./components/layout/SpotlightArea").then((module) => ({ default: module.SpotlightArea })),
 );
 
 function scheduleWhenIdle(task: () => void, timeout = 1500): () => void {
@@ -74,20 +74,20 @@ function scheduleWhenIdle(task: () => void, timeout = 1500): () => void {
   return () => window.clearTimeout(id);
 }
 
-import { useModelStore } from "./store/useModelStore";
-import { useSearchStore } from "./store/useSearchStore";
-import { useMcpStore } from "./store/useMcpStore";
-import { useUIStore } from "./store/useUIStore";
-import { useProjectStore } from "./store/useProjectStore";
-import { findMatchingCommand, useKeybindStore } from "./store/useKeybindStore";
-import { useAppshotStore } from "./store/useAppshotStore";
-import { useSkillStore } from "./store/useSkillStore";
+import { useModelStore } from "./store/providers/useModelStore";
+import { useSearchStore } from "./store/providers/useSearchStore";
+import { useMcpStore } from "./store/providers/useMcpStore";
+import { useUIStore } from "./store/ui/useUIStore";
+import { useProjectStore } from "./store/workspace/useProjectStore";
+import { findMatchingCommand, useKeybindStore } from "./store/ui/useKeybindStore";
+import { useAppshotStore } from "./store/platform/useAppshotStore";
+import { useSkillStore } from "./store/platform/useSkillStore";
 import { useShallow } from "zustand/react/shallow";
 import { useScrollButton } from "./hooks/useScrollPosition";
 import { useScrollTracking } from "./hooks/useScrollTracking";
 import { motionTransitions, springs } from "./lib/motion-tokens";
 import { useTranslation } from "./utils/i18n";
-import type { ComparisonColumnHandle } from "./components/ComparisonColumn";
+import type { ComparisonColumnHandle } from "./components/chat/ComparisonColumn";
 import { executeCommand } from "./services/commandDispatcher";
 import { useDialogFocus } from "./hooks/useDialogFocus";
 import { DEFAULT_AUX_PANEL_WIDTH, MAX_AUX_PANEL_WIDTH, MIN_AUX_PANEL_WIDTH } from "./config/constants";

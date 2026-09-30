@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useUIStore } from "../store/useUIStore";
+import { useUIStore } from "../store/ui/useUIStore";
 import {
   getMotionMode,
   motionTokens,

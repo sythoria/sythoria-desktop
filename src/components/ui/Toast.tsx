@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { motionTokens, motionTransitions, springs } from "../../lib/motion-tokens";
-import { useUIStore } from "../../store/useUIStore";
+import { useUIStore } from "../../store/ui/useUIStore";
 
 export interface Toast {
   id: string;

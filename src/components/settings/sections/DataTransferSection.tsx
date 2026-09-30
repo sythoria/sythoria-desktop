@@ -1,13 +1,13 @@
 import { useState, useRef, type ChangeEvent, type DragEvent } from "react";
 import { Upload, Download, FileText, MessageSquare, Sparkles, Check } from "lucide-react";
 import { useTranslation } from "../../../utils/i18n";
-import { useChatStore } from "../../../store/useChatStore";
-import { useModelStore } from "../../../store/useModelStore";
-import { useKnowledgeStore } from "../../../store/useKnowledgeStore";
-import { useUIStore } from "../../../store/useUIStore";
+import { useChatStore } from "../../../store/chat/useChatStore";
+import { useModelStore } from "../../../store/providers/useModelStore";
+import { useKnowledgeStore } from "../../../store/workspace/useKnowledgeStore";
+import { useUIStore } from "../../../store/ui/useUIStore";
 import { SettingsPanel, SettingsSectionHeader, SettingsHeaderButton } from "../components/SettingsPrimitives";
 import { Select, type SelectOption } from "../../ui/Select";
-import { parseImportData, type ParsedImportResult } from "../../../utils/importers";
+import { parseImportData, type ParsedImportResult } from "../../../utils/conversations/importers";
 import {
   downloadTextFile,
   conversationToMarkdown,
@@ -16,7 +16,7 @@ import {
   exportToChatGptJson,
   exportToClaudeJson,
   exportToSythoriaJson,
-} from "../../../utils/exporters";
+} from "../../../utils/conversations/exporters";
 
 type ExportFormat = "markdown" | "sythoria_json" | "chatgpt_json" | "claude_json";
 

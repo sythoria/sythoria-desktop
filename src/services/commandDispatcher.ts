@@ -1,8 +1,8 @@
-import type { CommandId } from "../store/useKeybindStore";
-import { useKeybindStore } from "../store/useKeybindStore";
-import { useChatStore } from "../store/useChatStore";
-import { useUIStore } from "../store/useUIStore";
-import { useAppshotStore } from "../store/useAppshotStore";
+import type { CommandId } from "../store/ui/useKeybindStore";
+import { useKeybindStore } from "../store/ui/useKeybindStore";
+import { useChatStore } from "../store/chat/useChatStore";
+import { useUIStore } from "../store/ui/useUIStore";
+import { useAppshotStore } from "../store/platform/useAppshotStore";
 
 export interface CommandExecutionContext {
   toggleCompareMode?: () => void;

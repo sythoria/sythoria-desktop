@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback } from "react";
 import { Attachment } from "../types";
-import { useUIStore } from "../store/useUIStore";
-import { useChatStore } from "../store/useChatStore";
-import { validateFile, readFileAsAttachment, isImageFile } from "../utils/attachments";
-import { useModelStore } from "../store/useModelStore";
+import { useUIStore } from "../store/ui/useUIStore";
+import { useChatStore } from "../store/chat/useChatStore";
+import { validateFile, readFileAsAttachment, isImageFile } from "../utils/attachments/attachments";
+import { useModelStore } from "../store/providers/useModelStore";
 
 export function useAttachments(isolated = false) {
   const sharedAttachments = useChatStore((s) => s.draftAttachments);

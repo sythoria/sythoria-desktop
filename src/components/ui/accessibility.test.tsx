@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfirmModal } from "./Modal";
 import { ImagePreviewModal } from "./ImagePreviewModal";
 
-vi.mock("../../store/useKeybindStore", () => ({
+vi.mock("../../store/ui/useKeybindStore", () => ({
   matchKeybind: () => false,
   useKeybindStore: () => ({
     keybinds: {

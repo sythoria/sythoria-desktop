@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { Plus } from "lucide-react";
-import { useModelStore } from "../../store/useModelStore";
-import { useSearchStore } from "../../store/useSearchStore";
-import { useMcpStore } from "../../store/useMcpStore";
-import { useUIStore } from "../../store/useUIStore";
-import { useChatStore } from "../../store/useChatStore";
+import { useModelStore } from "../../store/providers/useModelStore";
+import { useSearchStore } from "../../store/providers/useSearchStore";
+import { useMcpStore } from "../../store/providers/useMcpStore";
+import { useUIStore } from "../../store/ui/useUIStore";
+import { useChatStore } from "../../store/chat/useChatStore";
 import { McpServerConfig } from "../../types";
 import { McpServerPreset } from "../../config/mcpPresets";
 import { springs, motionTokens, motionTransitions } from "../../lib/motion-tokens";

@@ -34,10 +34,10 @@ describe("parseGoogleClientSecretsFile", () => {
 });
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("../utils/externalUrl", () => ({ openExternalUrl: vi.fn() }));
+vi.mock("../utils/network/externalUrl", () => ({ openExternalUrl: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 import { startGoogleOAuthFlow } from "./googleOAuth";
 
 describe("Google OAuth lifecycle", () => {

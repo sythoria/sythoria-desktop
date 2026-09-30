@@ -1,6 +1,6 @@
 import { validateGoogleScopes } from "./googlePermissions";
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 
 export interface GoogleTokenResult {
   access_token: string;

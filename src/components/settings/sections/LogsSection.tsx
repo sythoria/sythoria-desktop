@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Search, Filter, Copy, X, Check } from "lucide-react";
 import { LogEntry, LogSource } from "../../../types/log";
-import { clearLogs } from "../../../utils/logger";
+import { clearLogs } from "../../../utils/system/logger";
 import { useTranslation } from "../../../utils/i18n";
 import { Select } from "../../ui/Select";
 import { SettingsHeaderButton, SettingsSectionHeader } from "../components/SettingsPrimitives";

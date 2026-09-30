@@ -24,6 +24,7 @@ Pre-commit: Husky + lint-staged (`eslint --fix` + `prettier --write`).
 - Use `npm run release:patch`, `npm run release:minor`, or `npm run release:major` to bump every application version together.
 - Keep the version bump and release-specific fixes in one dedicated commit named `chore(release): Release <version>`.
 - Create an annotated `v<version>` tag on that release commit so the release history stays linear and easy to audit.
+- Finish integrating remote changes and release fixes before creating the final release commit and tag. Include the application version in `src-tauri/Cargo.lock` so every version file matches the tagged build.
 
 ## Directory Structure
 
@@ -35,24 +36,17 @@ src/
   types/index.ts        # Core types (Message, Conversation, Project, configs) + helpers
   types/log.ts          # LogEntry, LogLevel, LogSource
   store/
-    useChatStore.ts     # Conversations, streaming, generation state, compare/pin/workspace changes, attachments
-    useModelStore.ts    # Models, temperature, API keys, health checks, active stream listener Map
-    useSearchStore.ts   # Search configs, search toggle
-    useMcpStore.ts      # MCP server configs, available tools, masked env-secret state, server statuses
-    useUIStore.ts       # View, theme, layout, toasts, logs, tasks, tool confirmations, native app updates
-    useProjectStore.ts  # Project configuration, active project, and legacy recovery-worktree selection
-    useKeybindStore.ts  # Customizable keyboard shortcuts and viewport zoom level mapping
-    useAppshotStore.ts  # Appshots screen-capture configuration, permissions, and gallery
-    useGitStore.ts      # Git repo detection, commits, AI commit messages, auto-commit
-    useWhisperStore.ts  # Whisper voice recording controls, preset downloads, and model management
-    useSkillStore.ts    # Installed Agent Skill metadata, lazy document cache, CRUD, and refresh deduplication
-    conversationLifecycle.ts # Pure conversation-tree discovery and post-deletion navigation/state reducer
-    helpers.ts          # Cross-store action helpers
-    index.ts            # Centralized store exports
+    chat/               # Conversation store, lifecycle reducer, and conversation tests
+    providers/          # Model, search, and MCP stores
+    workspace/          # Project, Git, and knowledge stores
+    ui/                 # UI and keyboard shortcut stores
+    platform/           # Appshot, skill, and Whisper stores
+    shared/helpers.ts   # Cross-store action helpers
   services/
     toolLoop.ts         # Agentic tool loop: search_query + fetch_url + MCP + project workspace tools (limit 25)
     contextAssembler.ts # Provider-aware budgets, tool summaries, sliding history, and condensation disclosure
     conversationRunContext.ts # Immutable per-run model, project, tool, attachment, and commit scope
+    oauthCallback.ts    # Session-bound native loopback callbacks and browser authorization
   config/
     constants.ts        # MAX_INPUT_LENGTH, DEFAULT_TEMPERATURE, ID_LENGTH, etc.
     providerPresets.ts  # OpenAI (Chat Completions and Responses), Gemini, Ollama, NVIDIA NIM, OpenRouter, Anthropic, Custom
@@ -68,34 +62,25 @@ src/
     useAttachments.ts   # File validation, MIME mapping, and size check utilities
     use-safe-motion.ts  # useSafeMotion, useSafeScale, useSafeSlideX (respects prefers-reduced-motion)
   utils/
-    storage.ts          # Encrypted Rust storage bridge, masked secret state, Zod validation, and legacy migrations
-    i18n/                 # Modular BCP 47 locales: en.ts, es.ts, fr.ts, de.ts, zh.ts, ja.ts
-    i18n.ts               # Consolidates locales and exports type-safe useTranslation() hook
-    validation.ts       # Zod schemas, URL validation, API key validation, MCP config validation
-    generateId.ts       # crypto.randomUUID().slice(0, 8)
-    parseApiError.ts    # AppError JSON -> user messages with category, retryability, suggested actions
-    logger.ts           # Structured logging: logInfo, logWarn, logError (syncs to UI store, Tauri plugin-log)
-    attachments.ts      # Base64 serialization, input parsing, attachment metadata generation
-    messageParser.ts    # Utility parsing text messages
-    highlighter.ts      # Code syntax highlighting
-    tokens.ts           # Token estimation/calculation helpers
-    lineDiff.ts         # Bounded line diff/hunk generation and file-language detection
+    attachments/        # Attachment serialization and metadata
+    conversations/      # Message helpers, importers, exporters, and tool mentions
+    formatting/         # Duration, model names, code highlighting, shortcuts, and tokens
+    i18n/               # Locale dictionaries, translation hook, and parity test
+    network/            # Endpoint errors, URL helpers, API errors, and Responses routing
+    security/           # Redaction and input/config validation
+    storage/            # Encrypted Rust storage bridge and migration tests
+    system/             # IDs, logging, debounce, and scroll locking
+    workspace/          # Workspace changes, project links, and diff helpers
   lib/
     motion-tokens.ts    # Animation tokens, springs, and motion config (reduced motion / low-end detection)
   components/
-    Sidebar.tsx         # Collapsible conversation list, search, date grouping, project selector
-    ChatArea.tsx        # Messages, markdown, streaming, native skill/tool disclosures, completed edit summaries, comparison columns, and inline tool diffs
-    FileEditDiffCard.tsx # Bounded syntax-highlighted intended/actual file-write diffs and failure state
-    ReviewDiffView.tsx   # Graphical workspace review: file headers, syntax-highlighted numbered hunks, subtle omitted-context rows, and progressive large-diff rendering
-    ReviewWorkspaceTree.tsx # Read-only workspace tree, file search, change markers, and animated folder expansion
-    InputBar.tsx        # Composer orchestration, live changed-files indicator, model selector, tools, attachments, send/stop
-    PromptEditor.tsx    # Contenteditable draft parsing, normalized text newlines, caret selection, inline MCP labels
-    Settings.tsx        # Entry component displaying sidebar settings sections
-    settings/           # Modular settings panels (Appearance, Keybinds, Whisper, Projects, Mcp, General, logs, etc.)
-    StartScreen.tsx     # Onboarding with motion entrance animations
-    ScrollToBottomButton.tsx
-    # ImagePreviewModal portals to document.body above app chrome to escape composer/message stacking contexts.
-    ui/                 # Modal, Spinner, Switch, Toast, ErrorBoundary, MotionButton, DragOverlay, ImagePreviewModal
+    chat/               # Chat display, composer, comparisons, and response controls
+    layout/             # Sidebar, title bar, start screen, spotlight, and app motion setup
+    overlays/           # Command palette and global link/project dialogs
+    settings/           # Settings entry, sections, and settings-only controls
+    ui/                 # Shared primitives, including the image preview portal
+    workspace/          # Auxiliary panel, review, file tree, and workspace change UI
+    README.md           # Component folder ownership and placement guidance
 docs/
   updater-releases.md   # Updater signing, local-build, release, and test guide
 LICENSE                 # MIT license for Sythoria source and distributions
@@ -118,6 +103,7 @@ src-tauri/src/
   project_tools.rs      # Workspace tools with path validation and exclusion-pruned read/list/grep/glob traversal
   terminal.rs           # User-driven PTY sessions launched in the registered project folder
   skills.rs             # Sandboxed Agent Skill discovery, YAML editing, and bounded resource/document reads
+  computer_use.rs       # Bundled Computer Use readiness checks and guided setup prerequisites
   commands/
     config.rs           # Encrypted settings/config commands, native secret-store bridges, and full data wipe
     conversations.rs    # Encrypted content-addressed conversation snapshots

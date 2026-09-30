@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { openExternalUrl } from "../utils/network/externalUrl";
 import { authorizeInBrowser } from "./oauthCallback";
 import { startSpotifyOAuthFlow } from "./spotifyOAuth";
 import { startLinearOAuthFlow } from "./linearOAuth";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("../utils/externalUrl", () => ({ openExternalUrl: vi.fn() }));
+vi.mock("../utils/network/externalUrl", () => ({ openExternalUrl: vi.fn() }));
 
 describe("browser OAuth callbacks", () => {
   beforeEach(() => {
