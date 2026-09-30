@@ -1,18 +1,44 @@
 {
   "id": "canva",
   "name": "Canva",
+  "icon": "./icon.svg",
   "category": "media",
   "description": "Browse social media templates, create design assets, and export graphics.",
-  "icon": "./icon.svg",
   "authType": "oauth",
-  "authFields": [],
+  "authFields": [
+    {
+      "key": "CANVA_CLIENT_ID",
+      "label": "Canva MCP Client ID",
+      "placeholder": "Client ID from your approved Canva MCP app",
+      "type": "text",
+      "required": true,
+      "docUrl": "https://www.canva.dev/docs/apps/quickstart/"
+    },
+    {
+      "key": "CANVA_CLIENT_SECRET",
+      "label": "Canva MCP Client Secret",
+      "placeholder": "Client secret from your approved Canva MCP app",
+      "type": "password",
+      "required": true
+    }
+  ],
   "preset": {
     "id": "canva",
     "name": "Canva",
     "description": "Access Canva templates and design assets.",
+    "homepageUrl": "https://www.canva.dev/docs/apps/quickstart/",
     "command": "npx",
-    "args": ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"],
-    "homepageUrl": "https://www.canva.dev/docs/apps/quickstart/"
+    "args": [
+      "-y",
+      "mcp-remote@0.14.3",
+      "https://mcp.canva.com/mcp",
+      "3334",
+      "--auth-timeout",
+      "300",
+      "--static-oauth-client-info",
+      "{\"client_id\":\"${CANVA_CLIENT_ID}\",\"client_secret\":\"${CANVA_CLIENT_SECRET}\"}"
+    ],
+    "envKeys": ["CANVA_CLIENT_ID", "CANVA_CLIENT_SECRET"]
   },
   "keywords": ["canva", "design", "templates", "graphics", "social media", "banners"]
 }

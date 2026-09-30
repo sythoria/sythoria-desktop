@@ -1,18 +1,19 @@
 {
   "id": "google-calendar",
   "name": "Google Calendar",
-  "category": "productivity",
-  "description": "Check schedule availability, view meetings, and create calendar events.",
   "icon": "./icon.svg",
+  "category": "productivity",
   "badge": "Popular",
-  "authType": "api_key",
+  "description": "View calendar events; optionally allow creating, editing, and deleting events.",
+  "authType": "oauth",
   "authFields": [
     {
-      "key": "GOOGLE_CALENDAR_CREDENTIALS",
-      "label": "Google Calendar Credentials JSON / Path",
-      "placeholder": "/path/to/credentials.json",
-      "type": "text",
-      "required": true,
+      "key": "GOOGLE_CLIENT_SECRET",
+      "label": "Google Desktop app client secret",
+      "placeholder": "GOCSPX-...",
+      "type": "password",
+      "required": false,
+      "helpText": "Client Secret from your Google Cloud Console OAuth 2.0 Client.",
       "docUrl": "https://console.cloud.google.com/apis/credentials"
     }
   ],
@@ -21,8 +22,8 @@
     "name": "Google Calendar",
     "description": "Manage events and check schedule availability on Google Calendar.",
     "command": "npx",
-    "args": ["-y", "mcp-server-google-calendar"],
-    "envKeys": ["GOOGLE_CALENDAR_CREDENTIALS"]
+    "args": ["-y", "@piotr-agier/google-drive-mcp@2.11.0"],
+    "envKeys": ["SYTHORIA_GOOGLE_OAUTH_GRANT", "SYTHORIA_GOOGLE_OAUTH_KIND"]
   },
   "keywords": ["google calendar", "calendar", "events", "meetings", "schedule", "availability"]
 }

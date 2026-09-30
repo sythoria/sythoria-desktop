@@ -14,6 +14,7 @@ import { useMcpStore } from "../../../store/useMcpStore";
 import { useUIStore } from "../../../store/useUIStore";
 import { openExternalUrl } from "../../../utils/externalUrl";
 import { invoke } from "@tauri-apps/api/core";
+import { PLUGINS_CATALOG } from "../../../config/pluginsCatalog";
 
 describe("PluginsSection", () => {
   beforeEach(() => {
@@ -21,6 +22,7 @@ describe("PluginsSection", () => {
     useMcpStore.setState({
       mcpConfigs: [],
       serverStatuses: {},
+      serverErrors: {},
       envSecrets: {},
       enabledServerIds: new Set(),
     });
@@ -54,7 +56,7 @@ describe("PluginsSection", () => {
     const sourceLink = screen.getByRole("button", { name: "View MCP package for GitHub" });
     fireEvent.click(sourceLink);
     expect(openExternalUrl).toHaveBeenCalledWith("https://www.npmjs.com/package/%40modelcontextprotocol/server-github");
-    expect(screen.queryByText(/1-Click Connect with GitHub/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Continue with GitHub/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("plugin-card-github"));
     expect(screen.getAllByRole("button", { name: "View MCP package for GitHub" })).toHaveLength(2);
@@ -77,7 +79,7 @@ describe("PluginsSection", () => {
     const githubCard = screen.getByTestId("plugin-card-github");
     fireEvent.click(githubCard);
 
-    expect(screen.getByText(/1-Click Connect with GitHub/i)).toBeInTheDocument();
+    expect(screen.getByText(/Continue with GitHub/i)).toBeInTheDocument();
     expect(screen.getByText(/Or enter a Personal Access Token manually/i)).toBeInTheDocument();
 
     // Click manual token toggle
@@ -85,7 +87,7 @@ describe("PluginsSection", () => {
 
     expect(screen.getByText("GitHub Personal Access Token")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("ghp_...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authorize GitHub/i })).toBeInTheDocument();
+    expect(screen.getByText("Connect GitHub", { selector: "span" })).toBeInTheDocument();
   });
 
   it("opens modal for Linear and displays 1-Click OAuth", () => {
@@ -94,7 +96,7 @@ describe("PluginsSection", () => {
     const linearCard = screen.getByTestId("plugin-card-linear");
     fireEvent.click(linearCard);
 
-    expect(screen.getByText(/1-Click Connect with Linear/i)).toBeInTheDocument();
+    expect(screen.getByText(/Continue with Linear/i)).toBeInTheDocument();
     expect(screen.getByText(/Or enter a Personal API Key manually/i)).toBeInTheDocument();
 
     // Click manual token toggle
@@ -102,7 +104,7 @@ describe("PluginsSection", () => {
 
     expect(screen.getByText("Linear Personal API Key")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("lin_api_...")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authorize Linear/i })).toBeInTheDocument();
+    expect(screen.getByText("Connect Linear", { selector: "span" })).toBeInTheDocument();
   });
 
   it("keeps Google credentials editable and shows one inline validation error", async () => {
@@ -147,21 +149,81 @@ describe("PluginsSection", () => {
     expect(screen.getByText(/Google OAuth client is encrypted and shared/i)).toBeInTheDocument();
   });
 
-  it("opens modal for Spotify and displays 1-Click OAuth with manual fallback", () => {
+  it("keeps Google setup editable when MCP startup fails after account consent", async () => {
+    const plugin = PLUGINS_CATALOG.find((item) => item.id === "google-drive")!;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "get_google_oauth_client") return { clientId: "client.apps.googleusercontent.com" };
+      if (command === "start_google_oauth_listener") return 49152;
+      if (command === "wait_google_oauth_callback") return { code: "code" };
+      if (command === "google_exchange_token") return { access_token: "token" };
+      if (command === "save_google_mcp_tokens") return { grantId: "grant" };
+      return undefined;
+    });
+    const connect = vi.spyOn(useMcpStore.getState(), "addMcpConfigWithSecrets").mockImplementation(async () => {
+      useMcpStore.setState({
+        mcpConfigs: [
+          { id: "drive", catalogPluginId: plugin.id, name: plugin.preset.name, transport: "stdio", enabled: true },
+        ],
+        serverStatuses: { drive: "error" },
+      });
+      return false;
+    });
     render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-google-drive"));
+    const button = screen.getByRole("button", { name: "Continue with Google" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Google authorization completed, but the plugin could not start",
+    );
+    expect(screen.getByLabelText("Google Client ID")).toHaveValue("client.apps.googleusercontent.com");
+    expect(useUIStore.getState().toasts).toHaveLength(0);
+    connect.mockRestore();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+  });
 
-    const spotifyCard = screen.getByTestId("plugin-card-spotify");
-    fireEvent.click(spotifyCard);
+  it("requires Spotify client setup and uses OAuth for the only connect action", () => {
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-spotify"));
+    expect(screen.getByLabelText(/Spotify Client ID/)).toBeInTheDocument();
+    expect(screen.getByText(/add exactly http:\/\/127.0.0.1:8888\/callback/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue with Spotify/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Authorize Spotify/ })).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByText(/1-Click Connect with Spotify/i)).toBeInTheDocument();
-    expect(screen.getByText(/Or specify a custom Spotify Client ID/i)).toBeInTheDocument();
+  it("opens Canva setup from its connect action and validates credentials before starting", async () => {
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTitle("Connect Canva"));
+    expect(screen.getByLabelText(/Canva MCP Client ID/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Canva MCP Client Secret/)).toBeInTheDocument();
+    expect(screen.getByText(/Canva requires an approved MCP app/)).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Canva" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter Canva MCP Client ID");
+    expect(invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+  });
 
-    // Click manual token toggle
-    fireEvent.click(screen.getByText(/Or specify a custom Spotify Client ID/i));
-
-    expect(screen.getByText(/Spotify Client ID/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Leave blank to use Sythoria Default/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Authorize Spotify/i })).toBeInTheDocument();
+  it("keeps Canva authorization visible while connecting and shows a single inline failure", async () => {
+    const connect = vi.spyOn(useMcpStore.getState(), "addMcpConfigWithSecrets");
+    let finish: ((value: boolean) => void) | undefined;
+    connect.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(<PluginsSection />);
+    fireEvent.click(screen.getByTestId("plugin-card-canva"));
+    fireEvent.change(screen.getByLabelText(/Canva MCP Client ID/), { target: { value: "client" } });
+    fireEvent.change(screen.getByLabelText(/Canva MCP Client Secret/), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Canva" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for browser authorization");
+    expect(screen.getByRole("button", { name: "Connecting..." })).toBeDisabled();
+    finish?.(false);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not connect Canva");
+    expect(screen.getByLabelText(/Canva MCP Client ID/)).toHaveValue("client");
+    expect(useUIStore.getState().toasts).toHaveLength(0);
+    connect.mockRestore();
   });
 
   it("renders installed plugins ribbon and revokes access when cross button is clicked", async () => {
@@ -188,7 +250,7 @@ describe("PluginsSection", () => {
     expect(screen.getByText(/Installed Plugins \(1\)/i)).toBeInTheDocument();
     expect(screen.getByTitle("Configure Linear")).toBeInTheDocument();
 
-    const revokeButton = screen.getByRole("button", { name: /Revoke access for Linear/i });
+    const revokeButton = screen.getByRole("button", { name: /Disconnect Linear/i });
     expect(revokeButton).toBeInTheDocument();
 
     fireEvent.click(revokeButton);
@@ -196,7 +258,7 @@ describe("PluginsSection", () => {
     await waitFor(() => {
       expect(useUIStore.getState().toasts).toContainEqual(
         expect.objectContaining({
-          message: "Revoked access for Linear",
+          message: "Disconnected Linear",
           variant: "info",
         }),
       );

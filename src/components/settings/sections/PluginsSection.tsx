@@ -34,7 +34,7 @@ import { motionTransitions } from "../../../lib/motion-tokens";
 import { SettingsPanel, SettingsSectionHeader } from "../components/SettingsPrimitives";
 import { BrandIcon } from "../../ui/BrandIcons";
 import { startGitHubDeviceFlow, pollGitHubDeviceToken } from "../../../services/githubOAuth";
-import { startLinearOAuthFlow, DEFAULT_LINEAR_CLIENT_ID } from "../../../services/linearOAuth";
+import { startLinearOAuthFlow } from "../../../services/linearOAuth";
 import {
   startGoogleOAuthFlow,
   saveGoogleMcpTokens,
@@ -43,12 +43,7 @@ import {
   getGoogleOAuthClient,
   saveGoogleOAuthClient,
 } from "../../../services/googleOAuth";
-import {
-  startSpotifyOAuthFlow,
-  saveSpotifyMcpTokens,
-  DEFAULT_SPOTIFY_CLIENT_ID,
-  DEFAULT_SPOTIFY_SCOPES,
-} from "../../../services/spotifyOAuth";
+import { startSpotifyOAuthFlow, saveSpotifyMcpTokens, DEFAULT_SPOTIFY_SCOPES } from "../../../services/spotifyOAuth";
 import { openExternalUrl } from "../../../utils/externalUrl";
 import type { McpServerConfig } from "../../../types";
 
@@ -149,6 +144,7 @@ export function PluginsSection() {
   // MCP Store state
   const mcpConfigs = useMcpStore((s) => s.mcpConfigs);
   const serverStatuses = useMcpStore((s) => s.serverStatuses);
+  const serverErrors = useMcpStore((s) => s.serverErrors);
   const envSecrets = useMcpStore((s) => s.envSecrets);
   const enabledServerIds = useMcpStore((s) => s.enabledServerIds);
   const deleteMcpConfig = useMcpStore((s) => s.deleteMcpConfig);
@@ -162,6 +158,8 @@ export function PluginsSection() {
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
   const [showReauthForm, setShowReauthForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const connectionAbortRef = useRef<AbortController | null>(null);
 
   // Map installed MCP configs to catalog items
   const installedPluginMap = useMemo(() => {
@@ -303,6 +301,7 @@ export function PluginsSection() {
   // Clean up pending OAuth polling on unmount
   useEffect(() => {
     return () => {
+      connectionAbortRef.current?.abort();
       if (githubAbortRef.current) {
         githubAbortRef.current.abort();
         githubAbortRef.current = null;
@@ -325,11 +324,18 @@ export function PluginsSection() {
   // Open modal and pre-fill existing env secrets if already installed
   const handleOpenModal = useCallback(
     (plugin: PluginItem) => {
+      connectionAbortRef.current?.abort();
+      githubAbortRef.current?.abort();
+      linearAbortRef.current?.abort();
+      googleAbortRef.current?.abort();
+      spotifyAbortRef.current?.abort();
+      setIsSubmitting(false);
+      setConnectionError(null);
       setActiveModalPlugin(plugin);
       setGoogleAccess("read");
       setGoogleClientLoading(["gmail", "google-drive", "google-calendar"].includes(plugin.id));
       setSavedGoogleClientId(null);
-      setShowManualToken(false);
+      setShowManualToken(plugin.id === "spotify");
       setGithubOAuth({
         isActive: false,
         userCode: "",
@@ -375,6 +381,7 @@ export function PluginsSection() {
         }
       }
 
+      if (plugin.id === "spotify") initialForm.SPOTIFY_CLIENT_ID = "";
       setFormValues(initialForm);
       setShowPasswordMap({});
       setShowReauthForm(false);
@@ -383,6 +390,8 @@ export function PluginsSection() {
   );
 
   const handleCloseModal = () => {
+    connectionAbortRef.current?.abort();
+    connectionAbortRef.current = null;
     if (githubAbortRef.current) {
       githubAbortRef.current.abort();
       githubAbortRef.current = null;
@@ -430,6 +439,7 @@ export function PluginsSection() {
 
   // 1-Click GitHub Device Flow OAuth
   const handleStartGitHubOAuth = async () => {
+    setShowReauthForm(true);
     if (githubAbortRef.current) {
       githubAbortRef.current.abort();
     }
@@ -445,7 +455,10 @@ export function PluginsSection() {
     });
 
     try {
-      const codeResult = await startGitHubDeviceFlow();
+      const clientId = formValues.GITHUB_CLIENT_ID?.trim();
+      if (!clientId) throw new Error("Enter your GitHub OAuth Client ID, or connect with a personal access token.");
+      const codeResult = await startGitHubDeviceFlow(clientId);
+      if (abortController.signal.aborted) return;
       setGithubOAuth({
         isActive: true,
         userCode: codeResult.user_code,
@@ -463,15 +476,20 @@ export function PluginsSection() {
       }
 
       // Open browser to GitHub authorization page
-      await openExternalUrl(codeResult.verification_uri);
+      if (abortController.signal.aborted) return;
+      if (!(await openExternalUrl(codeResult.verification_uri))) {
+        throw new Error("Could not open your browser. Check your default browser and try again.");
+      }
 
       // Start polling for token
       const token = await pollGitHubDeviceToken(
         codeResult.device_code,
-        undefined,
+        clientId,
         codeResult.interval,
         abortController.signal,
+        codeResult.expires_in,
       );
+      if (abortController.signal.aborted) return;
 
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "github");
@@ -481,12 +499,14 @@ export function PluginsSection() {
           .addMcpConfigWithSecrets(
             plugin.preset,
             { GITHUB_PERSONAL_ACCESS_TOKEN: token },
-            { catalogPluginId: plugin.id },
+            { notify: false, catalogPluginId: plugin.id, signal: abortController.signal },
           );
 
         if (success) {
           addToast(`Connected ${plugin.name}`, "success");
-          handleCloseModal();
+          if (!abortController.signal.aborted) handleCloseModal();
+        } else if (!abortController.signal.aborted) {
+          throw new Error("Authorization completed, but the plugin could not start. Try connecting again.");
         }
       }
     } catch (err: unknown) {
@@ -497,12 +517,12 @@ export function PluginsSection() {
         isPolling: false,
         error: errorMsg,
       }));
-      addToast(errorMsg, "error");
     }
   };
 
   // 1-Click Linear PKCE OAuth
   const handleStartLinearOAuth = async () => {
+    setShowReauthForm(true);
     if (linearAbortRef.current) {
       linearAbortRef.current.abort();
     }
@@ -516,14 +536,11 @@ export function PluginsSection() {
     });
 
     try {
-      const token = await startLinearOAuthFlow(
-        DEFAULT_LINEAR_CLIENT_ID,
-        undefined,
-        undefined,
-        undefined,
-        abortController.signal,
-      );
+      const clientId = formValues.LINEAR_CLIENT_ID?.trim();
+      if (!clientId) throw new Error("Enter your Linear OAuth Client ID, or connect with a personal API key.");
+      const token = await startLinearOAuthFlow(clientId, undefined, undefined, undefined, abortController.signal);
 
+      if (abortController.signal.aborted) return;
       // Successfully authorized
       const plugin = PLUGINS_CATALOG.find((p) => p.id === "linear");
       if (plugin) {
@@ -532,12 +549,14 @@ export function PluginsSection() {
           .addMcpConfigWithSecrets(
             plugin.preset,
             { LINEAR_API_KEY: token, LINEAR_ACCESS_TOKEN: token },
-            { catalogPluginId: plugin.id },
+            { notify: false, catalogPluginId: plugin.id, signal: abortController.signal },
           );
 
         if (success) {
           addToast(`Connected ${plugin.name}`, "success");
-          handleCloseModal();
+          if (!abortController.signal.aborted) handleCloseModal();
+        } else if (!abortController.signal.aborted) {
+          throw new Error("Authorization completed, but the plugin could not start. Try connecting again.");
         }
       }
     } catch (err: unknown) {
@@ -548,7 +567,6 @@ export function PluginsSection() {
         isConnecting: false,
         error: errorMsg,
       });
-      addToast(errorMsg, "error");
     }
   };
 
@@ -586,6 +604,7 @@ export function PluginsSection() {
 
   // Google Desktop OAuth
   const handleStartGoogleOAuth = async (plugin: PluginItem) => {
+    setShowReauthForm(true);
     if (googleAbortRef.current) {
       googleAbortRef.current.abort();
     }
@@ -644,9 +663,11 @@ export function PluginsSection() {
             }),
       };
 
-      const success = await useMcpStore
-        .getState()
-        .addMcpConfigWithSecrets(plugin.preset, secrets, { notify: false, catalogPluginId: plugin.id });
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets, {
+        notify: false,
+        catalogPluginId: plugin.id,
+        signal: abortController.signal,
+      });
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
@@ -672,6 +693,7 @@ export function PluginsSection() {
 
   // 1-Click Spotify PKCE OAuth
   const handleStartSpotifyOAuth = async (plugin: PluginItem) => {
+    setShowReauthForm(true);
     if (spotifyAbortRef.current) {
       spotifyAbortRef.current.abort();
     }
@@ -685,31 +707,40 @@ export function PluginsSection() {
     });
 
     try {
-      const customClientId = formValues["SPOTIFY_CLIENT_ID"]?.trim() || undefined;
+      const customClientId = formValues["SPOTIFY_CLIENT_ID"]?.trim();
+      if (!customClientId) throw new Error("Enter the Client ID from your Spotify app before continuing.");
       const tokens = await startSpotifyOAuthFlow(
-        customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        customClientId,
         DEFAULT_SPOTIFY_SCOPES,
         undefined,
         undefined,
         abortController.signal,
       );
 
+      if (abortController.signal.aborted) return;
+
       // Save tokens atomically to ~/.spotify-mcp/tokens.json for spotify-mcp server
       await saveSpotifyMcpTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn);
 
+      if (abortController.signal.aborted) return;
+
       // Build secrets map
       const secrets: Record<string, string> = {
-        SPOTIFY_CLIENT_ID: customClientId || DEFAULT_SPOTIFY_CLIENT_ID,
+        SPOTIFY_CLIENT_ID: customClientId,
         SPOTIFY_ACCESS_TOKEN: tokens.accessToken,
       };
 
-      const success = await useMcpStore
-        .getState()
-        .addMcpConfigWithSecrets(plugin.preset, secrets, { catalogPluginId: plugin.id });
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets, {
+        notify: false,
+        catalogPluginId: plugin.id,
+        signal: abortController.signal,
+      });
 
       if (success) {
         addToast(`Connected ${plugin.name}`, "success");
-        handleCloseModal();
+        if (!abortController.signal.aborted) handleCloseModal();
+      } else if (!abortController.signal.aborted) {
+        throw new Error("Spotify authorization completed, but the plugin could not start. Try connecting again.");
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) return;
@@ -719,46 +750,56 @@ export function PluginsSection() {
         isConnecting: false,
         error: errorMsg,
       });
-      addToast(errorMsg, "error");
     }
   };
 
-  // Connect or Update plugin
+  // Connect only after an explicit action; OAuth setup stays visible while waiting.
   const handleConnectPlugin = async () => {
-    if (!activeModalPlugin) return;
+    if (!activeModalPlugin || isSubmitting) return;
+    const plugin = activeModalPlugin;
+    const controller = new AbortController();
+    connectionAbortRef.current = controller;
+    setConnectionError(null);
+    setShowReauthForm(true);
+    const missing = plugin.authFields.find((field) => field.required && !formValues[field.key]?.trim());
+    if (missing) {
+      setConnectionError(`Enter ${missing.label} before connecting.`);
+      return;
+    }
     setIsSubmitting(true);
-
     try {
-      const plugin = activeModalPlugin;
-      const installedInfo = installedPluginMap.get(plugin.id);
-
-      const secretsToSave: Record<string, string> = {};
-      for (const field of plugin.authFields) {
-        const val = formValues[field.key];
-        if (val !== undefined) {
-          secretsToSave[field.key] = val.trim();
-        }
-      }
-
-      const success = await useMcpStore
-        .getState()
-        .addMcpConfigWithSecrets(plugin.preset, secretsToSave, { catalogPluginId: plugin.id });
-
+      const secrets = Object.fromEntries(
+        plugin.authFields.map((field) => [field.key, formValues[field.key]?.trim() || ""]),
+      );
+      const success = await useMcpStore.getState().addMcpConfigWithSecrets(plugin.preset, secrets, {
+        notify: false,
+        catalogPluginId: plugin.id,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       if (success) {
-        addToast(installedInfo ? `Updated authorization for ${plugin.name}` : `Connected ${plugin.name}`, "success");
+        addToast(`Connected ${plugin.name}`, "success");
         handleCloseModal();
+      } else {
+        const config = useMcpStore
+          .getState()
+          .mcpConfigs.find((item) => item.catalogPluginId === plugin.id || item.name === plugin.preset.name);
+        setConnectionError(
+          (config && useMcpStore.getState().serverErrors[config.id]) ||
+            `Could not connect ${plugin.name}. Check setup and try again.`,
+        );
       }
-    } catch {
-      addToast(`Failed to authorize ${activeModalPlugin.name}`, "error");
+    } catch (err) {
+      if (!controller.signal.aborted) setConnectionError(formatOAuthError(err, `Could not connect ${plugin.name}.`));
     } finally {
-      setIsSubmitting(false);
+      if (!controller.signal.aborted) setIsSubmitting(false);
     }
   };
 
   // Fast one-click install for Zero-Config plugins
   const handleQuickConnect = async (plugin: PluginItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (plugin.authFields.length > 0) {
+    if (plugin.authType !== "none" || plugin.authFields.length > 0) {
       handleOpenModal(plugin);
       return;
     }
@@ -787,7 +828,7 @@ export function PluginsSection() {
       addToast(
         ["gmail", "google-drive", "google-calendar"].includes(plugin.id)
           ? `Disconnected ${plugin.name}`
-          : `Revoked access for ${plugin.name}`,
+          : `Disconnected ${plugin.name}`,
         "info",
       );
       if (activeModalPlugin?.id === plugin.id) {
@@ -852,8 +893,8 @@ export function PluginsSection() {
                     type="button"
                     onClick={(e) => handleDisconnectPlugin(plugin, e)}
                     className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-0.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-500/15 transition-all focus:outline-none"
-                    title={`Revoke access for ${plugin.name}`}
-                    aria-label={`Revoke access for ${plugin.name}`}
+                    title={`Disconnect ${plugin.name}`}
+                    aria-label={`Disconnect ${plugin.name}`}
                   >
                     <X size={13} />
                   </button>
@@ -988,9 +1029,23 @@ export function PluginsSection() {
                                   ? "text-emerald-500 dark:text-emerald-400"
                                   : "text-amber-500 dark:text-amber-400"
                               }`}
-                              title={isConnected ? "Active & Connected" : "Paused"}
+                              title={
+                                isConnected
+                                  ? "Connected"
+                                  : serverStatuses[installedInfo!.configId] === "connecting"
+                                    ? "Connecting"
+                                    : serverStatuses[installedInfo!.configId] === "error"
+                                      ? "Connection failed"
+                                      : "Disconnected"
+                              }
                             >
-                              {isConnected ? <Check size={18} strokeWidth={2.5} /> : <Sliders size={15} />}
+                              {isConnected ? (
+                                <Check size={18} strokeWidth={2.5} />
+                              ) : serverStatuses[installedInfo!.configId] === "connecting" ? (
+                                <RefreshCw size={15} className="animate-spin" />
+                              ) : (
+                                <Sliders size={15} />
+                              )}
                             </span>
                           </div>
                         ) : (
@@ -1042,7 +1097,12 @@ export function PluginsSection() {
                 />
               </div>
 
-              {installedPluginMap.has(activeModalPlugin.id) && !showReauthForm ? (
+              {installedPluginMap.has(activeModalPlugin.id) &&
+              !showReauthForm &&
+              !githubOAuth.isPolling &&
+              !linearOAuth.isConnecting &&
+              !googleOAuth.isConnecting &&
+              !spotifyOAuth.isConnecting ? (
                 /* ========================================================= */
                 /* 1. ALREADY CONNECTED MANAGEMENT VIEW                      */
                 /* ========================================================= */
@@ -1059,8 +1119,8 @@ export function PluginsSection() {
 
                           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
                             <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
-                            <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/20">
-                              <Check size={14} strokeWidth={3} />
+                            <div className="w-7 h-7 rounded-full bg-hover border border-border flex items-center justify-center text-text-muted">
+                              {info.isConnected ? <Check size={14} strokeWidth={3} /> : <Sliders size={14} />}
                             </div>
                             <span className="w-2.5 h-0.5 bg-emerald-500/40 rounded" />
                           </div>
@@ -1076,16 +1136,24 @@ export function PluginsSection() {
                                 activeModalPlugin.id === "google-calendar"
                               }
                             />
-                            <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-surface dark:border-[#141415] rounded-full shadow-xs" />
+                            <div
+                              className={`absolute -top-1 -right-1 w-3.5 h-3.5 ${info.isConnected ? "bg-emerald-500" : "bg-text-muted"} border-2 border-surface rounded-full shadow-xs`}
+                            />
                           </div>
                         </div>
 
                         <div>
                           <div className="flex items-center justify-center gap-2">
                             <h3 className="text-lg font-semibold text-text-primary">{activeModalPlugin.name}</h3>
-                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-                              {info.isConnected ? "Connected" : "Not connected"}
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-hover text-text-secondary border border-border flex items-center gap-1.5 shadow-xs">
+                              <span className="w-2 h-2 rounded-full bg-current" />
+                              {info.isConnected
+                                ? "Connected"
+                                : serverStatuses[info.configId] === "connecting"
+                                  ? "Connecting"
+                                  : serverStatuses[info.configId] === "error"
+                                    ? "Connection failed"
+                                    : "Disconnected"}
                             </span>
                           </div>
                           <p className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
@@ -1100,13 +1168,15 @@ export function PluginsSection() {
                       <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-text-muted font-medium">Integration Status</span>
-                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span className="text-text-secondary font-semibold flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-current" />
                             {info.isConnected
                               ? "Connected"
                               : serverStatuses[info.configId] === "error"
                                 ? "Connection failed"
-                                : "Disconnected"}
+                                : serverStatuses[info.configId] === "connecting"
+                                  ? "Connecting"
+                                  : "Disconnected"}
                           </span>
                         </div>
 
@@ -1114,7 +1184,11 @@ export function PluginsSection() {
                           <span className="text-text-muted font-medium">Data Privacy & Security</span>
                           <span className="text-text-secondary flex items-center gap-1.5 font-mono text-[11px]">
                             <Lock size={12} className="text-emerald-600 dark:text-emerald-400" />
-                            {isGoogleConnection ? "Encrypted credential storage" : "Local credential storage"}
+                            {activeModalPlugin.id === "canva"
+                              ? "Local OAuth bridge cache"
+                              : isGoogleConnection
+                                ? "Encrypted credential storage"
+                                : "Local credential storage"}
                           </span>
                         </div>
 
@@ -1126,6 +1200,33 @@ export function PluginsSection() {
                         </div>
                       </div>
 
+                      {serverErrors[info.configId] && (
+                        <p role="alert" className="text-xs text-rose-500">
+                          {serverErrors[info.configId]}
+                        </p>
+                      )}
+                      {!info.isConnected && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (activeModalPlugin.authType === "oauth") {
+                              setShowReauthForm(true);
+                              return;
+                            }
+                            await toggleServerEnabled(info.configId, true);
+                          }}
+                          disabled={serverStatuses[info.configId] === "connecting"}
+                          className="w-full py-2.5 rounded-xl bg-accent text-accent-foreground text-xs font-semibold disabled:opacity-50"
+                        >
+                          {serverStatuses[info.configId] === "connecting" ? "Connecting..." : "Reconnect plugin"}
+                        </button>
+                      )}
+                      {activeModalPlugin.authType === "oauth" && !isGoogleConnection && (
+                        <p className="text-xs text-text-muted">
+                          Disconnecting stops the plugin. To revoke account access, remove this app from your provider’s
+                          account connections.
+                        </p>
+                      )}
                       {isGoogleConnection && (
                         <p className="text-xs text-text-muted">
                           Disconnecting stops this plugin. To revoke Google account access, remove your OAuth app from
@@ -1144,7 +1245,7 @@ export function PluginsSection() {
                             size={16}
                             className="text-rose-500 dark:text-rose-400 group-hover:scale-110 transition-transform"
                           />
-                          <span>{isGoogleConnection ? "Disconnect plugin" : "Revoke Access & Disconnect"}</span>
+                          <span>Disconnect plugin</span>
                         </button>
 
                         <div className="flex items-center justify-between pt-1">
@@ -1217,13 +1318,17 @@ export function PluginsSection() {
                     {!isGoogleConnection && (
                       <div className="p-4 rounded-xl border border-border/80 bg-hover/20 space-y-3.5">
                         <div className="text-xs font-semibold text-text-primary tracking-tight">
-                          Authorizing allows this app to:
+                          This plugin provides:
                         </div>
 
                         <div className="space-y-2.5 text-xs text-text-secondary">
                           <div className="flex items-start gap-2">
                             <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                            <span>Verify your {activeModalPlugin.name} identity</span>
+                            <span>
+                              {activeModalPlugin.authType === "none"
+                                ? "Local tools, with no account sign-in"
+                                : "Tools with the permissions granted by your account or credentials"}
+                            </span>
                           </div>
                           <div className="flex items-start gap-2">
                             <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -1286,7 +1391,7 @@ export function PluginsSection() {
                             </div>
                             <p className="text-xs text-text-muted leading-relaxed">
                               Your browser has opened to GitHub. Paste the code above and click{" "}
-                              <strong>Authorize Sythoria</strong>.
+                              <strong>Authorize</strong>.
                             </p>
                             {githubOAuth.isPolling ? (
                               <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-1">
@@ -1316,7 +1421,7 @@ export function PluginsSection() {
                               className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
                               <BrandIcon name="github" size={18} />
-                              <span>1-Click Connect with GitHub</span>
+                              <span>Continue with GitHub</span>
                               <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
 
@@ -1326,9 +1431,7 @@ export function PluginsSection() {
                                 onClick={() => setShowManualToken((prev) => !prev)}
                                 className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
                               >
-                                {showManualToken
-                                  ? "Switch back to 1-Click OAuth"
-                                  : "Or enter a Personal Access Token manually"}
+                                {showManualToken ? "Use browser sign-in" : "Or enter a Personal Access Token manually"}
                               </button>
                             </div>
                           </div>
@@ -1336,6 +1439,38 @@ export function PluginsSection() {
                       </div>
                     )}
 
+                    {activeModalPlugin.oauthClientField &&
+                      !showManualToken &&
+                      !linearOAuth.isConnecting &&
+                      !githubOAuth.isPolling && (
+                        <div className="space-y-2">
+                          <label htmlFor="plugin-oauth-client-id" className="text-xs font-medium">
+                            {activeModalPlugin.oauthClientField.label}
+                          </label>
+                          <input
+                            id="plugin-oauth-client-id"
+                            value={formValues[activeModalPlugin.oauthClientField.key] || ""}
+                            onChange={(event) =>
+                              setFormValues((prev) => ({
+                                ...prev,
+                                [activeModalPlugin.oauthClientField!.key]: event.target.value,
+                              }))
+                            }
+                            placeholder={activeModalPlugin.oauthClientField.placeholder}
+                            className="w-full px-3 py-2 text-xs rounded-lg border border-input-border bg-input"
+                          />
+                          <p className="text-xs text-text-muted">{activeModalPlugin.oauthClientField.helpText}</p>
+                          {activeModalPlugin.oauthClientField.docUrl && (
+                            <button
+                              type="button"
+                              onClick={() => void openExternalUrl(activeModalPlugin.oauthClientField!.docUrl!)}
+                              className="text-xs text-accent hover:underline"
+                            >
+                              Create OAuth app <ExternalLink size={11} className="inline" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     {/* Linear 1-Click PKCE OAuth Integration */}
                     {activeModalPlugin.id === "linear" && (
                       <div className="space-y-3 pt-1">
@@ -1346,8 +1481,8 @@ export function PluginsSection() {
                               <span>Waiting for authorization in browser...</span>
                             </div>
                             <p className="text-xs text-text-muted leading-relaxed">
-                              Your browser has opened to Linear. Click <strong>Authorize Sythoria</strong> to connect
-                              your workspace.
+                              Your browser has opened to Linear. Click <strong>Authorize</strong> to connect your
+                              workspace.
                             </p>
                             <button
                               type="button"
@@ -1393,7 +1528,7 @@ export function PluginsSection() {
                               className="w-full py-3 rounded-xl bg-[#5E6AD2] hover:bg-[#6D79E0] text-white font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
                               <BrandIcon name="linear" size={18} />
-                              <span>1-Click Connect with Linear</span>
+                              <span>Continue with Linear</span>
                               <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
 
@@ -1403,9 +1538,7 @@ export function PluginsSection() {
                                 onClick={() => setShowManualToken((prev) => !prev)}
                                 className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
                               >
-                                {showManualToken
-                                  ? "Switch back to 1-Click OAuth"
-                                  : "Or enter a Personal API Key manually"}
+                                {showManualToken ? "Use browser sign-in" : "Or enter a Personal API Key manually"}
                               </button>
                             </div>
                           </div>
@@ -1588,28 +1721,6 @@ export function PluginsSection() {
                               Cancel connection
                             </button>
                           </div>
-                        ) : spotifyOAuth.error ? (
-                          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-2 text-center">
-                            <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
-                              {spotifyOAuth.error}
-                            </div>
-                            <div className="flex items-center justify-center gap-2 pt-1">
-                              <button
-                                type="button"
-                                onClick={() => void handleStartSpotifyOAuth(activeModalPlugin)}
-                                className="px-3 py-1 text-xs rounded-lg bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold transition-colors cursor-pointer"
-                              >
-                                Try Again
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setShowManualToken(true)}
-                                className="px-3 py-1 text-xs rounded-lg bg-surface border border-border text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                              >
-                                Enter Client ID manually
-                              </button>
-                            </div>
-                          </div>
                         ) : (
                           <div className="space-y-3">
                             <button
@@ -1618,26 +1729,49 @@ export function PluginsSection() {
                               className="w-full py-3 rounded-xl bg-[#1DB954] hover:bg-[#1AA34A] text-black font-semibold text-xs tracking-wide transition-all shadow-md flex items-center justify-center gap-2.5 group cursor-pointer"
                             >
                               <BrandIcon name="spotify" size={18} />
-                              <span>1-Click Connect with Spotify</span>
+                              <span>Continue with Spotify</span>
                               <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
                             </button>
 
-                            <div className="text-center">
-                              <button
-                                type="button"
-                                onClick={() => setShowManualToken((prev) => !prev)}
-                                className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
-                              >
-                                {showManualToken
-                                  ? "Switch back to 1-Click OAuth"
-                                  : "Or specify a custom Spotify Client ID"}
-                              </button>
-                            </div>
+                            {spotifyOAuth.error && (
+                              <p role="alert" className="text-xs text-rose-500">
+                                {spotifyOAuth.error}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
 
+                    {activeModalPlugin.id === "canva" && (
+                      <div className="space-y-3 text-xs">
+                        <p>
+                          Canva requires an approved MCP app before account sign-in. Request MCP access in the Canva
+                          Developer Portal and register this redirect URL:{" "}
+                          <strong>http://localhost:3334/oauth/callback</strong>.
+                        </p>
+                        <p>
+                          Enter that app’s client ID and secret below. Continue with Canva opens your browser to sign in
+                          and grant access. Return here when Canva confirms authorization; Sythoria will finish
+                          connecting automatically.
+                        </p>
+                        <p className="text-text-muted">
+                          A website login alone does not connect this plugin. If your app has not been approved,
+                          complete Canva’s MCP access setup first.
+                        </p>
+                        {isSubmitting && (
+                          <p role="status" className="flex items-center gap-2">
+                            <RefreshCw size={14} className="animate-spin" />
+                            Waiting for browser authorization and plugin connection...
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {connectionError && (
+                      <p role="alert" className="text-xs text-rose-500">
+                        {connectionError}
+                      </p>
+                    )}
                     {/* Input Fields (if service requires API token / OAuth Token and not in 1-Click mode) */}
                     {activeModalPlugin.authFields.length > 0 &&
                       ((activeModalPlugin.id !== "github" &&
@@ -1659,7 +1793,10 @@ export function PluginsSection() {
                             return (
                               <div key={field.key} className="space-y-1.5">
                                 <div className="flex items-center justify-between">
-                                  <label className="text-xs font-medium text-text-primary">
+                                  <label
+                                    htmlFor={`plugin-auth-${field.key}`}
+                                    className="text-xs font-medium text-text-primary"
+                                  >
                                     {field.label}
                                     {field.required && <span className="text-accent ml-1">*</span>}
                                   </label>
@@ -1670,7 +1807,7 @@ export function PluginsSection() {
                                       rel="noreferrer"
                                       className="text-[11px] text-accent hover:underline flex items-center gap-1"
                                     >
-                                      <span>Get token in browser</span>
+                                      <span>Setup guide</span>
                                       <ExternalLink size={10} />
                                     </a>
                                   )}
@@ -1678,6 +1815,8 @@ export function PluginsSection() {
 
                                 <div className="relative">
                                   <input
+                                    id={`plugin-auth-${field.key}`}
+                                    disabled={isSubmitting}
                                     type={isPassword && !isVisible ? "password" : "text"}
                                     value={formValues[field.key] || ""}
                                     onChange={(e) =>
@@ -1734,7 +1873,7 @@ export function PluginsSection() {
                         activeModalPlugin.id !== "google-calendar" &&
                         activeModalPlugin.id !== "gmail" &&
                         activeModalPlugin.id !== "spotify") ||
-                        showManualToken) && (
+                        (showManualToken && activeModalPlugin.id !== "spotify")) && (
                         <button
                           onClick={() => void handleConnectPlugin()}
                           disabled={isSubmitting}
@@ -1743,11 +1882,14 @@ export function PluginsSection() {
                           {isSubmitting ? (
                             <>
                               <RefreshCw size={14} className="animate-spin" />
-                              <span>Authorizing...</span>
+                              <span>Connecting...</span>
                             </>
                           ) : (
                             <>
-                              <span>Authorize {activeModalPlugin.name}</span>
+                              <span>
+                                {activeModalPlugin.authType === "oauth" ? "Continue with" : "Connect"}{" "}
+                                {activeModalPlugin.name}
+                              </span>
                               <ArrowRight size={14} />
                             </>
                           )}
@@ -1758,10 +1900,17 @@ export function PluginsSection() {
                       {installedPluginMap.has(activeModalPlugin.id) ? (
                         <button
                           type="button"
+                          disabled={
+                            isSubmitting ||
+                            githubOAuth.isPolling ||
+                            linearOAuth.isConnecting ||
+                            googleOAuth.isConnecting ||
+                            spotifyOAuth.isConnecting
+                          }
                           onClick={() => setShowReauthForm(false)}
                           className="px-2.5 py-1 text-xs text-text-muted hover:text-text-primary transition-colors flex items-center gap-1 font-medium"
                         >
-                          ← Back to Connected View
+                          ← Back to connection
                         </button>
                       ) : (
                         <div />

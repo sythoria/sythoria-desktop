@@ -1,12 +1,19 @@
 {
   "id": "github",
   "name": "GitHub",
+  "icon": "./icon.svg",
   "category": "featured",
+  "badge": "Official",
   "description": "Triage PRs, manage issues, search repositories, and inspect code.",
   "longDescription": "Gives your AI full access to read and inspect GitHub repositories, search code across files, create or update issues, review pull requests, and trigger CI workflows.",
-  "icon": "./icon.svg",
-  "badge": "Official",
   "authType": "api_key",
+  "oauthClientField": {
+    "key": "GITHUB_CLIENT_ID",
+    "label": "GitHub OAuth Client ID",
+    "placeholder": "Client ID from your GitHub OAuth app",
+    "helpText": "Create a GitHub OAuth app and enable Device Flow. You can also connect with a personal access token below.",
+    "docUrl": "https://github.com/settings/developers"
+  },
   "authFields": [
     {
       "key": "GITHUB_PERSONAL_ACCESS_TOKEN",

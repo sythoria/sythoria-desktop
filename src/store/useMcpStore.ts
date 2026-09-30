@@ -9,7 +9,7 @@ import { summarizeToolArguments } from "../utils/redaction";
 import { parseApiError } from "../utils/parseApiError";
 import { validateMcpServerConfig } from "../utils/validation";
 import type { McpServerPreset } from "../config/mcpPresets";
-import { verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
+import { isBrowserOAuthBridge, verifiedCatalogPluginForConfig } from "../config/pluginsCatalog";
 import { useUIStore } from "./useUIStore";
 import { debounce } from "../utils/debounce";
 
@@ -86,11 +86,11 @@ interface McpState {
   addMcpConfigWithSecrets: (
     preset: McpServerPreset,
     secrets: Record<string, string>,
-    options?: { notify?: boolean; catalogPluginId?: string },
+    options?: { notify?: boolean; catalogPluginId?: string; signal?: AbortSignal },
   ) => Promise<boolean>;
   updateMcpConfig: (id: string, updates: Partial<McpServerConfig>) => Promise<void>;
   deleteMcpConfig: (id: string) => Promise<void>;
-  connectServer: (id: string, options?: { notify?: boolean }) => Promise<void>;
+  connectServer: (id: string, options?: { notify?: boolean; signal?: AbortSignal }) => Promise<void>;
   disconnectServer: (id: string) => Promise<void>;
   connectAllEnabled: () => Promise<void>;
   callTool: (
@@ -205,6 +205,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   },
 
   addMcpConfigWithSecrets: async (preset, secrets, options) => {
+    if (options?.signal?.aborted) return false;
     const { mcpConfigs, envSecrets, mcpApiKeys, connectServer } = get();
     const existing = mcpConfigs.find(
       (c) =>
@@ -293,14 +294,14 @@ export const useMcpStore = create<McpState>((set, get) => ({
     await connectServer(targetId, options);
 
     // If initial connection failed, remove from enabledServerIds so it doesn't fail on every app restart
-    if (get().serverStatuses[targetId] === "error") {
+    if (get().serverStatuses[targetId] !== "connected") {
       const rollbackEnabled = new Set(get().enabledServerIds);
       rollbackEnabled.delete(targetId);
       set({ enabledServerIds: rollbackEnabled });
       await saveEnabledMcpServers(Array.from(rollbackEnabled));
       return false;
     }
-    return true;
+    return !options?.signal?.aborted;
   },
 
   updateMcpConfig: async (id, updates) => {
@@ -421,17 +422,28 @@ export const useMcpStore = create<McpState>((set, get) => ({
     const { mcpConfigs } = get();
     const config = mcpConfigs.find((c) => c.id === id);
     if (!config || !config.enabled) return;
+    if (options?.signal?.aborted) {
+      await get().disconnectServer(id);
+      return;
+    }
 
     const connectionGeneration = (get().connectionGenerations[id] ?? 0) + 1;
 
     set({
       serverStatuses: { ...get().serverStatuses, [id]: "connecting" },
+      serverErrors: { ...get().serverErrors, [id]: undefined },
       connectionGenerations: { ...get().connectionGenerations, [id]: connectionGeneration },
     });
     logInfo("mcp", `Connecting to MCP server: "${config.name}"`, {
       details: `Transport: ${config.transport}, Command: ${config.command || config.baseUrl || "(none)"}`,
     });
 
+    const cancelConnection = () => {
+      if (get().connectionGenerations[id] === connectionGeneration) {
+        void get().disconnectServer(id);
+      }
+    };
+    options?.signal?.addEventListener("abort", cancelConnection, { once: true });
     try {
       const configPayload = { ...config, apiKey: undefined };
 
@@ -442,8 +454,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
       const currentState = get();
       const currentConfig = currentState.mcpConfigs.find((candidate) => candidate.id === id);
-      if (currentState.connectionGenerations[id] !== connectionGeneration || !currentConfig?.enabled) {
-        await invoke("mcp_stop_server", { serverId: id });
+      if (
+        currentState.connectionGenerations[id] !== connectionGeneration ||
+        !currentConfig?.enabled ||
+        options?.signal?.aborted
+      ) {
         return;
       }
 
@@ -492,6 +507,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
         serverErrors: { ...get().serverErrors, [id]: friendlyEndpointError(err, config.transport === "stdio") },
       });
       if (options?.notify !== false) useUIStore.getState().addToast(parsed.message, "error");
+    } finally {
+      options?.signal?.removeEventListener("abort", cancelConnection);
     }
   },
 
@@ -519,7 +536,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
   connectAllEnabled: async () => {
     const { mcpConfigs, enabledServerIds } = get();
-    const enabledServers = mcpConfigs.filter((c) => c.enabled && enabledServerIds.has(c.id));
+    const enabledServers = mcpConfigs.filter(
+      (c) => c.enabled && enabledServerIds.has(c.id) && !isBrowserOAuthBridge(c),
+    );
     if (enabledServers.length > 0) {
       logInfo("mcp", `Auto-connecting ${enabledServers.length} enabled MCP server(s)`, {
         details: enabledServers.map((s) => s.name).join(", "),
@@ -567,6 +586,17 @@ export const useMcpStore = create<McpState>((set, get) => ({
         raw = await invokeTool();
       } catch (error) {
         if (!isStaleNativeConnectionError(error)) throw error;
+        if (isBrowserOAuthBridge(config)) {
+          set({
+            serverStatuses: { ...get().serverStatuses, [serverId]: "disconnected" },
+            serverErrors: {
+              ...get().serverErrors,
+              [serverId]: "Reconnect in Plugins & Apps to authorize in your browser.",
+            },
+            availableTools: get().availableTools.filter((tool) => tool.serverId !== serverId),
+          });
+          throw new Error("Reconnect this plugin in Plugins & Apps to authorize in your browser.");
+        }
 
         let recovery = staleConnectionRecoveryByServer.get(serverId);
         if (!recovery) {

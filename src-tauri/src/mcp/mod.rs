@@ -86,6 +86,7 @@ pub struct McpServerManager {
     pub servers: HashMap<String, McpServerHandle>,
     connection_generations: HashMap<String, u64>,
     explicitly_enabled: HashSet<String>,
+    connection_cancellations: HashMap<String, tokio_util::sync::CancellationToken>,
 }
 
 pub struct McpToolAuthorization {
@@ -101,10 +102,21 @@ impl McpServerManager {
             servers: HashMap::new(),
             connection_generations: HashMap::new(),
             explicitly_enabled: HashSet::new(),
+            connection_cancellations: HashMap::new(),
         }
     }
 
+    pub fn connection_cancellation(&self, server_id: &str) -> tokio_util::sync::CancellationToken {
+        self.connection_cancellations[server_id].clone()
+    }
+
     pub fn begin_connection(&mut self, server_id: &str) -> u64 {
+        if let Some(token) = self.connection_cancellations.insert(
+            server_id.to_string(),
+            tokio_util::sync::CancellationToken::new(),
+        ) {
+            token.cancel();
+        }
         let generation = self
             .connection_generations
             .get(server_id)
@@ -283,6 +295,15 @@ mod tests {
             env_secrets: HashMap::new(),
             connection_generation: generation,
         }
+    }
+
+    #[test]
+    fn disconnect_cancels_a_pending_handshake() {
+        let mut manager = McpServerManager::new();
+        manager.begin_connection("oauth");
+        let pending = manager.connection_cancellation("oauth");
+        manager.disconnect_server("oauth");
+        assert!(pending.is_cancelled());
     }
 
     #[test]

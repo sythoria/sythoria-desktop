@@ -24,8 +24,16 @@ export interface PluginItem {
   badge?: "Popular" | "Official" | "New" | "Essential";
   authType: "none" | "api_key" | "oauth" | "connection_string";
   authFields: PluginAuthField[];
+  oauthClientField?: PluginAuthField;
   preset: McpServerPreset;
   keywords: string[];
+}
+
+/** These bridges can launch a browser; only connect them from an explicit user action. */
+export function isBrowserOAuthBridge(config: Pick<McpServerConfig, "transport" | "args">): boolean {
+  return (
+    config.transport === "stdio" && !!config.args?.some((arg) => arg === "mcp-remote" || arg.startsWith("mcp-remote@"))
+  );
 }
 
 /** Link to the exact package named by the MCP launch command. */
@@ -85,6 +93,14 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       "Gives your AI full access to read and inspect GitHub repositories, search code across files, create or update issues, review pull requests, and trigger CI workflows.",
     iconName: "Github",
     authType: "api_key",
+    oauthClientField: {
+      key: "GITHUB_CLIENT_ID",
+      label: "GitHub OAuth Client ID",
+      placeholder: "Client ID from your GitHub OAuth app",
+      helpText:
+        "Create a GitHub OAuth app and enable Device Flow. You can also connect with a personal access token below.",
+      docUrl: "https://github.com/settings/developers",
+    },
     authFields: [
       {
         key: "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -214,6 +230,14 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       "Direct integration with Linear to plan projects, create bug reports, find issues by team or cycle, and update issue states automatically.",
     iconName: "Trello",
     authType: "api_key",
+    oauthClientField: {
+      key: "LINEAR_CLIENT_ID",
+      label: "Linear OAuth Client ID",
+      placeholder: "Client ID from your Linear OAuth app",
+      helpText:
+        "Create a Linear OAuth app with redirect URL http://localhost:54321/oauth/callback. You can also connect with a personal API key below.",
+      docUrl: "https://linear.app/settings/api/applications",
+    },
     authFields: [
       {
         key: "LINEAR_API_KEY",
@@ -1440,12 +1464,12 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     authFields: [
       {
         key: "SPOTIFY_CLIENT_ID",
-        label: "Spotify Client ID (Optional)",
-        placeholder: "Leave blank to use Sythoria Default...",
+        label: "Spotify Client ID",
+        placeholder: "Client ID from your Spotify app",
         type: "text",
-        required: false,
+        required: true,
         helpText:
-          "Optionally specify your own Spotify Developer Client ID (PKCE enabled with redirect http://127.0.0.1:8888/callback).",
+          "Create a Spotify app and add exactly http://127.0.0.1:8888/callback as its Redirect URI. Then continue to Spotify to sign in.",
         docUrl: "https://developer.spotify.com/dashboard",
       },
     ],
@@ -1454,7 +1478,7 @@ export const PLUGINS_CATALOG: PluginItem[] = [
       name: "Spotify",
       description: "Control Spotify playback and search playlists.",
       command: "npx",
-      args: ["-y", "spotify-mcp"],
+      args: ["-y", "spotify-mcp@0.1.4"],
       envKeys: ["SPOTIFY_CLIENT_ID"],
     },
     keywords: ["spotify", "music", "songs", "playback", "playlist", "audio"],
@@ -1496,14 +1520,40 @@ export const PLUGINS_CATALOG: PluginItem[] = [
     description: "Browse social media templates, create design assets, and export graphics.",
     iconName: "Image",
     authType: "oauth",
-    authFields: [],
+    authFields: [
+      {
+        key: "CANVA_CLIENT_ID",
+        label: "Canva MCP Client ID",
+        placeholder: "Client ID from your approved Canva MCP app",
+        type: "text",
+        required: true,
+        docUrl: "https://www.canva.dev/docs/apps/quickstart/",
+      },
+      {
+        key: "CANVA_CLIENT_SECRET",
+        label: "Canva MCP Client Secret",
+        placeholder: "Client secret from your approved Canva MCP app",
+        type: "password",
+        required: true,
+      },
+    ],
     preset: {
       id: "canva",
       name: "Canva",
       description: "Access Canva templates and design assets.",
       homepageUrl: "https://www.canva.dev/docs/apps/quickstart/",
       command: "npx",
-      args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"],
+      args: [
+        "-y",
+        "mcp-remote@0.14.3",
+        "https://mcp.canva.com/mcp",
+        "3334",
+        "--auth-timeout",
+        "300",
+        "--static-oauth-client-info",
+        '{"client_id":"${CANVA_CLIENT_ID}","client_secret":"${CANVA_CLIENT_SECRET}"}',
+      ],
+      envKeys: ["CANVA_CLIENT_ID", "CANVA_CLIENT_SECRET"],
     },
     keywords: ["canva", "design", "templates", "graphics", "social media", "banners"],
   },

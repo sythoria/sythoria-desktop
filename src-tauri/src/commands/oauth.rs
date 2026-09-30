@@ -4,13 +4,10 @@ use std::collections::HashMap;
 use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Ov23liEBjp5NydEwaPFX";
 pub const DEFAULT_GITHUB_SCOPE: &str = "repo,read:user,workflow";
 
-pub const DEFAULT_LINEAR_CLIENT_ID: &str = "4c8cf80a34931c6e5b6338c9df74f1f8";
 pub const DEFAULT_LINEAR_SCOPE: &str = "read,write,issues:create";
 
-pub const DEFAULT_SPOTIFY_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const DEFAULT_SPOTIFY_SCOPE: &str = "user-read-private user-read-email user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-read-playback-position user-top-read user-library-read user-library-modify user-follow-read user-follow-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -49,7 +46,7 @@ pub struct LinearTokenResponse {
 
 #[tauri::command]
 pub async fn github_start_device_flow(
-    client_id: Option<String>,
+    client_id: String,
     scope: Option<String>,
 ) -> Result<GitHubDeviceCodeResponse, AppError> {
     crate::ensure_online()?;
@@ -59,7 +56,12 @@ pub async fn github_start_device_flow(
         .build()
         .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_GITHUB_CLIENT_ID.to_string());
+    let cid = client_id.trim();
+    if cid.is_empty() {
+        return Err(AppError::RequestFailed(
+            "An OAuth client ID is required. Complete plugin setup first.".into(),
+        ));
+    }
     let sc = scope.unwrap_or_else(|| DEFAULT_GITHUB_SCOPE.to_string());
 
     let payload = serde_json::json!({
@@ -95,7 +97,7 @@ pub async fn github_start_device_flow(
 
 #[tauri::command]
 pub async fn github_poll_device_token(
-    client_id: Option<String>,
+    client_id: String,
     device_code: String,
 ) -> Result<GitHubDeviceTokenResponse, AppError> {
     crate::ensure_online()?;
@@ -105,7 +107,12 @@ pub async fn github_poll_device_token(
         .build()
         .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_GITHUB_CLIENT_ID.to_string());
+    let cid = client_id.trim();
+    if cid.is_empty() {
+        return Err(AppError::RequestFailed(
+            "An OAuth client ID is required. Complete plugin setup first.".into(),
+        ));
+    }
 
     let payload = serde_json::json!({
         "client_id": cid,
@@ -134,6 +141,7 @@ pub async fn github_poll_device_token(
 fn parse_oauth_callback(
     request_line: &str,
     expected_state: Option<&str>,
+    expected_path: &str,
 ) -> Result<OAuthCallbackResponse, std::io::Error> {
     let invalid = |message: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, message);
     let mut parts = request_line.split_whitespace();
@@ -145,7 +153,7 @@ fn parse_oauth_callback(
         .ok_or_else(|| invalid("Missing OAuth callback URL"))?;
     let url = url::Url::parse(&format!("http://127.0.0.1{target}"))
         .map_err(|_| invalid("Invalid OAuth callback URL"))?;
-    if url.path() != "/oauth/callback" {
+    if url.path() != expected_path {
         return Err(invalid("Unexpected OAuth callback path"));
     }
     let mut params = HashMap::new();
@@ -177,43 +185,61 @@ fn parse_oauth_callback(
     Ok(OAuthCallbackResponse { code, state })
 }
 
-struct GoogleListener {
+struct OAuthListener {
     listener: Option<tokio::net::TcpListener>,
     cancellation: tokio_util::sync::CancellationToken,
+    callback_path: String,
 }
 
-static GOOGLE_LISTENERS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, GoogleListener>>> =
+static OAUTH_LISTENERS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, OAuthListener>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 #[tauri::command]
 pub async fn start_google_oauth_listener(session_id: String) -> Result<u16, AppError> {
+    start_oauth_listener(session_id, 0, "/oauth/callback".into()).await
+}
+
+/// Reserves the callback before opening a browser. A session owns its port until
+/// completion or explicit cancellation, including while waiting for consent.
+#[tauri::command]
+pub async fn start_oauth_listener(
+    session_id: String,
+    port: u16,
+    callback_path: String,
+) -> Result<u16, AppError> {
     if uuid::Uuid::parse_str(&session_id).is_err() {
         return Err(AppError::RequestFailed(
-            "Invalid Google authorization session".into(),
+            "Invalid authorization session".into(),
         ));
     }
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+    if !["/oauth/callback", "/callback"].contains(&callback_path.as_str()) {
+        return Err(AppError::RequestFailed(
+            "Invalid authorization callback path".into(),
+        ));
+    }
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .map_err(|e| {
-            AppError::RequestFailed(format!("Could not start Google authorization: {e}"))
+            AppError::RequestFailed(format!("Could not start OAuth authorization: {e}"))
         })?;
     let port = listener
         .local_addr()
         .map_err(|e| AppError::RequestFailed(e.to_string()))?
         .port();
-    let mut sessions = GOOGLE_LISTENERS
+    let mut sessions = OAUTH_LISTENERS
         .lock()
-        .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+        .map_err(|_| AppError::RequestFailed("OAuth authorization unavailable".into()))?;
     if sessions.len() >= 8 || sessions.contains_key(&session_id) {
         return Err(AppError::RequestFailed(
-            "Google authorization already in progress".into(),
+            "OAuth authorization already in progress".into(),
         ));
     }
     sessions.insert(
         session_id,
-        GoogleListener {
+        OAuthListener {
             listener: Some(listener),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            callback_path,
         },
     );
     Ok(port)
@@ -224,23 +250,28 @@ pub async fn wait_google_oauth_callback(
     session_id: String,
     expected_state: String,
 ) -> Result<OAuthCallbackResponse, AppError> {
-    let (listener, cancellation) = {
-        let mut sessions = GOOGLE_LISTENERS
+    let (listener, cancellation, callback_path) = {
+        let mut sessions = OAUTH_LISTENERS
             .lock()
-            .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+            .map_err(|_| AppError::RequestFailed("Authorization unavailable".into()))?;
         let session = sessions
             .get_mut(&session_id)
-            .ok_or_else(|| AppError::RequestFailed("Google authorization was cancelled".into()))?;
-        let listener = session.listener.take().ok_or_else(|| {
-            AppError::RequestFailed("Google authorization already waiting".into())
-        })?;
-        (listener, session.cancellation.clone())
+            .ok_or_else(|| AppError::RequestFailed("Authorization was cancelled".into()))?;
+        let listener = session
+            .listener
+            .take()
+            .ok_or_else(|| AppError::RequestFailed("Authorization already waiting".into()))?;
+        (
+            listener,
+            session.cancellation.clone(),
+            session.callback_path.clone(),
+        )
     };
     let result = tokio::select! {
-        _ = cancellation.cancelled() => Err(AppError::RequestFailed("Google authorization was cancelled".into())),
-        result = receive_oauth_callback(listener, Some(expected_state)) => result,
+        _ = cancellation.cancelled() => Err(AppError::RequestFailed("Authorization was cancelled".into())),
+        result = receive_oauth_callback(listener, Some(expected_state), callback_path) => result,
     };
-    if let Ok(mut sessions) = GOOGLE_LISTENERS.lock() {
+    if let Ok(mut sessions) = OAUTH_LISTENERS.lock() {
         sessions.remove(&session_id);
     }
     result
@@ -248,13 +279,26 @@ pub async fn wait_google_oauth_callback(
 
 #[tauri::command]
 pub fn cancel_google_oauth_listener(session_id: String) -> Result<(), AppError> {
-    let mut sessions = GOOGLE_LISTENERS
+    let mut sessions = OAUTH_LISTENERS
         .lock()
-        .map_err(|_| AppError::RequestFailed("Google authorization unavailable".into()))?;
+        .map_err(|_| AppError::RequestFailed("Authorization unavailable".into()))?;
     if let Some(session) = sessions.remove(&session_id) {
         session.cancellation.cancel();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn wait_oauth_callback(
+    session_id: String,
+    expected_state: String,
+) -> Result<OAuthCallbackResponse, AppError> {
+    wait_google_oauth_callback(session_id, expected_state).await
+}
+
+#[tauri::command]
+pub fn cancel_oauth_listener(session_id: String) -> Result<(), AppError> {
+    cancel_google_oauth_listener(session_id)
 }
 
 /// Starts a temporary local loopback HTTP listener to catch the OAuth authorization callback redirect.
@@ -271,12 +315,13 @@ pub async fn listen_oauth_callback(
             ))
         })?;
 
-    receive_oauth_callback(listener, expected_state).await
+    receive_oauth_callback(listener, expected_state, "/oauth/callback".into()).await
 }
 
 async fn receive_oauth_callback(
     listener: tokio::net::TcpListener,
     expected_state: Option<String>,
+    callback_path: String,
 ) -> Result<OAuthCallbackResponse, AppError> {
     // 120-second timeout for user to approve in browser
     let accept_future = async {
@@ -295,7 +340,7 @@ async fn receive_oauth_callback(
             ));
         }
 
-        let result = parse_oauth_callback(&request_line, expected_state.as_deref());
+        let result = parse_oauth_callback(&request_line, expected_state.as_deref(), &callback_path);
         let (status, body) = if result.is_ok() {
             (
                 "200 OK",
@@ -331,7 +376,7 @@ async fn receive_oauth_callback(
 /// Exchanges authorization code + PKCE code_verifier for a Linear access token.
 #[tauri::command]
 pub async fn linear_exchange_token(
-    client_id: Option<String>,
+    client_id: String,
     code: String,
     code_verifier: String,
     redirect_uri: String,
@@ -343,7 +388,12 @@ pub async fn linear_exchange_token(
         .build()
         .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_LINEAR_CLIENT_ID.to_string());
+    let cid = client_id.trim();
+    if cid.is_empty() {
+        return Err(AppError::RequestFailed(
+            "An OAuth client ID is required. Complete plugin setup first.".into(),
+        ));
+    }
 
     let form_body = format!(
         "grant_type=authorization_code&client_id={}&redirect_uri={}&code={}&code_verifier={}",
@@ -740,7 +790,7 @@ pub struct SpotifyMcpTokenPaths {
 /// Exchanges authorization code + PKCE code_verifier for a Spotify access & refresh token.
 #[tauri::command]
 pub async fn spotify_exchange_token(
-    client_id: Option<String>,
+    client_id: String,
     code: String,
     code_verifier: String,
     redirect_uri: String,
@@ -752,7 +802,12 @@ pub async fn spotify_exchange_token(
         .build()
         .map_err(|e| AppError::RequestFailed(format!("Failed to initialize HTTP client: {e}")))?;
 
-    let cid = client_id.unwrap_or_else(|| DEFAULT_SPOTIFY_CLIENT_ID.to_string());
+    let cid = client_id.trim();
+    if cid.is_empty() {
+        return Err(AppError::RequestFailed(
+            "An OAuth client ID is required. Complete plugin setup first.".into(),
+        ));
+    }
 
     let form_body = format!(
         "grant_type=authorization_code&client_id={}&redirect_uri={}&code={}&code_verifier={}",
@@ -873,24 +928,57 @@ mod tests {
         let result = super::parse_oauth_callback(
             "GET /oauth/callback?code=4%2Fabc%2Bdef%3D&state=expected HTTP/1.1",
             Some("expected"),
+            "/oauth/callback",
         )
         .unwrap();
         assert_eq!(result.code, "4/abc+def=");
         assert!(super::parse_oauth_callback(
             "GET /oauth/callback?code=x&state=wrong HTTP/1.1",
-            Some("expected")
+            Some("expected"),
+            "/oauth/callback",
         )
         .is_err());
         assert!(super::parse_oauth_callback(
             "GET /oauth/callback?code=x&code=y&state=expected HTTP/1.1",
-            Some("expected")
+            Some("expected"),
+            "/oauth/callback",
         )
         .is_err());
         assert!(super::parse_oauth_callback(
             "GET /favicon.ico?code=x&state=expected HTTP/1.1",
-            Some("expected")
+            Some("expected"),
+            "/oauth/callback",
         )
         .is_err());
+    }
+
+    #[tokio::test]
+    async fn spotify_callback_completes_on_its_registered_path() {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let port = start_oauth_listener(session_id.clone(), 0, "/callback".into())
+            .await
+            .unwrap();
+        let waiting = tokio::spawn(wait_oauth_callback(session_id, "spotify-state".into()));
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /callback?code=spotify-code&state=spotify-state HTTP/1.1\r\n\r\n")
+            .await
+            .unwrap();
+        let callback = waiting.await.unwrap().unwrap();
+        assert_eq!(callback.code, "spotify-code");
+        assert!(tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn callback_path_is_scoped_to_the_authorization_session() {
+        let request = "GET /callback?code=x&state=expected HTTP/1.1";
+        assert!(parse_oauth_callback(request, Some("expected"), "/callback").is_ok());
+        assert!(parse_oauth_callback(request, Some("expected"), "/oauth/callback").is_err());
+        assert!(parse_oauth_callback(request, Some("wrong"), "/callback").is_err());
     }
 
     #[test]
@@ -898,6 +986,7 @@ mod tests {
         let error = super::parse_oauth_callback(
             "GET /oauth/callback?error=access_denied&state=expected HTTP/1.1",
             Some("expected"),
+            "/oauth/callback",
         )
         .err()
         .unwrap();

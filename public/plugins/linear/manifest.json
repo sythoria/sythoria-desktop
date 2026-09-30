@@ -1,12 +1,19 @@
 {
   "id": "linear",
   "name": "Linear",
+  "icon": "./icon.svg",
   "category": "featured",
+  "badge": "Official",
   "description": "Search issues, triage bug reports, create tickets, and manage sprints.",
   "longDescription": "Direct integration with Linear to plan projects, create bug reports, find issues by team or cycle, and update issue states automatically.",
-  "icon": "./icon.svg",
-  "badge": "Official",
   "authType": "api_key",
+  "oauthClientField": {
+    "key": "LINEAR_CLIENT_ID",
+    "label": "Linear OAuth Client ID",
+    "placeholder": "Client ID from your Linear OAuth app",
+    "helpText": "Create a Linear OAuth app with redirect URL http://localhost:54321/oauth/callback. You can also connect with a personal API key below.",
+    "docUrl": "https://linear.app/settings/api/applications"
+  },
   "authFields": [
     {
       "key": "LINEAR_API_KEY",

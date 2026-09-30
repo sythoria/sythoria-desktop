@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { openExternalUrl } from "../utils/externalUrl";
+import { authorizeInBrowser } from "./oauthCallback";
 
-export const DEFAULT_SPOTIFY_CLIENT_ID = "65b708073fc0480ea92a077233ca87bd";
 export const DEFAULT_SPOTIFY_SCOPES =
   "user-read-private user-read-email user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-read-playback-position user-top-read user-library-read user-library-modify user-follow-read user-follow-modify playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private";
 export const DEFAULT_SPOTIFY_PORT = 8888;
@@ -56,7 +55,7 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
  * 5. Exchanges code for Spotify OAuth access and refresh tokens without client secrets.
  */
 export async function startSpotifyOAuthFlow(
-  clientId: string = DEFAULT_SPOTIFY_CLIENT_ID,
+  clientId: string,
   scope: string = DEFAULT_SPOTIFY_SCOPES,
   redirectUri: string = DEFAULT_SPOTIFY_REDIRECT_URI,
   port: number = DEFAULT_SPOTIFY_PORT,
@@ -72,38 +71,17 @@ export async function startSpotifyOAuthFlow(
     scope,
   )}&state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(codeChallenge)}&code_challenge_method=S256`;
 
-  // Start background loopback listener
-  const listenerPromise = invoke<{ code: string; state?: string }>("listen_oauth_callback", {
-    port,
-    expectedState: state,
-  });
-
-  // Open user's default browser to Spotify
-  await openExternalUrl(authUrl);
-
-  // Wait for callback or abort signal
-  const callbackResult = await Promise.race([
-    listenerPromise,
-    new Promise<{ code: string; state?: string }>((_, reject) => {
-      if (signal) {
-        signal.addEventListener("abort", () => reject(new Error("Spotify authorization was cancelled.")), {
-          once: true,
-        });
-      }
-    }),
-  ]);
-
-  if (!callbackResult.code) {
-    throw new Error("No authorization code received from Spotify callback.");
-  }
+  const code = await authorizeInBrowser(authUrl, redirectUri, port, state, signal);
 
   // Exchange code + codeVerifier for access_token and refresh_token
   const tokenResult = await invoke<SpotifyTokenResult>("spotify_exchange_token", {
     clientId,
-    code: callbackResult.code,
+    code,
     codeVerifier,
     redirectUri,
   });
+
+  if (signal?.aborted) throw new Error("Authorization was cancelled.");
 
   if (tokenResult.error) {
     throw new Error(tokenResult.error_description || tokenResult.error || "Failed to exchange token with Spotify.");

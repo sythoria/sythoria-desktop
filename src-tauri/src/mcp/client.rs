@@ -732,6 +732,16 @@ fn friendly_spawn_error(program: &str, resolved: &str, err: &std::io::Error) -> 
     }
 }
 
+fn is_browser_oauth_bridge(config: &McpServerConfig) -> bool {
+    config.transport == "stdio"
+        && config
+            .args
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .any(|arg| arg == "mcp-remote" || arg.starts_with("mcp-remote@"))
+}
+
 pub async fn connect_server(
     config: &McpServerConfig,
     env_secrets: HashMap<String, String>,
@@ -741,11 +751,11 @@ pub async fn connect_server(
         return Err(format!("MCP server '{}' is disabled", config.id));
     }
 
-    let connection_generation = {
+    let (connection_generation, cancel_token) = {
         let mut manager = MCP_SERVERS.lock().unwrap_or_else(|e| e.into_inner());
-        manager.begin_connection(&config.id)
+        let generation = manager.begin_connection(&config.id);
+        (generation, manager.connection_cancellation(&config.id))
     };
-    let cancel_token = tokio_util::sync::CancellationToken::new();
     let ct = cancel_token.clone();
     let server_id = config.id.clone();
 
@@ -765,6 +775,10 @@ pub async fn connect_server(
                 None => find_executable(&program).await,
             };
 
+            if cancel_token.is_cancelled() {
+                return Err("MCP connection cancelled".into());
+            }
+            let uses_browser_auth = is_browser_oauth_bridge(config);
             let mut cmd = create_shell_command(&resolved_program, &resolved_args);
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
@@ -811,7 +825,16 @@ pub async fn connect_server(
                 });
             }
 
-            let mut running = match client.serve_with_ct(transport, ct).await {
+            let handshake = tokio::time::timeout(
+                std::time::Duration::from_secs(if uses_browser_auth { 330 } else { 120 }),
+                client.serve_with_ct(transport, ct),
+            )
+            .await
+            .map_err(|_| {
+                "MCP connection timed out. Finish browser authorization and try connecting again."
+                    .to_string()
+            })?;
+            let mut running = match handshake {
                 Ok(r) => r,
                 Err(e) => {
                     let err_str = e.to_string();
@@ -900,7 +923,7 @@ pub async fn connect_server(
                                 None => break,
                             }
                         }
-                        _ = &mut timeout_sleep => {
+                        _ = &mut timeout_sleep, if !uses_browser_auth => {
                             log::info!("MCP server '{}' idle timeout: terminating child process", server_id_clone);
                             if let Ok(mut manager) = MCP_SERVERS.lock() {
                                 manager.mark_idle(&server_id_clone, task_generation);
@@ -1125,6 +1148,9 @@ pub async fn call_tool_on_server(
     };
 
     if let Some((config, env_secrets)) = respawn {
+        if is_browser_oauth_bridge(&config) {
+            return Err("MCP server connection is stale. Reconnect in Plugins & Apps to authorize in your browser.".into());
+        }
         log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
         connect_server(&config, env_secrets).await?;
     }
@@ -1183,6 +1209,9 @@ pub async fn list_resources_on_server(server_id: &str) -> Result<serde_json::Val
     };
 
     if let Some((config, env_secrets)) = respawn {
+        if is_browser_oauth_bridge(&config) {
+            return Err("MCP server connection is stale. Reconnect in Plugins & Apps to authorize in your browser.".into());
+        }
         log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
         connect_server(&config, env_secrets).await?;
     }
@@ -1211,6 +1240,9 @@ pub async fn list_prompts_on_server(server_id: &str) -> Result<serde_json::Value
     };
 
     if let Some((config, env_secrets)) = respawn {
+        if is_browser_oauth_bridge(&config) {
+            return Err("MCP server connection is stale. Reconnect in Plugins & Apps to authorize in your browser.".into());
+        }
         log::info!("Transparently re-spawning idle MCP server '{}'", server_id);
         connect_server(&config, env_secrets).await?;
     }

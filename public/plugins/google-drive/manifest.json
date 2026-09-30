@@ -1,20 +1,20 @@
 {
   "id": "google-drive",
   "name": "Google Drive",
+  "icon": "./icon.svg",
   "category": "featured",
+  "badge": "Popular",
   "description": "Work across Drive, Docs, Sheets, and Slides",
   "longDescription": "Searches your personal or workspace Google Drive to read document text, extract spreadsheet data, and reference presentation outlines.",
-  "icon": "./icon.svg",
-  "badge": "Popular",
-  "authType": "api_key",
+  "authType": "oauth",
   "authFields": [
     {
-      "key": "GOOGLE_APPLICATION_CREDENTIALS",
-      "label": "Google Service Account Credentials (Path or JSON)",
-      "placeholder": "/path/to/credentials.json",
-      "type": "text",
-      "required": true,
-      "helpText": "Google Cloud Service Account key JSON file path or inline JSON.",
+      "key": "GOOGLE_CLIENT_SECRET",
+      "label": "Google Desktop app client secret",
+      "placeholder": "GOCSPX-...",
+      "type": "password",
+      "required": false,
+      "helpText": "Client Secret from your Google Cloud Console OAuth 2.0 Client.",
       "docUrl": "https://console.cloud.google.com/apis/credentials"
     }
   ],
@@ -22,10 +22,10 @@
     "id": "google-drive",
     "name": "Google Drive & Docs",
     "description": "Read, search, and parse Google Drive documents and spreadsheets.",
-    "homepageUrl": "https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive",
+    "homepageUrl": "https://github.com/piotr-agier/google-drive-mcp",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-gdrive"],
-    "envKeys": ["GOOGLE_APPLICATION_CREDENTIALS"]
+    "args": ["-y", "@piotr-agier/google-drive-mcp@2.11.0"],
+    "envKeys": ["SYTHORIA_GOOGLE_OAUTH_GRANT", "SYTHORIA_GOOGLE_OAUTH_KIND"]
   },
   "keywords": ["google drive", "gdrive", "docs", "sheets", "slides", "files", "cloud storage"]
 }

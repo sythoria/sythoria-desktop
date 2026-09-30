@@ -1,25 +1,19 @@
 {
   "id": "spotify",
   "name": "Spotify Player & Library",
+  "icon": "./icon.svg",
   "category": "media",
   "description": "Control music playback, search track catalogs, and inspect playlists.",
-  "icon": "./icon.svg",
-  "authType": "api_key",
+  "authType": "oauth",
   "authFields": [
     {
       "key": "SPOTIFY_CLIENT_ID",
       "label": "Spotify Client ID",
-      "placeholder": "Client ID...",
+      "placeholder": "Client ID from your Spotify app",
       "type": "text",
       "required": true,
+      "helpText": "Create a Spotify app and add exactly http://127.0.0.1:8888/callback as its Redirect URI. Then continue to Spotify to sign in.",
       "docUrl": "https://developer.spotify.com/dashboard"
-    },
-    {
-      "key": "SPOTIFY_CLIENT_SECRET",
-      "label": "Spotify Client Secret",
-      "placeholder": "Client Secret...",
-      "type": "password",
-      "required": true
     }
   ],
   "preset": {
@@ -27,8 +21,8 @@
     "name": "Spotify",
     "description": "Control Spotify playback and search playlists.",
     "command": "npx",
-    "args": ["-y", "spotify-mcp"],
-    "envKeys": ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"]
+    "args": ["-y", "spotify-mcp@0.1.4"],
+    "envKeys": ["SPOTIFY_CLIENT_ID"]
   },
   "keywords": ["spotify", "music", "songs", "playback", "playlist", "audio"]
 }

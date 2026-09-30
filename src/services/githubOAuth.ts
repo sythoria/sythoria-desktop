@@ -1,7 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export const DEFAULT_GITHUB_CLIENT_ID = "Ov23liEBjp5NydEwaPFX";
-
 export interface GitHubDeviceCodeResult {
   device_code: string;
   user_code: string;
@@ -22,7 +20,7 @@ export interface GitHubDeviceTokenResult {
  * Initiates the GitHub Device Authorization Flow (Zero secrets required on client).
  */
 export async function startGitHubDeviceFlow(
-  clientId: string = DEFAULT_GITHUB_CLIENT_ID,
+  clientId: string,
   scope = "repo,read:user,workflow",
 ): Promise<GitHubDeviceCodeResult> {
   return await invoke<GitHubDeviceCodeResult>("github_start_device_flow", {
@@ -36,32 +34,34 @@ export async function startGitHubDeviceFlow(
  */
 export async function pollGitHubDeviceToken(
   deviceCode: string,
-  clientId: string = DEFAULT_GITHUB_CLIENT_ID,
+  clientId: string,
   initialInterval = 5,
   signal?: AbortSignal,
+  expiresIn = 900,
 ): Promise<string> {
   let interval = Math.max(initialInterval, 5);
   const startTime = Date.now();
-  const maxDurationMs = 15 * 60 * 1000; // 15 minutes
+  const maxDurationMs = Math.max(1, expiresIn) * 1000;
 
   while (Date.now() - startTime < maxDurationMs) {
     if (signal?.aborted) {
       throw new Error("GitHub authorization was cancelled.");
     }
 
-    // Wait interval
+    // Remove each abort handler when its timer settles.
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, interval * 1000);
-      if (signal) {
-        signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            reject(new Error("GitHub authorization was cancelled."));
-          },
-          { once: true },
-        );
-      }
+      const cancel = () => {
+        clearTimeout(timer);
+        reject(new Error("GitHub authorization was cancelled."));
+      };
+      const timer = setTimeout(
+        () => {
+          signal?.removeEventListener("abort", cancel);
+          resolve();
+        },
+        Math.min(interval * 1000, maxDurationMs - (Date.now() - startTime)),
+      );
+      signal?.addEventListener("abort", cancel, { once: true });
     });
 
     if (signal?.aborted) {
@@ -72,6 +72,8 @@ export async function pollGitHubDeviceToken(
       clientId,
       deviceCode,
     });
+
+    if (signal?.aborted) throw new Error("GitHub authorization was cancelled.");
 
     if (response.access_token) {
       return response.access_token;

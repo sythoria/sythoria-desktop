@@ -214,6 +214,44 @@ describe("useMcpStore capability revocation", () => {
     );
   });
 
+  it("does not launch browser OAuth bridges during startup", async () => {
+    const bridge = { ...config, id: "canva", args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"] };
+    useMcpStore.setState({ mcpConfigs: [bridge], enabledServerIds: new Set([bridge.id]) });
+    await useMcpStore.getState().connectAllEnabled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+  });
+
+  it("requires an explicit reconnect when a browser OAuth bridge is stale", async () => {
+    useMcpStore.setState({
+      mcpConfigs: [{ ...config, args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"] }],
+    });
+    mocks.invoke.mockRejectedValueOnce(new Error("MCP server 'server-1' is not connected"));
+    const result = await useMcpStore.getState().callTool(config.id, tool.name, {});
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Reconnect this plugin");
+    expect(mocks.invoke).not.toHaveBeenCalledWith("mcp_start_server", expect.anything());
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("disconnected");
+  });
+
+  it("cancels a pending native connection when authorization is cancelled", async () => {
+    let release: ((value: string) => void) | undefined;
+    mocks.invoke.mockImplementation((command: string) =>
+      command === "mcp_start_server"
+        ? new Promise<string>((resolve) => {
+            release = resolve;
+          })
+        : Promise.resolve(undefined),
+    );
+    const controller = new AbortController();
+    const pending = useMcpStore.getState().connectServer(config.id, { signal: controller.signal });
+    controller.abort();
+    expect(mocks.invoke).toHaveBeenCalledWith("mcp_stop_server", { serverId: config.id });
+    release?.("[]");
+    await pending;
+    expect(useMcpStore.getState().serverStatuses[config.id]).toBe("disconnected");
+    expect(useMcpStore.getState().availableTools).toEqual([]);
+  });
+
   it("reconnects and retries once when native MCP state is stale", async () => {
     let approvalAttempts = 0;
     mocks.invoke.mockImplementation((command: string) => {
