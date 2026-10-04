@@ -1,3 +1,5 @@
+import { syncNativeWindowTheme } from "../utils/system/nativeWindowTheme";
+
 export interface CustomThemeConfig {
   preset: string;
   background: string;
@@ -231,6 +233,7 @@ export function applyTheme(config: ThemeConfig) {
   const isDark = config.mode === "dark" || (config.mode === "system" && systemDark);
 
   document.documentElement.classList.toggle("dark", isDark);
+  syncNativeWindowTheme(isDark);
 
   const colors = isDark ? config.darkTheme : config.lightTheme;
   const bg = normalizeHex(colors.background, isDark ? "#161616" : "#ffffff");
