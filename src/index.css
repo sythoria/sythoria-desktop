@@ -336,12 +336,11 @@
 .animate-spin {
   animation: spin var(--motion-duration-spinner) linear infinite;
 }
-/* Glass surfaces — subtle, neutral */
+/* Glass surfaces — subtle, neutral, and flat (no gradient sheen). */
 
 .glass-sidebar,
 .glass-loading-screen {
   background: var(--color-sidebar);
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.14), transparent 55%);
   backdrop-filter: blur(32px) saturate(135%);
   -webkit-backdrop-filter: blur(32px) saturate(135%);
 }
@@ -352,7 +351,6 @@
 }
 .dark .glass-sidebar,
 .dark .glass-loading-screen {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.06), transparent 55%);
   backdrop-filter: blur(40px) saturate(170%);
   -webkit-backdrop-filter: blur(40px) saturate(170%);
 }
@@ -372,13 +370,19 @@
 .platform-macos.macos-fullscreen .macos-traffic-light-inset {
   padding-left: 12px;
 }
-/* Windows uses these same glass surfaces over its native Acrylic backdrop. */
+/* Windows supplies an always-on behind-window Acrylic blur natively (see
+ * src-tauri/src/windows_backdrop.rs). The WebView only adds a thin palette tint;
+ * a CSS backdrop-filter has nothing to blur over the transparent window. */
+.platform-windows .glass-sidebar,
+.platform-windows .glass-loading-screen {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .platform-windows.dark:not(.sidebar-translucency-disabled) .glass-sidebar {
   background-color: color-mix(in srgb, var(--theme-sidebar) 92%, #000 8%);
 }
 .sidebar-translucency-disabled .glass-sidebar,
 .sidebar-translucency-disabled .glass-loading-screen {
-  background-image: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
@@ -397,7 +401,6 @@
 .chat-composer-surface {
   background-color: var(--theme-composer);
   background-color: color-mix(in srgb, var(--theme-composer) 82%, transparent);
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 45%, transparent 72%);
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
   transform: translate3d(0, 0, 0);
@@ -407,7 +410,6 @@
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
 }
 .dark .chat-composer-surface {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02) 45%, transparent 72%);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
 }
 
