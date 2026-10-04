@@ -17,6 +17,8 @@ mod secure_storage;
 mod skills;
 mod stream_parser;
 mod terminal;
+#[cfg(target_os = "windows")]
+mod windows_backdrop;
 mod ws_handler;
 
 use futures_util::StreamExt;
@@ -2513,12 +2515,19 @@ pub fn run() {
             }
 
             #[cfg(target_os = "windows")]
-            if let Err(acrylic_error) = window_vibrancy::apply_acrylic(&_window, None) {
+            if let Err(blur_error) = windows_backdrop::apply_acrylic_blur(&_window) {
                 log::warn!(
-                    "Native Windows Acrylic is unavailable; falling back to Mica: {acrylic_error}"
+                    "Always-on Windows Acrylic is unavailable; falling back to DWM backdrops: {blur_error}"
                 );
-                if let Err(mica_error) = window_vibrancy::apply_mica(&_window, None) {
-                    log::warn!("Could not apply a native Windows backdrop effect: {mica_error}");
+                if let Err(acrylic_error) = window_vibrancy::apply_acrylic(&_window, None) {
+                    log::warn!(
+                        "Native Windows Acrylic is unavailable; falling back to Mica: {acrylic_error}"
+                    );
+                    if let Err(mica_error) = window_vibrancy::apply_mica(&_window, None) {
+                        log::warn!(
+                            "Could not apply a native Windows backdrop effect: {mica_error}"
+                        );
+                    }
                 }
             }
 
